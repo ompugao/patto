@@ -204,7 +204,7 @@ fn main() {
         }
     }
 
-    fn transform_statement<'a>(pair: Pair<Rule>, line: &'a mut AstNode<'a>) -> Option<AstNode<'a>> {
+    fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'a>) -> Option<AstNode<'a>> {
         match pair.as_rule() {
             Rule::statement => {
                 transform_statement(pair.into_inner().next().unwrap(), line)
@@ -217,13 +217,22 @@ fn main() {
             Rule::line => {
                 // `line' contains only one element, either expr_command or statement
                 // be careful when you change the grammar
-                transform_statement(pair.into_inner().next().unwrap(), line)
+                for inner in pair.into_inner() {
+                    if let Some(parsed) = transform_statement(inner, line) {
+                        line.value.content.push(parsed);
+                    }
+                }
+                None
             }
             Rule::expr_anchor => {
                 assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
                 if let AstNodeKind::Line { properties } = &mut line.value.kind {
                     properties.push(Property::Anchor { name: pair.as_str().to_string() });
                 }
+                None
+            }
+            Rule::expr_code_inline => {
+                todo!("expr_code_inline");
                 None
             }
             _ => { 
@@ -265,10 +274,12 @@ fn main() {
                 println!("command parsed! {:?}", transform_command(pair));
             }
         } else {
-            let parsed = MarkshiftLineParser::parse(Rule::expr_command, line.trim_start_matches('\t')).unwrap(); // TODO error will never happen since raw_sentence will match finally(...?)
-            for pair in parsed {
-                println!("command parsed! {:?}", transform_statement(pair, &mut newline));
+            // TODO error will never happen since raw_sentence will match finally(...?)
+            let parsed = MarkshiftLineParser::parse(Rule::statement, line.trim_start_matches('\t')).unwrap();
+            for node in parsed.map(|pair| transform_statement(pair, &mut newline)) {
+                println!("{:?}", node);
             }
+            println!("{newline:?}");
         }
     }
     //println!("{:?}", parsed);

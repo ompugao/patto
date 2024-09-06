@@ -5,8 +5,8 @@
 // Instead, we use pest only for parsing each line, and manually analyze indentations, constructing structures.
 
 line = ${ expr_command | statement }
-statement = ${ raw_sentence }
-//statement = ${ (expr_builtin_symbols|expr_code_inline | expr_property | expr_anchor | raw_sentence)* }
+//statement = ${ raw_sentence }
+statement = ${ (expr_builtin_symbols|expr_code_inline | expr_property | expr_anchor | raw_sentence)* }
 statement_nestable = ${ raw_sentence+ }
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
 
