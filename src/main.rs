@@ -3,6 +3,7 @@ use pest_derive::Parser;
 use std::fs;
 use std::fmt;
 use thiserror::Error;
+use chrono;
 //use std::io::{self, BufRead};
 
 #[derive(Parser)]
@@ -56,9 +57,22 @@ struct AstNodeInternal<'a> {
     text: &'a str,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug)]
+enum Deadline {
+    DateTime(chrono::NaiveDateTime),
+    Date(chrono::NaiveDate),
+    Uninterpretable(String),
+}
+
+#[derive(Debug)]
+enum Property {
+    Task { status: String, until: Deadline },
+    Anchor { name: String },
+}
+
+#[derive(Debug, Default)]
 enum AstNodeKind {
-    Line,
+    Line { properties: Vec<Property> },
     Quote,
     Math,
     Code { lang: String },
@@ -67,6 +81,12 @@ enum AstNodeKind {
     Text,
     #[default]
     Dummy,
+}
+
+#[derive(Debug, PartialEq)]
+enum ParsingState {
+    Line,
+    Command,
 }
 
 type AstNode<'a> = Annotation<'a, AstNodeInternal<'a>>;
@@ -86,6 +106,9 @@ impl<'a> AstNode<'a> {
                 end: input.len(),
             },
         }
+    }
+    fn line(input: &'a str) -> Self {
+        Self::new(input, Some(AstNodeKind::Line { properties: Vec::new() }))
     }
     fn code(input: &'a str, lang: &'a str) -> Self {
         AstNode {
@@ -128,7 +151,7 @@ fn find_parent_line<'a, 'b>(parent: &'a AstNode<'b>, depth: usize) -> Option<&'a
         return Some(parent);
     }
     let Some(ref last_child_line) = parent.value.children.iter().filter_map(|e| match e.value.kind {
-        AstNodeKind::Line => Some(e),
+        AstNodeKind::Line{..} => Some(e),
         _ => None,
     }).last() else {
         return None;
@@ -142,7 +165,7 @@ fn main() {
     //    .unwrap_or_else(|e| panic!("{}", e));
 
     use pest::iterators::Pair;
-    fn transform_pair(pair: Pair<Rule>) -> AstNode {
+    fn transform_command(pair: Pair<Rule>) -> AstNode {
         match pair.as_rule() {
             Rule::expr_command => {
                 let s = pair.as_str();
@@ -171,17 +194,42 @@ fn main() {
                         unreachable!()
                     }
                 }
+                println!("parsed command: {:?}", command);
                 unreachable!()
             }
+            _ => { 
+                println!("Do not provide other than expr_command to fn transform_command: {:?}", pair.as_rule());
+                unreachable!()
+            }
+        }
+    }
+
+    fn transform_statement<'a>(pair: Pair<Rule>, line: &'a mut AstNode<'a>) -> Option<AstNode<'a>> {
+        match pair.as_rule() {
             Rule::statement => {
-                transform_pair(pair.into_inner().next().unwrap())
+                transform_statement(pair.into_inner().next().unwrap(), line)
                 // TODO handle all inners
                 //for pair in pair.into_inner() {
             }
             Rule::raw_sentence => {
-                AstNode::text(pair.as_str())
+                Some(AstNode::text(pair.as_str()))
             }
-            _ => unreachable!(),
+            Rule::line => {
+                // `line' contains only one element, either expr_command or statement
+                // be careful when you change the grammar
+                transform_statement(pair.into_inner().next().unwrap(), line)
+            }
+            Rule::expr_anchor => {
+                assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
+                if let AstNodeKind::Line { properties } = &mut line.value.kind {
+                    properties.push(Property::Anchor { name: pair.as_str().to_string() });
+                }
+                None
+            }
+            _ => { 
+                println!("{:?} not implemented", pair.as_rule());
+                unreachable!()
+            }
         }
     }
 
@@ -196,27 +244,31 @@ fn main() {
     });
 
     let root = AstNode::new(&text, Some(AstNodeKind::Dummy));
-    //let parent :&AstNode = &root;
 
-    let mut parsing_state = AstNodeKind::Line;
+    let mut parsing_state: ParsingState = ParsingState::Line;
     let mut parsing_depth = 0;
 
     let mut errors: Vec<ParserError> = Vec::new();
     for (iline, ((indent, content_len), line)) in indent_content_len.zip(text.lines()).enumerate() {
         let mut depth = indent;
-        if (parsing_state == AstNodeKind::Line && indent > parsing_depth) || content_len == 0 {
+        if (parsing_state == ParsingState::Line && indent > parsing_depth) || content_len == 0 {
             depth = parsing_depth;
         }
         let parent :&AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
             errors.push(ParserError::InvalidIndentation(Annotation { value: &line, location: Location {input: &line, start: indent, end: indent+1} }));
             &root //TODO create dummy node(s) to fit the current depth
         });
-        let mut newline = AstNode::new(&line, Some(AstNodeKind::Line));
+        let mut newline = AstNode::line(&line);
         // TODO gather parsing errors
-        let parsed = MarkshiftLineParser::parse(Rule::expr_command, line.trim_start_matches('\t'))
-            .unwrap_or_else(|e| panic!("{}", e));
-        for pair in parsed {
-            println!("{:?}", transform_pair(pair));
+        if let Ok(parsed) = MarkshiftLineParser::parse(Rule::expr_command, line.trim_start_matches('\t')) {
+            for pair in parsed {
+                println!("command parsed! {:?}", transform_command(pair));
+            }
+        } else {
+            let parsed = MarkshiftLineParser::parse(Rule::expr_command, line.trim_start_matches('\t')).unwrap(); // TODO error will never happen since raw_sentence will match finally(...?)
+            for pair in parsed {
+                println!("command parsed! {:?}", transform_statement(pair, &mut newline));
+            }
         }
     }
     //println!("{:?}", parsed);

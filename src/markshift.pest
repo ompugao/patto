@@ -17,7 +17,7 @@ symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
 
-expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ "]" }
+expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ "]" ~ expr_anchor?}
 builtin_commands = { command_code | command_math | command_quote } //todo table
 command_code = @{"code"}
 command_math = @{"math"}
