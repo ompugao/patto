@@ -1,0 +1,43 @@
+// Pest can parse indentation-sensitive language.
+// https://pest.rs/book/grammars/syntax.html#indentation-sensitive-languages
+//
+// However, we do special care of newline in indentation for code/quote blocks, which makes it difficult to consider parser syntax.
+// Instead, we use pest only for parsing each line, and manually analyze indentations, constructing structures.
+
+line = ${ expr_command | statement }
+statement = ${ raw_sentence }
+//statement = ${ (expr_builtin_symbols|expr_code_inline | expr_property | expr_anchor | raw_sentence)* }
+statement_nestable = ${ raw_sentence+ }
+raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
+
+expr_builtin_symbols = ${"[" ~ builtin_symbols+ ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
+builtin_symbols = { symbol_bold | symbol_italic | symbol_underline | symbol_deleted }
+symbol_bold = @{"*"}
+symbol_italic = @{"/"}
+symbol_underline = @{"_"}
+symbol_deleted = @{"-"}
+
+expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ "]" }
+builtin_commands = { command_code | command_math | command_quote } //todo table
+command_code = @{"code"}
+command_math = @{"math"}
+command_quote = @{"quote"}
+command_table = @{"table"}
+parameter = @{ (LETTER|CJK)+ }
+
+expr_code_inline = ${ "[`" ~ WHITE_SPACE_INLINE* ~ code_inline ~ "`]" }
+code_inline = @{ code_inline_char* }
+code_inline_char = _{ !"`]" ~ ANY }
+
+expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ property_keyword_arg ~ "=" ~ property_keyword_value)* ~ "}" }
+//expr_property = ${ "{@" ~ property_name ~ ( WHITE_SPACE_INLINE+ ~ _property_arg  )* ~ "}" }
+property_name = @{ ASCII_ALPHANUMERIC+ }
+property_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_arg = { ASCII_ALPHANUMERIC+ }
+property_keyword_value = { (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
+
+expr_anchor = ${ "#" ~ anchor }
+anchor = @{ (ASCII_ALPHANUMERIC|CJK)+ }
+
+WHITE_SPACE_INLINE = _{ " " | "\t" }
+CJK = _{ HAN | HIRAGANA | KATAKANA | HANGUL | BOPOMOFO }
