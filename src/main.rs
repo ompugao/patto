@@ -1,5 +1,5 @@
-use std::fs;
 use pest::Parser;
+use std::fs;
 mod parser;
 //use crate::parser;
 //use std::io::{self, BufRead};
@@ -10,14 +10,23 @@ enum ParsingState {
     Command,
 }
 
-fn find_parent_line<'a, 'b>(parent: &'a parser::AstNode<'b>, depth: usize) -> Option<&'a parser::AstNode<'b>> {
+fn find_parent_line<'a, 'b>(
+    parent: &'a parser::AstNode<'b>,
+    depth: usize,
+) -> Option<&'a parser::AstNode<'b>> {
     if depth == 0 {
         return Some(parent);
     }
-    let Some(ref last_child_line) = parent.value.children.iter().filter_map(|e| match e.value.kind {
-        parser::AstNodeKind::Line{..} => Some(e),
-        _ => None,
-    }).last() else {
+    let Some(ref last_child_line) = parent
+        .value
+        .children
+        .iter()
+        .filter_map(|e| match e.value.kind {
+            parser::AstNodeKind::Line { .. } => Some(e),
+            _ => None,
+        })
+        .last()
+    else {
         return None;
     };
     return find_parent_line(last_child_line, depth - 1);
@@ -49,19 +58,39 @@ fn main() {
         if (parsing_state == ParsingState::Line && indent > parsing_depth) || content_len == 0 {
             depth = parsing_depth;
         }
-        let parent :&parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
-            errors.push(parser::ParserError::InvalidIndentation(parser::Annotation { value: &line, location: parser::Location {input: &line, row: iline, start: indent, end: indent+1} }));
+        let parent: &parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
+            errors.push(parser::ParserError::InvalidIndentation(
+                parser::Annotation {
+                    value: &line,
+                    location: parser::Location {
+                        input: &line,
+                        row: iline,
+                        start: indent,
+                        end: indent + 1,
+                    },
+                },
+            ));
             &root //TODO create dummy node(s) to fit the current depth
         });
         let mut newline = parser::AstNode::line(&line, iline);
         // TODO gather parsing errors
-        if let Ok(parsed) = parser::MarkshiftLineParser::parse(parser::Rule::expr_command, line.trim_start_matches('\t')) {
+        if let Ok(parsed) = parser::MarkshiftLineParser::parse(
+            parser::Rule::expr_command,
+            line.trim_start_matches('\t'),
+        ) {
             for pair in parsed {
-                println!("command parsed! {:?}", parser::transform_command(pair, iline));
+                println!(
+                    "command parsed! {:?}",
+                    parser::transform_command(pair, iline)
+                );
             }
         } else {
             // TODO error will never happen since raw_sentence will match finally(...?)
-            let parsed = parser::MarkshiftLineParser::parse(parser::Rule::statement, line.trim_start_matches('\t')).unwrap();
+            let parsed = parser::MarkshiftLineParser::parse(
+                parser::Rule::statement,
+                line.trim_start_matches('\t'),
+            )
+            .unwrap();
             for node in parsed.map(|pair| parser::transform_statement(pair, &mut newline)) {
                 println!("{:?}", node);
             }
@@ -73,5 +102,4 @@ fn main() {
     //for pair in parsed.into_inner() {
     //    parse_value
     //}
-
 }

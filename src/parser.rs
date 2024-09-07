@@ -1,7 +1,7 @@
+use chrono;
 use pest_derive::Parser;
 use std::fmt;
 use thiserror::Error;
-use chrono;
 
 #[derive(Parser)]
 #[grammar = "markshift.pest"]
@@ -41,7 +41,10 @@ pub struct Annotation<'a, T> {
     pub location: Location<'a>,
 }
 
-impl<T> fmt::Display for Annotation<'_, T> where T: fmt::Display {
+impl<T> fmt::Display for Annotation<'_, T>
+where
+    T: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.value)?;
         write!(f, "{: <1$}", "", self.location.start)?;
@@ -81,12 +84,19 @@ pub enum Property {
 
 #[derive(Debug, Default)]
 pub enum AstNodeKind {
-    Line { properties: Vec<Property> },
+    Line {
+        properties: Vec<Property>,
+    },
     Quote,
     Math,
-    Code { lang: String },
+    Code {
+        lang: String,
+    },
     //Table,
-    Image { src: String, alt: String },
+    Image {
+        src: String,
+        alt: String,
+    },
     Text,
     #[default]
     Dummy,
@@ -112,14 +122,22 @@ impl<'a> AstNode<'a> {
         }
     }
     pub fn line(input: &'a str, row: usize) -> Self {
-        Self::new(input, row, Some(AstNodeKind::Line { properties: Vec::new() }))
+        Self::new(
+            input,
+            row,
+            Some(AstNodeKind::Line {
+                properties: Vec::new(),
+            }),
+        )
     }
     pub fn code(input: &'a str, row: usize, lang: &'a str) -> Self {
         AstNode {
             value: AstNodeInternal {
                 content: Vec::new(),
                 children: Vec::new(),
-                kind: AstNodeKind::Code { lang: lang.to_string() },
+                kind: AstNodeKind::Code {
+                    lang: lang.to_string(),
+                },
                 text: input,
             },
             location: Location {
@@ -157,7 +175,7 @@ pub fn transform_command(pair: Pair<Rule>, row: usize) -> Option<AstNode> {
         Rule::expr_command => {
             let s = pair.as_str();
             let mut inner = pair.into_inner();
-            let builtin_commands = inner.next().unwrap();  // consume the command
+            let builtin_commands = inner.next().unwrap(); // consume the command
             let command = builtin_commands.into_inner().next().unwrap();
             match command.as_rule() {
                 Rule::command_math => {
@@ -182,23 +200,27 @@ pub fn transform_command(pair: Pair<Rule>, row: usize) -> Option<AstNode> {
             }
             unreachable!()
         }
-        _ => { 
-            println!("Do not provide other than expr_command to fn transform_command: {:?}", pair.as_rule());
+        _ => {
+            println!(
+                "Do not provide other than expr_command to fn transform_command: {:?}",
+                pair.as_rule()
+            );
             return None;
         }
     }
 }
 
-pub fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'a>) -> Option<AstNode<'a>> {
+pub fn transform_statement<'a, 'b>(
+    pair: Pair<'a, Rule>,
+    line: &'b mut AstNode<'a>,
+) -> Option<AstNode<'a>> {
     match pair.as_rule() {
         Rule::statement => {
             transform_statement(pair.into_inner().next().unwrap(), line)
             // TODO handle all inners
             //for pair in pair.into_inner() {
         }
-        Rule::raw_sentence => {
-            Some(AstNode::text(pair.as_str(), line.location.row))
-        }
+        Rule::raw_sentence => Some(AstNode::text(pair.as_str(), line.location.row)),
         Rule::line => {
             // `line' contains only one element, either expr_command or statement
             // be careful when you change the grammar
@@ -212,7 +234,9 @@ pub fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'
         Rule::expr_anchor => {
             assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
             if let AstNodeKind::Line { properties } = &mut line.value.kind {
-                properties.push(Property::Anchor { name: pair.as_str().to_string() });
+                properties.push(Property::Anchor {
+                    name: pair.as_str().to_string(),
+                });
             }
             None
         }
@@ -220,13 +244,12 @@ pub fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'
             todo!("expr_code_inline");
             None
         }
-        _ => { 
+        _ => {
             println!("{:?} not implemented", pair.as_rule());
             unreachable!()
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -246,11 +269,11 @@ mod tests {
             panic!("Failed to parse code command");
         };
         match astnode.value.kind {
-            AstNodeKind::Code{lang} => {
+            AstNodeKind::Code { lang } => {
                 assert!(lang == "rust");
             }
             _ => {
-                panic!{"it is weird"};
+                panic! {"it is weird"};
             }
         }
     }
@@ -259,7 +282,10 @@ mod tests {
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
         let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
-        assert!(parsed.is_err(), "Unknown command input has been parsed: \"{input}\"");
+        assert!(
+            parsed.is_err(),
+            "Unknown command input has been parsed: \"{input}\""
+        );
         // let parsed_command = parsed.unwrap().next().unwrap();
         // assert!(transform_command(parsed_command, 0).is_none(), "Unknown command has been successfully parsed");
     }
