@@ -60,6 +60,12 @@ pub struct AstNodeInternal<'a> {
     pub text: &'a str,
 }
 
+impl<'a> fmt::Display for AstNodeInternal<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.text)
+    }
+}
+
 #[derive(Debug)]
 pub enum Deadline {
     DateTime(chrono::NaiveDateTime),
