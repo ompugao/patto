@@ -38,7 +38,7 @@ fn main() {
         (indent, content_len)
     });
 
-    let root = parser::AstNode::new(&text, Some(parser::AstNodeKind::Dummy));
+    let root = parser::AstNode::new(&text, 0, Some(parser::AstNodeKind::Dummy));
 
     let mut parsing_state: ParsingState = ParsingState::Line;
     let mut parsing_depth = 0;
@@ -50,14 +50,14 @@ fn main() {
             depth = parsing_depth;
         }
         let parent :&parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
-            errors.push(parser::ParserError::InvalidIndentation(parser::Annotation { value: &line, location: parser::Location {input: &line, start: indent, end: indent+1} }));
+            errors.push(parser::ParserError::InvalidIndentation(parser::Annotation { value: &line, location: parser::Location {input: &line, row: iline, start: indent, end: indent+1} }));
             &root //TODO create dummy node(s) to fit the current depth
         });
-        let mut newline = parser::AstNode::line(&line);
+        let mut newline = parser::AstNode::line(&line, iline);
         // TODO gather parsing errors
         if let Ok(parsed) = parser::MarkshiftLineParser::parse(parser::Rule::expr_command, line.trim_start_matches('\t')) {
             for pair in parsed {
-                println!("command parsed! {:?}", parser::transform_command(pair));
+                println!("command parsed! {:?}", parser::transform_command(pair, iline));
             }
         } else {
             // TODO error will never happen since raw_sentence will match finally(...?)

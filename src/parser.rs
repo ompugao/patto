@@ -10,6 +10,7 @@ pub struct MarkshiftLineParser;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Location<'a> {
     pub input: &'a str,
+    pub row: usize,
     pub start: usize,
     pub end: usize, //exclusive
 }
@@ -24,8 +25,10 @@ impl Location<'_> {
     fn merge(&self, other: &Self) -> Self {
         use std::cmp::{max, min};
         assert_eq!(self.input, other.input);
+        assert_eq!(self.row, other.row);
         Self {
             input: self.input,
+            row: self.row,
             start: min(self.start, other.start),
             end: max(self.end, other.end),
         }
@@ -51,6 +54,9 @@ pub struct AstNodeInternal<'a> {
     pub content: Vec<AstNode<'a>>,
     pub children: Vec<AstNode<'a>>,
     pub kind: AstNodeKind,
+
+    // text will be the string matched with this AstNode.
+    // will be used when content.len() == 0
     pub text: &'a str,
 }
 
@@ -83,7 +89,7 @@ pub enum AstNodeKind {
 pub type AstNode<'a> = Annotation<'a, AstNodeInternal<'a>>;
 
 impl<'a> AstNode<'a> {
-    pub fn new(input: &'a str, kind: Option<AstNodeKind>) -> Self {
+    pub fn new(input: &'a str, row: usize, kind: Option<AstNodeKind>) -> Self {
         AstNode {
             value: AstNodeInternal {
                 content: Vec::new(),
@@ -93,15 +99,16 @@ impl<'a> AstNode<'a> {
             },
             location: Location {
                 input,
+                row,
                 start: 0,
                 end: input.len(),
             },
         }
     }
-    pub fn line(input: &'a str) -> Self {
-        Self::new(input, Some(AstNodeKind::Line { properties: Vec::new() }))
+    pub fn line(input: &'a str, row: usize) -> Self {
+        Self::new(input, row, Some(AstNodeKind::Line { properties: Vec::new() }))
     }
-    pub fn code(input: &'a str, lang: &'a str) -> Self {
+    pub fn code(input: &'a str, row: usize, lang: &'a str) -> Self {
         AstNode {
             value: AstNodeInternal {
                 content: Vec::new(),
@@ -111,19 +118,20 @@ impl<'a> AstNode<'a> {
             },
             location: Location {
                 input,
+                row,
                 start: 0,
                 end: input.len(),
             },
         }
     }
-    pub fn math(input: &'a str) -> Self {
-        Self::new(input, Some(AstNodeKind::Math))
+    pub fn math(input: &'a str, row: usize) -> Self {
+        Self::new(input, row, Some(AstNodeKind::Math))
     }
-    pub fn quote(input: &'a str) -> Self {
-        Self::new(input, Some(AstNodeKind::Quote))
+    pub fn quote(input: &'a str, row: usize) -> Self {
+        Self::new(input, row, Some(AstNodeKind::Quote))
     }
-    pub fn text(input: &'a str) -> Self {
-        Self::new(input, Some(AstNodeKind::Text))
+    pub fn text(input: &'a str, row: usize) -> Self {
+        Self::new(input, row, Some(AstNodeKind::Text))
     }
 }
 
@@ -138,7 +146,7 @@ pub enum ParserError<'a> {
 }
 
 use pest::iterators::Pair;
-pub fn transform_command(pair: Pair<Rule>) -> AstNode {
+pub fn transform_command(pair: Pair<Rule>, row: usize) -> Option<AstNode> {
     match pair.as_rule() {
         Rule::expr_command => {
             let s = pair.as_str();
@@ -147,32 +155,30 @@ pub fn transform_command(pair: Pair<Rule>) -> AstNode {
             let command = builtin_commands.into_inner().next().unwrap();
             match command.as_rule() {
                 Rule::command_math => {
-                    return AstNode::math(s);
+                    return Some(AstNode::math(s, row));
                 }
                 Rule::command_quote => {
-                    return AstNode::quote(s);
+                    return Some(AstNode::quote(s, row));
                 }
                 Rule::command_code => {
                     // 1st parameter
                     let lang = inner.next().unwrap().as_str();
-                    return AstNode::code(s, lang);
+                    return Some(AstNode::code(s, row, lang));
                 }
                 Rule::parameter => {
                     println!("parameter must have already been consumed: {}", s);
                     // TODO return text?
-                    return AstNode::text(s);
+                    return Some(AstNode::text(s, row));
                 }
                 _ => {
-                    println!("unknown command: {:?}", command);
-                    unreachable!()
+                    return None;
                 }
             }
-            println!("parsed command: {:?}", command);
             unreachable!()
         }
         _ => { 
             println!("Do not provide other than expr_command to fn transform_command: {:?}", pair.as_rule());
-            unreachable!()
+            return None;
         }
     }
 }
@@ -185,7 +191,7 @@ pub fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'
             //for pair in pair.into_inner() {
         }
         Rule::raw_sentence => {
-            Some(AstNode::text(pair.as_str()))
+            Some(AstNode::text(pair.as_str(), line.location.row))
         }
         Rule::line => {
             // `line' contains only one element, either expr_command or statement
@@ -215,3 +221,40 @@ pub fn transform_statement<'a, 'b>(pair: Pair<'a, Rule>, line: &'b mut AstNode<'
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::pest::Parser;
+
+    #[test]
+    fn test_parse_code_command() {
+        let input = "[@code rust]";
+        let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
+        assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
+        let mut pairs = parsed.unwrap();
+        assert_eq!(pairs.len(), 1, "must contain only one expr_command");
+        let parsed_command = pairs.next().unwrap();
+        //                          \- the first pair, which is expr_command
+        let Some(astnode) = transform_command(parsed_command, 0) else {
+            panic!("Failed to parse code command");
+        };
+        match astnode.value.kind {
+            AstNodeKind::Code{lang} => {
+                assert!(lang == "rust");
+            }
+            _ => {
+                panic!{"it is weird"};
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown_command() {
+        let input = "[@unknown rust]";
+        let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
+        assert!(parsed.is_err(), "Unknown command input has been parsed: \"{input}\"");
+        // let parsed_command = parsed.unwrap().next().unwrap();
+        // assert!(transform_command(parsed_command, 0).is_none(), "Unknown command has been successfully parsed");
+    }
+}
