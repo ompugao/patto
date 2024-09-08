@@ -17,7 +17,7 @@ symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
 
-expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ "]" ~ expr_anchor?}
+expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}
 builtin_commands = { command_code | command_math | command_quote } //todo table
 command_code = @{"code"}
 command_math = @{"math"}
@@ -36,6 +36,7 @@ property_arg = @{ ASCII_ALPHANUMERIC+ }
 property_keyword_arg = { ASCII_ALPHANUMERIC+ }
 property_keyword_value = { (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
+find_trailing_properties = ${ (WHITE_SPACE_INLINE* ~ (expr_property | expr_anchor))* }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
 anchor = @{ (ASCII_ALPHANUMERIC|CJK)+ }
 
