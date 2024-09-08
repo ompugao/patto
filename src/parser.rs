@@ -198,14 +198,61 @@ pub enum ParserError<'a> {
 }
 
 
-pub fn parse_command(line: &str, row: usize, indent: usize) -> Option<AstNode> {
+pub fn parse_command(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
     let Ok(mut pairs) = MarkshiftLineParser::parse(Rule::expr_command, &line[indent..]) else {
-        return None;
+        return (None, vec![]);
     };
     assert_eq!(pairs.len(), 1, "must contain only one expr_command");
     let parsed_command = pairs.next().unwrap();
     //                          \- the first pair, which is expr_command
     return transform_command(parsed_command, line, row, indent);
+}
+
+fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> (Option<AstNode<'a>>, Vec<Property>) {
+    let span = Into::<Span>::into(pair.as_span()) + indent;
+    let mut node: Option<AstNode<'a>> = None;
+    let mut props: Vec<Property> = vec![];
+    match pair.as_rule() {
+        Rule::expr_command => {
+            let mut inner = pair.into_inner();
+            let builtin_commands = inner.next().unwrap(); // consume the command
+            let command = builtin_commands.into_inner().next().unwrap();
+            match command.as_rule() {
+                Rule::command_math => {
+                    node = Some(AstNode::math(line, row, Some(span)));
+                }
+                Rule::command_quote => {
+                    node = Some(AstNode::quote(line, row, Some(span)));
+                }
+                Rule::command_code => {
+                    // 1st parameter
+                    let lang = inner.next().unwrap().as_str();
+                    node = Some(AstNode::code(line, row, Some(span), lang, false));
+                }
+                Rule::parameter => {
+                    println!("parameter must have already been consumed: {}", command.as_str());
+                    // TODO return text?
+                    node = Some(AstNode::text(line, row, Some(span)));
+                }
+                _ => {
+                }
+            }
+        }
+        Rule::trailing_properties => {
+            for inner in pair.into_inner() {
+                if let Some(prop) = transform_property(inner) {
+                    props.push(prop);
+                }
+            }
+        }
+        _ => {
+            println!(
+                "Do not provide other than expr_command to fn transform_command: {:?}",
+                pair.as_rule()
+            );
+        }
+    }
+    (node, props)
 }
 
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
@@ -269,57 +316,17 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     None
 }
 
-pub fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
-    let Ok(mut find_trailing_properties) = MarkshiftLineParser::parse(Rule::find_trailing_properties, s) else {
+fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
+    let Ok(mut trailing_properties) = MarkshiftLineParser::parse(Rule::trailing_properties, s) else {
         return None;
     };
     let mut properties: Vec<Property> = vec![];
-    for pair in find_trailing_properties.next().unwrap().into_inner() {
+    for pair in trailing_properties.next().unwrap().into_inner() {
         if let Some(prop) = transform_property(pair) {
             properties.push(prop);
         }
     }
     Some(properties)
-}
-
-fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> Option<AstNode<'a>> {
-    let span = Into::<Span>::into(pair.as_span()) + indent;
-    match pair.as_rule() {
-        Rule::expr_command => {
-            let mut inner = pair.into_inner();
-            let builtin_commands = inner.next().unwrap(); // consume the command
-            let command = builtin_commands.into_inner().next().unwrap();
-            match command.as_rule() {
-                Rule::command_math => {
-                    return Some(AstNode::math(line, row, Some(span)));
-                }
-                Rule::command_quote => {
-                    return Some(AstNode::quote(line, row, Some(span)));
-                }
-                Rule::command_code => {
-                    // 1st parameter
-                    //transform_command(inner.next().unwrap(), row)
-                    let lang = inner.next().unwrap().as_str();
-                    return Some(AstNode::code(line, row, Some(span), lang, false));
-                }
-                Rule::parameter => {
-                    println!("parameter must have already been consumed: {}", command.as_str());
-                    // TODO return text?
-                    return Some(AstNode::text(line, row, Some(span)));
-                }
-                _ => {
-                    return None;
-                }
-            }
-        }
-        _ => {
-            println!(
-                "Do not provide other than expr_command to fn transform_command: {:?}",
-                pair.as_rule()
-            );
-            return None;
-        }
-    }
 }
 
 pub fn transform_statement<'a, 'b>(
@@ -385,10 +392,11 @@ mod tests {
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
         // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
-        let Some(astnode) = parse_command(input, 0, 0) else {
+        let (astnode, props) = parse_command(input, 0, 0);
+        let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match astnode.value.kind {
+        match node.value.kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "rust");
                 assert!(inline == false);
@@ -401,20 +409,38 @@ mod tests {
 
     #[test]
     fn test_parse_indented_code_command() {
-        let input = "		[@code cpp]";
+        let input = "		[@code cpp]   #anchor1 {@task status=todo until=2024-09-24}";
         let indent = input.chars().take_while(|&c| c == '\t').count();
-        let Some(astnode) = parse_command(input, 0, indent) else {
+        let (astnode, props) = parse_command(input, 0, indent);
+        let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        println!("{:?}", astnode);
-        assert_eq!(astnode.location.span, Span(indent, input.len()));
-        match astnode.value.kind {
+        //println!("{:?}", node);
+        assert_eq!(node.location.span, Span(indent, input.len()));
+        match node.value.kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "cpp");
                 assert!(inline == false);
             }
             _ => {
                 panic! {"it is weird"};
+            }
+        }
+        for prop in props {
+            match prop {
+                Property::Task{status, until} => {
+                    let TaskStatus::Todo = status else {
+                        panic!("task is not in todo state!");
+                    };
+                    if let Deadline::Date(date) = until {
+                        assert_eq!(date, chrono::NaiveDate::from_ymd(2024, 9, 24));
+                    } else {
+                        panic!("date is not correctly parsed");
+                    }
+                }
+                Property::Anchor{name} => {
+                    assert_eq!(name, "anchor1");
+                }
             }
         }
     }
@@ -429,12 +455,13 @@ mod tests {
     fn test_parse_math() {
         let input = "[@math  ]";
         let indent = input.chars().take_while(|&c| c == '\t').count();
-        let Some(astnode) = parse_command(input, 0, indent) else {
+        let (astnode, props) = parse_command(input, 0, 0);
+        let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        println!("{:?}", astnode);
-        assert_eq!(astnode.location.span, Span(indent, input.len()));
-        match astnode.value.kind {
+        println!("{:?}", node);
+        assert_eq!(node.location.span, Span(indent, input.len()));
+        match node.value.kind {
             AstNodeKind::Math => {
             }
             _ => {
@@ -446,7 +473,7 @@ mod tests {
     #[test]
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
-        assert!(parse_command(input, 0, 0).is_none(), 
+        assert!(parse_command(input, 0, 0).0.is_none(), 
             "Unknown command input has been parsed: \"{input}\""
         );
     }

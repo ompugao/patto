@@ -73,7 +73,8 @@ fn main() {
         });
         let mut newline = parser::AstNode::line(&line, iline, None);
         // TODO gather parsing errors
-        if let Some(command_node) = parser::parse_command(line, 0, indent) {
+        let (has_command, props) = parser::parse_command(line, 0, indent);
+        if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
         } else {
             // TODO error will never happen since raw_sentence will match finally(...?)
