@@ -31,7 +31,15 @@ pub struct Location<'a> {
 
 impl fmt::Display for Location<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({} - {})", self.span.0, self.span.1)
+        write!(f, "{}\n", self.input)?;
+        write!(f, "{}", self.input[..self.span.0].chars().map(|c| {
+            if c != '\t' {
+                ' '
+            } else {
+                c
+            }}).collect::<String>())?;
+        //write!(f, "{: <1$}", "", self.span.0)?;
+        write!(f, "{:^<1$}", "", self.span.1 - self.span.0)
     }
 }
 
@@ -65,13 +73,11 @@ pub struct Annotation<'a, T> {
 }
 
 impl<T> fmt::Display for Annotation<'_, T>
-where
-    T: fmt::Display,
+// where
+//     T: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}\n", self.value)?;
-        write!(f, "{: <1$}", "", self.location.span.0)?;
-        write!(f, "{:^<1$}", "", self.location.span.1 - self.location.span.0)
+        write!(f, "{}", self.location)
     }
 }
 
@@ -198,17 +204,27 @@ pub enum ParserError<'a> {
 }
 
 
-pub fn parse_command(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
-    let Ok(mut pairs) = MarkshiftLineParser::parse(Rule::expr_command, &line[indent..]) else {
+pub fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
+    let Ok(mut pairs) = MarkshiftLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
-    assert_eq!(pairs.len(), 1, "must contain only one expr_command");
+    let parsed_command_line = pairs.next().unwrap();
+    let mut pairs = parsed_command_line.into_inner();
     let parsed_command = pairs.next().unwrap();
-    //                          \- the first pair, which is expr_command
-    return transform_command(parsed_command, line, row, indent);
+    let command_node = transform_command(parsed_command, line, row, indent);
+
+    let mut properties: Vec<Property> = vec![];
+
+    let parsed_props = pairs.next().unwrap();
+    for pair in parsed_props.into_inner() {
+        if let Some(prop) = transform_property(pair) {
+            properties.push(prop);
+        }
+    }
+    return (command_node, properties);
 }
 
-fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> (Option<AstNode<'a>>, Vec<Property>) {
+fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> Option<AstNode<'a>> {
     let span = Into::<Span>::into(pair.as_span()) + indent;
     let mut node: Option<AstNode<'a>> = None;
     let mut props: Vec<Property> = vec![];
@@ -219,29 +235,23 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
             let command = builtin_commands.into_inner().next().unwrap();
             match command.as_rule() {
                 Rule::command_math => {
-                    node = Some(AstNode::math(line, row, Some(span)));
+                    return Some(AstNode::math(line, row, Some(span)));
                 }
                 Rule::command_quote => {
-                    node = Some(AstNode::quote(line, row, Some(span)));
+                    return Some(AstNode::quote(line, row, Some(span)));
                 }
                 Rule::command_code => {
                     // 1st parameter
                     let lang = inner.next().unwrap().as_str();
-                    node = Some(AstNode::code(line, row, Some(span), lang, false));
+                    return Some(AstNode::code(line, row, Some(span), lang, false));
                 }
                 Rule::parameter => {
                     println!("parameter must have already been consumed: {}", command.as_str());
                     // TODO return text?
-                    node = Some(AstNode::text(line, row, Some(span)));
+                    return Some(AstNode::text(line, row, Some(span)));
                 }
                 _ => {
-                }
-            }
-        }
-        Rule::trailing_properties => {
-            for inner in pair.into_inner() {
-                if let Some(prop) = transform_property(inner) {
-                    props.push(prop);
+                    return None;
                 }
             }
         }
@@ -252,7 +262,7 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
             );
         }
     }
-    (node, props)
+    None
 }
 
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
@@ -392,7 +402,7 @@ mod tests {
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
         // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
-        let (astnode, props) = parse_command(input, 0, 0);
+        let (astnode, props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
@@ -409,17 +419,20 @@ mod tests {
 
     #[test]
     fn test_parse_indented_code_command() {
-        let input = "		[@code cpp]   #anchor1 {@task status=todo until=2024-09-24}";
+        let input = "		[@code なでしこ]   #anchor1 {@task status=todo until=2024-09-24}";
         let indent = input.chars().take_while(|&c| c == '\t').count();
-        let (astnode, props) = parse_command(input, 0, indent);
+        let (astnode, props) = parse_command_line(input, 0, indent);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        //println!("{:?}", node);
-        assert_eq!(node.location.span, Span(indent, input.len()));
+        println!("{}", node);
+        let Some(end_code) = input.find("]") else {
+            panic!("no way!");
+        };
+        assert_eq!(node.location.span, Span(indent, end_code+1));
         match node.value.kind {
             AstNodeKind::Code { lang, inline } => {
-                assert!(lang == "cpp");
+                assert!(lang == "なでしこ");
                 assert!(inline == false);
             }
             _ => {
@@ -455,7 +468,7 @@ mod tests {
     fn test_parse_math() {
         let input = "[@math  ]";
         let indent = input.chars().take_while(|&c| c == '\t').count();
-        let (astnode, props) = parse_command(input, 0, 0);
+        let (astnode, props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
@@ -473,7 +486,7 @@ mod tests {
     #[test]
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
-        assert!(parse_command(input, 0, 0).0.is_none(), 
+        assert!(parse_command_line(input, 0, 0).0.is_none(), 
             "Unknown command input has been parsed: \"{input}\""
         );
     }
@@ -498,7 +511,5 @@ mod tests {
                 println!("{:?}", code.value.content[0].extract_str());
             }
         }
-        // let parsed_command = parsed.unwrap().next().unwrap();
-        // assert!(transform_command(parsed_command, 0).is_none(), "Unknown command has been successfully parsed");
     }
 }
