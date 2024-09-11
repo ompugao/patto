@@ -5,10 +5,10 @@
 // Instead, we use pest only for parsing each line, and manually analyze indentations, constructing structures.
 
 line = ${ expr_command | statement }
-//statement = ${ raw_sentence }
-statement = ${ (expr_builtin_symbols|expr_code_inline | expr_property | expr_anchor | raw_sentence)* }
-statement_nestable = ${ raw_sentence+ }
+//statement = ${ raw_sentence ~ trailing_properties }
+statement = ${ (expr_builtin_symbols|expr_wiki_link|expr_code_inline | expr_property | raw_sentence)* ~ trailing_properties}
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
+statement_nestable = ${ (expr_wiki_link  | raw_sentence)* }  //todo url, expr_builtin_symbols
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols+ ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { symbol_bold | symbol_italic | symbol_underline | symbol_deleted }
@@ -16,6 +16,12 @@ symbol_bold = @{"*"}
 symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
+
+expr_wiki_link = ${"[" ~ (wiki_link_anchored) | (wiki_link) ~ "]"}
+wiki_link_anchored = ${ wiki_link ~ expr_anchor}
+wiki_link = @{ (!("[" | "]" | ":" | "." | "/" | "#") ~ ANY)+ }
+
+// TODO url, image
 
 expr_command_line = ${ expr_command ~ trailing_properties }
 expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}

@@ -53,7 +53,7 @@ fn main() {
     let mut parsing_depth = 0;
 
     let mut errors: Vec<parser::ParserError> = Vec::new();
-    for (iline, ((indent, content_len), line)) in indent_content_len.zip(text.lines()).enumerate() {
+    for (iline, ((indent, content_len), linetext)) in indent_content_len.zip(text.lines()).enumerate() {
         let mut depth = indent;
         if (parsing_state == ParsingState::Line && indent > parsing_depth) || content_len == 0 {
             depth = parsing_depth;
@@ -61,9 +61,9 @@ fn main() {
         let parent: &parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
             errors.push(parser::ParserError::InvalidIndentation(
                 parser::Annotation {
-                    value: &line,
+                    value: &linetext,
                     location: parser::Location {
-                        input: &line,
+                        input: &linetext,
                         row: iline,
                         span: parser::Span(indent, indent+1)
                     },
@@ -71,19 +71,18 @@ fn main() {
             ));
             &root //TODO create dummy node(s) to fit the current depth
         });
-        let mut newline = parser::AstNode::line(&line, iline, None);
+        let mut newline = parser::AstNode::line(&linetext, iline, None);
         // TODO gather parsing errors
-        let (has_command, props) = parser::parse_command_line(line, 0, indent);
+        let (has_command, props) = parser::parse_command_line(&linetext, 0, indent);
         if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
         } else {
             // TODO error will never happen since raw_sentence will match finally(...?)
             let parsed = parser::MarkshiftLineParser::parse(
                 parser::Rule::statement,
-                line.trim_start_matches('\t'),
-            )
-            .unwrap();
-            for node in parsed.map(|pair| parser::transform_statement(pair, &mut newline)) {
+                linetext.trim_start_matches('\t'),
+            ).unwrap();
+            for node in parsed.map(|pair| parser::transform_statement(pair, linetext, iline, indent)) {
                 println!("{:?}", node);
             }
             println!("{newline:?}");

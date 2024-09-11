@@ -6,6 +6,7 @@ use std::ops;
 use thiserror::Error;
 
 use pest::iterators::Pair;
+use pest;
 
 #[derive(Parser)]
 #[grammar = "markshift.pest"]
@@ -46,6 +47,14 @@ impl fmt::Display for Location<'_> {
 impl From<pest::Span<'_>> for Span {
     fn from(from: pest::Span<'_>) -> Span {
         Self(from.start(), from.end())
+    }
+}
+impl From<pest::error::InputLocation> for Span {
+    fn from(from: pest::error::InputLocation) -> Span {
+        match from {
+            pest::error::InputLocation::Pos(pos) => Span(pos, pos + 1),
+            pest::error::InputLocation::Span(span) => Span(span.0, span.1),
+        }
     }
 }
 
@@ -135,6 +144,10 @@ pub enum AstNodeKind {
         src: String,
         alt: String,
     },
+    WikiLink {
+        link: String,
+        anchor: Option<String>,
+    },
     Text,
     #[default]
     Dummy,
@@ -173,8 +186,7 @@ impl<'a> AstNode<'a> {
             row,
             span,
             Some(AstNodeKind::Code {
-                lang: lang.to_string(),
-                inline: inline,
+                lang: lang.to_string(), inline,
             }),
         )
     }
@@ -183,6 +195,9 @@ impl<'a> AstNode<'a> {
     }
     pub fn quote(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
+    }
+    pub fn wikilink(input: &'a str, row: usize, span: Option<Span>, link: &'a str, anchor: Option<&'a str>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::WikiLink{link: link.to_string(), anchor: anchor.map(str::to_string)}))
     }
     pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
@@ -242,7 +257,12 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
                 }
                 Rule::command_code => {
                     // 1st parameter
-                    let lang = inner.next().unwrap().as_str();
+                    let mut lang = "";
+                    if let Some(lang_part) = inner.next() {
+                        lang = lang_part.as_str();
+                    } else {
+                        println!("No language specified for code block");
+                    }
                     return Some(AstNode::code(line, row, Some(span), lang, false));
                 }
                 Rule::parameter => {
@@ -257,12 +277,33 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
         }
         _ => {
             println!(
-                "Do not provide other than expr_command to fn transform_command: {:?}",
+                "Do you provide other than expr_command to fn transform_command: {:?}",
                 pair.as_rule()
             );
         }
     }
     None
+}
+
+/// assuming pair is expr_wiki_link
+fn transform_wiki_link<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> Option<AstNode<'a>> {
+    let inner = pair.into_inner().next().unwrap();  // wiki_link or wiki_link_anchored
+    let span = Into::<Span>::into(inner.as_span()) + indent;
+    match inner.as_rule() {
+        Rule::wiki_link_anchored => {
+            let mut inner2 = inner.into_inner();
+            let wiki_link = inner2.next().unwrap();
+            let expr_anchor = inner2.next().unwrap();
+            return Some(AstNode::wikilink(line, row, Some(span), wiki_link.as_str(),
+                Some(expr_anchor.into_inner().next().unwrap().as_str())));
+        }
+        Rule::wiki_link => {
+            return Some(AstNode::wikilink(line, row, Some(span), inner.as_str(), None));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
 }
 
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
@@ -341,51 +382,61 @@ fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
 
 pub fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
-    line: &'b mut AstNode<'a>,
-) -> Option<AstNode<'a>> {
-    match pair.as_rule() {
-        Rule::statement => {
-            transform_statement(pair.into_inner().next().unwrap(), line)
-            // TODO handle all inners
-            //for pair in pair.into_inner() {
-        }
-        Rule::raw_sentence => Some(AstNode::text(pair.get_input(), line.location.row, Some(pair.as_span().into()))),
-        Rule::line => {
-            // `line' contains only one element, either expr_command or statement
-            // be careful when you change the grammar
-            for inner in pair.into_inner() {
-                if let Some(parsed) = transform_statement(inner, line) {
-                    line.value.content.push(parsed);
+    line: &'a str, row: usize, indent: usize
+) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError<'a>> {
+    let mut nodes: Vec<AstNode<'a>> = vec![];
+    let mut props: Vec<Property> = vec![];
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            // Rule::statement => {
+            //     let transform_statement(inner.into_inner().next().unwrap(), line)?;
+            //     // TODO handle all inners
+            //     //for inner in inner.into_inner() {
+            // }
+            //Rule::line => {
+            //    // `line' contains only one element, either expr_command or statement
+            //    // be careful when you change the grammar
+            //    for inner in inner.into_inner() {
+            //        if let Some(parsed) = transform_statement(inner, line) {
+            //            line.value.content.push(parsed);
+            //        }
+            //    }
+            //    None
+            //}
+            // expr_builtin_symbols|expr_code_inline | expr_property | raw_sentence
+            Rule::expr_builtin_symbols => {
+            }
+            Rule::expr_code_inline => {
+                //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
+                let mut code = AstNode::code(line, row, Some(inner.as_span().into()), "", true);
+                let code_inline = inner.into_inner().next().unwrap();
+                code.value.content.push(AstNode::text(line, row, Some(code_inline.as_span().into())));
+                nodes.push(code);
+            }
+            Rule::expr_property => {
+                if let Some(prop) = transform_property(inner) {
+                    props.push(prop);
                 }
             }
-            None
-        }
-        Rule::expr_anchor => {
-            assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-            if let AstNodeKind::Line { properties } = &mut line.value.kind {
-                properties.push(Property::Anchor {
-                    name: pair.as_str().to_string(),
-                });
+            Rule::raw_sentence => {
+                nodes.push(AstNode::text(line, row, Some(inner.as_span().into())));
             }
-            None
-        }
-        Rule::expr_code_inline => {
-            assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-            let s = pair.get_input();
-            let mut code = AstNode::code(s, line.location.row, Some(pair.as_span().into()), "", true);
-            if let Some(code_inline) = transform_statement(pair.into_inner().next().unwrap(), line) {
-                code.value.content.push(code_inline);
+            Rule::trailing_properties => {
+                let mut properties: Vec<Property> = vec![];
+                for inner in inner.into_inner() {
+                    if let Some(prop) = transform_property(inner) {
+                        props.push(prop);
+                    }
+                }
             }
-            Some(code)
-        }
-        Rule::code_inline => {
-            Some(AstNode::text(pair.get_input(), line.location.row, Some(pair.as_span().into())))
-        }
-        _ => {
-            println!("{:?} not implemented", pair.as_rule());
-            unreachable!()
+            _ => {
+                println!("{:?} not implemented", inner.as_rule());
+                unreachable!()
+            }
         }
     }
+    return Ok((nodes, Some(props)));
 }
 
 #[cfg(test)]
@@ -409,6 +460,30 @@ mod tests {
         match node.value.kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "rust");
+                assert!(inline == false);
+            }
+            _ => {
+                panic! {"it is weird"};
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_code_emtpy_lang() {
+        let input = "[@code   ]";
+        // let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
+        // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
+        // let mut pairs = parsed.unwrap();
+        // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
+        // let parsed_command = pairs.next().unwrap();
+        // //                          \- the first pair, which is expr_command
+        let (astnode, props) = parse_command_line(input, 0, 0);
+        let Some(node) = astnode else {
+            panic!("Failed to parse code command");
+        };
+        match node.value.kind {
+            AstNodeKind::Code { lang, inline } => {
+                assert!(lang == "");
                 assert!(inline == false);
             }
             _ => {
@@ -494,12 +569,12 @@ mod tests {
     #[test]
     fn test_parse_code_inline() {
         let input = "[` inline code 123`]";
-        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_code_inline, input) {
-            let mut newline = AstNode::line(&input, 0, None);
-            if let Some(code) = transform_statement(parsed.next().unwrap(), &mut newline) {
+        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::statement, input) {
+            if let Ok((nodes, _)) = transform_statement(parsed.next().unwrap(), input, 0, 0) {
                 //assert_eq!(code.extract_str(), "inline code 123");
+                let code = &nodes[0];
                 match code.value.kind {
-                    AstNodeKind::Code { lang, inline } => {
+                    AstNodeKind::Code { ref lang, inline } => {
                         assert_eq!(lang, "");
                         assert_eq!(inline, true);
                     }
@@ -512,4 +587,55 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_parse_wiki_link() {
+        let input = "[test wiki_page]";
+        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
+            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+                match wiki_link.value.kind {
+                    AstNodeKind::WikiLink { link, anchor } => {
+                        assert_eq!(link, "test wiki_page");
+                        assert!(anchor.is_none());
+                    }
+                    _ => {
+                        println!("{:?}", wiki_link);
+                        panic! {"wiki_link is not correctly parse"};
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_wiki_link_anchored() {
+        let input = "[test wiki_page#anchored]";
+        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
+            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+                match wiki_link.value.kind {
+                    AstNodeKind::WikiLink { link, anchor } => {
+                        assert_eq!(link, "test wiki_page");
+                        assert!(anchor.is_some());
+                        if let Some(anchor) = anchor {
+                            assert_eq!(anchor, "anchored");
+                        }
+                    }
+                    _ => {
+                        println!("{:?}", wiki_link);
+                        panic! {"wiki_link is not correctly parse"};
+                    }
+                }
+            }
+        }
+    }
+
+
+    // #[test]
+    // fn test_parse_error() {
+    //     let err = MarkshiftLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
+    //     println!("{:?}", err);
+    //     println!("{:?}", err.variant.message());
+    //     todo!();
+    //     ()
+    // }
 }
