@@ -59,33 +59,58 @@ fn main() {
             depth = parsing_depth;
         }
         let parent: &parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
-            errors.push(parser::ParserError::InvalidIndentation(
-                parser::Annotation {
-                    value: &linetext,
-                    location: parser::Location {
-                        input: &linetext,
-                        row: iline,
-                        span: parser::Span(indent, indent+1)
-                    },
-                },
-            ));
+            // errors.push(parser::ParserError::InvalidIndentation(
+            //     parser::Annotation {
+            //         value: &linetext,
+            //         location: parser::Location {
+            //             input: &linetext,
+            //             row: iline,
+            //             span: parser::Span(indent, indent+1)
+            //         },
+            //     },
+            // ));
             &root //TODO create dummy node(s) to fit the current depth
         });
         let mut newline = parser::AstNode::line(&linetext, iline, None);
         // TODO gather parsing errors
         let (has_command, props) = parser::parse_command_line(&linetext, 0, indent);
+        println!("==============================");
         if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
         } else {
+            println!("---- input ----");
+            println!("{}", &linetext[indent..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
-            let parsed = parser::MarkshiftLineParser::parse(
-                parser::Rule::statement,
-                linetext.trim_start_matches('\t'),
-            ).unwrap();
-            for node in parsed.map(|pair| parser::transform_statement(pair, linetext, iline, indent)) {
-                println!("{:?}", node);
+            match parser::MarkshiftLineParser::parse(parser::Rule::statement, &linetext[indent..]) {
+                Ok(mut parsed) => {
+                    println!("---- parsed ----");
+                    println!("{:?}", parsed);
+                    match parser::transform_statement(parsed.next().unwrap(), linetext, iline, indent) {
+                        Ok((mut nodes, None)) => {
+                            // elements in nodes are moved and the nodes will become empty. therefore,
+                            // mut is required.
+                            newline.value.content.append(&mut nodes);
+                        }
+                        Ok((mut nodes, Some(mut props))) => {
+                            newline.value.content.append(&mut nodes);
+                            match newline.value.kind {
+                                parser::AstNodeKind::Line { ref mut properties } => {
+                                    properties.append(&mut props);
+                                }
+                                _ => {}
+                            }
+                        }
+                        Err(e) => {
+                            println!("{}", e);
+                        }
+                    }
+                    println!("---- result ----");
+                    println!("{newline}");
+                }
+                Err(e) => {
+                    println!("{}", e);
+                }
             }
-            println!("{newline:?}");
         }
     }
     //println!("{:?}", parsed);

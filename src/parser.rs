@@ -81,14 +81,14 @@ pub struct Annotation<'a, T> {
     pub location: Location<'a>,
 }
 
-impl<T> fmt::Display for Annotation<'_, T>
-// where
-//     T: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.location)
-    }
-}
+// impl<T> fmt::Display for Annotation<'_, T>
+// // where
+// //     T: fmt::Display,
+// {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "{}", self.location)
+//     }
+// }
 
 #[derive(Debug, Default)]
 pub struct AstNodeInternal<'a> {
@@ -107,7 +107,7 @@ pub struct AstNodeInternal<'a> {
 //     }
 // }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Deadline {
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),
@@ -208,10 +208,30 @@ impl<'a> AstNode<'a> {
     }
 }
 
+impl<'a> fmt::Display for AstNode<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "extracted: {}\n", self.extract_str())?;
+        for (i, content) in self.value.content.iter().enumerate() {
+            write!(f, "{i} -- {}", content)?;
+        }
+        //for child in &self.value.children {
+        //    write!(f, "\tchild -- {:?}\n", child)?;
+        //}
+        if let AstNodeKind::Line { properties } = &self.value.kind {
+            for prop in properties {
+                write!(f, "property -- {:?}\n", prop)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+
 #[derive(Error, Debug)]
-pub enum ParserError<'a> {
-    #[error("Invalid indent: {0}")]
-    InvalidIndentation(Annotation<'a, &'a str>),
+pub enum ParserError {
+//pub enum ParserError<'a> {
+    //#[error("Invalid indent: {0}")]
+    //InvalidIndentation(Annotation<'a, &'a str>),
     #[error("Invalid command parameter: {0}")]
     InvalidCommandParameter(String),
     #[error("Unexpected token: {0}")]
@@ -230,12 +250,13 @@ pub fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstN
 
     let mut properties: Vec<Property> = vec![];
 
-    let parsed_props = pairs.next().unwrap();
-    for pair in parsed_props.into_inner() {
-        if let Some(prop) = transform_property(pair) {
-            properties.push(prop);
+    if let Some(parsed_props) = pairs.next() {
+        for pair in parsed_props.into_inner() {
+            if let Some(prop) = transform_property(pair) {
+                properties.push(prop);
+            }
         }
-    }
+    };
     return (command_node, properties);
 }
 
@@ -383,7 +404,7 @@ fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
 pub fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
     line: &'a str, row: usize, indent: usize
-) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError<'a>> {
+) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError> {
     let mut nodes: Vec<AstNode<'a>> = vec![];
     let mut props: Vec<Property> = vec![];
 
@@ -404,14 +425,20 @@ pub fn transform_statement<'a, 'b>(
             //    }
             //    None
             //}
-            // expr_builtin_symbols|expr_code_inline | expr_property | raw_sentence
             Rule::expr_builtin_symbols => {
+                //todo!("TODO!");
+                continue;
+            }
+            Rule::expr_wiki_link => {
+                if let Some(node) = transform_wiki_link(inner, line, row, indent) {
+                    nodes.push(node);
+                }
             }
             Rule::expr_code_inline => {
                 //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-                let mut code = AstNode::code(line, row, Some(inner.as_span().into()), "", true);
+                let mut code = AstNode::code(line, row, Some(Into::<Span>::into(inner.as_span()) + indent), "", true);
                 let code_inline = inner.into_inner().next().unwrap();
-                code.value.content.push(AstNode::text(line, row, Some(code_inline.as_span().into())));
+                code.value.content.push(AstNode::text(line, row, Some(Into::<Span>::into(code_inline.as_span()) + indent)));
                 nodes.push(code);
             }
             Rule::expr_property => {
@@ -419,16 +446,26 @@ pub fn transform_statement<'a, 'b>(
                     props.push(prop);
                 }
             }
+            // Rule::expr_anchor => {
+            //     //println!("non-trailing anchor will be treated as a text");
+            //     //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
+            //     if let Some(prop) = transform_property(inner) {
+            //         props.push(prop);
+            //     }
+            // }
             Rule::raw_sentence => {
-                nodes.push(AstNode::text(line, row, Some(inner.as_span().into())));
+                nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
             }
             Rule::trailing_properties => {
                 let mut properties: Vec<Property> = vec![];
-                for inner in inner.into_inner() {
+                for (i, inner) in inner.into_inner().enumerate() {
                     if let Some(prop) = transform_property(inner) {
                         props.push(prop);
                     }
                 }
+            }
+            Rule::EOI => {
+                continue;
             }
             _ => {
                 println!("{:?} not implemented", inner.as_rule());
@@ -521,7 +558,7 @@ mod tests {
                         panic!("task is not in todo state!");
                     };
                     if let Deadline::Date(date) = until {
-                        assert_eq!(date, chrono::NaiveDate::from_ymd(2024, 9, 24));
+                        assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap());
                     } else {
                         panic!("date is not correctly parsed");
                     }
@@ -534,9 +571,33 @@ mod tests {
     }
     #[test]
     fn test_parse_trailing_properties() {
-        let input = "   #anchor1 {@task status=todo until=2024-09-24} ";
-        println!("{:?}", parse_trailing_properties(input));
-        assert!(true);
+        let input = "   #anchor1 {@task status=todo until=2024-09-24} #anchor2";
+        let Some(props) = parse_trailing_properties(input) else {
+            panic!("Failed to parse trailing properties");
+        };
+        let anchor1 = &props[0];
+        if let Property::Anchor{name} = anchor1 {
+            assert_eq!(name, "anchor1");
+        } else {
+            panic!("anchor1 is not extracted properly");
+        };
+
+        let task = &props[1];
+        if let Property::Task{status, until} = task {
+            let TaskStatus::Todo = status else {
+                panic!("task is not in todo state!");
+            };
+            assert_eq!(until, &Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap()));
+        } else {
+            panic!("anchor1 is not extracted properly");
+        };
+
+        let anchor2 = &props[2];
+        if let Property::Anchor{name} = anchor2 {
+            assert_eq!(name, "anchor2");
+        } else {
+            panic!("anchor2 is not extracted properly");
+        };
     }
 
     #[test]
@@ -567,10 +628,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_code_inline() {
-        let input = "[` inline code 123`]";
+    fn test_parse_code_inline_text_anchor() {
+        let input = "[` inline ![] code 123`] raw text #anchor";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::statement, input) {
-            if let Ok((nodes, _)) = transform_statement(parsed.next().unwrap(), input, 0, 0) {
+            if let Ok((nodes, props)) = transform_statement(parsed.next().unwrap(), input, 0, 0) {
                 //assert_eq!(code.extract_str(), "inline code 123");
                 let code = &nodes[0];
                 match code.value.kind {
@@ -583,7 +644,21 @@ mod tests {
                         panic! {"it is weird"};
                     }
                 }
-                println!("{:?}", code.value.content[0].extract_str());
+                //println!("{:?}", code.value.content[0].extract_str());
+                //
+                let raw_text = &nodes[1];
+                if let AstNodeKind::Text = raw_text.value.kind {
+                    assert_eq!(&raw_text.location.input[raw_text.location.span.0 ..  raw_text.location.span.1], " raw text ");
+                } else {
+                    panic!("text not extracted");
+                }
+
+                assert!(props.is_some());
+                if let Property::Anchor{ref name} = props.unwrap()[0] {
+                    assert_eq!(name, "anchor");
+                } else {
+                    panic!("anchor is not extracted properly");
+                }
             }
         }
     }
