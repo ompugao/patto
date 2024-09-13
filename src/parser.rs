@@ -3,6 +3,8 @@ use pest::Parser;
 use pest_derive::Parser;
 use std::fmt;
 use std::ops;
+use std::rc::Rc;
+use std::cell::RefCell;
 use thiserror::Error;
 
 use pest::iterators::Pair;
@@ -81,29 +83,29 @@ pub struct Annotation<'a, T> {
     pub location: Location<'a>,
 }
 
-// impl<T> fmt::Display for Annotation<'_, T>
-// // where
-// //     T: fmt::Display,
-// {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.location)
-//     }
-// }
+//impl<T> fmt::Display for Annotation<'_, T>
+//// where
+////     T: fmt::Display,
+//{
+//    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//        write!(f, "{}", self.location)
+//    }
+//}
 
 #[derive(Debug, Default)]
 pub struct AstNodeInternal<'a> {
-    pub content: Vec<AstNode<'a>>,
-    pub children: Vec<AstNode<'a>>,
+    pub contents: RefCell<Vec<AstNode<'a>>>,
+    pub children: RefCell<Vec<AstNode<'a>>>,
     pub kind: AstNodeKind,
 
     // text will be the string matched with this AstNode.
-    // will be used when content.len() == 0
+    // will be used when contents.len() == 0
     // pub text: &'a str,
 }
 
 // impl<'a> fmt::Display for AstNodeInternal<'a> {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.content)
+//         write!(f, "{}", self.contents)
 //     }
 // }
 
@@ -153,14 +155,16 @@ pub enum AstNodeKind {
     Dummy,
 }
 
-pub type AstNode<'a> = Annotation<'a, AstNodeInternal<'a>>;
+type AstNodeImpl<'a> = Annotation<'a, AstNodeInternal<'a>>;
+#[derive(Debug)]
+pub struct AstNode<'a>(Rc<Annotation<'a, AstNodeInternal<'a>>>);
 
 impl<'a> AstNode<'a> {
     pub fn new(input: &'a str, row: usize, span: Option<Span>, kind: Option<AstNodeKind>) -> Self {
-        AstNode {
+        AstNode(Rc::new(AstNodeImpl{
             value: AstNodeInternal {
-                content: Vec::new(),
-                children: Vec::new(),
+                contents: RefCell::new(vec![]),
+                children: RefCell::new(vec![]),
                 kind: kind.unwrap_or(AstNodeKind::Dummy),
             },
             location: Location {
@@ -169,14 +173,25 @@ impl<'a> AstNode<'a> {
                 span: span.unwrap_or(Span(0, input.len())),
             },
         }
+        ))
     }
-    pub fn line(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    pub fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+
+    pub fn value(&self) -> &AstNodeInternal<'a>{
+        &self.0.value
+    }
+    pub fn location(&self) -> &Location<'a>{
+        &self.0.location
+    }
+    pub fn line(input: &'a str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
         Self::new(
             input,
             row,
             span,
             Some(AstNodeKind::Line {
-                properties: Vec::new(),
+                properties: props.unwrap_or(vec![]),
             }),
         )
     }
@@ -204,20 +219,20 @@ impl<'a> AstNode<'a> {
     }
 
     pub fn extract_str(&self) -> &str {
-        self.location.as_str()
+        self.location().as_str()
     }
 }
 
 impl<'a> fmt::Display for AstNode<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "extracted: {}\n", self.extract_str())?;
-        for (i, content) in self.value.content.iter().enumerate() {
+        for (i, content) in self.value().contents.borrow().iter().enumerate() {
             write!(f, "{i} -- {}", content)?;
         }
         //for child in &self.value.children {
         //    write!(f, "\tchild -- {:?}\n", child)?;
         //}
-        if let AstNodeKind::Line { properties } = &self.value.kind {
+        if let AstNodeKind::Line { properties } = &self.value().kind {
             for prop in properties {
                 write!(f, "property -- {:?}\n", prop)?;
             }
@@ -228,10 +243,9 @@ impl<'a> fmt::Display for AstNode<'a> {
 
 
 #[derive(Error, Debug)]
-pub enum ParserError {
-//pub enum ParserError<'a> {
-    //#[error("Invalid indent: {0}")]
-    //InvalidIndentation(Annotation<'a, &'a str>),
+pub enum ParserError<'a> {
+    #[error("Invalid indent: {0}")]
+    InvalidIndentation(Location<'a>),
     #[error("Invalid command parameter: {0}")]
     InvalidCommandParameter(String),
     #[error("Unexpected token: {0}")]
@@ -404,7 +418,7 @@ fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
 pub fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
     line: &'a str, row: usize, indent: usize
-) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError> {
+) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError<'a>> {
     let mut nodes: Vec<AstNode<'a>> = vec![];
     let mut props: Vec<Property> = vec![];
 
@@ -438,7 +452,7 @@ pub fn transform_statement<'a, 'b>(
                 //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
                 let mut code = AstNode::code(line, row, Some(Into::<Span>::into(inner.as_span()) + indent), "", true);
                 let code_inline = inner.into_inner().next().unwrap();
-                code.value.content.push(AstNode::text(line, row, Some(Into::<Span>::into(code_inline.as_span()) + indent)));
+                code.value().contents.borrow_mut().push(AstNode::text(line, row, Some(Into::<Span>::into(code_inline.as_span()) + indent)));
                 nodes.push(code);
             }
             Rule::expr_property => {
@@ -494,7 +508,7 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match node.value.kind {
+        match node.value().kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "rust");
                 assert!(inline == false);
@@ -518,7 +532,7 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match node.value.kind {
+        match node.value().kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "");
                 assert!(inline == false);
@@ -542,7 +556,7 @@ mod tests {
             panic!("no way!");
         };
         assert_eq!(node.location.span, Span(indent, end_code+1));
-        match node.value.kind {
+        match node.value().kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "なでしこ");
                 assert!(inline == false);
@@ -610,7 +624,7 @@ mod tests {
         };
         println!("{:?}", node);
         assert_eq!(node.location.span, Span(indent, input.len()));
-        match node.value.kind {
+        match node.value().kind {
             AstNodeKind::Math => {
             }
             _ => {
@@ -634,7 +648,7 @@ mod tests {
             if let Ok((nodes, props)) = transform_statement(parsed.next().unwrap(), input, 0, 0) {
                 //assert_eq!(code.extract_str(), "inline code 123");
                 let code = &nodes[0];
-                match code.value.kind {
+                match code.value().kind {
                     AstNodeKind::Code { ref lang, inline } => {
                         assert_eq!(lang, "");
                         assert_eq!(inline, true);
@@ -644,10 +658,10 @@ mod tests {
                         panic! {"it is weird"};
                     }
                 }
-                //println!("{:?}", code.value.content[0].extract_str());
+                //println!("{:?}", code.value.contents[0].extract_str());
                 //
                 let raw_text = &nodes[1];
-                if let AstNodeKind::Text = raw_text.value.kind {
+                if let AstNodeKind::Text = raw_text.value().kind {
                     assert_eq!(&raw_text.location.input[raw_text.location.span.0 ..  raw_text.location.span.1], " raw text ");
                 } else {
                     panic!("text not extracted");
@@ -668,7 +682,7 @@ mod tests {
         let input = "[test wiki_page]";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match wiki_link.value.kind {
+                match wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_none());
@@ -687,7 +701,7 @@ mod tests {
         let input = "[test wiki_page#anchored]";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match wiki_link.value.kind {
+                match wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_some());

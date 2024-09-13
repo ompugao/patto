@@ -1,6 +1,11 @@
 use pest::Parser;
 use std::fs;
+use std::io::BufWriter;
+use std::rc::Rc;
+
 mod parser;
+mod renderer;
+use crate::renderer::Renderer;
 //use crate::parser;
 //use std::io::{self, BufRead};
 
@@ -10,19 +15,19 @@ enum ParsingState {
     Command,
 }
 
-fn find_parent_line<'a, 'b>(
-    parent: &'a parser::AstNode<'b>,
+fn find_parent_line<'b>(
+    parent: parser::AstNode<'b>,
     depth: usize,
-) -> Option<&'a parser::AstNode<'b>> {
+) -> Option<parser::AstNode<'b>> {
     if depth == 0 {
         return Some(parent);
     }
-    let Some(ref last_child_line) = parent
-        .value
-        .children
+    let Some(last_child_line) = parent
+        .value()
+        .children.borrow()
         .iter()
-        .filter_map(|e| match e.value.kind {
-            parser::AstNodeKind::Line { .. } => Some(e),
+        .filter_map(|e| match e.value().kind {
+            parser::AstNodeKind::Line { .. } => Some(e.clone()),
             _ => None,
         })
         .last()
@@ -31,6 +36,31 @@ fn find_parent_line<'a, 'b>(
     };
     return find_parent_line(last_child_line, depth - 1);
 }
+
+// fn create_dummy_line<'a, 'b>(
+//     parent: &'a mut parser::AstNode<'b>,
+//     depth: usize,
+// ) -> Option<&'a mut parser::AstNode<'b>> {
+//     if depth == 0 {
+//         return Some(&mut parser::AstNode::line("", 0, None));
+//     }
+//     if let Some(ref mut last_child_line) = parent
+//         .value
+//         .children.borrow()
+//         .iter()
+//         .filter_map(|e| match e.value.kind {
+//             parser::AstNodeKind::Line { .. } => Some(e),
+//             _ => None,
+//         })
+//         .last() {
+//         return create_dummy_line(last_child_line, depth - 1);
+//     } else {
+//         let mut newline = parser::AstNode::line("", 0, None);
+//         let mut ret = create_dummy_line(&mut newline, depth-1);
+//         parent.value.children.borrow_mut().push(newline);
+//         return ret;
+//     };
+// }
 
 fn main() {
     // let unparsed_file = fs::read_to_string("./sample.ms").expect("cannot read sample.ms");
@@ -55,28 +85,29 @@ fn main() {
     let mut errors: Vec<parser::ParserError> = Vec::new();
     for (iline, ((indent, content_len), linetext)) in indent_content_len.zip(text.lines()).enumerate() {
         let mut depth = indent;
-        if (parsing_state == ParsingState::Line && indent > parsing_depth) || content_len == 0 {
+        if (parsing_state != ParsingState::Line && indent > parsing_depth) || content_len == 0 {
             depth = parsing_depth;
         }
-        let parent: &parser::AstNode = find_parent_line(&root, depth).unwrap_or_else(|| {
-            // errors.push(parser::ParserError::InvalidIndentation(
-            //     parser::Annotation {
-            //         value: &linetext,
-            //         location: parser::Location {
-            //             input: &linetext,
-            //             row: iline,
-            //             span: parser::Span(indent, indent+1)
-            //         },
-            //     },
-            // ));
-            &root //TODO create dummy node(s) to fit the current depth
+        let parent: parser::AstNode<'_> = find_parent_line(root.clone(), depth).unwrap_or_else(|| {
+            println!("Failed to find parent");
+            errors.push(parser::ParserError::InvalidIndentation(
+                parser::Location {
+                    input: &linetext,
+                    row: iline,
+                    span: parser::Span(indent, indent+1)
+                },
+            ));
+            //create_dummy_line(&mut root, depth).unwrap()
+            root.clone()
         });
-        let mut newline = parser::AstNode::line(&linetext, iline, None);
         // TODO gather parsing errors
-        let (has_command, props) = parser::parse_command_line(&linetext, 0, indent);
+        let (has_command, mut props) = parser::parse_command_line(&linetext, 0, indent);
         println!("==============================");
         if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
+            let newline = parser::AstNode::line(&linetext, iline, None, Some(props));
+            newline.value().contents.borrow_mut().push(command_node);
+            parent.value().contents.borrow_mut().push(newline);
         } else {
             println!("---- input ----");
             println!("{}", &linetext[indent..]);
@@ -85,27 +116,27 @@ fn main() {
                 Ok(mut parsed) => {
                     println!("---- parsed ----");
                     println!("{:?}", parsed);
+                    println!("---- result ----");
                     match parser::transform_statement(parsed.next().unwrap(), linetext, iline, indent) {
                         Ok((mut nodes, None)) => {
                             // elements in nodes are moved and the nodes will become empty. therefore,
                             // mut is required.
-                            newline.value.content.append(&mut nodes);
+                            let newline = parser::AstNode::line(&linetext, iline, None, None);
+                            newline.value().contents.borrow_mut().append(&mut nodes);
+                            println!("{newline}");
+                            parent.value().children.borrow_mut().push(newline);
                         }
                         Ok((mut nodes, Some(mut props))) => {
-                            newline.value.content.append(&mut nodes);
-                            match newline.value.kind {
-                                parser::AstNodeKind::Line { ref mut properties } => {
-                                    properties.append(&mut props);
-                                }
-                                _ => {}
-                            }
+
+                            let newline = parser::AstNode::line(&linetext, iline, None, Some(props));
+                            newline.value().contents.borrow_mut().append(&mut nodes);
+                            println!("{newline}");
+                            parent.value().children.borrow_mut().push(newline);
                         }
                         Err(e) => {
                             println!("{}", e);
                         }
                     }
-                    println!("---- result ----");
-                    println!("{newline}");
                 }
                 Err(e) => {
                     println!("{}", e);
@@ -113,6 +144,9 @@ fn main() {
             }
         }
     }
+    let mut writer = BufWriter::new(fs::File::create("output.html").unwrap());
+    let renderer = renderer::HtmlRenderer::new(renderer::Options::default());
+    renderer.format(&root, &mut writer).unwrap();
     //println!("{:?}", parsed);
     //println!("parsed result:");
     //for pair in parsed.into_inner() {

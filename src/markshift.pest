@@ -8,7 +8,7 @@ line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
 statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_wiki_link| expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
-statement_nestable = ${ (expr_wiki_link  | raw_sentence)+ }  //todo url, expr_builtin_symbols
+statement_nestable = ${ (expr_builtin_symbols|expr_wiki_link  | raw_sentence)+ }  //todo url
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols+ ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { symbol_bold | symbol_italic | symbol_underline | symbol_deleted }
