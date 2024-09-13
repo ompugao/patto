@@ -177,6 +177,20 @@ pub enum AstNodeKind {
         link: String,
         anchor: Option<String>,
     },
+
+    //Bold {
+    //    size: usize
+    //},
+    //Italic,
+    //Underline,
+    //Deleted,
+    Decoration {
+        fontsize: isize,
+        italic: bool,
+        underline: bool,
+        deleted: bool,
+    },
+
     Text,
     #[default]
     Dummy,
@@ -259,6 +273,22 @@ impl<'a> AstNode<'a> {
     pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
     }
+    pub fn decoration(input: &'a str, row: usize, span: Option<Span>, fontsize: isize, italic: bool, underline: bool, deleted: bool) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::Decoration{fontsize, italic, underline, deleted}))
+    }
+    //pub fn bold(input: &'a str, row: usize, span: Option<Span>, fontsize: isize) -> Self {
+    //    Self::new(input, row, span, Some(AstNodeKind::Bold{isize}))
+    //}
+    //pub fn italic(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    //    Self::new(input, row, span, Some(AstNodeKind::Italic))
+    //}
+    //pub fn underline(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    //    Self::new(input, row, span, Some(AstNodeKind::Underline))
+    //}
+    //pub fn deleted(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    //    Self::new(input, row, span, Some(AstNodeKind::Deleted))
+    //}
+
 
     pub fn clone(&self) -> Self {
         Self(Rc::clone(&self.0))
@@ -514,25 +544,49 @@ pub fn transform_statement<'a, 'b>(
     let mut props: Vec<Property> = vec![];
 
     for inner in pair.into_inner() {
+        // println!("---- {:?}", inner.as_rule());
         match inner.as_rule() {
-            // Rule::statement => {
-            //     let transform_statement(inner.into_inner().next().unwrap(), line)?;
-            //     // TODO handle all inners
-            //     //for inner in inner.into_inner() {
-            // }
-            //Rule::line => {
-            //    // `line' contains only one element, either expr_command or statement
-            //    // be careful when you change the grammar
-            //    for inner in inner.into_inner() {
-            //        if let Some(parsed) = transform_statement(inner, line) {
-            //            line.value.content.push(parsed);
-            //        }
-            //    }
-            //    None
-            //}
             Rule::expr_builtin_symbols => {
-                //todo!("TODO!");
-                continue;
+                let s = Some(Into::<Span>::into(inner.as_span()) + indent);
+                let mut inner2 = inner.into_inner().into_iter();
+                let symbols = inner2.by_ref().next().unwrap();
+                let mut boldsize = 0;
+                let mut italic = false;
+                let mut underline = false;
+                let mut deleted = false;
+                for symbol in symbols.into_inner() {
+                    // println!("==== {:?}", symbol.as_rule());
+                    match symbol.as_rule() {
+                        Rule::symbol_bold => {
+                            boldsize += 1;
+                        }
+                        Rule::symbol_italic => {
+                            italic = true;
+                        }
+                        Rule::symbol_underline => {
+                            underline = true;
+                        }
+                        Rule::symbol_deleted => {
+                            deleted = true;
+                        }
+                        _ => unreachable!()
+                    }
+                }
+
+                let node = AstNode::decoration(line, row, s, boldsize, italic, underline, deleted);
+                // `statement_nestable' must be the subset of `statement'
+                match transform_statement(inner2.next().unwrap(), line, row, indent) {
+                    Ok((mut inner_nodes, _)) => {
+                        // elements in nodes are moved and the nodes will become empty. therefore,
+                        // mut is required.
+                        node.add_contents(inner_nodes);
+                        nodes.push(node);
+                    }
+                    Err(e) => {
+                        println!("{}", e);
+                    }
+                    _  => unreachable!() // statement_nestable should not include properties
+                }
             }
             Rule::expr_wiki_link => {
                 if let Some(node) = transform_wiki_link(inner, line, row, indent) {

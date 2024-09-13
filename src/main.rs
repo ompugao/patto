@@ -15,6 +15,7 @@ enum ParsingState {
 }
 
 fn find_parent_line<'b>(parent: parser::AstNode<'b>, depth: usize) -> Option<parser::AstNode<'b>> {
+    println!("------- {depth}");
     if depth == 0 {
         return Some(parent);
     }
@@ -84,9 +85,9 @@ fn main() {
         indent_content_len.zip(text.lines()).enumerate()
     {
         let mut depth = indent;
-        if (parsing_state != ParsingState::Line && indent > parsing_depth) || content_len == 0 {
-            depth = parsing_depth;
-        }
+        // if (parsing_state != ParsingState::Line && indent > parsing_depth) || content_len == 0 {
+        //     depth = parsing_depth;
+        // }
         let parent: parser::AstNode<'_> =
             find_parent_line(root.clone(), depth).unwrap_or_else(|| {
                 println!("Failed to find parent");
@@ -108,6 +109,7 @@ fn main() {
             parent.add_content(newline);
         } else {
             println!("---- input ----");
+            println!("depth: {depth}");
             println!("{}", &linetext[indent..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
             match parser::MarkshiftLineParser::parse(parser::Rule::statement, &linetext[indent..]) {

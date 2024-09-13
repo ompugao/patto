@@ -52,6 +52,7 @@ impl HtmlRenderer {
                     match property {
                         Property::Task { status, .. } => match status {
                             TaskStatus::Done => {
+                                write!(output, "<del>")?;
                                 write!(output, "<input type=\"checkbox\" checked disabled/>")?
                             }
                             _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
@@ -68,9 +69,11 @@ impl HtmlRenderer {
                             write!(output, "<a name=\"{}\">{}</a>", name, name)?;
                         }
                         Property::Task { status, until } => match status {
-                            TaskStatus::Done => {}
+                            TaskStatus::Done => {
+                                write!(output, "</del>")?;
+                            }
                             _ => {
-                                write!(output, "<code class=\"task-deadline\"/>{}</code>", until)?
+                                write!(output, "<code class=\"task-deadline\">{}</code>", until)?
                             }
                         },
                         _ => {}
@@ -117,6 +120,41 @@ impl HtmlRenderer {
                 } else {
                     write!(output, "<a href=\"{}\">{}</a>", link, link)?;
                 }
+            }
+            AstNodeKind::Decoration{ fontsize, italic, underline, deleted } => {
+                let s = match fontsize {
+                    isize::MIN..=-3 => "xx-small",
+                    -2 => "x-small",
+                    -1 => "small",
+                    0 => "medium",
+                    1 => "large",
+                    2 => "x-large",
+                    3..=isize::MAX => "xx-large",
+                    _ => "",
+                };
+                write!(output, "<span style=\"font-size: {s}\">")?;
+                if *italic {
+                    write!(output, "<i>")?;
+                }
+                if *underline {
+                    write!(output, "<u>")?;
+                }
+                if *deleted {
+                    write!(output, "<del>")?;
+                }
+                for content in ast.value().contents.borrow().iter() {
+                    self._format_impl(&content, output)?;
+                }
+                if *deleted {
+                    write!(output, "</del>")?;
+                }
+                if *underline {
+                    write!(output, "</u>")?;
+                }
+                if *italic {
+                    write!(output, "</i>")?;
+                }
+                write!(output, "</span>")?;
             }
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
