@@ -1,21 +1,21 @@
 use chrono;
 use pest::Parser;
 use pest_derive::Parser;
+use std::cell::RefCell;
 use std::fmt;
 use std::ops;
 use std::rc::Rc;
-use std::cell::RefCell;
 use thiserror::Error;
 
-use pest::iterators::Pair;
 use pest;
+use pest::iterators::Pair;
 
 #[derive(Parser)]
 #[grammar = "markshift.pest"]
 pub struct MarkshiftLineParser;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Span (pub usize, pub usize);
+pub struct Span(pub usize, pub usize);
 
 impl ops::Add<usize> for Span {
     type Output = Self;
@@ -35,12 +35,20 @@ pub struct Location<'a> {
 impl fmt::Display for Location<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.input)?;
-        write!(f, "{}", self.input[..self.span.0].chars().map(|c| {
-            if c != '\t' {
-                ' '
-            } else {
-                c
-            }}).collect::<String>())?;
+        write!(
+            f,
+            "{}",
+            self.input[..self.span.0]
+                .chars()
+                .map(|c| {
+                    if c != '\t' {
+                        ' '
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>()
+        )?;
         //write!(f, "{: <1$}", "", self.span.0)?;
         write!(f, "{:^<1$}", "", self.span.1 - self.span.0)
     }
@@ -68,7 +76,10 @@ impl Location<'_> {
         Self {
             row: self.row,
             input: self.input,
-            span: Span(min(self.span.0, other.span.0), max(self.span.1, other.span.1)),
+            span: Span(
+                min(self.span.0, other.span.0),
+                max(self.span.1, other.span.1),
+            ),
         }
     }
 
@@ -97,7 +108,6 @@ pub struct AstNodeInternal<'a> {
     pub contents: RefCell<Vec<AstNode<'a>>>,
     pub children: RefCell<Vec<AstNode<'a>>>,
     pub kind: AstNodeKind,
-
     // text will be the string matched with this AstNode.
     // will be used when contents.len() == 0
     // pub text: &'a str,
@@ -161,7 +171,7 @@ pub struct AstNode<'a>(Rc<Annotation<'a, AstNodeInternal<'a>>>);
 
 impl<'a> AstNode<'a> {
     pub fn new(input: &'a str, row: usize, span: Option<Span>, kind: Option<AstNodeKind>) -> Self {
-        AstNode(Rc::new(AstNodeImpl{
+        AstNode(Rc::new(AstNodeImpl {
             value: AstNodeInternal {
                 contents: RefCell::new(vec![]),
                 children: RefCell::new(vec![]),
@@ -172,20 +182,24 @@ impl<'a> AstNode<'a> {
                 input,
                 span: span.unwrap_or(Span(0, input.len())),
             },
-        }
-        ))
+        }))
     }
     pub fn clone(&self) -> Self {
         Self(Rc::clone(&self.0))
     }
 
-    pub fn value(&self) -> &AstNodeInternal<'a>{
+    pub fn value(&self) -> &AstNodeInternal<'a> {
         &self.0.value
     }
-    pub fn location(&self) -> &Location<'a>{
+    pub fn location(&self) -> &Location<'a> {
         &self.0.location
     }
-    pub fn line(input: &'a str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
+    pub fn line(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+        props: Option<Vec<Property>>,
+    ) -> Self {
         Self::new(
             input,
             row,
@@ -195,13 +209,20 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
-    pub fn code(input: &'a str, row: usize, span: Option<Span>, lang: &'a str, inline: bool) -> Self {
+    pub fn code(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+        lang: &'a str,
+        inline: bool,
+    ) -> Self {
         Self::new(
             input,
             row,
             span,
             Some(AstNodeKind::Code {
-                lang: lang.to_string(), inline,
+                lang: lang.to_string(),
+                inline,
             }),
         )
     }
@@ -211,8 +232,22 @@ impl<'a> AstNode<'a> {
     pub fn quote(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
     }
-    pub fn wikilink(input: &'a str, row: usize, span: Option<Span>, link: &'a str, anchor: Option<&'a str>) -> Self {
-        Self::new(input, row, span, Some(AstNodeKind::WikiLink{link: link.to_string(), anchor: anchor.map(str::to_string)}))
+    pub fn wikilink(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+        link: &'a str,
+        anchor: Option<&'a str>,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::WikiLink {
+                link: link.to_string(),
+                anchor: anchor.map(str::to_string),
+            }),
+        )
     }
     pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
@@ -241,7 +276,6 @@ impl<'a> fmt::Display for AstNode<'a> {
     }
 }
 
-
 #[derive(Error, Debug)]
 pub enum ParserError<'a> {
     #[error("Invalid indent: {0}")]
@@ -252,8 +286,11 @@ pub enum ParserError<'a> {
     UnexpectedToken(String),
 }
 
-
-pub fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
+pub fn parse_command_line(
+    line: &str,
+    row: usize,
+    indent: usize,
+) -> (Option<AstNode>, Vec<Property>) {
     let Ok(mut pairs) = MarkshiftLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
@@ -274,7 +311,12 @@ pub fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstN
     return (command_node, properties);
 }
 
-fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> Option<AstNode<'a>> {
+fn transform_command<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode<'a>> {
     let span = Into::<Span>::into(pair.as_span()) + indent;
     let mut node: Option<AstNode<'a>> = None;
     let mut props: Vec<Property> = vec![];
@@ -301,7 +343,10 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
                     return Some(AstNode::code(line, row, Some(span), lang, false));
                 }
                 Rule::parameter => {
-                    println!("parameter must have already been consumed: {}", command.as_str());
+                    println!(
+                        "parameter must have already been consumed: {}",
+                        command.as_str()
+                    );
                     // TODO return text?
                     return Some(AstNode::text(line, row, Some(span)));
                 }
@@ -321,19 +366,35 @@ fn transform_command<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent
 }
 
 /// assuming pair is expr_wiki_link
-fn transform_wiki_link<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> Option<AstNode<'a>> {
-    let inner = pair.into_inner().next().unwrap();  // wiki_link or wiki_link_anchored
+fn transform_wiki_link<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode<'a>> {
+    let inner = pair.into_inner().next().unwrap(); // wiki_link or wiki_link_anchored
     let span = Into::<Span>::into(inner.as_span()) + indent;
     match inner.as_rule() {
         Rule::wiki_link_anchored => {
             let mut inner2 = inner.into_inner();
             let wiki_link = inner2.next().unwrap();
             let expr_anchor = inner2.next().unwrap();
-            return Some(AstNode::wikilink(line, row, Some(span), wiki_link.as_str(),
-                Some(expr_anchor.into_inner().next().unwrap().as_str())));
+            return Some(AstNode::wikilink(
+                line,
+                row,
+                Some(span),
+                wiki_link.as_str(),
+                Some(expr_anchor.into_inner().next().unwrap().as_str()),
+            ));
         }
         Rule::wiki_link => {
-            return Some(AstNode::wikilink(line, row, Some(span), inner.as_str(), None));
+            return Some(AstNode::wikilink(
+                line,
+                row,
+                Some(span),
+                inner.as_str(),
+                None,
+            ));
         }
         _ => {
             unreachable!();
@@ -344,7 +405,9 @@ fn transform_wiki_link<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, inde
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     match pair.as_rule() {
         Rule::expr_anchor => {
-            let anchor = Property::Anchor{name: pair.into_inner().next().unwrap().as_str().to_string()};
+            let anchor = Property::Anchor {
+                name: pair.into_inner().next().unwrap().as_str().to_string(),
+            };
             return Some(anchor);
         }
         Rule::expr_property => {
@@ -376,9 +439,13 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                                 println!("Unknown task status: '{}', interpreted as 'todo'", value);
                             }
                         } else if current_key == "until" {
-                            if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
+                            if let Ok(datetime) =
+                                chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M")
+                            {
                                 until = Deadline::DateTime(datetime);
-                            } else if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+                            } else if let Ok(date) =
+                                chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                            {
                                 until = Deadline::Date(date);
                             } else {
                                 until = Deadline::Uninterpretable(value.to_string());
@@ -392,7 +459,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                     }
                 }
             }
-            return Some(Property::Task{status, until});
+            return Some(Property::Task { status, until });
         }
         _ => {
             println!("????? {:?}", pair);
@@ -403,7 +470,8 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
 }
 
 fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
-    let Ok(mut trailing_properties) = MarkshiftLineParser::parse(Rule::trailing_properties, s) else {
+    let Ok(mut trailing_properties) = MarkshiftLineParser::parse(Rule::trailing_properties, s)
+    else {
         return None;
     };
     let mut properties: Vec<Property> = vec![];
@@ -417,7 +485,9 @@ fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
 
 pub fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
-    line: &'a str, row: usize, indent: usize
+    line: &'a str,
+    row: usize,
+    indent: usize,
 ) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError<'a>> {
     let mut nodes: Vec<AstNode<'a>> = vec![];
     let mut props: Vec<Property> = vec![];
@@ -450,9 +520,19 @@ pub fn transform_statement<'a, 'b>(
             }
             Rule::expr_code_inline => {
                 //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-                let mut code = AstNode::code(line, row, Some(Into::<Span>::into(inner.as_span()) + indent), "", true);
+                let mut code = AstNode::code(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(inner.as_span()) + indent),
+                    "",
+                    true,
+                );
                 let code_inline = inner.into_inner().next().unwrap();
-                code.value().contents.borrow_mut().push(AstNode::text(line, row, Some(Into::<Span>::into(code_inline.as_span()) + indent)));
+                code.value().contents.borrow_mut().push(AstNode::text(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(code_inline.as_span()) + indent),
+                ));
                 nodes.push(code);
             }
             Rule::expr_property => {
@@ -468,7 +548,11 @@ pub fn transform_statement<'a, 'b>(
             //     }
             // }
             Rule::raw_sentence => {
-                nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
+                nodes.push(AstNode::text(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(inner.as_span()) + indent),
+                ));
             }
             Rule::trailing_properties => {
                 let mut properties: Vec<Property> = vec![];
@@ -555,7 +639,7 @@ mod tests {
         let Some(end_code) = input.find("]") else {
             panic!("no way!");
         };
-        assert_eq!(node.location.span, Span(indent, end_code+1));
+        assert_eq!(node.location.span, Span(indent, end_code + 1));
         match node.value().kind {
             AstNodeKind::Code { lang, inline } => {
                 assert!(lang == "なでしこ");
@@ -567,7 +651,7 @@ mod tests {
         }
         for prop in props {
             match prop {
-                Property::Task{status, until} => {
+                Property::Task { status, until } => {
                     let TaskStatus::Todo = status else {
                         panic!("task is not in todo state!");
                     };
@@ -577,7 +661,7 @@ mod tests {
                         panic!("date is not correctly parsed");
                     }
                 }
-                Property::Anchor{name} => {
+                Property::Anchor { name } => {
                     assert_eq!(name, "anchor1");
                 }
             }
@@ -590,24 +674,27 @@ mod tests {
             panic!("Failed to parse trailing properties");
         };
         let anchor1 = &props[0];
-        if let Property::Anchor{name} = anchor1 {
+        if let Property::Anchor { name } = anchor1 {
             assert_eq!(name, "anchor1");
         } else {
             panic!("anchor1 is not extracted properly");
         };
 
         let task = &props[1];
-        if let Property::Task{status, until} = task {
+        if let Property::Task { status, until } = task {
             let TaskStatus::Todo = status else {
                 panic!("task is not in todo state!");
             };
-            assert_eq!(until, &Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap()));
+            assert_eq!(
+                until,
+                &Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap())
+            );
         } else {
             panic!("anchor1 is not extracted properly");
         };
 
         let anchor2 = &props[2];
-        if let Property::Anchor{name} = anchor2 {
+        if let Property::Anchor { name } = anchor2 {
             assert_eq!(name, "anchor2");
         } else {
             panic!("anchor2 is not extracted properly");
@@ -625,8 +712,7 @@ mod tests {
         println!("{:?}", node);
         assert_eq!(node.location.span, Span(indent, input.len()));
         match node.value().kind {
-            AstNodeKind::Math => {
-            }
+            AstNodeKind::Math => {}
             _ => {
                 panic! {"Math command could not be parsed"};
             }
@@ -636,7 +722,8 @@ mod tests {
     #[test]
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
-        assert!(parse_command_line(input, 0, 0).0.is_none(), 
+        assert!(
+            parse_command_line(input, 0, 0).0.is_none(),
             "Unknown command input has been parsed: \"{input}\""
         );
     }
@@ -662,13 +749,17 @@ mod tests {
                 //
                 let raw_text = &nodes[1];
                 if let AstNodeKind::Text = raw_text.value().kind {
-                    assert_eq!(&raw_text.location.input[raw_text.location.span.0 ..  raw_text.location.span.1], " raw text ");
+                    assert_eq!(
+                        &raw_text.location.input
+                            [raw_text.location.span.0..raw_text.location.span.1],
+                        " raw text "
+                    );
                 } else {
                     panic!("text not extracted");
                 }
 
                 assert!(props.is_some());
-                if let Property::Anchor{ref name} = props.unwrap()[0] {
+                if let Property::Anchor { ref name } = props.unwrap()[0] {
                     assert_eq!(name, "anchor");
                 } else {
                     panic!("anchor is not extracted properly");
@@ -717,7 +808,6 @@ mod tests {
             }
         }
     }
-
 
     // #[test]
     // fn test_parse_error() {

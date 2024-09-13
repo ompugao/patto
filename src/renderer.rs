@@ -5,13 +5,12 @@ use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
 
 #[derive(Debug, Default)]
-pub struct Options {
-}
+pub struct Options {}
 
 pub trait Renderer {
     fn new(options: Options) -> Self;
-    fn format(&self, ast: &AstNode, output:&mut dyn Write) -> io::Result<()>;
-} 
+    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()>;
+}
 
 pub struct HtmlRenderer {
     options: Options,
@@ -22,7 +21,7 @@ impl Renderer for HtmlRenderer {
         HtmlRenderer { options }
     }
 
-    fn format(&self, ast: &AstNode, output:&mut dyn Write) -> io::Result<()> {
+    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         write!(output, "<html>\n")?;
         write!(output, "<head>\n")?;
         write!(output, "</head>\n")?;
@@ -37,7 +36,7 @@ impl Renderer for HtmlRenderer {
 }
 
 impl HtmlRenderer {
-    fn _format_impl(&self, ast: &AstNode, output:&mut dyn Write) -> io::Result<()> {
+    fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.value().kind {
             AstNodeKind::Dummy => {
                 write!(output, "<ul>")?;
@@ -47,18 +46,17 @@ impl HtmlRenderer {
                     write!(output, "</li>")?;
                 }
                 write!(output, "</ul>")?;
-            },
+            }
             AstNodeKind::Line { properties } => {
                 for property in properties {
                     match property {
-                        Property::Task{status, until} => {
-                            match status {
-                                TaskStatus::Done => { write!(output, "<input type=\"checkbox\" checked disabled/>")? },
-                                _ => { write!(output, "<input type=\"checkbox\" unchecked disabled/>")? },
+                        Property::Task { status, until } => match status {
+                            TaskStatus::Done => {
+                                write!(output, "<input type=\"checkbox\" checked disabled/>")?
                             }
+                            _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
                         },
-                        _ => {
-                        }
+                        _ => {}
                     }
                 }
                 for content in ast.value().contents.borrow().iter() {
@@ -66,9 +64,9 @@ impl HtmlRenderer {
                 }
                 for property in properties {
                     match property {
-                        Property::Anchor{name} => {
+                        Property::Anchor { name } => {
                             write!(output, "<a name=\"{}\">{}</a>", name, name)?;
-                        },
+                        }
                         _ => {}
                     }
                 }
@@ -83,9 +81,9 @@ impl HtmlRenderer {
                     write!(output, "</ul>")?;
                 }
             }
-            AstNodeKind::Quote => {},
-            AstNodeKind::Math => {},
-            AstNodeKind::Code{lang, inline} => {
+            AstNodeKind::Quote => {}
+            AstNodeKind::Math => {}
+            AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "<code>")?;
                     write!(output, "{}", ast.value().contents.borrow()[0].extract_str())?; //TODO html escape
@@ -99,20 +97,24 @@ impl HtmlRenderer {
                     }
                     write!(output, "</code></pre>")?;
                 }
-            },
-            AstNodeKind::Image{src, alt} => {
+            }
+            AstNodeKind::Image { src, alt } => {
                 write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src)?;
-            },
-            AstNodeKind::WikiLink{link, anchor} => {
+            }
+            AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
-                    write!(output, "<a href=\"{}#{}\">{}#{}</a>", link, anchor, link, anchor)?;
+                    write!(
+                        output,
+                        "<a href=\"{}#{}\">{}#{}</a>",
+                        link, anchor, link, anchor
+                    )?;
                 } else {
                     write!(output, "<a href=\"{}\">{}</a>", link, link)?;
                 }
-            },
+            }
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
-            },
+            }
         }
         Ok(())
     }

@@ -1,7 +1,6 @@
 use pest::Parser;
 use std::fs;
 use std::io::BufWriter;
-use std::rc::Rc;
 
 mod parser;
 mod renderer;
@@ -15,16 +14,14 @@ enum ParsingState {
     Command,
 }
 
-fn find_parent_line<'b>(
-    parent: parser::AstNode<'b>,
-    depth: usize,
-) -> Option<parser::AstNode<'b>> {
+fn find_parent_line<'b>(parent: parser::AstNode<'b>, depth: usize) -> Option<parser::AstNode<'b>> {
     if depth == 0 {
         return Some(parent);
     }
     let Some(last_child_line) = parent
         .value()
-        .children.borrow()
+        .children
+        .borrow()
         .iter()
         .filter_map(|e| match e.value().kind {
             parser::AstNodeKind::Line { .. } => Some(e.clone()),
@@ -83,23 +80,24 @@ fn main() {
     let mut parsing_depth = 0;
 
     let mut errors: Vec<parser::ParserError> = Vec::new();
-    for (iline, ((indent, content_len), linetext)) in indent_content_len.zip(text.lines()).enumerate() {
+    for (iline, ((indent, content_len), linetext)) in
+        indent_content_len.zip(text.lines()).enumerate()
+    {
         let mut depth = indent;
         if (parsing_state != ParsingState::Line && indent > parsing_depth) || content_len == 0 {
             depth = parsing_depth;
         }
-        let parent: parser::AstNode<'_> = find_parent_line(root.clone(), depth).unwrap_or_else(|| {
-            println!("Failed to find parent");
-            errors.push(parser::ParserError::InvalidIndentation(
-                parser::Location {
+        let parent: parser::AstNode<'_> =
+            find_parent_line(root.clone(), depth).unwrap_or_else(|| {
+                println!("Failed to find parent");
+                errors.push(parser::ParserError::InvalidIndentation(parser::Location {
                     input: &linetext,
                     row: iline,
-                    span: parser::Span(indent, indent+1)
-                },
-            ));
-            //create_dummy_line(&mut root, depth).unwrap()
-            root.clone()
-        });
+                    span: parser::Span(indent, indent + 1),
+                }));
+                //create_dummy_line(&mut root, depth).unwrap()
+                root.clone()
+            });
         // TODO gather parsing errors
         let (has_command, mut props) = parser::parse_command_line(&linetext, 0, indent);
         println!("==============================");
@@ -117,7 +115,12 @@ fn main() {
                     println!("---- parsed ----");
                     println!("{:?}", parsed);
                     println!("---- result ----");
-                    match parser::transform_statement(parsed.next().unwrap(), linetext, iline, indent) {
+                    match parser::transform_statement(
+                        parsed.next().unwrap(),
+                        linetext,
+                        iline,
+                        indent,
+                    ) {
                         Ok((mut nodes, None)) => {
                             // elements in nodes are moved and the nodes will become empty. therefore,
                             // mut is required.
@@ -127,8 +130,8 @@ fn main() {
                             parent.value().children.borrow_mut().push(newline);
                         }
                         Ok((mut nodes, Some(mut props))) => {
-
-                            let newline = parser::AstNode::line(&linetext, iline, None, Some(props));
+                            let newline =
+                                parser::AstNode::line(&linetext, iline, None, Some(props));
                             newline.value().contents.borrow_mut().append(&mut nodes);
                             println!("{newline}");
                             parent.value().children.borrow_mut().push(newline);
