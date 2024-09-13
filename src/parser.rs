@@ -126,6 +126,23 @@ pub enum Deadline {
     Uninterpretable(String),
 }
 
+impl fmt::Display for Deadline {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Deadline::DateTime(dt) => {
+                write!(f, "{}", dt)?;
+            }
+            Deadline::Date(d) => {
+                write!(f, "{}", d)?;
+            }
+            Deadline::Uninterpretable(s) => {
+                write!(f, "{}", s)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum TaskStatus {
     Todo,
@@ -183,16 +200,6 @@ impl<'a> AstNode<'a> {
                 span: span.unwrap_or(Span(0, input.len())),
             },
         }))
-    }
-    pub fn clone(&self) -> Self {
-        Self(Rc::clone(&self.0))
-    }
-
-    pub fn value(&self) -> &AstNodeInternal<'a> {
-        &self.0.value
-    }
-    pub fn location(&self) -> &Location<'a> {
-        &self.0.location
     }
     pub fn line(
         input: &'a str,
@@ -253,6 +260,24 @@ impl<'a> AstNode<'a> {
         Self::new(input, row, span, Some(AstNodeKind::Text))
     }
 
+    pub fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+    pub fn value(&self) -> &AstNodeInternal<'a> {
+        &self.0.value
+    }
+    pub fn add_content(&self, content: AstNode<'a>) {
+        self.value().contents.borrow_mut().push(content);
+    }
+    pub fn add_contents(&self, contents: Vec<AstNode<'a>>) {
+        self.value().contents.borrow_mut().extend(contents);
+    }
+    pub fn add_child(&self, child: AstNode<'a>) {
+        self.value().children.borrow_mut().push(child);
+    }
+    pub fn location(&self) -> &Location<'a> {
+        &self.0.location
+    }
     pub fn extract_str(&self) -> &str {
         self.location().as_str()
     }
@@ -318,8 +343,6 @@ fn transform_command<'a>(
     indent: usize,
 ) -> Option<AstNode<'a>> {
     let span = Into::<Span>::into(pair.as_span()) + indent;
-    let mut node: Option<AstNode<'a>> = None;
-    let mut props: Vec<Property> = vec![];
     match pair.as_rule() {
         Rule::expr_command => {
             let mut inner = pair.into_inner();
@@ -462,11 +485,9 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             return Some(Property::Task { status, until });
         }
         _ => {
-            println!("????? {:?}", pair);
-            return None;
+            panic!("Unhandled token: {:?}", pair.as_rule());
         }
     }
-    None
 }
 
 fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
@@ -528,7 +549,7 @@ pub fn transform_statement<'a, 'b>(
                     true,
                 );
                 let code_inline = inner.into_inner().next().unwrap();
-                code.value().contents.borrow_mut().push(AstNode::text(
+                code.add_content(AstNode::text(
                     line,
                     row,
                     Some(Into::<Span>::into(code_inline.as_span()) + indent),
@@ -555,12 +576,12 @@ pub fn transform_statement<'a, 'b>(
                 ));
             }
             Rule::trailing_properties => {
-                let mut properties: Vec<Property> = vec![];
-                for (i, inner) in inner.into_inner().enumerate() {
-                    if let Some(prop) = transform_property(inner) {
-                        props.push(prop);
-                    }
-                }
+                props.extend(
+                    inner
+                        .into_inner()
+                        .into_iter()
+                        .filter_map(|e| transform_property(e)),
+                );
             }
             Rule::EOI => {
                 continue;
@@ -592,10 +613,10 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match node.value().kind {
+        match &node.value().kind {
             AstNodeKind::Code { lang, inline } => {
-                assert!(lang == "rust");
-                assert!(inline == false);
+                assert_eq!(lang, "rust");
+                assert_eq!(*inline, false);
             }
             _ => {
                 panic! {"it is weird"};
@@ -616,10 +637,10 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match node.value().kind {
+        match &node.value().kind {
             AstNodeKind::Code { lang, inline } => {
-                assert!(lang == "");
-                assert!(inline == false);
+                assert_eq!(lang, "");
+                assert_eq!(*inline, false);
             }
             _ => {
                 panic! {"it is weird"};
@@ -639,11 +660,11 @@ mod tests {
         let Some(end_code) = input.find("]") else {
             panic!("no way!");
         };
-        assert_eq!(node.location.span, Span(indent, end_code + 1));
-        match node.value().kind {
+        assert_eq!(node.location().span, Span(indent, end_code + 1));
+        match &node.value().kind {
             AstNodeKind::Code { lang, inline } => {
-                assert!(lang == "なでしこ");
-                assert!(inline == false);
+                assert_eq!(lang, "なでしこ");
+                assert_eq!(*inline, false);
             }
             _ => {
                 panic! {"it is weird"};
@@ -710,7 +731,7 @@ mod tests {
             panic!("Failed to parse code command");
         };
         println!("{:?}", node);
-        assert_eq!(node.location.span, Span(indent, input.len()));
+        assert_eq!(node.location().span, Span(indent, input.len()));
         match node.value().kind {
             AstNodeKind::Math => {}
             _ => {
@@ -750,8 +771,8 @@ mod tests {
                 let raw_text = &nodes[1];
                 if let AstNodeKind::Text = raw_text.value().kind {
                     assert_eq!(
-                        &raw_text.location.input
-                            [raw_text.location.span.0..raw_text.location.span.1],
+                        &raw_text.location().input
+                            [raw_text.location().span.0..raw_text.location().span.1],
                         " raw text "
                     );
                 } else {
@@ -773,7 +794,7 @@ mod tests {
         let input = "[test wiki_page]";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match wiki_link.value().kind {
+                match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_none());
@@ -792,7 +813,7 @@ mod tests {
         let input = "[test wiki_page#anchored]";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match wiki_link.value().kind {
+                match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_some());

@@ -50,7 +50,7 @@ impl HtmlRenderer {
             AstNodeKind::Line { properties } => {
                 for property in properties {
                     match property {
-                        Property::Task { status, until } => match status {
+                        Property::Task { status, .. } => match status {
                             TaskStatus::Done => {
                                 write!(output, "<input type=\"checkbox\" checked disabled/>")?
                             }
@@ -67,6 +67,12 @@ impl HtmlRenderer {
                         Property::Anchor { name } => {
                             write!(output, "<a name=\"{}\">{}</a>", name, name)?;
                         }
+                        Property::Task { status, until } => match status {
+                            TaskStatus::Done => {}
+                            _ => {
+                                write!(output, "<code class=\"task-deadline\"/>{}</code>", until)?
+                            }
+                        },
                         _ => {}
                     }
                 }

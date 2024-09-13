@@ -99,13 +99,13 @@ fn main() {
                 root.clone()
             });
         // TODO gather parsing errors
-        let (has_command, mut props) = parser::parse_command_line(&linetext, 0, indent);
+        let (has_command, props) = parser::parse_command_line(&linetext, 0, indent);
         println!("==============================");
         if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
             let newline = parser::AstNode::line(&linetext, iline, None, Some(props));
-            newline.value().contents.borrow_mut().push(command_node);
-            parent.value().contents.borrow_mut().push(newline);
+            newline.add_content(command_node);
+            parent.add_content(newline);
         } else {
             println!("---- input ----");
             println!("{}", &linetext[indent..]);
@@ -125,16 +125,16 @@ fn main() {
                             // elements in nodes are moved and the nodes will become empty. therefore,
                             // mut is required.
                             let newline = parser::AstNode::line(&linetext, iline, None, None);
-                            newline.value().contents.borrow_mut().append(&mut nodes);
+                            newline.add_contents(nodes);
                             println!("{newline}");
-                            parent.value().children.borrow_mut().push(newline);
+                            parent.add_child(newline);
                         }
                         Ok((mut nodes, Some(mut props))) => {
                             let newline =
                                 parser::AstNode::line(&linetext, iline, None, Some(props));
-                            newline.value().contents.borrow_mut().append(&mut nodes);
+                            newline.add_contents(nodes);
                             println!("{newline}");
-                            parent.value().children.borrow_mut().push(newline);
+                            parent.add_child(newline);
                         }
                         Err(e) => {
                             println!("{}", e);
