@@ -6,8 +6,9 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_wiki_link| expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
+statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_wiki_link| expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
+// WARN: statement_nestable must be the subset of statement
 statement_nestable = ${ (expr_builtin_symbols|expr_wiki_link  | raw_sentence)+ }  //todo url
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}

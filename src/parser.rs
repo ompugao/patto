@@ -29,7 +29,7 @@ impl ops::Add<usize> for Span {
 pub struct Location<'a> {
     pub row: usize,
     pub input: &'a str,
-    pub span: Span, //TODO span がindent分ずれるのがわかりづらい
+    pub span: Span,
 }
 
 impl fmt::Display for Location<'_> {
@@ -168,7 +168,7 @@ pub enum AstNodeKind {
         lang: String,
         inline: bool,
     },
-    //Table,
+    Table,
     Image {
         src: String,
         alt: String,
@@ -190,6 +190,7 @@ pub enum AstNodeKind {
         underline: bool,
         deleted: bool,
     },
+    TableColumn,
 
     Text,
     #[default]
@@ -288,6 +289,18 @@ impl<'a> AstNode<'a> {
     //pub fn deleted(input: &'a str, row: usize, span: Option<Span>) -> Self {
     //    Self::new(input, row, span, Some(AstNodeKind::Deleted))
     //}
+    pub fn tablecolumn(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::TableColumn),
+        )
+    }
 
 
     pub fn clone(&self) -> Self {
@@ -539,7 +552,7 @@ pub fn transform_statement<'a, 'b>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> Result<(Vec<AstNode<'a>>, Option<Vec<Property>>), ParserError<'a>> {
+) -> (Vec<AstNode<'a>>, Option<Vec<Property>>) {
     let mut nodes: Vec<AstNode<'a>> = vec![];
     let mut props: Vec<Property> = vec![];
 
@@ -574,19 +587,12 @@ pub fn transform_statement<'a, 'b>(
                 }
 
                 let node = AstNode::decoration(line, row, s, boldsize, italic, underline, deleted);
-                // `statement_nestable' must be the subset of `statement'
-                match transform_statement(inner2.next().unwrap(), line, row, indent) {
-                    Ok((mut inner_nodes, _)) => {
-                        // elements in nodes are moved and the nodes will become empty. therefore,
-                        // mut is required.
-                        node.add_contents(inner_nodes);
-                        nodes.push(node);
-                    }
-                    Err(e) => {
-                        println!("{}", e);
-                    }
-                    _  => unreachable!() // statement_nestable should not include properties
-                }
+                // WARN `statement_nestable' must be the subset of `statement'
+                let (inner_nodes, _) = transform_statement(inner2.next().unwrap(), line, row, indent);
+                // elements in nodes are moved and the nodes will become empty. therefore,
+                // mut is required.
+                node.add_contents(inner_nodes);
+                nodes.push(node);
             }
             Rule::expr_wiki_link => {
                 if let Some(node) = transform_wiki_link(inner, line, row, indent) {
@@ -595,7 +601,7 @@ pub fn transform_statement<'a, 'b>(
             }
             Rule::expr_code_inline => {
                 //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-                let mut code = AstNode::code(
+                let code = AstNode::code(
                     line,
                     row,
                     Some(Into::<Span>::into(inner.as_span()) + indent),
@@ -646,7 +652,7 @@ pub fn transform_statement<'a, 'b>(
             }
         }
     }
-    return Ok((nodes, Some(props)));
+    return (nodes, Some(props));
 }
 
 #[cfg(test)]
@@ -807,38 +813,37 @@ mod tests {
     fn test_parse_code_inline_text_anchor() {
         let input = "[` inline ![] code 123`] raw text #anchor";
         if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::statement, input) {
-            if let Ok((nodes, props)) = transform_statement(parsed.next().unwrap(), input, 0, 0) {
-                //assert_eq!(code.extract_str(), "inline code 123");
-                let code = &nodes[0];
-                match code.value().kind {
-                    AstNodeKind::Code { ref lang, inline } => {
-                        assert_eq!(lang, "");
-                        assert_eq!(inline, true);
-                    }
-                    _ => {
-                        println!("{:?}", code);
-                        panic! {"it is weird"};
-                    }
+            let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+            //assert_eq!(code.extract_str(), "inline code 123");
+            let code = &nodes[0];
+            match code.value().kind {
+                AstNodeKind::Code { ref lang, inline } => {
+                    assert_eq!(lang, "");
+                    assert_eq!(inline, true);
                 }
-                //println!("{:?}", code.value.contents[0].extract_str());
-                //
-                let raw_text = &nodes[1];
-                if let AstNodeKind::Text = raw_text.value().kind {
-                    assert_eq!(
-                        &raw_text.location().input
-                            [raw_text.location().span.0..raw_text.location().span.1],
-                        " raw text "
-                    );
-                } else {
-                    panic!("text not extracted");
+                _ => {
+                    println!("{:?}", code);
+                    panic! {"it is weird"};
                 }
+            }
+            //println!("{:?}", code.value.contents[0].extract_str());
+            //
+            let raw_text = &nodes[1];
+            if let AstNodeKind::Text = raw_text.value().kind {
+                assert_eq!(
+                    &raw_text.location().input
+                        [raw_text.location().span.0..raw_text.location().span.1],
+                    " raw text "
+                );
+            } else {
+                panic!("text not extracted");
+            }
 
-                assert!(props.is_some());
-                if let Property::Anchor { ref name } = props.unwrap()[0] {
-                    assert_eq!(name, "anchor");
-                } else {
-                    panic!("anchor is not extracted properly");
-                }
+            assert!(props.is_some());
+            if let Property::Anchor { ref name } = props.unwrap()[0] {
+                assert_eq!(name, "anchor");
+            } else {
+                panic!("anchor is not extracted properly");
             }
         }
     }

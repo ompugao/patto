@@ -90,8 +90,12 @@ impl HtmlRenderer {
                     write!(output, "</ul>")?;
                 }
             }
-            AstNodeKind::Quote => {}
-            AstNodeKind::Math => {}
+            AstNodeKind::Quote => {
+                todo!("write quote renderer");
+            }
+            AstNodeKind::Math => {
+                todo!("write math renderer");
+            }
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "<code>")?;
@@ -158,6 +162,12 @@ impl HtmlRenderer {
             }
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
+            }
+            AstNodeKind::Table => {todo!()}
+            AstNodeKind::TableColumn => {
+                for content in ast.value().contents.borrow().iter() {
+                    self._format_impl(&content, output)?;
+                }
             }
         }
         Ok(())
