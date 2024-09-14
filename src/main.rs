@@ -87,8 +87,7 @@ fn main() {
     let mut errors: Vec<parser::ParserError> = Vec::new();
     // for (iline, ((indent, content_len), linetext)) in
     //     indent_content_len.zip(text.lines()).enumerate()
-    for (iline, linetext) in text.lines().enumerate()
-    {
+    for (iline, linetext) in text.lines().enumerate() {
         let (indent, content_len) = indent_content_len[iline];
         // let depth = if (parsing_state != ParsingState::Line && indent > parsing_depth) {
         //     parsing_depth
@@ -99,6 +98,7 @@ fn main() {
         // TODO can be O(n^2) where n = numlines
         let mut depth = indent;
         if parsing_state != ParsingState::Line {
+            // search which line code/math/quote/table block will continue until
             let mut inblock = false;
             for jline in iline..numlines {
                 let (jindent, jcontent_len) = indent_content_len[jline];
@@ -114,16 +114,25 @@ fn main() {
                 }
             }
             if inblock {
+                // this line is in block
                 depth = parsing_depth;
             } else {
+                // this line is not in block, translating to line-parsing mode
                 parsing_state = ParsingState::Line;
                 parsing_depth = indent;
                 depth = indent;
             }
+        } else {
+            println!("content_len: {content_len}");
+            if content_len == 0 {
+                depth = parsing_depth;
+            }
         }
+        println!("depth: {depth}, parsing_depth: {parsing_depth}");
+
         let parent: parser::AstNode<'_> =
             find_parent_line(root.clone(), depth).unwrap_or_else(|| {
-                println!("Failed to find parent");
+                println!("Failed to find parent, depth {depth}");
                 errors.push(parser::ParserError::InvalidIndentation(parser::Location {
                     input: &linetext,
                     row: iline,
@@ -133,10 +142,10 @@ fn main() {
                 root.clone()
             });
 
-        if parsing_state != ParsingState::Line && depth == parsing_depth {
+        if parsing_state != ParsingState::Line {
             if parsing_state == ParsingState::Quote  {
                 let quote = parent.value().contents.borrow().last().expect("no way! should be quote block").clone();
-                match parser::MarkshiftLineParser::parse(parser::Rule::statement_nestable, &linetext[depth..]) {
+                match parser::MarkshiftLineParser::parse(parser::Rule::statement_nestable, &linetext[cmp::min(depth, indent)..]) {
                     Ok(mut parsed) => {
                         let (nodes, props) = parser::transform_statement(
                             parsed.next().unwrap(),
@@ -145,21 +154,21 @@ fn main() {
                             depth,
                         );
                         // TODO should be text rather than line?
-                        let newline = parser::AstNode::line(&linetext, iline, Some(parser::Span(cmp::min(depth, linetext.len()), linetext.len())), props);
+                        let newline = parser::AstNode::line(&linetext, iline, Some(parser::Span(cmp::min(depth, indent), linetext.len())), props);
                         newline.add_contents(nodes);
                         quote.add_child(newline);
                     }
                     Err(e) => {
                         // TODO accumulate error
                         let newline = parser::AstNode::line(&linetext, iline, None, None);
-                        newline.add_content(parser::AstNode::text(&linetext, iline, Some(parser::Span(cmp::min(depth, linetext.len()), linetext.len()))));
+                        newline.add_content(parser::AstNode::text(&linetext, iline, Some(parser::Span(cmp::min(depth, indent), linetext.len()))));
                         quote.add_child(newline);
                     }
                 }
                 continue;
             } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
                 let block = parent.value().contents.borrow().last().expect("no way! should be code or math block").clone();
-                let text = parser::AstNode::text(&linetext, iline, Some(parser::Span(cmp::min(depth, linetext.len()), linetext.len())));
+                let text = parser::AstNode::text(&linetext, iline, Some(parser::Span(cmp::min(depth, indent), linetext.len())));
                 block.add_child(text);
                 continue;
             } else {
@@ -199,7 +208,7 @@ fn main() {
         }
 
         // TODO gather parsing errors
-        let (has_command, props) = parser::parse_command_line(&linetext, 0, depth);
+        let (has_command, props) = parser::parse_command_line(&linetext, 0, cmp::min(depth, indent));
         println!("==============================");
         if let Some(command_node) = has_command {
             println!("parsed command: {:?}", command_node.extract_str());
@@ -212,7 +221,7 @@ fn main() {
                     parsing_state = ParsingState::Code;
                     parsing_depth = depth + 1;
                 }
-                parser::AstNodeKind::Math => {
+                parser::AstNodeKind::Math{..} => {
                     parsing_state = ParsingState::Math;
                     parsing_depth = depth + 1;
                 }
@@ -230,10 +239,9 @@ fn main() {
             parent.add_child(newline);
         } else {
             println!("---- input ----");
-            println!("depth: {depth}");
-            println!("{}", &linetext[depth..]);
+            println!("{}", &linetext[cmp::min(depth,indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
-            match parser::MarkshiftLineParser::parse(parser::Rule::statement, &linetext[depth..]) {
+            match parser::MarkshiftLineParser::parse(parser::Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
                     println!("---- parsed ----");
                     println!("{:?}", parsed);
@@ -242,7 +250,7 @@ fn main() {
                         parsed.next().unwrap(),
                         linetext,
                         iline,
-                        depth,
+                        cmp::min(depth, indent),
                     );
                     let newline = parser::AstNode::line(&linetext, iline, None, props);
                     newline.add_contents(nodes);
@@ -251,12 +259,14 @@ fn main() {
                 }
                 Err(e) => {
                     // TODO accumulate error
-                    println!("{}", e);
+                    println!("parsing statement error!: {}", e);
                     let newline = parser::AstNode::line(&linetext, iline, None, None);
                     newline.add_content(parser::AstNode::text(&linetext, iline, None));
                     parent.add_child(newline);
                 }
             }
+            // parsing_state = ParsingState::Line;
+            parsing_depth = depth;
         }
     }
     let mut writer = BufWriter::new(fs::File::create("output.html").unwrap());

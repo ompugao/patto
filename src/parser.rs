@@ -163,7 +163,9 @@ pub enum AstNodeKind {
         properties: Vec<Property>,
     },
     Quote,
-    Math,
+    Math {
+        inline: bool,
+    },
     Code {
         lang: String,
         inline: bool,
@@ -248,8 +250,8 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
-    pub fn math(input: &'a str, row: usize, span: Option<Span>) -> Self {
-        Self::new(input, row, span, Some(AstNodeKind::Math))
+    pub fn math(input: &'a str, row: usize, span: Option<Span>, inline: bool) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::Math{inline}))
     }
     pub fn quote(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
@@ -393,7 +395,7 @@ fn transform_command<'a>(
             let command = builtin_commands.into_inner().next().unwrap();
             match command.as_rule() {
                 Rule::command_math => {
-                    return Some(AstNode::math(line, row, Some(span)));
+                    return Some(AstNode::math(line, row, Some(span), false));
                 }
                 Rule::command_quote => {
                     return Some(AstNode::quote(line, row, Some(span)));
@@ -793,7 +795,9 @@ mod tests {
         println!("{:?}", node);
         assert_eq!(node.location().span, Span(indent, input.len()));
         match node.value().kind {
-            AstNodeKind::Math => {}
+            AstNodeKind::Math{inline} => {
+                assert_eq!(inline, false);
+            }
             _ => {
                 panic! {"Math command could not be parsed"};
             }

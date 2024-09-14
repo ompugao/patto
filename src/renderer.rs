@@ -91,10 +91,26 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Quote => {
-                todo!("write quote renderer");
+                write!(output, "<blockquote>")?;
+                for child in ast.value().children.borrow().iter() {
+                    self._format_impl(&child, output)?;
+                    write!(output, "<br/>")?;
+                }
+                write!(output, "</blockquote>")?;
             }
-            AstNodeKind::Math => {
-                todo!("write math renderer");
+            AstNodeKind::Math{inline} => {
+                if *inline {
+                    write!(output, "$$ ")?;
+                    write!(output, "{}", ast.value().contents.borrow()[0].extract_str())?; //TODO html escape?
+                    write!(output, " $$")?;
+                } else {
+                    write!(output, "[[ ")?;
+                    for child in ast.value().children.borrow().iter() {
+                        write!(output, "{}", child.extract_str())?;
+                        write!(output, "\n")?;
+                    }
+                    write!(output, " ]]")?;
+                }
             }
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
