@@ -65,7 +65,7 @@ fn find_parent_line<'b>(parent: parser::AstNode<'b>, depth: usize) -> Option<par
 
 fn main() {
     // let unparsed_file = fs::read_to_string("./sample.ms").expect("cannot read sample.ms");
-    // let parsed = parser::MarkshiftLineParser::parse(Rule::line, &unparsed_file.split("\n").next().unwrap())
+    // let parsed = parser::TabtonLineParser::parse(Rule::line, &unparsed_file.split("\n").next().unwrap())
     //    .unwrap_or_else(|e| panic!("{}", e));
 
     // TODO memory inefficient
@@ -145,7 +145,7 @@ fn main() {
         if parsing_state != ParsingState::Line {
             if parsing_state == ParsingState::Quote  {
                 let quote = parent.value().contents.borrow().last().expect("no way! should be quote block").clone();
-                match parser::MarkshiftLineParser::parse(parser::Rule::statement_nestable, &linetext[cmp::min(depth, indent)..]) {
+                match parser::TabtonLineParser::parse(parser::Rule::statement_nestable, &linetext[cmp::min(depth, indent)..]) {
                     Ok(mut parsed) => {
                         let (nodes, props) = parser::transform_statement(
                             parsed.next().unwrap(),
@@ -177,7 +177,7 @@ fn main() {
                 let columntexts = &linetext[depth..].split('\t');
                 let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
                 let columns = columntexts.to_owned().zip(span_starts)
-                    .map(|(t, c)| (parser::MarkshiftLineParser::parse(parser::Rule::statement_nestable, t), c))
+                    .map(|(t, c)| (parser::TabtonLineParser::parse(parser::Rule::statement_nestable, t), c))
                     .map(|(ret, c)| {
                         match ret {
                             Ok(mut parsed) => {
@@ -241,7 +241,7 @@ fn main() {
             println!("---- input ----");
             println!("{}", &linetext[cmp::min(depth,indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
-            match parser::MarkshiftLineParser::parse(parser::Rule::statement, &linetext[cmp::min(depth, indent)..]) {
+            match parser::TabtonLineParser::parse(parser::Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
                     println!("---- parsed ----");
                     println!("{:?}", parsed);

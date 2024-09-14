@@ -11,8 +11,8 @@ use pest;
 use pest::iterators::Pair;
 
 #[derive(Parser)]
-#[grammar = "markshift.pest"]
-pub struct MarkshiftLineParser;
+#[grammar = "tabton.pest"]
+pub struct TabtonLineParser;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Span(pub usize, pub usize);
@@ -361,7 +361,7 @@ pub fn parse_command_line(
     row: usize,
     indent: usize,
 ) -> (Option<AstNode>, Vec<Property>) {
-    let Ok(mut pairs) = MarkshiftLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
+    let Ok(mut pairs) = TabtonLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
     let parsed_command_line = pairs.next().unwrap();
@@ -536,7 +536,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
 }
 
 fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
-    let Ok(mut trailing_properties) = MarkshiftLineParser::parse(Rule::trailing_properties, s)
+    let Ok(mut trailing_properties) = TabtonLineParser::parse(Rule::trailing_properties, s)
     else {
         return None;
     };
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn test_parse_code_command() {
         let input = "[@code rust]";
-        // let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
+        // let parsed = TabtonLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
         // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
@@ -689,7 +689,7 @@ mod tests {
     #[test]
     fn test_parse_code_emtpy_lang() {
         let input = "[@code   ]";
-        // let parsed = MarkshiftLineParser::parse(Rule::expr_command, input);
+        // let parsed = TabtonLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
         // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn test_parse_code_inline_text_anchor() {
         let input = "[` inline ![] code 123`] raw text #anchor";
-        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::statement, input) {
+        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::statement, input) {
             let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
             //assert_eq!(code.extract_str(), "inline code 123");
             let code = &nodes[0];
@@ -855,7 +855,7 @@ mod tests {
     #[test]
     fn test_parse_wiki_link() {
         let input = "[test wiki_page]";
-        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
+        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
@@ -874,7 +874,7 @@ mod tests {
     #[test]
     fn test_parse_wiki_link_anchored() {
         let input = "[test wiki_page#anchored]";
-        if let Ok(mut parsed) = MarkshiftLineParser::parse(Rule::expr_wiki_link, input) {
+        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
@@ -895,7 +895,7 @@ mod tests {
 
     // #[test]
     // fn test_parse_error() {
-    //     let err = MarkshiftLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
+    //     let err = TabtonLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
     //     println!("{:?}", err);
     //     println!("{:?}", err.variant.message());
     //     todo!();
