@@ -2,6 +2,17 @@ use pest::Parser;
 use std::cmp;
 use std::fs;
 use std::io::BufWriter;
+use std::path::PathBuf;
+
+use clap::{Parser as ClapParser, Subcommand};
+
+#[derive(ClapParser)]
+#[command(version, about, long_about=None)]
+struct Cli {
+    /// Sets a custom config file
+    #[arg(short, long, value_name = "FILE")]
+    file: PathBuf,
+}
 
 mod parser;
 mod renderer;
@@ -68,9 +79,9 @@ fn main() {
     // let parsed = parser::TabtonLineParser::parse(Rule::line, &unparsed_file.split("\n").next().unwrap())
     //    .unwrap_or_else(|e| panic!("{}", e));
 
+    let args = Cli::parse();
     // TODO memory inefficient
-    let filename = "./samples/sample2.ms";
-    let text = fs::read_to_string(filename).expect("cannot read {filename}");
+    let text = fs::read_to_string(args.file).expect("cannot read {filename}");
     let indent_content_len: Vec<_> = (&text).lines().map(|l| {
         let mut itr = l.chars();
         let indent = itr.by_ref().take_while(|&c| c == '\t').count();
