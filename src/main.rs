@@ -9,7 +9,7 @@ use clap::{Parser as ClapParser, Subcommand};
 #[derive(ClapParser)]
 #[command(version, about, long_about=None)]
 struct Cli {
-    /// Sets a custom config file
+    /// an input file to parse
     #[arg(short, long, value_name = "FILE")]
     file: PathBuf,
 }
