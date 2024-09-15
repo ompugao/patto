@@ -25,10 +25,17 @@ impl Renderer for HtmlRenderer {
         write!(output, "<html>\n")?;
         write!(output, "<head>\n")?;
         write!(output, "</head>\n")?;
-        write!(output, "<body>\n")?;
-        write!(output, "<div>\n")?;
+
+        //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/yegor256/tacit@gh-pages/tacit-css-1.8.1.min.css\"/>\n")?;
+        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css\" type=\"text/css\" media=\"screen\">\n");
+        //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-dark.css\" type=\"text/css\">\n");
+        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n");
+        write!(output, "<body style=\"max-width: max-content\">\n")?;
+        write!(output, "<section style=\"width: 1920px; max-width: 100%;\">\n")?;
+        write!(output, "<article>\n")?;
         self._format_impl(ast, output)?;
-        write!(output, "</div>\n")?;
+        write!(output, "</article>\n")?;
+        write!(output, "</section>\n")?;
         write!(output, "</body>\n")?;
         write!(output, "</html>\n")?;
         Ok(())
@@ -39,9 +46,9 @@ impl HtmlRenderer {
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.value().kind {
             AstNodeKind::Dummy => {
-                write!(output, "<ul>")?;
+                write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
                 for child in ast.value().children.borrow().iter() {
-                    write!(output, "<li>")?;
+                    write!(output, "<li style=\"list-style-type: none\">")?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -63,24 +70,28 @@ impl HtmlRenderer {
                 for content in ast.value().contents.borrow().iter() {
                     self._format_impl(&content, output)?;
                 }
-                for property in properties {
-                    match property {
-                        Property::Anchor { name } => {
-                            write!(output, "<a name=\"{}\">{}</a>", name, name)?;
+                if properties.len() > 0 {
+                    write!(output, "<aside style=\"float: right; width: 285px; text-align: right\">")?;
+                    for property in properties {
+                        match property {
+                            Property::Anchor { name } => {
+                                write!(output, "<a name=\"{}\">{}</a>", name, name)?;
+                            }
+                            Property::Task { status, until } => match status {
+                                TaskStatus::Done => {
+                                    write!(output, "</del>")?;
+                                }
+                                _ => {
+                                    write!(output, "<mark class=\"task-deadline\">{}</mark>", until)?
+                                }
+                            },
+                            _ => {}
                         }
-                        Property::Task { status, until } => match status {
-                            TaskStatus::Done => {
-                                write!(output, "</del>")?;
-                            }
-                            _ => {
-                                write!(output, "<code class=\"task-deadline\">{}</code>", until)?
-                            }
-                        },
-                        _ => {}
                     }
+                    write!(output, "</aside>")?;
                 }
                 if ast.value().children.borrow().len() > 0 {
-                    write!(output, "<ul>")?;
+                    write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
                     for child in ast.value().children.borrow().iter() {
                         // TODO handle empty line, needs to insert <br/>
                         write!(output, "<li>")?;
