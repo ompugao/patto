@@ -271,6 +271,7 @@ fn main() {
                 Err(e) => {
                     // TODO accumulate error
                     println!("parsing statement error!: {}", e);
+                    println!("{:?}", e);
                     let newline = parser::AstNode::line(&linetext, iline, None, None);
                     newline.add_content(parser::AstNode::text(&linetext, iline, None));
                     parent.add_child(newline);

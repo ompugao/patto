@@ -6,10 +6,10 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_wiki_link| expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
+statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_url_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
 // WARN: statement_nestable must be the subset of statement
-statement_nestable = ${ (expr_builtin_symbols|expr_wiki_link  | raw_sentence)+ }  //todo url
+statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_wiki_link  | raw_sentence)+ }  //todo url
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { (symbol_bold | symbol_italic | symbol_underline | symbol_deleted)+ }
@@ -23,6 +23,19 @@ wiki_link_anchored = ${ wiki_link ~ expr_anchor}
 wiki_link = @{ (!("[" | "]" | ":" | "." | "/" | "#") ~ ANY)+ }
 
 // TODO url, image
+expr_url_link = ${"[" ~ (expr_title_url | expr_url_title | expr_url_url | expr_url_only )  ~ "]"}
+expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
+expr_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
+expr_url_only = ${url_only}
+expr_url_url = ${url_only ~ WHITE_SPACE_INLINE+ ~ url_only}
+//url_title = @{ (!("[" | "]") ~ non_url_like_char)+}
+//url_title = @{ASCII_ALPHA+}
+//url_title = ${ (!((ASCII_ALPHA+ ~ "://") | "[" | "]") ~ ANY)+}
+url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_char_except_space+)}
+non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
+url_only = ${URL}
+non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
+URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "-" | "_")+}
 
 expr_command_line = ${ expr_command ~ trailing_properties? }
 expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}

@@ -179,6 +179,10 @@ pub enum AstNodeKind {
         link: String,
         anchor: Option<String>,
     },
+    Link {
+        link: String,
+        title: Option<String>,
+    },
 
     //Bold {
     //    size: usize
@@ -251,7 +255,7 @@ impl<'a> AstNode<'a> {
         )
     }
     pub fn math(input: &'a str, row: usize, span: Option<Span>, inline: bool) -> Self {
-        Self::new(input, row, span, Some(AstNodeKind::Math{inline}))
+        Self::new(input, row, span, Some(AstNodeKind::Math { inline }))
     }
     pub fn quote(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
@@ -273,11 +277,46 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
+    pub fn link(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+        link: &'a str,
+        title: Option<&'a str>,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Link {
+                link: link.to_string(),
+                title: title.map(str::to_string),
+            }),
+        )
+    }
     pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
     }
-    pub fn decoration(input: &'a str, row: usize, span: Option<Span>, fontsize: isize, italic: bool, underline: bool, deleted: bool) -> Self {
-        Self::new(input, row, span, Some(AstNodeKind::Decoration{fontsize, italic, underline, deleted}))
+    pub fn decoration(
+        input: &'a str,
+        row: usize,
+        span: Option<Span>,
+        fontsize: isize,
+        italic: bool,
+        underline: bool,
+        deleted: bool,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Decoration {
+                fontsize,
+                italic,
+                underline,
+                deleted,
+            }),
+        )
     }
     //pub fn bold(input: &'a str, row: usize, span: Option<Span>, fontsize: isize) -> Self {
     //    Self::new(input, row, span, Some(AstNodeKind::Bold{isize}))
@@ -291,19 +330,9 @@ impl<'a> AstNode<'a> {
     //pub fn deleted(input: &'a str, row: usize, span: Option<Span>) -> Self {
     //    Self::new(input, row, span, Some(AstNodeKind::Deleted))
     //}
-    pub fn tablecolumn(
-        input: &'a str,
-        row: usize,
-        span: Option<Span>,
-    ) -> Self {
-        Self::new(
-            input,
-            row,
-            span,
-            Some(AstNodeKind::TableColumn),
-        )
+    pub fn tablecolumn(input: &'a str, row: usize, span: Option<Span>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::TableColumn))
     }
-
 
     pub fn clone(&self) -> Self {
         Self(Rc::clone(&self.0))
@@ -332,15 +361,15 @@ impl<'a> fmt::Display for AstNode<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "extracted: {}\n", self.extract_str())?;
         for (i, content) in self.value().contents.borrow().iter().enumerate() {
-            write!(f, "{i} -- {}", content)?;
+            write!(f, "-- {}", content)?;
         }
-        //for child in &self.value.children {
-        //    write!(f, "\tchild -- {:?}\n", child)?;
-        //}
         if let AstNodeKind::Line { properties } = &self.value().kind {
             for prop in properties {
                 write!(f, "property -- {:?}\n", prop)?;
             }
+        }
+        for (i, child) in self.value().children.borrow().iter().enumerate() {
+            write!(f, "\t{i}child -- {:?}\n", child)?;
         }
         Ok(())
     }
@@ -470,6 +499,69 @@ fn transform_wiki_link<'a>(
     }
 }
 
+/// assuming input pair is url stuff
+fn transform_url_link<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode<'a>> {
+    let inner = pair.into_inner().next().unwrap();
+    let span = Into::<Span>::into(inner.as_span()) + indent;
+    match inner.as_rule() {
+        Rule::expr_url_title => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            let title = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(title.as_str()),
+            ));
+        }
+        Rule::expr_title_url => {
+            let mut inner2 = inner.into_inner();
+            let title = inner2.next().unwrap();
+            let url = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(title.as_str()),
+            ));
+        }
+        Rule::expr_url_only => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                None,
+            ));
+        }
+        Rule::expr_url_url => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            let url2 = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(url2.as_str()),
+            ));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+}
+
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     match pair.as_rule() {
         Rule::expr_anchor => {
@@ -536,8 +628,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
 }
 
 fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
-    let Ok(mut trailing_properties) = TabtonLineParser::parse(Rule::trailing_properties, s)
-    else {
+    let Ok(mut trailing_properties) = TabtonLineParser::parse(Rule::trailing_properties, s) else {
         return None;
     };
     let mut properties: Vec<Property> = vec![];
@@ -584,13 +675,14 @@ pub fn transform_statement<'a, 'b>(
                         Rule::symbol_deleted => {
                             deleted = true;
                         }
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     }
                 }
 
                 let node = AstNode::decoration(line, row, s, boldsize, italic, underline, deleted);
                 // WARN `statement_nestable' must be the subset of `statement'
-                let (inner_nodes, _) = transform_statement(inner2.next().unwrap(), line, row, indent);
+                let (inner_nodes, _) =
+                    transform_statement(inner2.next().unwrap(), line, row, indent);
                 // elements in nodes are moved and the nodes will become empty. therefore,
                 // mut is required.
                 node.add_contents(inner_nodes);
@@ -598,6 +690,11 @@ pub fn transform_statement<'a, 'b>(
             }
             Rule::expr_wiki_link => {
                 if let Some(node) = transform_wiki_link(inner, line, row, indent) {
+                    nodes.push(node);
+                }
+            }
+            Rule::expr_url_link => {
+                if let Some(node) = transform_url_link(inner, line, row, indent) {
                     nodes.push(node);
                 }
             }
@@ -795,7 +892,7 @@ mod tests {
         println!("{:?}", node);
         assert_eq!(node.location().span, Span(indent, input.len()));
         match node.value().kind {
-            AstNodeKind::Math{inline} => {
+            AstNodeKind::Math { inline } => {
                 assert_eq!(inline, false);
             }
             _ => {
@@ -891,6 +988,58 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_parse_url_title() -> Result<(), Box<dyn std::error::Error>>{
+        let input = "goog   le   https://google.com";
+        match TabtonLineParser::parse(Rule::url_title, input) {
+            Ok(mut parsed) => {
+                println!("`{}`", parsed.as_str());
+                Ok(())
+            }
+            Err(e) => {
+                println!("{e}");
+                Err(Box::new(e))
+            }
+        }
+    }
+
+
+    #[test]
+    fn test_parse_urls() -> Result<(), Box<dyn std::error::Error>> {
+        for (input, g_url, g_title) in vec![
+            ("[https://username@example.com google]", "https://username@example.com", Some("google".to_string())),
+            ("[google https://username@example.com]", "https://username@example.com", Some("google".to_string())),
+            ("[https://google.com]", "https://google.com", None),
+            ("[日本語の タイトル https://username@example.com]", "https://username@example.com", Some("日本語の タイトル".to_string())),
+            ("[https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf pdfへのリンク]", "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf", Some("pdfへのリンク".to_string())),
+            ("[pdfへのリンク https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf]", "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf", Some("pdfへのリンク".to_string())),
+            ("[https://username@example.com/path/to/url?param=1&newparam=2]", "https://username@example.com/path/to/url?param=1&newparam=2", None),
+            ("[https://google.com https://google.com]", "https://google.com", Some("https://google.com".to_string()))] {
+                println!("parsing {input}");
+                match TabtonLineParser::parse(Rule::expr_url_link, input) {
+                    Ok(mut parsed) => {
+                        if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
+                            match &link.value().kind {
+                                AstNodeKind::Link { link, title } => {
+                                    assert_eq!(link, g_url);
+                                    //assert!(title.is_some());
+                                    assert_eq!(*title, g_title);
+                                }
+                                _ => {
+                                    panic! {"link is not correctly parse {:?}", link};
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("{e}");
+                        return Err(Box::new(e));
+                    }
+                }
+            }
+        Ok(())
     }
 
     // #[test]

@@ -152,6 +152,17 @@ impl HtmlRenderer {
                     write!(output, "<a href=\"{}\">{}</a>", link, link)?;
                 }
             }
+            AstNodeKind::Link { link, title } => {
+                if let Some(title) = title {
+                    write!(
+                        output,
+                        "<a href=\"{}\">{}</a>",
+                        link, title
+                    )?;
+                } else {
+                    write!(output, "<a href=\"{}\">{}</a>", link, link)?;
+                }
+            }
             AstNodeKind::Decoration{ fontsize, italic, underline, deleted } => {
                 let s = match fontsize {
                     isize::MIN..=-3 => "xx-small",

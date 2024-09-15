@@ -1,0 +1,6 @@
+Todo:
+	handle url {@task status=done}
+	handle image {@task status=todo}
+	handle link to localfile {@task status=todo}
+	handle inline math {@task status=todo}
+	better depth and state handling {@task status=todo}
