@@ -6,7 +6,7 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_builtin_symbols|expr_code_inline |expr_url_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
+statement = ${ SOI ~ (expr_img|expr_builtin_symbols|expr_code_inline |expr_url_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
 raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
 // WARN: statement_nestable must be the subset of statement
 statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_wiki_link  | raw_sentence)+ }  //todo url
@@ -18,6 +18,21 @@ symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
 
+expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_path_opts|img_path_alt_opts|img_alt_path_opts) ~ "]"}
+img_path_opts = ${ img_path ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ alt_img ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_alt_path_opts = ${ alt_img ~ WHITE_SPACE_INLINE+ ~ img_path ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path = ${URL | local_file}
+alt_img = ${escaped_string}
+escaped_string = ${ "\"" ~ inner_string ~ "\"" }
+inner_string = ${(!("\\\"") ~ ANY)*}
+img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
+img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
+//local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
+local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|".")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|".") ~ "." ~ ASCII+}
+// /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
+
+
 expr_wiki_link = ${"[" ~ (wiki_link_anchored | wiki_link) ~ "]"}
 wiki_link_anchored = ${ wiki_link ~ expr_anchor}
 wiki_link = @{ (!("[" | "]" | ":" | "." | "/" | "#") ~ ANY)+ }
@@ -28,9 +43,6 @@ expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 expr_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
 expr_url_only = ${url_only}
 expr_url_url = ${url_only ~ WHITE_SPACE_INLINE+ ~ url_only}
-//url_title = @{ (!("[" | "]") ~ non_url_like_char)+}
-//url_title = @{ASCII_ALPHA+}
-//url_title = ${ (!((ASCII_ALPHA+ ~ "://") | "[" | "]") ~ ANY)+}
 url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_char_except_space+)}
 non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
@@ -54,8 +66,8 @@ expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ property_keyword
 //expr_property = ${ "{@" ~ property_name ~ ( WHITE_SPACE_INLINE+ ~ _property_arg  )* ~ "}" }
 property_name = @{ ASCII_ALPHANUMERIC+ }
 property_arg = @{ ASCII_ALPHANUMERIC+ }
-property_keyword_arg = { ASCII_ALPHANUMERIC+ }
-property_keyword_value = { (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
+property_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
 trailing_properties = ${ (WHITE_SPACE_INLINE* ~ (expr_property | expr_anchor))+ }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
