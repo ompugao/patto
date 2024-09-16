@@ -67,6 +67,7 @@ impl HtmlRenderer {
                         _ => {}
                     }
                 }
+
                 for content in ast.value().contents.borrow().iter() {
                     self._format_impl(&content, output)?;
                 }
@@ -93,9 +94,20 @@ impl HtmlRenderer {
                 if ast.value().children.borrow().len() > 0 {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
                     for child in ast.value().children.borrow().iter() {
-                        // TODO handle empty line, needs to insert <br/>
-                        write!(output, "<li>")?;
-                        self._format_impl(&child, output)?;
+                        // TODO stealing the internal content, not efficient
+                        let mut bufcur = io::Cursor::new(Vec::<u8>::new());
+                        self._format_impl(&child, &mut bufcur)?;
+                        let s = unsafe {String::from_utf8_unchecked(bufcur.into_inner())};
+                        if s.len() == 0 {
+                            write!(output, "<li style=\"list-style-type: none\">")?;
+                            write!(output, "{}<br/>", s)?;
+                        } else {
+                            write!(output, "<li>")?;
+                            write!(output, "{}", s)?;
+                        }
+                        // no stealing:
+                        // write!(output, "<li>")?;
+                        // self._format_impl(&child, output)?;
                         write!(output, "</li>")?;
                     }
                     write!(output, "</ul>")?;
