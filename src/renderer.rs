@@ -95,6 +95,8 @@ impl HtmlRenderer {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
                     for child in ast.value().children.borrow().iter() {
                         // TODO stealing the internal content, not efficient
+                        // implement a trait that overloads `write' function that counts the
+                        // written bytes
                         let mut bufcur = io::Cursor::new(Vec::<u8>::new());
                         self._format_impl(&child, &mut bufcur)?;
                         let s = unsafe {String::from_utf8_unchecked(bufcur.into_inner())};
