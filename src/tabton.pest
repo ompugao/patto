@@ -18,18 +18,26 @@ symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
 
-expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_path_opts|img_path_alt_opts|img_alt_path_opts) ~ "]"}
-img_path_opts = ${ img_path ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
-img_path_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ alt_img ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
-img_alt_path_opts = ${ alt_img ~ WHITE_SPACE_INLINE+ ~ img_path ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
-img_path = ${URL | local_file}
+expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_alt_path_opts|img_path_alt_opts|img_path_opts) ~ "]"}
+img_alt_path_opts = ${ alt_img ~ WHITE_SPACE_INLINE+ ~ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ alt_img} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path_opts = ${ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path = ${(URL | local_file)}
 alt_img = ${escaped_string}
+// see https://github.com/pest-parser/book/blob/master/src/examples/rust/literals.md#strings
 escaped_string = ${ "\"" ~ inner_string ~ "\"" }
-inner_string = ${(!("\\\"") ~ ANY)*}
+inner_string = ${ (raw_string|escape)*}
+raw_string = @{ (!("\\" | "\"") ~ ANY)+ }
+predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
+hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+unicode_hex = { hex{1, 6} }
+byte       = { "x" ~ hex{2} }
+unicode    = { "u" ~ "{" ~ unicode_hex ~ "}" }
+escape     = @{ "\\" ~ (predefined | byte | unicode) }
 img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 //local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
-local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|".")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|".") ~ "." ~ ASCII+}
+local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|".")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ ~ "." ~ LETTER+}
 // /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
 
 

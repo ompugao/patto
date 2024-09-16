@@ -139,7 +139,11 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Image { src, alt } => {
-                write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src)?;
+                if let Some(alt) = alt {
+                    write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src)?;
+                } else {
+                    write!(output, "<img src=\"{}\"/>", src)?;
+                }
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {

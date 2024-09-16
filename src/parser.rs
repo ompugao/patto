@@ -173,7 +173,7 @@ pub enum AstNodeKind {
     Table,
     Image {
         src: String,
-        alt: String,
+        alt: Option<String>,
     },
     WikiLink {
         link: String,
@@ -296,6 +296,9 @@ impl<'a> AstNode<'a> {
     }
     pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
+    }
+    pub fn image(input: &'a str, row: usize, span: Option<Span>, src: &'a str, alt: Option<&'a str>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::Image{src: src.to_string(), alt: alt.map(str::to_string)}))
     }
     pub fn decoration(
         input: &'a str,
@@ -461,6 +464,64 @@ fn transform_command<'a>(
     }
     None
 }
+
+fn transform_img<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode<'a>> {
+    let span = Into::<Span>::into(pair.as_span()) + indent;
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::img_alt_path_opts => {
+            let mut inner2 = inner.into_inner();
+            let alt_img = inner2.next().unwrap().into_inner().next().unwrap().into_inner().next().unwrap().as_str();
+            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
+            // inner2.chunks(2).map(|(k,v)| {
+            //     match k.unwrap().as_str() {
+            //         "width" => {
+            //             match v.parse::<isize>() {
+            //                 Ok(v) => 
+            //     }
+            // }
+            return Some(AstNode::image(
+                line,
+                row,
+                Some(span),
+                img_path,
+                Some(alt_img),
+            ));
+        }
+        Rule::img_path_alt_opts => {
+            let mut inner2 = inner.into_inner();
+            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
+            let alt_img = inner2.next().unwrap().into_inner().next().unwrap().into_inner().next().unwrap().as_str();
+            return Some(AstNode::image(
+                line,
+                row,
+                Some(span),
+                img_path,
+                Some(alt_img),
+            ));
+        }
+        Rule::img_path_opts => {
+            let mut inner2 = inner.into_inner();
+            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
+            return Some(AstNode::image(
+                line,
+                row,
+                Some(span),
+                img_path,
+                None,
+            ));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+}
+
 
 /// assuming pair is expr_wiki_link
 fn transform_wiki_link<'a>(
@@ -653,7 +714,9 @@ pub fn transform_statement<'a, 'b>(
         // println!("---- {:?}", inner.as_rule());
         match inner.as_rule() {
             Rule::expr_img => {
-                todo!("impl expr_img");
+                if let Some(node) = transform_img(inner, line, row, indent) {
+                    nodes.push(node);
+                }
             }
             Rule::expr_builtin_symbols => {
                 let s = Some(Into::<Span>::into(inner.as_span()) + indent);
@@ -914,42 +977,42 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_code_inline_text_anchor() {
+    fn test_parse_code_inline_text_anchor() -> Result<(), Box<dyn std::error::Error>>{
         let input = "[` inline ![] code 123`] raw text #anchor";
-        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::statement, input) {
-            let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-            //assert_eq!(code.extract_str(), "inline code 123");
-            let code = &nodes[0];
-            match code.value().kind {
-                AstNodeKind::Code { ref lang, inline } => {
-                    assert_eq!(lang, "");
-                    assert_eq!(inline, true);
-                }
-                _ => {
-                    println!("{:?}", code);
-                    panic! {"it is weird"};
-                }
+        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        //assert_eq!(code.extract_str(), "inline code 123");
+        let code = &nodes[0];
+        match code.value().kind {
+            AstNodeKind::Code { ref lang, inline } => {
+                assert_eq!(lang, "");
+                assert_eq!(inline, true);
             }
-            //println!("{:?}", code.value.contents[0].extract_str());
-            //
-            let raw_text = &nodes[1];
-            if let AstNodeKind::Text = raw_text.value().kind {
-                assert_eq!(
-                    &raw_text.location().input
-                        [raw_text.location().span.0..raw_text.location().span.1],
-                    " raw text "
-                );
-            } else {
-                panic!("text not extracted");
-            }
-
-            assert!(props.is_some());
-            if let Property::Anchor { ref name } = props.unwrap()[0] {
-                assert_eq!(name, "anchor");
-            } else {
-                panic!("anchor is not extracted properly");
+            _ => {
+                println!("{:?}", code);
+                panic! {"it is weird"};
             }
         }
+        //println!("{:?}", code.value.contents[0].extract_str());
+        //
+        let raw_text = &nodes[1];
+        if let AstNodeKind::Text = raw_text.value().kind {
+            assert_eq!(
+                &raw_text.location().input
+                    [raw_text.location().span.0..raw_text.location().span.1],
+                " raw text "
+            );
+        } else {
+            panic!("text not extracted");
+        }
+
+        assert!(props.is_some());
+        if let Property::Anchor { ref name } = props.unwrap()[0] {
+            assert_eq!(name, "anchor");
+        } else {
+            panic!("anchor is not extracted properly");
+        }
+        Ok(())
     }
 
     #[test]
@@ -994,18 +1057,29 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_url_title() -> Result<(), Box<dyn std::error::Error>>{
-        let input = "goog   le   https://google.com";
-        match TabtonLineParser::parse(Rule::url_title, input) {
-            Ok(mut parsed) => {
-                println!("`{}`", parsed.as_str());
-                Ok(())
-            }
-            Err(e) => {
-                println!("{e}");
-                Err(Box::new(e))
+    fn test_parse_img() -> Result<(), Box<dyn std::error::Error>>{
+        for (input, g_path, g_alt) in vec![
+            ("[@img \"img alt title\" https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
+            ("[@img https://gyazo.com/path/to/icon.png \"img alt title\"]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
+            ("[@img https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", None),
+            (r##"[@img ./local/path/to/icon.png "img escaped \"alt title"]"##, "./local/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string()))] {
+            match TabtonLineParser::parse(Rule::expr_img, input) {
+                Ok(mut parsed) => {
+                    let node = transform_img(parsed.next().unwrap(), input, 0, 0).ok_or("transform_img failed")?;
+                    if let AstNodeKind::Image{src, alt} = &node.value().kind {
+                        assert_eq!(src, g_path);
+                        assert_eq!(*alt, g_alt);
+                    } else {
+                        panic!{"image is not correctly transformed"};
+                    }
+                }
+                Err(e) => {
+                    println!("{e}");
+                    return Err(Box::new(e));
+                }
             }
         }
+        Ok(())
     }
 
 
