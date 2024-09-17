@@ -15,9 +15,9 @@ struct Cli {
     output: PathBuf,
 }
 
-mod parser;
-mod renderer;
-use crate::renderer::Renderer;
+use tabton::parser;
+use tabton::renderer;
+use tabton::renderer::Renderer;
 //use std::io::{self, BufRead};
 
 
