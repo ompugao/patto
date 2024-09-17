@@ -2,6 +2,7 @@ use chrono;
 use pest::Parser;
 use pest_derive::Parser;
 use std::cell::RefCell;
+use std::cmp;
 use std::fmt;
 use std::ops;
 use std::rc::Rc;
@@ -12,7 +13,7 @@ use pest::iterators::Pair;
 
 #[derive(Parser)]
 #[grammar = "tabton.pest"]
-pub struct TabtonLineParser;
+struct TabtonLineParser;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Span(pub usize, pub usize);
@@ -378,6 +379,59 @@ impl<'a> fmt::Display for AstNode<'a> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum ParsingState {
+    Line,
+    Quote,
+    Code,
+    Math,
+    Table,
+}
+
+fn find_parent_line<'b>(parent: AstNode<'b>, depth: usize) -> Option<AstNode<'b>> {
+    if depth == 0 {
+        return Some(parent);
+    }
+    let Some(last_child_line) = parent
+        .value()
+        .children
+        .borrow()
+        .iter()
+        .filter_map(|e| match e.value().kind {
+            AstNodeKind::Line { .. } => Some(e.clone()),
+            _ => None,
+        })
+        .last()
+    else {
+        return None;
+    };
+    return find_parent_line(last_child_line, depth - 1);
+}
+
+// fn create_dummy_line<'a, 'b>(
+//     parent: &'a mut AstNode<'b>,
+//     depth: usize,
+// ) -> Option<&'a mut AstNode<'b>> {
+//     if depth == 0 {
+//         return Some(&mut AstNode::line("", 0, None));
+//     }
+//     if let Some(ref mut last_child_line) = parent
+//         .value
+//         .children.borrow()
+//         .iter()
+//         .filter_map(|e| match e.value.kind {
+//             AstNodeKind::Line { .. } => Some(e),
+//             _ => None,
+//         })
+//         .last() {
+//         return create_dummy_line(last_child_line, depth - 1);
+//     } else {
+//         let mut newline = AstNode::line("", 0, None);
+//         let mut ret = create_dummy_line(&mut newline, depth-1);
+//         parent.value.children.borrow_mut().push(newline);
+//         return ret;
+//     };
+// }
 #[derive(Error, Debug)]
 pub enum ParserError<'a> {
     #[error("Invalid indent: {0}")]
@@ -388,7 +442,216 @@ pub enum ParserError<'a> {
     UnexpectedToken(String),
 }
 
-pub fn parse_command_line(
+pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
+    let indent_content_len: Vec<_> = (&text).lines().map(|l| {
+        let mut itr = l.chars();
+        let indent = itr.by_ref().take_while(|&c| c == '\t').count();
+        let content_len = itr.count();
+        (indent, content_len)
+    }).collect();
+    let numlines = indent_content_len.len();
+
+    let root = AstNode::new(&text, 0, None, Some(AstNodeKind::Dummy));
+
+    let mut parsing_state: ParsingState = ParsingState::Line;
+    let mut parsing_depth = 0;
+
+    let mut errors: Vec<ParserError> = Vec::new();
+    // for (iline, ((indent, content_len), linetext)) in
+    //     indent_content_len.zip(text.lines()).enumerate()
+    for (iline, linetext) in text.lines().enumerate() {
+        let (indent, content_len) = indent_content_len[iline];
+        // let depth = if (parsing_state != ParsingState::Line && indent > parsing_depth) {
+        //     parsing_depth
+        // } else {
+        //     indent
+        // };
+        
+        // TODO can be O(n^2) where n = numlines
+        let mut depth = indent;
+        if parsing_state != ParsingState::Line {
+            // search which line code/math/quote/table block will continue until
+            let mut inblock = false;
+            for jline in iline..numlines {
+                let (jindent, jcontent_len) = indent_content_len[jline];
+                if jindent >= parsing_depth {
+                    inblock = true;
+                    break;
+                }
+                if jindent == 0 && jcontent_len == 0 {
+                    continue;
+                } else {
+                    inblock = false;
+                    break;
+                }
+            }
+            if inblock {
+                // this line is in block
+                depth = parsing_depth;
+            } else {
+                // this line is not in block, translating to line-parsing mode
+                parsing_state = ParsingState::Line;
+                parsing_depth = indent;
+                depth = indent;
+            }
+        } else {
+            println!("content_len: {content_len}");
+            if content_len == 0 {
+                depth = parsing_depth;
+            }
+        }
+        println!("depth: {depth}, parsing_depth: {parsing_depth}");
+
+        let parent: AstNode<'_> =
+            find_parent_line(root.clone(), depth).unwrap_or_else(|| {
+                println!("Failed to find parent, depth {depth}");
+                errors.push(ParserError::InvalidIndentation(Location {
+                    input: &linetext,
+                    row: iline,
+                    span: Span(depth, depth + 1),
+                }));
+                //TODO create_dummy_line(&mut root, depth).unwrap()
+                root.clone()
+            });
+
+        if parsing_state != ParsingState::Line {
+            if parsing_state == ParsingState::Quote  {
+                let quote = parent.value().contents.borrow().last().expect("no way! should be quote block").clone();
+                match TabtonLineParser::parse(Rule::statement_nestable, &linetext[cmp::min(depth, indent)..]) {
+                    Ok(mut parsed) => {
+                        let (nodes, props) = transform_statement(
+                            parsed.next().unwrap(),
+                            linetext,
+                            iline,
+                            depth,
+                        );
+                        // TODO should be text rather than line?
+                        let newline = AstNode::line(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len())), props);
+                        newline.add_contents(nodes);
+                        quote.add_child(newline);
+                    }
+                    Err(e) => {
+                        // TODO accumulate error
+                        let newline = AstNode::line(&linetext, iline, None, None);
+                        newline.add_content(AstNode::text(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len()))));
+                        quote.add_child(newline);
+                    }
+                }
+                continue;
+            } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
+                let block = parent.value().contents.borrow().last().expect("no way! should be code or math block").clone();
+                let text = AstNode::text(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len())));
+                block.add_child(text);
+                continue;
+            } else {
+                let table = parent.value().contents.borrow().last().expect("no way! should be table block").clone();
+                todo!("table rows might have empty lines, do not start from `depth'");
+                let columntexts = &linetext[depth..].split('\t');
+                let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
+                let columns = columntexts.to_owned().zip(span_starts)
+                    .map(|(t, c)| (TabtonLineParser::parse(Rule::statement_nestable, t), c))
+                    .map(|(ret, c)| {
+                        match ret {
+                            Ok(mut parsed) => {
+                                let inner = parsed.next().unwrap();
+                                let span = Into::<Span>::into(inner.as_span()) + c;
+                                let (nodes, _) = transform_statement(
+                                    inner,
+                                    linetext,
+                                    iline,
+                                    depth,
+                                );
+                                let column = AstNode::tablecolumn(&linetext, iline, Some(span));
+                                column.add_contents(nodes);
+                                return column;
+                            }
+                            Err(e) => {
+                                let span = Span(c, c + e.line().len());  // TODO is this correct span?
+                                let column = AstNode::tablecolumn(&linetext, iline, Some(span.clone()));
+                                column.add_content(AstNode::text(&linetext, iline, Some(span)));
+                                return column;
+                            }}
+                    }).collect();
+                let newline = AstNode::line(&linetext, iline, Some(Span(depth, linetext.len())), None);
+                newline.add_contents(columns);
+                table.add_child(newline);
+                continue;
+            }
+        }
+
+        // TODO gather parsing errors
+        let (has_command, props) = parse_command_line(&linetext, 0, cmp::min(depth, indent));
+        println!("==============================");
+        if let Some(command_node) = has_command {
+            println!("parsed command: {:?}", command_node.extract_str());
+            match &command_node.value().kind {
+                AstNodeKind::Quote => {
+                    parsing_state = ParsingState::Quote;
+                    parsing_depth = depth + 1;
+                }
+                AstNodeKind::Code{..} => {
+                    parsing_state = ParsingState::Code;
+                    parsing_depth = depth + 1;
+                }
+                AstNodeKind::Math{..} => {
+                    parsing_state = ParsingState::Math;
+                    parsing_depth = depth + 1;
+                }
+                AstNodeKind::Table => {
+                    parsing_state = ParsingState::Table;
+                    parsing_depth = depth + 1;
+                }
+                _ => {
+                    parsing_state = ParsingState::Line;
+                    parsing_depth = depth;
+                }
+            }
+            let newline = AstNode::line(&linetext, iline, None, Some(props));
+            newline.add_content(command_node);
+            parent.add_child(newline);
+        } else {
+            println!("---- input ----");
+            println!("{}", &linetext[cmp::min(depth,indent)..]);
+            // TODO error will never happen since raw_sentence will match finally(...?)
+            match TabtonLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
+                Ok(mut parsed) => {
+                    println!("---- parsed ----");
+                    println!("{:?}", parsed);
+                    println!("---- result ----");
+                    let (nodes, props) = transform_statement(
+                        parsed.next().unwrap(),
+                        linetext,
+                        iline,
+                        cmp::min(depth, indent),
+                    );
+                    let newline = AstNode::line(&linetext, iline, None, props);
+                    newline.add_contents(nodes);
+                    println!("{newline}");
+                    parent.add_child(newline);
+                }
+                Err(e) => {
+                    // TODO accumulate error
+                    println!("parsing statement error!: {}", e);
+                    println!("{:?}", e);
+                    let newline = AstNode::line(&linetext, iline, None, None);
+                    newline.add_content(AstNode::text(&linetext, iline, None));
+                    parent.add_child(newline);
+                }
+            }
+            // parsing_state = ParsingState::Line;
+            parsing_depth = depth;
+        }
+    }
+    root
+    //println!("{:?}", parsed);
+    //println!("parsed result:");
+    //for pair in parsed.into_inner() {
+    //    parse_value
+    //}
+}
+
+
+fn parse_command_line(
     line: &str,
     row: usize,
     indent: usize,
@@ -701,7 +964,7 @@ fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
     Some(properties)
 }
 
-pub fn transform_statement<'a, 'b>(
+fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
     line: &'a str,
     row: usize,
