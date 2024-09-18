@@ -1,0 +1,7 @@
+Todo:
+	handle url {@task status=done}
+	handle image {@task status=done}
+	handle link to localfile {@task status=todo}
+	handle inline math {@task status=todo}
+	better depth and state handling {@task status=todo}
+	support abbrev task, like [` !2024-09-24T13:00 `]

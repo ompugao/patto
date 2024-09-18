@@ -1,0 +1,85 @@
+// Pest can parse indentation-sensitive language.
+// https://pest.rs/book/grammars/syntax.html#indentation-sensitive-languages
+//
+// However, we do special care of newline in indentation for code/quote blocks, which makes it difficult to consider parser syntax.
+// Instead, we use pest only for parsing each line, and manually analyze indentations, constructing structures.
+
+line = ${ expr_command | statement }
+//statement = ${ raw_sentence ~ trailing_properties }
+statement = ${ SOI ~ (expr_img|expr_builtin_symbols|expr_code_inline |expr_url_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
+raw_sentence = @{ (!("[" | "]" | "{@" | expr_anchor) ~ ANY)+ }
+// WARN: statement_nestable must be the subset of statement
+statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_wiki_link  | raw_sentence)+ }  //todo url
+
+expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
+builtin_symbols = { (symbol_bold | symbol_italic | symbol_underline | symbol_deleted)+ }
+symbol_bold = @{"*"}
+symbol_italic = @{"/"}
+symbol_underline = @{"_"}
+symbol_deleted = @{"-"}
+
+expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_alt_path_opts|img_path_alt_opts|img_path_opts) ~ "]"}
+img_alt_path_opts = ${ alt_img ~ WHITE_SPACE_INLINE+ ~ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ alt_img} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path_opts = ${ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_path = ${(URL | local_file)}
+alt_img = ${escaped_string}
+// see https://github.com/pest-parser/book/blob/master/src/examples/rust/literals.md#strings
+escaped_string = ${ "\"" ~ inner_string ~ "\"" }
+inner_string = ${ (raw_string|escape)*}
+raw_string = @{ (!("\\" | "\"") ~ ANY)+ }
+predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
+hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+unicode_hex = { hex{1, 6} }
+byte       = { "x" ~ hex{2} }
+unicode    = { "u" ~ "{" ~ unicode_hex ~ "}" }
+escape     = @{ "\\" ~ (predefined | byte | unicode) }
+img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
+img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
+//local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
+local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|".")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ ~ "." ~ LETTER+}
+// /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
+
+
+expr_wiki_link = ${"[" ~ (wiki_link_anchored | wiki_link) ~ "]"}
+wiki_link_anchored = ${ wiki_link ~ expr_anchor}
+wiki_link = @{ (!("[" | "]" | ":" | "." | "/" | "#") ~ ANY)+ }
+
+// TODO url, image
+expr_url_link = ${"[" ~ (expr_title_url | expr_url_title | expr_url_url | expr_url_only )  ~ "]"}
+expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
+expr_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
+expr_url_only = ${url_only}
+expr_url_url = ${url_only ~ WHITE_SPACE_INLINE+ ~ url_only}
+url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_char_except_space+)}
+non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
+url_only = ${URL}
+non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
+URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "-" | "_")+}
+
+expr_command_line = ${ expr_command ~ trailing_properties? }
+expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}
+builtin_commands = { command_code | command_math | command_quote } //todo table
+command_code = @{"code"}
+command_math = @{"math"}
+command_quote = @{"quote"}
+command_table = @{"table"}
+parameter = @{ (LETTER|CJK)+ }
+
+expr_code_inline = ${ "[`" ~ WHITE_SPACE_INLINE* ~ code_inline ~ "`]" }
+code_inline = @{ code_inline_char* }
+code_inline_char = _{ !"`]" ~ ANY }
+
+expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ property_keyword_arg ~ "=" ~ property_keyword_value)* ~ "}" }
+//expr_property = ${ "{@" ~ property_name ~ ( WHITE_SPACE_INLINE+ ~ _property_arg  )* ~ "}" }
+property_name = @{ ASCII_ALPHANUMERIC+ }
+property_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
+
+trailing_properties = ${ (WHITE_SPACE_INLINE* ~ (expr_property | expr_anchor))+ }  // ignore white spaces
+expr_anchor = ${ "#" ~ anchor }
+anchor = @{ (ASCII_ALPHANUMERIC|CJK)+ }
+
+WHITE_SPACE_INLINE = _{ " " | "\t" }
+CJK = _{ HAN | HIRAGANA | KATAKANA | HANGUL | BOPOMOFO }
