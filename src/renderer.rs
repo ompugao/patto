@@ -27,9 +27,9 @@ impl Renderer for HtmlRenderer {
         write!(output, "</head>\n")?;
 
         //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/yegor256/tacit@gh-pages/tacit-css-1.8.1.min.css\"/>\n")?;
-        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css\" type=\"text/css\" media=\"screen\">\n");
+        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css\" type=\"text/css\" media=\"screen\">\n")?;
         //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-dark.css\" type=\"text/css\">\n");
-        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n");
+        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n")?;
         write!(output, "<body style=\"max-width: max-content\">\n")?;
         write!(output, "<section style=\"width: 1920px; max-width: 100%;\">\n")?;
         write!(output, "<article>\n")?;
