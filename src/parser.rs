@@ -7,6 +7,7 @@ use std::fmt;
 use std::ops;
 use std::rc::Rc;
 use thiserror::Error;
+use log;
 
 use pest;
 use pest::iterators::Pair;
@@ -495,16 +496,16 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
                 depth = indent;
             }
         } else {
-            println!("content_len: {content_len}");
+            log::debug!("content_len: {content_len}");
             if content_len == 0 {
                 depth = parsing_depth;
             }
         }
-        println!("depth: {depth}, parsing_depth: {parsing_depth}");
+        log::debug!("depth: {depth}, parsing_depth: {parsing_depth}");
 
         let parent: AstNode<'_> =
             find_parent_line(root.clone(), depth).unwrap_or_else(|| {
-                println!("Failed to find parent, depth {depth}");
+                log::warn!("Failed to find parent, depth {depth}");
                 errors.push(ParserError::InvalidIndentation(Location {
                     input: &linetext,
                     row: iline,
@@ -581,9 +582,9 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
 
         // TODO gather parsing errors
         let (has_command, props) = parse_command_line(&linetext, 0, cmp::min(depth, indent));
-        println!("==============================");
+        log::debug!("==============================");
         if let Some(command_node) = has_command {
-            println!("parsed command: {:?}", command_node.extract_str());
+            log::debug!("parsed command: {:?}", command_node.extract_str());
             match &command_node.value().kind {
                 AstNodeKind::Quote => {
                     parsing_state = ParsingState::Quote;
@@ -610,14 +611,14 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
             newline.add_content(command_node);
             parent.add_child(newline);
         } else {
-            println!("---- input ----");
-            println!("{}", &linetext[cmp::min(depth,indent)..]);
+            log::debug!("---- input ----");
+            log::debug!("{}", &linetext[cmp::min(depth,indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
             match TabtonLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
-                    println!("---- parsed ----");
-                    println!("{:?}", parsed);
-                    println!("---- result ----");
+                    log::debug!("---- parsed ----");
+                    log::debug!("{:?}", parsed);
+                    log::debug!("---- result ----");
                     let (nodes, props) = transform_statement(
                         parsed.next().unwrap(),
                         linetext,
@@ -626,13 +627,13 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
                     );
                     let newline = AstNode::line(&linetext, iline, None, props);
                     newline.add_contents(nodes);
-                    println!("{newline}");
+                    log::debug!("{newline}");
                     parent.add_child(newline);
                 }
                 Err(e) => {
                     // TODO accumulate error
-                    println!("parsing statement error!: {}", e);
-                    println!("{:?}", e);
+                    log::warn!("parsing statement error!: {}", e);
+                    log::warn!("{:?}", e);
                     let newline = AstNode::line(&linetext, iline, None, None);
                     newline.add_content(AstNode::text(&linetext, iline, None));
                     parent.add_child(newline);
@@ -643,11 +644,6 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
         }
     }
     root
-    //println!("{:?}", parsed);
-    //println!("parsed result:");
-    //for pair in parsed.into_inner() {
-    //    parse_value
-    //}
 }
 
 
@@ -701,12 +697,12 @@ fn transform_command<'a>(
                     if let Some(lang_part) = inner.next() {
                         lang = lang_part.as_str();
                     } else {
-                        println!("No language specified for code block");
+                        log::warn!("No language specified for code block");
                     }
                     return Some(AstNode::code(line, row, Some(span), lang, false));
                 }
                 Rule::parameter => {
-                    println!(
+                    log::warn!(
                         "parameter must have already been consumed: {}",
                         command.as_str()
                     );
@@ -719,7 +715,7 @@ fn transform_command<'a>(
             }
         }
         _ => {
-            println!(
+            log::warn!(
                 "Do you provide other than expr_command to fn transform_command: {:?}",
                 pair.as_rule()
             );
@@ -898,7 +894,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             let mut inner = pair.into_inner();
             let property_name = inner.next().unwrap().as_str();
             if property_name != "task" {
-                println!("Unknown property: {}", property_name);
+                log::warn!("Unknown property: {}", property_name);
                 return None;
             }
 
@@ -920,7 +916,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                             } else if value == "done" {
                                 status = TaskStatus::Done;
                             } else {
-                                println!("Unknown task status: '{}', interpreted as 'todo'", value);
+                                log::warn!("Unknown task status: '{}', interpreted as 'todo'", value);
                             }
                         } else if current_key == "until" {
                             if let Ok(datetime) =
@@ -935,7 +931,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                                 until = Deadline::Uninterpretable(value.to_string());
                             }
                         } else {
-                            println!("Unknown property value: {}", value);
+                            log::warn!("Unknown property value: {}", value);
                         }
                     }
                     _ => {
@@ -974,7 +970,6 @@ fn transform_statement<'a, 'b>(
     let mut props: Vec<Property> = vec![];
 
     for inner in pair.into_inner() {
-        // println!("---- {:?}", inner.as_rule());
         match inner.as_rule() {
             Rule::expr_img => {
                 if let Some(node) = transform_img(inner, line, row, indent) {
@@ -990,7 +985,6 @@ fn transform_statement<'a, 'b>(
                 let mut underline = false;
                 let mut deleted = false;
                 for symbol in symbols.into_inner() {
-                    // println!("==== {:?}", symbol.as_rule());
                     match symbol.as_rule() {
                         Rule::symbol_bold => {
                             boldsize += 1;
@@ -1075,7 +1069,7 @@ fn transform_statement<'a, 'b>(
                 continue;
             }
             _ => {
-                println!("{:?} not implemented", inner.as_rule());
+                log::warn!("{:?} not implemented", inner.as_rule());
                 unreachable!()
             }
         }
@@ -1386,7 +1380,7 @@ mod tests {
     // fn test_parse_error() {
     //     let err = TabtonLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
     //     println!("{:?}", err);
-    //     println!("{:?}", err.variant.message());
+    //     log::debug!("{:?}", err.variant.message());
     //     todo!();
     //     ()
     // }

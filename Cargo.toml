@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
+log = "0.4.22"
 pest = "2.7.11"
 pest_derive = "2.7.11"
 thiserror = "1.0.63"
