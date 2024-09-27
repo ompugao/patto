@@ -3,6 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
+use crate::utils::{get_twitter_embed, get_youtube_id};
 
 #[derive(Debug, Default)]
 pub struct Options {
@@ -189,7 +190,13 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Link { link, title } => {
-                if let Some(title) = title {
+                if let Some(youtube_id) = get_youtube_id(link) {
+                    write!(
+                        output,
+                        "<iframe class=\"videoContainer__video\" width=\"640\" height=\"480\" src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\"></iframe>")?;
+                } else if let Some(embed) = get_twitter_embed(link) {
+                    write!(output, "{}", embed)?;
+                } else if let Some(title) = title {
                     write!(
                         output,
                         "<a href=\"{}\">{}</a>",
