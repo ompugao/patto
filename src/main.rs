@@ -13,6 +13,9 @@ struct Cli {
     /// an output html file
     #[arg(short, long, value_name = "OUTPUT")]
     output: PathBuf,
+    /// theme, light or dark
+    #[arg(short, long, value_name = "THEME")]
+    theme: String,
 }
 
 use tabton::parser;
@@ -26,7 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let rootnode = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
-    let renderer = renderer::HtmlRenderer::new(renderer::Options::default());
+    let options = renderer::Options {
+        theme: args.theme,
+        ..renderer::Options::default()
+    };
+    let renderer = renderer::HtmlRenderer::new(options);
     renderer.format(&rootnode, &mut writer)?;
     Ok(())
 }

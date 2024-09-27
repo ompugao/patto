@@ -5,7 +5,9 @@ use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
 
 #[derive(Debug, Default)]
-pub struct Options {}
+pub struct Options {
+    pub theme: String,
+}
 
 pub trait Renderer {
     fn new(options: Options) -> Self;
@@ -29,7 +31,11 @@ impl Renderer for HtmlRenderer {
         //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/yegor256/tacit@gh-pages/tacit-css-1.8.1.min.css\"/>\n")?;
         write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css\" type=\"text/css\" media=\"screen\">\n")?;
         //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-dark.css\" type=\"text/css\">\n");
-        //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n")?;
+        if self.options.theme == "dark" {
+            write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n")?;
+        } else {
+            write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: light)\">\n")?;
+        }
         write!(output, "<body style=\"max-width: max-content\">\n")?;
         write!(output, "<script type=\"module\">")?;
         write!(output, "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';")?;
