@@ -66,11 +66,12 @@ impl HtmlRenderer {
                 write!(output, "</ul>")?;
             }
             AstNodeKind::Line { properties } => {
+                let mut isdone = false;
                 for property in properties {
                     match property {
                         Property::Task { status, .. } => match status {
                             TaskStatus::Done => {
-                                write!(output, "<del>")?;
+                                isdone = true;
                                 write!(output, "<input type=\"checkbox\" checked disabled/>")?
                             }
                             _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
@@ -79,8 +80,14 @@ impl HtmlRenderer {
                     }
                 }
 
+                if isdone {
+                    write!(output, "<del>")?;
+                }
                 for content in ast.value().contents.borrow().iter() {
                     self._format_impl(&content, output)?;
+                }
+                if isdone {
+                    write!(output, "</del>")?;
                 }
                 if properties.len() > 0 {
                     write!(output, "<aside style=\"float: right; width: 285px; text-align: right\">")?;
@@ -91,7 +98,7 @@ impl HtmlRenderer {
                             }
                             Property::Task { status, until } => match status {
                                 TaskStatus::Done => {
-                                    write!(output, "</del>")?;
+                                    // do nothing
                                 }
                                 _ => {
                                     write!(output, "<mark class=\"task-deadline\">{}</mark>", until)?
