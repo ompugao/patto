@@ -37,3 +37,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     renderer.format(&rootnode, &mut writer)?;
     Ok(())
 }
+
