@@ -16,9 +16,9 @@
   },
   "enabledApiProposals": [],
   "activationEvents": [
-    "onLanguage:tb"
+    "onLanguage:tabton"
   ],
-  "main": "./dist/extension",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {

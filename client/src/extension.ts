@@ -58,7 +58,7 @@ export function activate(context: ExtensionContext): void {
 
 	// Create the language client and start the client.
 	client = new LanguageClient(
-		'tabton-lsp',
+		'tabton-language-server',
 		'Tabton Language Server Example',
 		serverOptions,
 		clientOptions
