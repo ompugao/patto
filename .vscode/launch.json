@@ -38,11 +38,11 @@
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceRoot}",
-        "--extensionTestsPath=${workspaceRoot}/client/out/test/index",
+        "--extensionTestsPath=${workspaceRoot}/dist/test/index",
         "${workspaceRoot}/client/testFixture"
       ],
       "outFiles": [
-        "${workspaceRoot}/client/out/test/**/*.js"
+        "${workspaceRoot}/dist/test/**/*.js"
       ]
     }
   ],
