@@ -354,7 +354,7 @@ impl AstNode {
 impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "extracted: {}\n", self.extract_str())?;
-        for (i, content) in self.value().contents.lock().unwrap().iter().enumerate() {
+        for content in self.value().contents.lock().unwrap().iter() {
             write!(f, "-- {}", content)?;
         }
         if let AstNodeKind::Line { properties } = &self.value().kind {

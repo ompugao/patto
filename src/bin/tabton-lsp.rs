@@ -1,14 +1,15 @@
 use log;
+use std::default;
 use std::fs::File;
 
+use dashmap::DashMap;
+use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use ropey::Rope;
-use dashmap::DashMap;
 
-use tabton::semantic_token::{LEGEND_TYPE};
 use tabton::parser::{self, AstNode, ParserResult};
+use tabton::semantic_token::LEGEND_TYPE;
 
 fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
     let line = rope.try_char_to_line(offset).ok()?;
@@ -33,7 +34,8 @@ impl Backend {
             .insert(params.uri.to_string(), rope.clone());
         let doc = params.text.clone();
         let ParserResult { ast, parse_errors } = parser::parse_text(&doc);
-        let diagnostics = parse_errors.into_iter()
+        let diagnostics = parse_errors
+            .into_iter()
             .filter_map(|item| {
                 let (message, loc) = match item {
                     parser::ParserError::InvalidIndentation(loc) => {
@@ -53,10 +55,14 @@ impl Backend {
             .collect::<Vec<_>>();
 
         self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics.clone(), Some(params.version))
+            .publish_diagnostics(
+                params.uri.clone(),
+                diagnostics.clone(),
+                Some(params.version),
+            )
             .await;
 
-        self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
+        //self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
         self.ast_map.insert(params.uri.to_string(), ast);
         // self.client
         //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
@@ -66,13 +72,10 @@ impl Backend {
     }
 }
 
-
-
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
-       Ok(InitializeResult {
+        Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -124,7 +127,7 @@ impl LanguageServer for Backend {
                 // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(false)),
                 references_provider: Some(OneOf::Left(false)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(false)),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -133,7 +136,7 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "server initialized!")
+            .log_message(MessageType::INFO, "tabton-lsp server initialized!")
             .await;
     }
 
@@ -142,9 +145,6 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.client
-            .log_message(MessageType::INFO, format!("file {} opened!", params.text_document.uri.to_string()))
-            .await;
         self.on_change(TextDocumentItem {
             language_id: "".to_string(),
             uri: params.text_document.uri,
@@ -155,9 +155,6 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
-        self.client
-            .log_message(MessageType::INFO, format!("file {} is changed!", params.text_document.uri))
-            .await;
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
             language_id: "".to_string(),
@@ -180,9 +177,65 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, format!("file {} is closed!", uri))
             .await;
     }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        log::info!("completion triggered");
+        let completions = || -> Option<Vec<CompletionItem>> {
+            let rope = self.document_map.get(&uri.to_string())?;
+            //let ast = self.ast_map.get(&uri.to_string())?;
+            //let char = rope.try_line_to_char(position.line as usize).ok()?;
+            //let offset = char + position.character as usize;
+            let line = rope.get_line(position.line as usize)?;
+            if let Some(prevchar) = line.get_char(position.character as usize - 1) {
+                if prevchar == '@' {
+                    let commands = vec!["code", "math", "table", "quote", "img"];
+                    let completions = commands
+                        .iter()
+                        .map(|x| {
+                            let command = x.to_string();
+                            CompletionItem {
+                                label: command.clone(),
+                                kind: Some(CompletionItemKind::FUNCTION),
+                                filter_text: Some(command.clone()),
+                                insert_text: Some(command),
+                                ..Default::default()
+                            }
+                        })
+                        .collect();
+                    return Some(completions);
+                }
+            }
+            // completion func is not triggered
+            let sline = line.as_str()?;
+            log::debug!("checking inserted command:");
+            if let Some(maybecommand) = sline.rfind('@') {
+                log::debug!("maybe command! {}", sline);
+                match sline[maybecommand..position.character as usize].as_ref() {
+                    "@code" => {
+                        let item = CompletionItem {
+                            label: "code".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("code command".to_string()),
+                            insert_text: Some("[@code ${1:lang}]$0".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    },
+                    &_ => {
+                        return None;
+                    }
+                }
+            }
+            return None;
+        }();
+        Ok(completions.map(CompletionResponse::Array))
+    }
 }
 
-fn init_logger(){
+fn init_logger() {
     simplelog::CombinedLogger::init(vec![
         // simplelog::TermLogger::new(
         //     simplelog::LevelFilter::Warn,
@@ -212,5 +265,5 @@ async fn main() {
     });
     log::info!("Tabton Language Server Protocol started");
     Server::new(stdin, stdout, socket).serve(service).await;
-    log::info!("Tabton Language Server Protocol stopped");
+    log::info!("Tabton Language Server Protocol exits");
 }

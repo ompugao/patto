@@ -2,7 +2,7 @@ use std::fs;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use clap::{Parser as ClapParser, Subcommand};
+use clap::Parser as ClapParser;
 
 #[derive(ClapParser)]
 #[command(version, about, long_about=None)]
