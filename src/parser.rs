@@ -36,6 +36,9 @@ pub struct Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.input)?;
+        // if self.span.0 >= self.input.len() {
+        //     log::warn!("input: {}, span: {:?}", self.input, self.span);
+        // }
         write!(
             f,
             "{}",
@@ -75,7 +78,7 @@ impl Location {
         assert_eq!(self.row, other.row);
         Self {
             row: self.row,
-            input: self.input.clone(),
+            input: Arc::clone(&self.input),
             span: Span(
                 min(self.span.0, other.span.0),
                 max(self.span.1, other.span.1),
@@ -398,7 +401,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
 
 #[derive(Error, Debug)]
 pub enum ParserError {
-    #[error("Invalid indent: {0}")]
+    #[error("Invalid indentation:\n{0}")]
     InvalidIndentation(Location),
     // #[error("Invalid command parameter: {0}")]
     // InvalidCommandParameter(String),
@@ -414,14 +417,14 @@ pub struct ParserResult {
 
 pub fn parse_text(text: &str) -> ParserResult {
     let indent_content_len: Vec<_> = (&text).lines().map(|l| {
-        let mut itr = l.chars();
-        let indent = itr.by_ref().take_while(|&c| c == '\t').count();
-        let content_len = itr.count();
+        let indent = l.chars().take_while(|&c| c == '\t').count();
+        let content_len = l.len() - indent;
         (indent, content_len)
     }).collect();
     let numlines = indent_content_len.len();
 
     let root = AstNode::new(&text, 0, None, Some(AstNodeKind::Dummy));
+    let mut lastlinenode = root.clone();
 
     let mut parsing_state: ParsingState = ParsingState::Line;
     let mut parsing_depth = 0;
@@ -452,7 +455,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                 // this line is in block
                 depth = parsing_depth;
             } else {
-                // this line is not in block, translating to line-parsing mode
+                // this line is not in block, transitioning to line-parsing mode
                 parsing_state = ParsingState::Line;
                 parsing_depth = indent;
                 depth = indent;
@@ -471,10 +474,9 @@ pub fn parse_text(text: &str) -> ParserResult {
                 errors.push(ParserError::InvalidIndentation(Location {
                     input: Arc::from(linetext),
                     row: iline,
-                    span: Span(depth, depth + 1),
+                    span: Span(indent, indent + 1),
                 }));
-                //TODO create_dummy_line(&mut root, depth).unwrap()
-                root.clone()
+                lastlinenode.clone()
             });
 
         let linestart = cmp::min(depth, indent);
@@ -573,6 +575,7 @@ pub fn parse_text(text: &str) -> ParserResult {
             }
             let newline = AstNode::line(&linetext, iline, None, Some(props));
             newline.add_content(command_node);
+            lastlinenode = newline.clone();
             parent.add_child(newline);
         } else {
             log::debug!("---- input ----");
@@ -591,6 +594,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     );
                     let newline = AstNode::line(&linetext, iline, None, props);
                     newline.add_contents(nodes);
+                    lastlinenode = newline.clone();
                     log::debug!("{newline}");
                     parent.add_child(newline);
                 }
@@ -600,6 +604,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     log::warn!("{:?}", e);
                     let newline = AstNode::line(&linetext, iline, None, None);
                     newline.add_content(AstNode::text(&linetext, iline, None));
+                    lastlinenode = newline.clone();
                     parent.add_child(newline);
                 }
             }

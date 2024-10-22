@@ -27,16 +27,17 @@ struct Backend {
 
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
+        log::info!("{}", &params.text);
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());
-        let ParserResult { ast, parse_errors } = parser::parse_text(&params.text);
-        let diagnostics = parse_errors
-            .into_iter()
+        let doc = params.text.clone();
+        let ParserResult { ast, parse_errors } = parser::parse_text(&doc);
+        let diagnostics = parse_errors.into_iter()
             .filter_map(|item| {
                 let (message, loc) = match item {
                     parser::ParserError::InvalidIndentation(loc) => {
-                        (format!("Invalid indentation {}", loc), loc.clone())
+                        (format!("{}", loc), loc.clone())
                     }
                 };
 
@@ -52,9 +53,10 @@ impl Backend {
             .collect::<Vec<_>>();
 
         self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
+            .publish_diagnostics(params.uri.clone(), diagnostics.clone(), Some(params.version))
             .await;
 
+        self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
         self.ast_map.insert(params.uri.to_string(), ast);
         // self.client
         //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
@@ -120,8 +122,8 @@ impl LanguageServer for Backend {
                     ),
                 ),
                 // definition: Some(GotoCapability::default()),
-                definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(true)),
+                definition_provider: Some(OneOf::Left(false)),
+                references_provider: Some(OneOf::Left(false)),
                 rename_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
@@ -141,15 +143,42 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         self.client
-            .log_message(MessageType::INFO, "file opened!")
+            .log_message(MessageType::INFO, format!("file {} opened!", params.text_document.uri.to_string()))
             .await;
         self.on_change(TextDocumentItem {
-            language_id: "tabton".to_string(),
+            language_id: "".to_string(),
             uri: params.text_document.uri,
             text: params.text_document.text,
             version: params.text_document.version,
         })
         .await
+    }
+
+    async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
+        self.client
+            .log_message(MessageType::INFO, format!("file {} is changed!", params.text_document.uri))
+            .await;
+        self.on_change(TextDocumentItem {
+            uri: params.text_document.uri,
+            language_id: "".to_string(),
+            text: std::mem::take(&mut params.content_changes[0].text),
+            version: params.text_document.version,
+        })
+        .await
+    }
+
+    async fn did_save(&self, _: DidSaveTextDocumentParams) {
+        self.client
+            .log_message(MessageType::INFO, "file saved!")
+            .await;
+    }
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        let uri = params.text_document.uri.to_string();
+        self.document_map.remove(&uri);
+        self.ast_map.remove(&uri);
+        self.client
+            .log_message(MessageType::INFO, format!("file {} is closed!", uri))
+            .await;
     }
 }
 

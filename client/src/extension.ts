@@ -16,12 +16,10 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext): void {
-	console.log("Activate!");
-	window.showInformationMessage('hi!');
 	const command = process.env.SERVER_PATH || "tabton-lsp";
 
 	const traceOutputChannel: OutputChannel = window.createOutputChannel("Tabton-Language-Server-trace");
-	traceOutputChannel.appendLine("[tabton-lsp-extension] running" + command);
+	traceOutputChannel.appendLine("[tabton-lsp-extension] Start running " + command);
 	traceOutputChannel.show(true);
 
 	const run: Executable = {
@@ -31,6 +29,7 @@ export function activate(context: ExtensionContext): void {
 				...process.env,
 				// eslint-disable-next-line @typescript-eslint/naming-convention
 				RUST_LOG: "debug",
+				RUST_BACKTRACE: 1,
 			},
 		},
 	};
@@ -46,8 +45,8 @@ export function activate(context: ExtensionContext): void {
 	const clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
 		documentSelector: [
-			{ scheme: "file", language: "tb" },
-			{ scheme: "untitled", language: "tb" },
+			{ scheme: "file", language: "tabton" },
+			{ scheme: "untitled", language: "tabton" },
 		],
 		synchronize: {
 			// Notify the server about file changes to '.clientrc files contained in the workspace
@@ -59,7 +58,7 @@ export function activate(context: ExtensionContext): void {
 	// Create the language client and start the client.
 	client = new LanguageClient(
 		'tabton-language-server',
-		'Tabton Language Server Example',
+		'Tabton Language Server',
 		serverOptions,
 		clientOptions
 	);
