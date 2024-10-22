@@ -1,11 +1,10 @@
 use chrono;
 use pest::Parser;
 use pest_derive::Parser;
-use std::cell::RefCell;
 use std::cmp;
 use std::fmt;
 use std::ops;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use log;
 
@@ -28,13 +27,13 @@ impl ops::Add<usize> for Span {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Location<'a> {
+pub struct Location {
     pub row: usize,
-    pub input: &'a str,
+    pub input: Arc<str>,
     pub span: Span,
 }
 
-impl fmt::Display for Location<'_> {
+impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\n", self.input)?;
         write!(
@@ -51,7 +50,6 @@ impl fmt::Display for Location<'_> {
                 })
                 .collect::<String>()
         )?;
-        //write!(f, "{: <1$}", "", self.span.0)?;
         write!(f, "{:^<1$}", "", self.span.1 - self.span.0)
     }
 }
@@ -70,14 +68,14 @@ impl From<pest::error::InputLocation> for Span {
     }
 }
 
-impl Location<'_> {
+impl Location {
     fn merge(&self, other: &Self) -> Self {
         use std::cmp::{max, min};
         assert_eq!(self.input, other.input);
         assert_eq!(self.row, other.row);
         Self {
             row: self.row,
-            input: self.input,
+            input: self.input.clone(),
             span: Span(
                 min(self.span.0, other.span.0),
                 max(self.span.1, other.span.1),
@@ -91,9 +89,9 @@ impl Location<'_> {
 }
 
 #[derive(Debug, Default)]
-pub struct Annotation<'a, T> {
+pub struct Annotation<T> {
     pub value: T,
-    pub location: Location<'a>,
+    pub location: Location,
 }
 
 //impl<T> fmt::Display for Annotation<'_, T>
@@ -106,9 +104,9 @@ pub struct Annotation<'a, T> {
 //}
 
 #[derive(Debug, Default)]
-pub struct AstNodeInternal<'a> {
-    pub contents: RefCell<Vec<AstNode<'a>>>,
-    pub children: RefCell<Vec<AstNode<'a>>>,
+pub struct AstNodeInternal {
+    pub contents: Mutex<Vec<AstNode>>,
+    pub children: Mutex<Vec<AstNode>>,
     pub kind: AstNodeKind,
     // text will be the string matched with this AstNode.
     // will be used when contents.len() == 0
@@ -205,27 +203,27 @@ pub enum AstNodeKind {
     Dummy,
 }
 
-type AstNodeImpl<'a> = Annotation<'a, AstNodeInternal<'a>>;
+type AstNodeImpl = Annotation<AstNodeInternal>;
 #[derive(Debug)]
-pub struct AstNode<'a>(Rc<Annotation<'a, AstNodeInternal<'a>>>);
+pub struct AstNode(Arc<Annotation<AstNodeInternal>>);
 
-impl<'a> AstNode<'a> {
-    pub fn new(input: &'a str, row: usize, span: Option<Span>, kind: Option<AstNodeKind>) -> Self {
-        AstNode(Rc::new(AstNodeImpl {
+impl AstNode {
+    pub fn new(input: &str, row: usize, span: Option<Span>, kind: Option<AstNodeKind>) -> Self {
+        AstNode(Arc::new(AstNodeImpl {
             value: AstNodeInternal {
-                contents: RefCell::new(vec![]),
-                children: RefCell::new(vec![]),
+                contents: Mutex::new(vec![]),
+                children: Mutex::new(vec![]),
                 kind: kind.unwrap_or(AstNodeKind::Dummy),
             },
             location: Location {
                 row,
-                input,
+                input: Arc::from(input),
                 span: span.unwrap_or(Span(0, input.len())),
             },
         }))
     }
     pub fn line(
-        input: &'a str,
+        input: &str,
         row: usize,
         span: Option<Span>,
         props: Option<Vec<Property>>,
@@ -240,10 +238,10 @@ impl<'a> AstNode<'a> {
         )
     }
     pub fn code(
-        input: &'a str,
+        input: &str,
         row: usize,
         span: Option<Span>,
-        lang: &'a str,
+        lang: &str,
         inline: bool,
     ) -> Self {
         Self::new(
@@ -256,18 +254,18 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
-    pub fn math(input: &'a str, row: usize, span: Option<Span>, inline: bool) -> Self {
+    pub fn math(input: &str, row: usize, span: Option<Span>, inline: bool) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Math { inline }))
     }
-    pub fn quote(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    pub fn quote(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
     }
     pub fn wikilink(
-        input: &'a str,
+        input: &str,
         row: usize,
         span: Option<Span>,
-        link: &'a str,
-        anchor: Option<&'a str>,
+        link: &str,
+        anchor: Option<&str>,
     ) -> Self {
         Self::new(
             input,
@@ -280,11 +278,11 @@ impl<'a> AstNode<'a> {
         )
     }
     pub fn link(
-        input: &'a str,
+        input: &str,
         row: usize,
         span: Option<Span>,
-        link: &'a str,
-        title: Option<&'a str>,
+        link: &str,
+        title: Option<&str>,
     ) -> Self {
         Self::new(
             input,
@@ -296,14 +294,14 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
-    pub fn text(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    pub fn text(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
     }
-    pub fn image(input: &'a str, row: usize, span: Option<Span>, src: &'a str, alt: Option<&'a str>) -> Self {
+    pub fn image(input: &str, row: usize, span: Option<Span>, src: &str, alt: Option<&str>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Image{src: src.to_string(), alt: alt.map(str::to_string)}))
     }
     pub fn decoration(
-        input: &'a str,
+        input: &str,
         row: usize,
         span: Option<Span>,
         fontsize: isize,
@@ -323,38 +321,26 @@ impl<'a> AstNode<'a> {
             }),
         )
     }
-    //pub fn bold(input: &'a str, row: usize, span: Option<Span>, fontsize: isize) -> Self {
-    //    Self::new(input, row, span, Some(AstNodeKind::Bold{isize}))
-    //}
-    //pub fn italic(input: &'a str, row: usize, span: Option<Span>) -> Self {
-    //    Self::new(input, row, span, Some(AstNodeKind::Italic))
-    //}
-    //pub fn underline(input: &'a str, row: usize, span: Option<Span>) -> Self {
-    //    Self::new(input, row, span, Some(AstNodeKind::Underline))
-    //}
-    //pub fn deleted(input: &'a str, row: usize, span: Option<Span>) -> Self {
-    //    Self::new(input, row, span, Some(AstNodeKind::Deleted))
-    //}
-    pub fn tablecolumn(input: &'a str, row: usize, span: Option<Span>) -> Self {
+    pub fn tablecolumn(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::TableColumn))
     }
 
     pub fn clone(&self) -> Self {
-        Self(Rc::clone(&self.0))
+        Self(Arc::clone(&self.0))
     }
-    pub fn value(&self) -> &AstNodeInternal<'a> {
+    pub fn value(&self) -> &AstNodeInternal {
         &self.0.value
     }
-    pub fn add_content(&self, content: AstNode<'a>) {
-        self.value().contents.borrow_mut().push(content);
+    pub fn add_content(&self, content: AstNode) {
+        self.value().contents.lock().unwrap().push(content);
     }
-    pub fn add_contents(&self, contents: Vec<AstNode<'a>>) {
-        self.value().contents.borrow_mut().extend(contents);
+    pub fn add_contents(&self, contents: Vec<AstNode>) {
+        self.value().contents.lock().unwrap().extend(contents);
     }
-    pub fn add_child(&self, child: AstNode<'a>) {
-        self.value().children.borrow_mut().push(child);
+    pub fn add_child(&self, child: AstNode) {
+        self.value().children.lock().unwrap().push(child);
     }
-    pub fn location(&self) -> &Location<'a> {
+    pub fn location(&self) -> &Location {
         &self.0.location
     }
     pub fn extract_str(&self) -> &str {
@@ -362,10 +348,10 @@ impl<'a> AstNode<'a> {
     }
 }
 
-impl<'a> fmt::Display for AstNode<'a> {
+impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "extracted: {}\n", self.extract_str())?;
-        for (i, content) in self.value().contents.borrow().iter().enumerate() {
+        for (i, content) in self.value().contents.lock().unwrap().iter().enumerate() {
             write!(f, "-- {}", content)?;
         }
         if let AstNodeKind::Line { properties } = &self.value().kind {
@@ -373,7 +359,7 @@ impl<'a> fmt::Display for AstNode<'a> {
                 write!(f, "property -- {:?}\n", prop)?;
             }
         }
-        for (i, child) in self.value().children.borrow().iter().enumerate() {
+        for (i, child) in self.value().children.lock().unwrap().iter().enumerate() {
             write!(f, "\t{i}child -- {:?}\n", child)?;
         }
         Ok(())
@@ -389,14 +375,15 @@ enum ParsingState {
     Table,
 }
 
-fn find_parent_line<'b>(parent: AstNode<'b>, depth: usize) -> Option<AstNode<'b>> {
+fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
     if depth == 0 {
         return Some(parent);
     }
     let Some(last_child_line) = parent
         .value()
         .children
-        .borrow()
+        .lock()
+        .unwrap()
         .iter()
         .filter_map(|e| match e.value().kind {
             AstNodeKind::Line { .. } => Some(e.clone()),
@@ -409,41 +396,23 @@ fn find_parent_line<'b>(parent: AstNode<'b>, depth: usize) -> Option<AstNode<'b>
     return find_parent_line(last_child_line, depth - 1);
 }
 
-// fn create_dummy_line<'a, 'b>(
-//     parent: &'a mut AstNode<'b>,
-//     depth: usize,
-// ) -> Option<&'a mut AstNode<'b>> {
-//     if depth == 0 {
-//         return Some(&mut AstNode::line("", 0, None));
-//     }
-//     if let Some(ref mut last_child_line) = parent
-//         .value
-//         .children.borrow()
-//         .iter()
-//         .filter_map(|e| match e.value.kind {
-//             AstNodeKind::Line { .. } => Some(e),
-//             _ => None,
-//         })
-//         .last() {
-//         return create_dummy_line(last_child_line, depth - 1);
-//     } else {
-//         let mut newline = AstNode::line("", 0, None);
-//         let mut ret = create_dummy_line(&mut newline, depth-1);
-//         parent.value.children.borrow_mut().push(newline);
-//         return ret;
-//     };
-// }
 #[derive(Error, Debug)]
-pub enum ParserError<'a> {
+pub enum ParserError {
     #[error("Invalid indent: {0}")]
-    InvalidIndentation(Location<'a>),
-    #[error("Invalid command parameter: {0}")]
-    InvalidCommandParameter(String),
-    #[error("Unexpected token: {0}")]
-    UnexpectedToken(String),
+    InvalidIndentation(Location),
+    // #[error("Invalid command parameter: {0}")]
+    // InvalidCommandParameter(String),
+    // #[error("Unexpected token: {0}")]
+    // UnexpectedToken(String),
 }
 
-pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
+#[derive(Debug)]
+pub struct ParserResult {
+    pub ast: AstNode,
+    pub parse_errors: Vec<ParserError>,
+}
+
+pub fn parse_text(text: &str) -> ParserResult {
     let indent_content_len: Vec<_> = (&text).lines().map(|l| {
         let mut itr = l.chars();
         let indent = itr.by_ref().take_while(|&c| c == '\t').count();
@@ -458,16 +427,9 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
     let mut parsing_depth = 0;
 
     let mut errors: Vec<ParserError> = Vec::new();
-    // for (iline, ((indent, content_len), linetext)) in
-    //     indent_content_len.zip(text.lines()).enumerate()
     for (iline, linetext) in text.lines().enumerate() {
         let (indent, content_len) = indent_content_len[iline];
-        // let depth = if (parsing_state != ParsingState::Line && indent > parsing_depth) {
-        //     parsing_depth
-        // } else {
-        //     indent
-        // };
-        
+
         // TODO can be O(n^2) where n = numlines
         let mut depth = indent;
         if parsing_state != ParsingState::Line {
@@ -503,11 +465,11 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
         }
         log::debug!("depth: {depth}, parsing_depth: {parsing_depth}");
 
-        let parent: AstNode<'_> =
+        let parent: AstNode =
             find_parent_line(root.clone(), depth).unwrap_or_else(|| {
                 log::warn!("Failed to find parent, depth {depth}");
                 errors.push(ParserError::InvalidIndentation(Location {
-                    input: &linetext,
+                    input: Arc::from(linetext),
                     row: iline,
                     span: Span(depth, depth + 1),
                 }));
@@ -515,10 +477,12 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
                 root.clone()
             });
 
+        let linestart = cmp::min(depth, indent);
+
         if parsing_state != ParsingState::Line {
             if parsing_state == ParsingState::Quote  {
-                let quote = parent.value().contents.borrow().last().expect("no way! should be quote block").clone();
-                match TabtonLineParser::parse(Rule::statement_nestable, &linetext[cmp::min(depth, indent)..]) {
+                let quote = parent.value().contents.lock().unwrap().last().expect("no way! should be quote block").clone();
+                match TabtonLineParser::parse(Rule::statement_nestable, &linetext[linestart..]) {
                     Ok(mut parsed) => {
                         let (nodes, props) = transform_statement(
                             parsed.next().unwrap(),
@@ -527,25 +491,25 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
                             depth,
                         );
                         // TODO should be text rather than line?
-                        let newline = AstNode::line(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len())), props);
+                        let newline = AstNode::line(&linetext, iline, Some(Span(linestart, linetext.len())), props);
                         newline.add_contents(nodes);
                         quote.add_child(newline);
                     }
                     Err(e) => {
                         // TODO accumulate error
                         let newline = AstNode::line(&linetext, iline, None, None);
-                        newline.add_content(AstNode::text(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len()))));
+                        newline.add_content(AstNode::text(&linetext, iline, Some(Span(linestart, linetext.len()))));
                         quote.add_child(newline);
                     }
                 }
                 continue;
             } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
-                let block = parent.value().contents.borrow().last().expect("no way! should be code or math block").clone();
-                let text = AstNode::text(&linetext, iline, Some(Span(cmp::min(depth, indent), linetext.len())));
+                let block = parent.value().contents.lock().unwrap().last().expect("no way! should be code or math block").clone();
+                let text = AstNode::text(&linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
             } else {
-                let table = parent.value().contents.borrow().last().expect("no way! should be table block").clone();
+                let table = parent.value().contents.lock().unwrap().last().expect("no way! should be table block").clone();
                 todo!("table rows might have empty lines, do not start from `depth'");
                 let columntexts = &linetext[depth..].split('\t');
                 let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
@@ -581,7 +545,7 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
         }
 
         // TODO gather parsing errors
-        let (has_command, props) = parse_command_line(&linetext, 0, cmp::min(depth, indent));
+        let (has_command, props) = parse_command_line(&linetext, iline, linestart);
         log::debug!("==============================");
         if let Some(command_node) = has_command {
             log::debug!("parsed command: {:?}", command_node.extract_str());
@@ -643,7 +607,7 @@ pub fn parse_text<'a>(text: &'a str) -> AstNode<'a> {
             parsing_depth = depth;
         }
     }
-    root
+    ParserResult{ast: root, parse_errors: errors}
 }
 
 
@@ -677,7 +641,7 @@ fn transform_command<'a>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> Option<AstNode<'a>> {
+) -> Option<AstNode> {
     let span = Into::<Span>::into(pair.as_span()) + indent;
     match pair.as_rule() {
         Rule::expr_command => {
@@ -729,7 +693,7 @@ fn transform_img<'a>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> Option<AstNode<'a>> {
+) -> Option<AstNode> {
     let span = Into::<Span>::into(pair.as_span()) + indent;
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
@@ -741,7 +705,7 @@ fn transform_img<'a>(
             //     match k.unwrap().as_str() {
             //         "width" => {
             //             match v.parse::<isize>() {
-            //                 Ok(v) => 
+            //                 Ok(v) =>
             //     }
             // }
             return Some(AstNode::image(
@@ -788,7 +752,7 @@ fn transform_wiki_link<'a>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> Option<AstNode<'a>> {
+) -> Option<AstNode> {
     let inner = pair.into_inner().next().unwrap(); // wiki_link or wiki_link_anchored
     let span = Into::<Span>::into(inner.as_span()) + indent;
     match inner.as_rule() {
@@ -825,7 +789,7 @@ fn transform_url_link<'a>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> Option<AstNode<'a>> {
+) -> Option<AstNode> {
     let inner = pair.into_inner().next().unwrap();
     let span = Into::<Span>::into(inner.as_span()) + indent;
     match inner.as_rule() {
@@ -965,8 +929,8 @@ fn transform_statement<'a, 'b>(
     line: &'a str,
     row: usize,
     indent: usize,
-) -> (Vec<AstNode<'a>>, Option<Vec<Property>>) {
-    let mut nodes: Vec<AstNode<'a>> = vec![];
+) -> (Vec<AstNode>, Option<Vec<Property>>) {
+    let mut nodes: Vec<AstNode> = vec![];
     let mut props: Vec<Property> = vec![];
 
     for inner in pair.into_inner() {

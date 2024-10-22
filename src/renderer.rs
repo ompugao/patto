@@ -58,7 +58,7 @@ impl HtmlRenderer {
         match &ast.value().kind {
             AstNodeKind::Dummy => {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
-                for child in ast.value().children.borrow().iter() {
+                for child in ast.value().children.lock().unwrap().iter() {
                     write!(output, "<li style=\"list-style-type: none\">")?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
@@ -83,7 +83,7 @@ impl HtmlRenderer {
                 if isdone {
                     write!(output, "<del>")?;
                 }
-                for content in ast.value().contents.borrow().iter() {
+                for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(&content, output)?;
                 }
                 if isdone {
@@ -109,9 +109,9 @@ impl HtmlRenderer {
                     }
                     write!(output, "</aside>")?;
                 }
-                if ast.value().children.borrow().len() > 0 {
+                if ast.value().children.lock().unwrap().len() > 0 {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
-                    for child in ast.value().children.borrow().iter() {
+                    for child in ast.value().children.lock().unwrap().iter() {
                         // TODO stealing the internal content, not efficient
                         // implement a trait that overloads `write' function that counts the
                         // written bytes
@@ -135,7 +135,7 @@ impl HtmlRenderer {
             }
             AstNodeKind::Quote => {
                 write!(output, "<blockquote>")?;
-                for child in ast.value().children.borrow().iter() {
+                for child in ast.value().children.lock().unwrap().iter() {
                     self._format_impl(&child, output)?;
                     write!(output, "<br/>")?;
                 }
@@ -144,11 +144,11 @@ impl HtmlRenderer {
             AstNodeKind::Math{inline} => {
                 if *inline {
                     write!(output, "$$ ")?;
-                    write!(output, "{}", ast.value().contents.borrow()[0].extract_str())?; //TODO html escape?
+                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
                     write!(output, " $$")?;
                 } else {
                     write!(output, "[[ ")?;
-                    for child in ast.value().children.borrow().iter() {
+                    for child in ast.value().children.lock().unwrap().iter() {
                         write!(output, "{}", child.extract_str())?;
                         write!(output, "\n")?;
                     }
@@ -158,19 +158,19 @@ impl HtmlRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "<code>")?;
-                    write!(output, "{}", ast.value().contents.borrow()[0].extract_str())?; //TODO html escape
+                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape
                     write!(output, "</code>")?;
                 } else {
                     //TODO use syntext
                     if lang == "mermaid" {
                         write!(output, "<pre class={}>", lang)?;
-                        for child in ast.value().children.borrow().iter() {
+                        for child in ast.value().children.lock().unwrap().iter() {
                             write!(output, "{}\n", child.extract_str())?;
                         }
                         write!(output, "</pre>")?;
                     } else {
                         write!(output, "<pre><code class={}>", lang)?;
-                        for child in ast.value().children.borrow().iter() {
+                        for child in ast.value().children.lock().unwrap().iter() {
                             write!(output, "{}", child.extract_str())?;
                             write!(output, "<br/>")?;
                         }
@@ -234,7 +234,7 @@ impl HtmlRenderer {
                 if *deleted {
                     write!(output, "<del>")?;
                 }
-                for content in ast.value().contents.borrow().iter() {
+                for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(&content, output)?;
                 }
                 if *deleted {
@@ -253,7 +253,7 @@ impl HtmlRenderer {
             }
             AstNodeKind::Table => {todo!()}
             AstNodeKind::TableColumn => {
-                for content in ast.value().contents.borrow().iter() {
+                for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(&content, output)?;
                 }
             }
