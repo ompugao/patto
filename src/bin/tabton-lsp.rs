@@ -1,5 +1,4 @@
 use log;
-use std::default;
 use std::fs::File;
 
 use dashmap::DashMap;
@@ -10,13 +9,6 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use tabton::parser::{self, AstNode, ParserResult};
 use tabton::semantic_token::LEGEND_TYPE;
-
-fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
-    let line = rope.try_char_to_line(offset).ok()?;
-    let first_char_of_line = rope.try_line_to_char(line).ok()?;
-    let column = offset - first_char_of_line;
-    Some(Position::new(line as u32, column as u32))
-}
 
 #[derive(Debug)]
 struct Backend {
@@ -40,6 +32,9 @@ impl Backend {
                 let (message, loc) = match item {
                     parser::ParserError::InvalidIndentation(loc) => {
                         (format!("{}", loc), loc.clone())
+                    }
+                    parser::ParserError::ParseError(loc, mes) => {
+                        (format!("Failed to parse: {}", mes), loc.clone())
                     }
                 };
 

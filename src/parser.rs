@@ -403,6 +403,8 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
 pub enum ParserError {
     #[error("Invalid indentation:\n{0}")]
     InvalidIndentation(Location),
+    #[error("Failed to parse:\n{1}")]
+    ParseError(Location, String),
     // #[error("Invalid command parameter: {0}")]
     // InvalidCommandParameter(String),
     // #[error("Unexpected token: {0}")]
@@ -498,7 +500,11 @@ pub fn parse_text(text: &str) -> ParserResult {
                         quote.add_child(newline);
                     }
                     Err(e) => {
-                        // TODO accumulate error
+                        errors.push(ParserError::ParseError(Location {
+                            input: Arc::from(linetext),
+                            row: iline,
+                            span: Span(linestart, linetext.len()),
+                        }, e.variant.message().to_string()));
                         let newline = AstNode::line(&linetext, iline, None, None);
                         newline.add_content(AstNode::text(&linetext, iline, Some(Span(linestart, linetext.len()))));
                         quote.add_child(newline);
@@ -601,7 +607,12 @@ pub fn parse_text(text: &str) -> ParserResult {
                 Err(e) => {
                     // TODO accumulate error
                     log::warn!("parsing statement error!: {}", e);
-                    log::warn!("{:?}", e);
+                    // log::warn!("{:?}", e);
+                    errors.push(ParserError::ParseError(Location {
+                        input: Arc::from(linetext),
+                        row: iline,
+                        span: Span(linestart, linetext.len()),
+                    }, e.to_string()));
                     let newline = AstNode::line(&linetext, iline, None, None);
                     newline.add_content(AstNode::text(&linetext, iline, None));
                     lastlinenode = newline.clone();
