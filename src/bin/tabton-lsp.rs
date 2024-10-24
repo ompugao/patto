@@ -176,15 +176,13 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        log::info!("completion triggered");
         let completions = || -> Option<Vec<CompletionItem>> {
             let rope = self.document_map.get(&uri.to_string())?;
             //let ast = self.ast_map.get(&uri.to_string())?;
             //let char = rope.try_line_to_char(position.line as usize).ok()?;
             //let offset = char + position.character as usize;
-            let line = rope.get_line(position.line as usize)?;
-            if let Some(prevchar) = line.get_char(position.character as usize - 1) {
-                if prevchar == '@' {
+            if let Some(context) = params.context {
+                if context.trigger_character.as_deref() == Some("@") {
                     let commands = vec!["code", "math", "table", "quote", "img"];
                     let completions = commands
                         .iter()
@@ -202,30 +200,33 @@ impl LanguageServer for Backend {
                     return Some(completions);
                 }
             }
-            // completion func is not triggered
+            let line = rope.get_line(position.line as usize)?;
             let sline = line.as_str()?;
-            log::debug!("checking inserted command:");
             if let Some(maybecommand) = sline.rfind('@') {
-                log::debug!("maybe command! {}", sline);
-                match sline[maybecommand..position.character as usize].as_ref() {
+                let s = sline[maybecommand..position.character as usize].as_ref();
+                match s {
                     "@code" => {
                         let item = CompletionItem {
-                            label: "code".to_string(),
+                            label: "@code".to_string(),
                             kind: Some(CompletionItemKind::SNIPPET),
                             detail: Some("code command".to_string()),
-                            insert_text: Some("[@code ${1:lang}]$0".to_string()),
+                            //insert_text: Some("[@code ${1:lang}]$0".to_string()),
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                new_text: "[@code ${1:lang}]$0".to_string(),
+                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                             end: Position{line: position.line, character: position.character}}
+                                })),
                             ..Default::default()
                         };
                         return Some(vec![item]);
                     },
-                    &_ => {
-                        return None;
-                    }
+                    &_ => {},
                 }
             }
             return None;
         }();
+        log::debug!("completions: {:?}", completions);
         Ok(completions.map(CompletionResponse::Array))
     }
 }
