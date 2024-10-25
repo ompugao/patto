@@ -31,7 +31,7 @@ impl Backend {
             .filter_map(|item| {
                 let (message, loc) = match item {
                     parser::ParserError::InvalidIndentation(loc) => {
-                        (format!("{}", loc), loc.clone())
+                        (format!("Invalid indentation:\n{}", loc), loc.clone())
                     }
                     parser::ParserError::ParseError(loc, mes) => {
                         (format!("Failed to parse: {}", mes), loc.clone())
@@ -202,7 +202,7 @@ impl LanguageServer for Backend {
             }
             let line = rope.get_line(position.line as usize)?;
             let sline = line.as_str()?;
-            if let Some(maybecommand) = sline.rfind('@') {
+            if let Some(maybecommand) = sline[..position.character as usize].rfind('@') {
                 let s = sline[maybecommand..position.character as usize].as_ref();
                 match s {
                     "@code" => {
@@ -214,6 +214,51 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@code ${1:lang}]$0".to_string(),
+                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                             end: Position{line: position.line, character: position.character}}
+                                })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    },
+                    "@math" => {
+                        let item = CompletionItem {
+                            label: "@math".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("math command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                new_text: "[@math]$0".to_string(),
+                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                             end: Position{line: position.line, character: position.character}}
+                                })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    },
+                    "@quote" => {
+                        let item = CompletionItem {
+                            label: "@quote".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("quote command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                new_text: "[@quote]$0".to_string(),
+                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                             end: Position{line: position.line, character: position.character}}
+                                })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    },
+                    "@img" => {
+                        let item = CompletionItem {
+                            label: "@img".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("img command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                new_text: "[@img ${1:path} ${2:alt_text}]$0".to_string(),
                                 range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
