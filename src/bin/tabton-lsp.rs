@@ -258,7 +258,7 @@ impl LanguageServer for Backend {
                             detail: Some("img command".to_string()),
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: "[@img ${1:path} ${2:alt_text}]$0".to_string(),
+                                new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
                                 range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
