@@ -104,7 +104,6 @@ impl HtmlRenderer {
                                     write!(output, "<mark class=\"task-deadline\">{}</mark>", until)?
                                 }
                             },
-                            _ => {}
                         }
                     }
                     write!(output, "</aside>")?;
