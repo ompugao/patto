@@ -1,6 +1,7 @@
 use log;
 use std::fs::File;
 
+use chrono;
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
@@ -78,7 +79,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec!["[".to_string(), "@".to_string()]),
+                    trigger_characters: Some(vec!["[", "@img", "@math", "@quote", "@table", "@task"].into_iter().map(ToString::to_string).collect()),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
                     ..Default::default()
@@ -178,28 +179,25 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
             let rope = self.document_map.get(&uri.to_string())?;
-            //let ast = self.ast_map.get(&uri.to_string())?;
-            //let char = rope.try_line_to_char(position.line as usize).ok()?;
-            //let offset = char + position.character as usize;
-            if let Some(context) = params.context {
-                if context.trigger_character.as_deref() == Some("@") {
-                    let commands = vec!["code", "math", "table", "quote", "img"];
-                    let completions = commands
-                        .iter()
-                        .map(|x| {
-                            let command = x.to_string();
-                            CompletionItem {
-                                label: command.clone(),
-                                kind: Some(CompletionItemKind::FUNCTION),
-                                filter_text: Some(command.clone()),
-                                insert_text: Some(command),
-                                ..Default::default()
-                            }
-                        })
-                        .collect();
-                    return Some(completions);
-                }
-            }
+            // if let Some(context) = params.context {
+            //     if context.trigger_character.as_deref() == Some("@") {
+            //         let commands = vec!["code", "math", "table", "quote", "img"];
+            //         let completions = commands
+            //             .iter()
+            //             .map(|x| {
+            //                 let command = x.to_string();
+            //                 CompletionItem {
+            //                     label: command.clone(),
+            //                     kind: Some(CompletionItemKind::FUNCTION),
+            //                     filter_text: Some(command.clone()),
+            //                     insert_text: Some(command),
+            //                     ..Default::default()
+            //                 }
+            //             })
+            //             .collect();
+            //         return Some(completions);
+            //     }
+            // }
             let line = rope.get_line(position.line as usize)?;
             let sline = line.as_str()?;
             if let Some(maybecommand) = sline[..position.character as usize].rfind('@') {
@@ -259,6 +257,21 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
+                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                             end: Position{line: position.line, character: position.character}}
+                                })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    },
+                    "@task" => {
+                        let item = CompletionItem {
+                            label: "@task".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("task property".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                new_text: format!("{{@task status=${{1:todo}} due=${{2:{}}}}}$0", chrono::Local::now().format("%Y-%m-%d")),  // T%H:%M:%S
                                 range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
