@@ -155,7 +155,7 @@ pub enum TaskStatus {
 
 #[derive(Debug)]
 pub enum Property {
-    Task { status: TaskStatus, until: Deadline },
+    Task { status: TaskStatus, due: Deadline },
     Anchor { name: String },
 }
 
@@ -879,7 +879,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             }
 
             let mut status = TaskStatus::Todo;
-            let mut until = Deadline::Uninterpretable("".to_string());
+            let mut due = Deadline::Uninterpretable("".to_string());
             let mut current_key = "";
             for kv in inner {
                 match kv.as_rule() {
@@ -898,17 +898,17 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                             } else {
                                 log::warn!("Unknown task status: '{}', interpreted as 'todo'", value);
                             }
-                        } else if current_key == "until" {
+                        } else if current_key == "due" {
                             if let Ok(datetime) =
                                 chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M")
                             {
-                                until = Deadline::DateTime(datetime);
+                                due = Deadline::DateTime(datetime);
                             } else if let Ok(date) =
                                 chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
                             {
-                                until = Deadline::Date(date);
+                                due = Deadline::Date(date);
                             } else {
-                                until = Deadline::Uninterpretable(value.to_string());
+                                due = Deadline::Uninterpretable(value.to_string());
                             }
                         } else {
                             log::warn!("Unknown property value: {}", value);
@@ -919,7 +919,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                     }
                 }
             }
-            return Some(Property::Task { status, until });
+            return Some(Property::Task { status, due });
         }
         _ => {
             panic!("Unhandled token: {:?}", pair.as_rule());
@@ -1112,7 +1112,7 @@ mod tests {
 
     #[test]
     fn test_parse_indented_code_command() {
-        let input = "		[@code なでしこ]   #anchor1 {@task status=todo until=2024-09-24}";
+        let input = "		[@code なでしこ]   #anchor1 {@task status=todo due=2024-09-24}";
         let indent = input.chars().take_while(|&c| c == '\t').count();
         let (astnode, props) = parse_command_line(input, 0, indent);
         let Some(node) = astnode else {
@@ -1134,11 +1134,11 @@ mod tests {
         }
         for prop in props {
             match prop {
-                Property::Task { status, until } => {
+                Property::Task { status, due } => {
                     let TaskStatus::Todo = status else {
                         panic!("task is not in todo state!");
                     };
-                    if let Deadline::Date(date) = until {
+                    if let Deadline::Date(date) = due {
                         assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap());
                     } else {
                         panic!("date is not correctly parsed");
@@ -1152,7 +1152,7 @@ mod tests {
     }
     #[test]
     fn test_parse_trailing_properties() {
-        let input = "   #anchor1 {@task status=todo until=2024-09-24} #anchor2";
+        let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
         let Some(props) = parse_trailing_properties(input) else {
             panic!("Failed to parse trailing properties");
         };
@@ -1164,12 +1164,12 @@ mod tests {
         };
 
         let task = &props[1];
-        if let Property::Task { status, until } = task {
+        if let Property::Task { status, due } = task {
             let TaskStatus::Todo = status else {
                 panic!("task is not in todo state!");
             };
             assert_eq!(
-                until,
+                due,
                 &Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 9, 24).unwrap())
             );
         } else {

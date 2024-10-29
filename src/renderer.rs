@@ -96,12 +96,12 @@ impl HtmlRenderer {
                             Property::Anchor { name } => {
                                 write!(output, "<a name=\"{}\">{}</a>", name, name)?;
                             }
-                            Property::Task { status, until } => match status {
+                            Property::Task { status, due } => match status {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }
                                 _ => {
-                                    write!(output, "<mark class=\"task-deadline\">{}</mark>", until)?
+                                    write!(output, "<mark class=\"task-deadline\">{}</mark>", due)?
                                 }
                             },
                         }
