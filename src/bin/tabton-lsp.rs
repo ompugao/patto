@@ -1,9 +1,12 @@
 use log;
 use std::fs::File;
+use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
 
 use chrono;
 use dashmap::DashMap;
 use ropey::Rope;
+use tokio;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -16,7 +19,42 @@ struct Backend {
     client: Client,
     ast_map: DashMap<String, AstNode>,
     document_map: DashMap<String, Rope>,
+    scanned_files: Arc<RwLock<Vec<PathBuf>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
+}
+
+async fn scan_workspace(
+    client: Client,
+    workspace_path: PathBuf,
+    scanned_files: Arc<RwLock<Vec<PathBuf>>>,
+) -> Result<()> {
+    client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
+
+    // Use blocking I/O in a spawned blocking task
+    let _ = tokio::task::spawn_blocking(move || {
+        log::info!("Start reading dir: {:?}", workspace_path);
+        let paths = std::fs::read_dir(workspace_path)
+            .expect("Unable to read workspace directory");
+
+        let mut files_to_store = Vec::new();
+        for path in paths {
+            let file_path = path.unwrap().path();
+            if file_path.extension().map_or(false, |ext| ext == "tb") {
+                log::info!("Found file: {:?}", file_path);
+                files_to_store.push(file_path);
+            }
+        }
+
+        // Acquire a write lock to store the scanned files
+        let mut scanned = scanned_files.write().unwrap();
+        scanned.extend(files_to_store);
+
+    })
+    .await;
+
+    client.log_message(MessageType::INFO, "Workspace scan complete.").await;
+
+    Ok(())
 }
 
 impl Backend {
@@ -70,7 +108,44 @@ impl Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let scanned_files = self.scanned_files.clone();
+
+        if let Some(root_uri) = params.root_uri {
+            let path = root_uri.to_file_path();
+            if path.is_ok() {
+                let client = self.client.clone();
+                let path = path.unwrap();
+                self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
+                tokio::spawn(async move {
+                    // Run the workspace scan in the background
+                    if let Err(e) = scan_workspace(client, path, scanned_files).await {
+                        log::warn!("Failed to scan workspace: {:?}", e);
+                    }
+                });
+            }
+        }
+
+        // vscode sets both root_uri and workspace_folders.
+        // Using root_uri for now, since vim-lsp experimentally support workspace_folers.
+        //
+        // if let Some(workspace_folders) = params.workspace_folders {
+        //     for folder in workspace_folders {
+        //         self.client.log_message(MessageType::INFO, &format!("scanning folder {:?}", folder)).await;
+        //         let scanned_files = self.scanned_files.clone();
+        //         let path = folder.uri.to_file_path();
+        //         if path.is_ok() {
+        //             let client = self.client.clone();
+        //             tokio::spawn(async move {
+        //                 if let Err(e) = scan_workspace(client, path.unwrap(), scanned_files).await {
+        //                     log::warn!("Failed to scan workspace: {:?}", e);
+        //                 }
+        //             });
+        //         }
+        //     }
+        // }
+
+
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -315,6 +390,7 @@ async fn main() {
         client,
         ast_map: DashMap::new(),
         document_map: DashMap::new(),
+        scanned_files:  Arc::new(RwLock::new(Vec::new())),
         //semantic_token_map: DashMap::new(),
     });
     log::info!("Tabton Language Server Protocol started");
