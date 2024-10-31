@@ -1,6 +1,6 @@
 use log;
 use std::fs::File;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::path::PathBuf;
 
 use chrono;
@@ -17,16 +17,16 @@ use tabton::semantic_token::LEGEND_TYPE;
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    ast_map: DashMap<String, AstNode>,
-    document_map: DashMap<String, Rope>,
-    scanned_files: Arc<RwLock<Vec<PathBuf>>>,
+    ast_map: Arc<DashMap<String, AstNode>>,
+    document_map: Arc<DashMap<String, Rope>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
 async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
-    scanned_files: Arc<RwLock<Vec<PathBuf>>>,
+    document_map: Arc<DashMap<String, Rope>>,
+    ast_map: Arc<DashMap<String, AstNode>>,
 ) -> Result<()> {
     client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
 
@@ -36,19 +36,21 @@ async fn scan_workspace(
         let paths = std::fs::read_dir(workspace_path)
             .expect("Unable to read workspace directory");
 
-        let mut files_to_store = Vec::new();
         for path in paths {
             let file_path = path.unwrap().path();
             if file_path.extension().map_or(false, |ext| ext == "tb") {
                 log::info!("Found file: {:?}", file_path);
-                files_to_store.push(file_path);
+                let uri = Url::from_file_path(file_path.clone()).unwrap();
+                let _ = std::fs::read_to_string(file_path).map(|x| {
+                    let (ast, _diagnostics) = parse_text(&x.as_str());
+                    let rope = ropey::Rope::from_str(&x.as_str());
+                    let uri_s = uri.to_string();
+                    document_map.insert(uri_s.clone(), rope);
+                    ast_map.insert(uri_s, ast);
+                });
             }
         }
-
-        // Acquire a write lock to store the scanned files
-        let mut scanned = scanned_files.write().unwrap();
-        scanned.extend(files_to_store);
-
+        log::debug!("{:?}", ast_map);
     })
     .await;
 
@@ -57,41 +59,46 @@ async fn scan_workspace(
     Ok(())
 }
 
+fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
+    let ParserResult { ast, parse_errors } = parser::parse_text(text);
+    let diagnostics = parse_errors
+        .into_iter()
+        .filter_map(|item| {
+            let (message, loc) = match item {
+                parser::ParserError::InvalidIndentation(loc) => {
+                    (format!("Invalid indentation:\n{}", loc), loc.clone())
+                }
+                parser::ParserError::ParseError(loc, mes) => {
+                    (format!("Failed to parse: {}", mes), loc.clone())
+                }
+            };
+
+            || -> Option<Diagnostic> {
+                let start_position = Position::new(loc.row as u32, loc.span.0 as u32);
+                let end_position = Position::new(loc.row as u32, loc.span.1 as u32);
+                Some(Diagnostic::new_simple(
+                    Range::new(start_position, end_position),
+                    message,
+                ))
+            }()
+        })
+        .collect::<Vec<_>>();
+    return (ast, diagnostics);
+}
+
+
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         log::info!("{}", &params.text);
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
-            .insert(params.uri.to_string(), rope.clone());
-        let doc = params.text.clone();
-        let ParserResult { ast, parse_errors } = parser::parse_text(&doc);
-        let diagnostics = parse_errors
-            .into_iter()
-            .filter_map(|item| {
-                let (message, loc) = match item {
-                    parser::ParserError::InvalidIndentation(loc) => {
-                        (format!("Invalid indentation:\n{}", loc), loc.clone())
-                    }
-                    parser::ParserError::ParseError(loc, mes) => {
-                        (format!("Failed to parse: {}", mes), loc.clone())
-                    }
-                };
-
-                || -> Option<Diagnostic> {
-                    let start_position = Position::new(loc.row as u32, loc.span.0 as u32);
-                    let end_position = Position::new(loc.row as u32, loc.span.1 as u32);
-                    Some(Diagnostic::new_simple(
-                        Range::new(start_position, end_position),
-                        message,
-                    ))
-                }()
-            })
-            .collect::<Vec<_>>();
+            .insert(params.uri.to_string(), rope);
+        let (ast, diagnostics) = parse_text(&params.text);
 
         self.client
             .publish_diagnostics(
                 params.uri.clone(),
-                diagnostics.clone(),
+                diagnostics,
                 Some(params.version),
             )
             .await;
@@ -109,17 +116,15 @@ impl Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        let scanned_files = self.scanned_files.clone();
-
         if let Some(root_uri) = params.root_uri {
-            let path = root_uri.to_file_path();
-            if path.is_ok() {
+            if let Ok(path) = root_uri.to_file_path() {
                 let client = self.client.clone();
-                let path = path.unwrap();
                 self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
+                let ast_map = Arc::clone(&self.ast_map);
+                let document_map = Arc::clone(&self.document_map);
                 tokio::spawn(async move {
                     // Run the workspace scan in the background
-                    if let Err(e) = scan_workspace(client, path, scanned_files).await {
+                    if let Err(e) = scan_workspace(client, path, document_map, ast_map).await {
                         log::warn!("Failed to scan workspace: {:?}", e);
                     }
                 });
@@ -132,12 +137,12 @@ impl LanguageServer for Backend {
         // if let Some(workspace_folders) = params.workspace_folders {
         //     for folder in workspace_folders {
         //         self.client.log_message(MessageType::INFO, &format!("scanning folder {:?}", folder)).await;
-        //         let scanned_files = self.scanned_files.clone();
         //         let path = folder.uri.to_file_path();
         //         if path.is_ok() {
         //             let client = self.client.clone();
+        //             let ast_map = Arc::clone(&self.ast_map);
         //             tokio::spawn(async move {
-        //                 if let Err(e) = scan_workspace(client, path.unwrap(), scanned_files).await {
+        //                 if let Err(e) = scan_workspace(client, path.unwrap(), ast_map).await {
         //                     log::warn!("Failed to scan workspace: {:?}", e);
         //                 }
         //             });
@@ -388,9 +393,8 @@ async fn main() {
 
     let (service, socket) = LspService::new(|client| Backend {
         client,
-        ast_map: DashMap::new(),
-        document_map: DashMap::new(),
-        scanned_files:  Arc::new(RwLock::new(Vec::new())),
+        ast_map: Arc::new(DashMap::new()),
+        document_map: Arc::new(DashMap::new()),
         //semantic_token_map: DashMap::new(),
     });
     log::info!("Tabton Language Server Protocol started");
