@@ -1215,7 +1215,7 @@ mod tests {
 
     #[test]
     fn test_parse_code_inline_text_anchor() -> Result<(), Box<dyn std::error::Error>>{
-        let input = "[` inline ![] code 123`] raw text #anchor";
+        let input = "[` inline ![] code 123`] raw text    #anchor";
         let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         //assert_eq!(code.extract_str(), "inline code 123");
@@ -1237,7 +1237,7 @@ mod tests {
             assert_eq!(
                 &raw_text.location().input
                     [raw_text.location().span.0..raw_text.location().span.1],
-                " raw text "
+                " raw text"
             );
         } else {
             panic!("text not extracted");
