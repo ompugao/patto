@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use chrono;
 use dashmap::DashMap;
 use ropey::Rope;
+
+use serde_json::Value;
 use tokio;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -89,7 +91,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
 
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        log::info!("{}", &params.text);
+        // log::info!("{}", &params.text);
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope);
@@ -165,7 +167,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![],
+                    commands: vec!["tabton-lsp.aggregate_tasks".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -366,6 +368,22 @@ impl LanguageServer for Backend {
         }();
         log::debug!("completions: {:?}", completions);
         Ok(completions.map(CompletionResponse::Array))
+    }
+
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        match params.command.as_str() {
+            "tabton-lsp.aggregate_tasks" => {
+                let _: Vec<_> = self.ast_map.iter().map(|e| {
+                    //TODO show results in panel. this requires client-side development.
+                    log::info!("{:?}, {:?}", e.key(), e.value());
+                    Some(1)
+                }).collect();
+            },
+            c => {
+                log::info!("unknown command: {}", c);
+            }
+        }
+        Ok(None)
     }
 }
 

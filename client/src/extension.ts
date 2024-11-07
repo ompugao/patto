@@ -3,13 +3,14 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 
-import { window, workspace, ExtensionContext, OutputChannel } from 'vscode';
+import { window, workspace, ExtensionContext, OutputChannel, commands } from 'vscode';
 
 import {
 	Executable,
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
+	ExecuteCommandRequest,
 } from 'vscode-languageclient/node';
 
 
@@ -66,6 +67,14 @@ export function activate(context: ExtensionContext): void {
 	// Start the client. This will also launch the server
 	client.start();
 	// context.subscriptions.push(client.start());
+	// context.subscriptions.push(
+	// 	commands.registerCommand("tabton-lsp.aggregate_tasks", async () => {
+	// 		await client.sendRequest(ExecuteCommandRequest.type, {
+	// 			command: "tabton-lsp.aggregate_tasks",
+	// 			arguments: [],
+	// 		});
+	// 	})
+	// );
 }
 
 export function deactivate(): Thenable<void> | undefined {
