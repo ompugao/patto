@@ -7,11 +7,14 @@ Todo:
 		support abbrev task, like [` !2024-09-24T13:00 `]
 		better anchor handling [` name#anchor`]. some note contains # in its name.
 	LSP server
-		async note scanning
-		return all errors as diagnostics
+		[- async note scanning]
+		[- return all errors as diagnostics]
+		goto definition for hopping between notes
+			support both [note] and [note#anchor]
+		todo extraction
+			this needs client-side development
 		make error.variant.message() user-friendly
 		fix indentation error at a line after a block with trailing empty lines
 		semantic tokens
-		todo extraction
 	Previewer
 		realtime preview
