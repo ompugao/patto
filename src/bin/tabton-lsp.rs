@@ -1,8 +1,9 @@
 use log;
-use tokio::time::error::Elapsed;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use urlencoding::{encode, decode};
+
 
 use chrono;
 use dashmap::DashMap;
@@ -124,7 +125,15 @@ fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<Ast
 fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     let parentrow = parent.location().row;
     log::debug!("finding row {}, scanning row: {}", row, parentrow);
-    if parentrow == row {
+    if matches!(parent.value().kind, AstNodeKind::Dummy) ||
+        parentrow < row {
+        for (i, child) in parent.value().children.lock().unwrap().iter().enumerate() {
+            if let Some(mut route) = locate_node_route_impl(child, row, col) {
+                route.push(parent.clone());
+                return Some(route);
+            }
+        }
+    } else if parentrow == row {
         if parent.value().contents.lock().unwrap().len() == 0 {
             log::debug!("must be leaf");
             return Some(vec![parent.clone()]);
@@ -136,14 +145,6 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
                     route.push(parent.clone());
                     return Some(route);
                 }
-            }
-        }
-    }
-    else if parentrow < row {
-        for (i, child) in parent.value().children.lock().unwrap().iter().enumerate() {
-            if let Some(mut route) = locate_node_route_impl(child, row, col) {
-                route.push(parent.clone());
-                return Some(route);
             }
         }
     }
@@ -330,31 +331,54 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
             let rope = self.document_map.get(&uri.to_string())?;
-            // if let Some(context) = params.context {
-            //     if context.trigger_character.as_deref() == Some("@") {
-            //         let commands = vec!["code", "math", "table", "quote", "img"];
-            //         let completions = commands
-            //             .iter()
-            //             .map(|x| {
-            //                 let command = x.to_string();
-            //                 CompletionItem {
-            //                     label: command.clone(),
-            //                     kind: Some(CompletionItemKind::FUNCTION),
-            //                     filter_text: Some(command.clone()),
-            //                     insert_text: Some(command),
-            //                     ..Default::default()
-            //                 }
-            //             })
-            //             .collect();
-            //         return Some(completions);
-            //     }
-            // }
+            if let Some(context) = params.context {
+                match context.trigger_character.as_deref() {
+                    Some("[") => {
+                        if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                            let files = self.document_map.iter().map(|e| {
+                                let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                                if path.ends_with(".tb") {
+                                    path = path.strip_suffix(".tb").unwrap().to_string();
+                                }
+                                CompletionItem {
+                                    label: path.clone(),
+                                    kind: Some(CompletionItemKind::FILE),
+                                    filter_text: Some(path.clone()),
+                                    insert_text: Some(path),
+                                    ..Default::default()
+                                }
+                            })
+                            .collect();
+                            return Some(files);
+                        } else {
+                            return None;
+                        }
+                    }
+                    //Some("@") => {
+                    //    let commands = vec!["code", "math", "table", "quote", "img"];
+                    //    let completions = commands
+                    //        .iter()
+                    //        .map(|x| {
+                    //            let command = x.to_string();
+                    //            CompletionItem {
+                    //                label: command.clone(),
+                    //                kind: Some(CompletionItemKind::FUNCTION),
+                    //                filter_text: Some(command.clone()),
+                    //                insert_text: Some(command),
+                    //                ..Default::default()
+                    //            }
+                    //        })
+                    //        .collect();
+                    //    return Some(completions);
+                    //}
+                    _ => {
+
+                    }
+                }
+            }
             let line = rope.get_line(position.line as usize)?;
-            //let sline = line.as_str()?;
             let linechars = line.slice(..position.character as usize).chars();
             if let Some(findat) = linechars.clone().reversed().position(|c| { c == '@'}) {
-            //if let Some(maybecommand) = .rfind('@') {
-            //if let Some(maybecommand)) = line.
                 let maybecommand = linechars.len() - findat;
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
                 match s {
@@ -491,7 +515,7 @@ impl LanguageServer for Backend {
             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                 //let linkuri = root_uri.join(format!("{}.{}", link, "tb").as_str()).expect("url join should work");
                 let mut linkuri = root_uri.clone();
-                linkuri.set_path(format!("{}/{}.tb", root_uri.path(), link).as_str());
+                linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(link)).as_str());
                 let start = Range::new(Position::new(0, 0), Position::new(0, 1));
                 if let Some(anchor) = anchor {
                     let range = self.ast_map.get(linkuri.as_str()).and_then(|r| {
