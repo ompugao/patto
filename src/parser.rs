@@ -26,6 +26,12 @@ impl ops::Add<usize> for Span {
     }
 }
 
+impl Span {
+    pub fn contains(&self, col: usize) -> bool {
+        return (self.0 <= col && col < self.1);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Location {
     pub row: usize,

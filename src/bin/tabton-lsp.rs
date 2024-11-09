@@ -1,6 +1,7 @@
 use log;
+use tokio::time::error::Elapsed;
 use std::fs::File;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
 use chrono;
@@ -13,7 +14,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use tabton::parser::{self, AstNode, ParserResult};
+use tabton::parser::{self, AstNode, AstNodeKind, Property, ParserResult};
 use tabton::semantic_token::LEGEND_TYPE;
 
 #[derive(Debug)]
@@ -21,7 +22,15 @@ struct Backend {
     client: Client,
     ast_map: Arc<DashMap<String, AstNode>>,
     document_map: Arc<DashMap<String, Rope>>,
+    root_uri: Arc<Mutex<Option<Url>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
+}
+
+fn get_node_range(from: &AstNode) -> Range {
+    let row = from.location().row as u32;
+    let s = from.location().span.0 as u32;
+    let e = from.location().span.1 as u32;
+    Range::new(Position::new(row, s), Position::new(row, e))
 }
 
 async fn scan_workspace(
@@ -34,7 +43,7 @@ async fn scan_workspace(
 
     // Use blocking I/O in a spawned blocking task
     let _ = tokio::task::spawn_blocking(move || {
-        log::info!("Start reading dir: {:?}", workspace_path);
+        log::debug!("Start reading dir: {:?}", workspace_path);
         let paths = std::fs::read_dir(workspace_path)
             .expect("Unable to read workspace directory");
 
@@ -88,10 +97,61 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     return (ast, diagnostics);
 }
 
+fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
+    for child in parent.value().children.lock().unwrap().iter() {
+        if let AstNodeKind::Line { ref properties } = &child.value().kind {
+            for prop in properties {
+                if let Property::Anchor { name } = prop {
+                    if name == anchor {
+                        return Some(child.clone());
+                    }
+                }
+            }
+        }
+        return find_anchor(child, anchor);
+    }
+    return None;
+}
+
+fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
+    if let Some(mut route) = locate_node_route_impl(parent, row, col){
+        //route.reverse();
+        return Some(route);
+    }
+    return None;
+}
+
+fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
+    let parentrow = parent.location().row;
+    log::debug!("finding row {}, scanning row: {}", row, parentrow);
+    if parentrow == row {
+        if parent.value().contents.lock().unwrap().len() == 0 {
+            log::debug!("must be leaf");
+            return Some(vec![parent.clone()]);
+        }
+        for (i, content) in parent.value().contents.lock().unwrap().iter().enumerate() {
+            if content.location().span.contains(col) {
+                log::debug!("in content: ({}, {})", content.location().span.0, content.location().span.1);
+                if let Some(mut route) = locate_node_route_impl(content, row, col) {
+                    route.push(parent.clone());
+                    return Some(route);
+                }
+            }
+        }
+    }
+    else if parentrow < row {
+        for (i, child) in parent.value().children.lock().unwrap().iter().enumerate() {
+            if let Some(mut route) = locate_node_route_impl(child, row, col) {
+                route.push(parent.clone());
+                return Some(route);
+            }
+        }
+    }
+    return None;
+}
 
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        // log::info!("{}", &params.text);
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope);
@@ -119,6 +179,10 @@ impl Backend {
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         if let Some(root_uri) = params.root_uri {
+            {
+                let mut backend_root_uri = self.root_uri.lock().unwrap();
+                *backend_root_uri = Some(root_uri.clone());
+            }
             if let Ok(path) = root_uri.to_file_path() {
                 let client = self.client.clone();
                 self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
@@ -203,7 +267,7 @@ impl LanguageServer for Backend {
                     ),
                 ),
                 // definition: Some(GotoCapability::default()),
-                definition_provider: Some(OneOf::Left(false)),
+                definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(false)),
                 rename_provider: Some(OneOf::Left(false)),
                 ..ServerCapabilities::default()
@@ -242,10 +306,15 @@ impl LanguageServer for Backend {
         .await
     }
 
-    async fn did_save(&self, _: DidSaveTextDocumentParams) {
+    async fn did_save(&self, param: DidSaveTextDocumentParams) {
         self.client
-            .log_message(MessageType::INFO, "file saved!")
+            .log_message(MessageType::INFO, format!("file {} saved!", param.text_document.uri.as_str()))
             .await;
+        // if let Some(ast) = self.ast_map.get(param.text_document.uri.as_str()) {
+        //     self.client
+        //         .log_message(MessageType::INFO, format!("{:?}", *ast))
+        //         .await;
+        // }
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
@@ -281,9 +350,13 @@ impl LanguageServer for Backend {
             //     }
             // }
             let line = rope.get_line(position.line as usize)?;
-            let sline = line.as_str()?;
-            if let Some(maybecommand) = sline[..position.character as usize].rfind('@') {
-                let s = sline[maybecommand..position.character as usize].as_ref();
+            //let sline = line.as_str()?;
+            let linechars = line.slice(..position.character as usize).chars();
+            if let Some(findat) = linechars.clone().reversed().position(|c| { c == '@'}) {
+            //if let Some(maybecommand) = .rfind('@') {
+            //if let Some(maybecommand)) = line.
+                let maybecommand = linechars.len() - findat;
+                let s = line.slice(maybecommand..position.character as usize).as_str()?;
                 match s {
                     "@code" => {
                         let item = CompletionItem {
@@ -385,6 +458,62 @@ impl LanguageServer for Backend {
         }
         Ok(None)
     }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let definition = async {
+            let uri = params.text_document_position_params.text_document.uri;
+            let ast = self.ast_map.get(uri.as_str())?;
+            // let rope = self.document_map.get(uri.as_str())?;
+
+            let position = params.text_document_position_params.position;
+            // let char = rope.try_line_to_char(position.line as usize).ok()?;
+            // self.client.log_message(MessageType::INFO, &format!("{:#?}, {}", ast.value(), offset)).await;
+            let Some(node_route) = locate_node_route(&ast, position.line as usize, position.character as usize) else {
+                return None;
+            };
+            //if node_route.len() == 0 {
+            //    log::info!("-- route.len() is 0");
+            //    return None;
+            //
+            let Some(wikilink) = node_route.iter().find(|n| {
+                matches!(&n.value().kind, AstNodeKind::WikiLink {..})
+            }) else {
+                log::debug!("no wikilink");
+                return None;
+            };
+            let AstNodeKind::WikiLink{link, anchor} = &wikilink.value().kind else {
+                log::debug!("not wikilink");
+                return None;
+            };
+            if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                //let linkuri = root_uri.join(format!("{}.{}", link, "tb").as_str()).expect("url join should work");
+                let mut linkuri = root_uri.clone();
+                linkuri.set_path(format!("{}/{}.tb", root_uri.path(), link).as_str());
+                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+                if let Some(anchor) = anchor {
+                    let range = self.ast_map.get(linkuri.as_str()).and_then(|r| {
+                        let linkast = r.value();
+                        find_anchor(linkast, anchor)
+                    }).map_or(start,
+                        |anchored_line| {
+                            get_node_range(&anchored_line)
+                        });
+                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
+                } else {
+                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
+                }
+            } else {
+                log::debug!("root_uri is not set");
+                None
+            }
+        }
+        .await;
+        Ok(definition)
+    }
+
 }
 
 fn init_logger() {
@@ -413,6 +542,7 @@ async fn main() {
         client,
         ast_map: Arc::new(DashMap::new()),
         document_map: Arc::new(DashMap::new()),
+        root_uri: Arc::new(Mutex::new(None)),
         //semantic_token_map: DashMap::new(),
     });
     log::info!("Tabton Language Server Protocol started");
