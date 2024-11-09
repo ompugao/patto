@@ -868,6 +868,68 @@ fn transform_url_link<'a>(
     }
 }
 
+fn transform_mail_link<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode> {
+    let inner = pair.into_inner().next().unwrap();
+    let span = Into::<Span>::into(inner.as_span()) + indent;
+    match inner.as_rule() {
+        Rule::expr_mail_title => {
+            let mut inner2 = inner.into_inner();
+            let mail = inner2.next().unwrap();
+            let title = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                mail.as_str(),
+                Some(title.as_str()),
+            ));
+        }
+        Rule::expr_title_mail => {
+            let mut inner2 = inner.into_inner();
+            let title = inner2.next().unwrap();
+            let mail = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                mail.as_str(),
+                Some(title.as_str()),
+            ));
+        }
+        Rule::expr_mail_only => {
+            let mut inner2 = inner.into_inner();
+            let mail = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                mail.as_str(),
+                None,
+            ));
+        }
+        Rule::expr_mail_mail => {
+            let mut inner2 = inner.into_inner();
+            let mail = inner2.next().unwrap();
+            let mail2 = inner2.next().unwrap();
+            return Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                mail.as_str(),
+                Some(mail2.as_str()),
+            ));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+}
+
 fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     match pair.as_rule() {
         Rule::expr_anchor => {
@@ -1004,6 +1066,11 @@ fn transform_statement<'a, 'b>(
             }
             Rule::expr_url_link => {
                 if let Some(node) = transform_url_link(inner, line, row, indent) {
+                    nodes.push(node);
+                }
+            }
+            Rule::expr_mail_link => {
+                if let Some(node) = transform_mail_link(inner, line, row, indent) {
                     nodes.push(node);
                 }
             }
@@ -1362,6 +1429,35 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_parse_mails() -> Result<(), Box<dyn std::error::Error>> {
+        for (input, g_mail, g_title) in vec![
+            ("[mailto:hoge@example.com example email]", "mailto:hoge@example.com", Some("example email".to_string())),
+        ]{
+                println!("parsing {input}");
+                match TabtonLineParser::parse(Rule::expr_mail_link, input) {
+                    Ok(mut parsed) => {
+                        if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
+                            match &link.value().kind {
+                                AstNodeKind::Link { link, title } => {
+                                    assert_eq!(link, g_mail);
+                                    //assert!(title.is_some());
+                                    assert_eq!(*title, g_title);
+                                }
+                                _ => {
+                                    panic! {"link is not correctly parse {:?}", link};
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("{e}");
+                        return Err(Box::new(e));
+                    }
+                }
+            }
+        Ok(())
+    }
     // #[test]
     // fn test_parse_error() {
     //     let err = TabtonLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();

@@ -138,7 +138,7 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
             log::debug!("must be leaf");
             return Some(vec![parent.clone()]);
         }
-        for (i, content) in parent.value().contents.lock().unwrap().iter().enumerate() {
+        for content in parent.value().contents.lock().unwrap().iter() {
             if content.location().span.contains(col) {
                 log::debug!("in content: ({}, {})", content.location().span.0, content.location().span.1);
                 if let Some(mut route) = locate_node_route_impl(content, row, col) {
@@ -503,14 +503,14 @@ impl LanguageServer for Backend {
             //    log::info!("-- route.len() is 0");
             //    return None;
             //
-            let Some(wikilink) = node_route.iter().find(|n| {
-                matches!(&n.value().kind, AstNodeKind::WikiLink {..})
+            let Some((link, anchor)) = node_route.iter().find_map(|n| {
+                if let AstNodeKind::WikiLink{link, anchor} = &n.value().kind {
+                    return Some((link, anchor));
+                } else {
+                    return None;
+                }
             }) else {
-                log::debug!("no wikilink");
-                return None;
-            };
-            let AstNodeKind::WikiLink{link, anchor} = &wikilink.value().kind else {
-                log::debug!("not wikilink");
+                log::debug!("it is not wikilink");
                 return None;
             };
             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
