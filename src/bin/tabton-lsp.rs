@@ -99,19 +99,19 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
 }
 
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
-    for child in parent.value().children.lock().unwrap().iter() {
-        if let AstNodeKind::Line { ref properties } = &child.value().kind {
-            for prop in properties {
-                if let Property::Anchor { name } = prop {
-                    if name == anchor {
-                        return Some(child.clone());
-                    }
+    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+        for prop in properties {
+            if let Property::Anchor { name } = prop {
+                if name == anchor {
+                    return Some(parent.clone());
                 }
             }
         }
-        return find_anchor(child, anchor);
     }
-    return None;
+
+    return parent.value().children.lock().unwrap().iter().find_map(|child| {
+        return find_anchor(child, anchor);
+    }).map(|x| x.clone());
 }
 
 fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
@@ -167,6 +167,7 @@ impl Backend {
             .await;
 
         //self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
+        //log::info!("{}", ast);
         self.ast_map.insert(params.uri.to_string(), ast);
         // self.client
         //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
@@ -350,8 +351,6 @@ impl LanguageServer for Backend {
                             })
                             .collect();
                             return Some(files);
-                        } else {
-                            return None;
                         }
                     }
                     //Some("@") => {
@@ -378,9 +377,11 @@ impl LanguageServer for Backend {
             }
             let line = rope.get_line(position.line as usize)?;
             let linechars = line.slice(..position.character as usize).chars();
+            log::info!("line: {:?}", linechars);
             if let Some(findat) = linechars.clone().reversed().position(|c| { c == '@'}) {
                 let maybecommand = linechars.len() - findat;
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
+                log::info!("command {}", s);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
