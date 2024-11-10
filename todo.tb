@@ -3,9 +3,9 @@ Todo:
 		handle link to localfile {@task status=todo}
 		handle inline math {@task status=todo}
 		[- handle [XXX mailto:XXX@example.com]] {task status=todo}
-		better depth and state handling {@task status=todo}
 		support abbrev task, like [` !2024-09-24T13:00 `]
 		better anchor handling [` name#anchor`]. some note contains # in its name.
+		better depth and state handling {@task status=todo}
 	LSP server
 		[- async note scanning]
 		[- return all errors as diagnostics]
@@ -13,6 +13,9 @@ Todo:
 			[- support both [note] and [note#anchor]]
 		semantic tokens
 		support note and anchor completion
+		find references from other notes
+		document references and anchor references
+			directional graph construction
 		todo extraction
 			this needs client-side development
 		make error.variant.message() user-friendly
