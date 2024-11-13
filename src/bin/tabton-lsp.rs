@@ -334,60 +334,86 @@ impl LanguageServer for Backend {
             let rope = self.document_map.get(&uri.to_string())?;
             // NOTE: trigger_character is not supported by vim-lsp.
             // we manually consider the context.
-            if let Some(context) = params.context {
-                match context.trigger_character.as_deref() {
-                    Some("[") => {
-                        if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                            let files = self.document_map.iter().map(|e| {
-                                let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-                                if path.ends_with(".tb") {
-                                    path = path.strip_suffix(".tb").unwrap().to_string();
-                                }
-                                CompletionItem {
-                                    label: path.clone(),
-                                    kind: Some(CompletionItemKind::FILE),
-                                    filter_text: Some(path.clone()),
-                                    insert_text: Some(path),
-                                    ..Default::default()
-                                }
-                            })
-                            .collect();
-                            return Some(files);
-                        }
-                    }
-                    //Some("@") => {
-                    //    let commands = vec!["code", "math", "table", "quote", "img"];
-                    //    let completions = commands
-                    //        .iter()
-                    //        .map(|x| {
-                    //            let command = x.to_string();
-                    //            CompletionItem {
-                    //                label: command.clone(),
-                    //                kind: Some(CompletionItemKind::FUNCTION),
-                    //                filter_text: Some(command.clone()),
-                    //                insert_text: Some(command),
-                    //                ..Default::default()
-                    //            }
-                    //        })
-                    //        .collect();
-                    //    return Some(completions);
-                    //}
-                    _ => {
+            // if let Some(context) = params.context {
+            //     match context.trigger_character.as_deref() {
+            //         Some("[") => {
+            //             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+            //                 let files = self.document_map.iter().map(|e| {
+            //                     let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+            //                     if path.ends_with(".tb") {
+            //                         path = path.strip_suffix(".tb").unwrap().to_string();
+            //                     }
+            //                     CompletionItem {
+            //                         label: path.clone(),
+            //                         kind: Some(CompletionItemKind::FILE),
+            //                         filter_text: Some(path.clone()),
+            //                         insert_text: Some(path),
+            //                         ..Default::default()
+            //                     }
+            //                 })
+            //                 .collect();
+            //                 return Some(files);
+            //             }
+            //         }
+            //         Some("@") => {
+            //             let commands = vec!["code", "math", "table", "quote", "img"];
+            //             let completions = commands
+            //                 .iter()
+            //                 .map(|x| {
+            //                     let command = x.to_string();
+            //                     CompletionItem {
+            //                         label: command.clone(),
+            //                         kind: Some(CompletionItemKind::FUNCTION),
+            //                         filter_text: Some(command.clone()),
+            //                         insert_text: Some(command),
+            //                         ..Default::default()
+            //                     }
+            //                 })
+            //                 .collect();
+            //             return Some(completions);
+            //         }
+            //         _ => {
 
+            //         }
+            //     }
+            // }
+            let line = rope.get_line(position.line as usize)?;
+            match line.char((position.character as usize).saturating_sub(1)) {
+                '[' => {
+                    if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                        let files = self.document_map.iter().map(|e| {
+                            let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                            if path.ends_with(".tb") {
+                                path = path.strip_suffix(".tb").unwrap().to_string();
+                            }
+                            CompletionItem {
+                                label: path.clone(),
+                                kind: Some(CompletionItemKind::FILE),
+                                filter_text: Some(path.clone()),
+                                insert_text: Some(path),
+                                ..Default::default()
+                            }
+                        })
+                        .collect();
+                        return Some(files);
                     }
+                },
+                c => {
+                    //log::info!("{}", c);
                 }
             }
-            let line = rope.get_line(position.line as usize)?;
+
             let mut linechars_rev = line.slice(..position.character as usize).chars_at(position.character as usize).reversed();  // put the cursor at last
+            let linelen = linechars_rev.len();
             //log::info!("line: {:?}", linechars_rev);
 
             // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work, because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
             // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
             //     https://github.com/cessen/ropey/issues/93
             if let Some(foundat) = linechars_rev.position(|c| c == '@') {
-                let maybecommand = linechars_rev.len() - 1 - foundat as usize;
+                let maybecommand = linelen.saturating_sub(1).saturating_sub(foundat as usize);
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
-                log::info!("command {}, found at {}", s, foundat);
+                log::debug!("command {}, from {}, found at {}", s, maybecommand, foundat);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
