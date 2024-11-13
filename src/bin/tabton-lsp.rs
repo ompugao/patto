@@ -115,7 +115,7 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
 }
 
 fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
-    if let Some(mut route) = locate_node_route_impl(parent, row, col){
+    if let Some(route) = locate_node_route_impl(parent, row, col){
         //route.reverse();
         return Some(route);
     }
@@ -127,7 +127,7 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
     log::debug!("finding row {}, scanning row: {}", row, parentrow);
     if matches!(parent.value().kind, AstNodeKind::Dummy) ||
         parentrow < row {
-        for (i, child) in parent.value().children.lock().unwrap().iter().enumerate() {
+        for child in parent.value().children.lock().unwrap().iter() {
             if let Some(mut route) = locate_node_route_impl(child, row, col) {
                 route.push(parent.clone());
                 return Some(route);
@@ -332,6 +332,8 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
             let rope = self.document_map.get(&uri.to_string())?;
+            // NOTE: trigger_character is not supported by vim-lsp.
+            // we manually consider the context.
             if let Some(context) = params.context {
                 match context.trigger_character.as_deref() {
                     Some("[") => {
@@ -376,12 +378,16 @@ impl LanguageServer for Backend {
                 }
             }
             let line = rope.get_line(position.line as usize)?;
-            let linechars = line.slice(..position.character as usize).chars();
-            log::info!("line: {:?}", linechars);
-            if let Some(findat) = linechars.clone().reversed().position(|c| { c == '@'}) {
-                let maybecommand = linechars.len() - findat;
+            let mut linechars_rev = line.slice(..position.character as usize).chars_at(position.character as usize).reversed();  // put the cursor at last
+            //log::info!("line: {:?}", linechars_rev);
+
+            // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work, because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
+            // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
+            //     https://github.com/cessen/ropey/issues/93
+            if let Some(foundat) = linechars_rev.position(|c| c == '@') {
+                let maybecommand = linechars_rev.len() - 1 - foundat as usize;
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
-                log::info!("command {}", s);
+                log::info!("command {}, found at {}", s, foundat);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
