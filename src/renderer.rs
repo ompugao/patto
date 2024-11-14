@@ -37,6 +37,15 @@ impl Renderer for HtmlRenderer {
         } else {
             write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: light)\">\n")?;
         }
+
+
+        if self.options.theme == "dark" {
+            write!(output, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css\" type=\"text/css\" type=\"text/css\" >")?;
+        } else {
+            write!(output, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css\" type=\"text/css\" type=\"text/css\" >")?;
+        }
+        write!(output, "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>")?;
+        write!(output, "<script>hljs.highlightAll();</script>")?;
         write!(output, "<body style=\"max-width: max-content\">\n")?;
         write!(output, "<script type=\"module\">")?;
         write!(output, "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';")?;
@@ -170,8 +179,8 @@ impl HtmlRenderer {
                     } else {
                         write!(output, "<pre><code class={}>", lang)?;
                         for child in ast.value().children.lock().unwrap().iter() {
-                            write!(output, "{}", child.extract_str())?;
-                            write!(output, "<br/>")?;
+                            write!(output, "{}\n", child.extract_str())?;
+                            //write!(output, "<br/>")?;
                         }
                         write!(output, "</code></pre>")?;
                     }
