@@ -18,6 +18,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tabton::parser::{self, AstNode, AstNodeKind, Property, ParserResult};
 use tabton::semantic_token::LEGEND_TYPE;
 
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
@@ -377,43 +380,76 @@ impl LanguageServer for Backend {
             //         }
             //     }
             // }
+
+            // match line.char((position.character as usize).saturating_sub(1)) {
+            //     '[' => {
+            //         if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+            //             let files = self.document_map.iter().map(|e| {
+            //                 let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+            //                 if path.ends_with(".tb") {
+            //                     path = path.strip_suffix(".tb").unwrap().to_string();
+            //                 }
+            //                 CompletionItem {
+            //                     label: path.clone(),
+            //                     kind: Some(CompletionItemKind::FILE),
+            //                     filter_text: Some(path.clone()),
+            //                     insert_text: Some(path),
+            //                     ..Default::default()
+            //                 }
+            //             })
+            //             .collect();
+            //             return Some(files);
+            //         }
+            //     },
+            //     c => {
+            //         //log::info!("{}", c);
+            //     }
+            // }
+
             let line = rope.get_line(position.line as usize)?;
-            match line.char((position.character as usize).saturating_sub(1)) {
-                '[' => {
-                    if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                        let files = self.document_map.iter().map(|e| {
-                            let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-                            if path.ends_with(".tb") {
-                                path = path.strip_suffix(".tb").unwrap().to_string();
-                            }
-                            CompletionItem {
-                                label: path.clone(),
+            if let Some(foundbracket) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '[') {
+                let maybelink = line.len_chars().saturating_sub(1).saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
+                let s = line.slice(maybelink..position.character as usize).as_str()?;
+                log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+
+                if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                    let matcher = SkimMatcherV2::default();
+                    let files = self.document_map.iter().filter_map(|e| {
+                        let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                        if path.ends_with(".tb") {
+                            path = path.strip_suffix(".tb").unwrap().to_string();
+                        }
+                        if matcher.fuzzy_match(&path, &s).is_some() {
+                            return Some(CompletionItem {
+                                label: format!("[{}]", path),
+                                detail: Some(path.clone()),
                                 kind: Some(CompletionItemKind::FILE),
-                                filter_text: Some(path.clone()),
-                                insert_text: Some(path),
+                                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit{
+                                    new_text: path.clone(),
+                                    range: Range{start: Position{line: position.line, character: maybelink as u32},
+                                                end: Position{line: position.line, character: position.character}}
+                                    })),
                                 ..Default::default()
-                            }
-                        })
-                        .collect();
-                        return Some(files);
-                    }
-                },
-                c => {
-                    //log::info!("{}", c);
+                            });
+                        }
+                        return None;
+                    })
+                    .collect();
+                    //log::info!("files: {:?}", files);
+                    return Some(files);
                 }
             }
 
-            let mut linechars_rev = line.slice(..position.character as usize).chars_at(position.character as usize).reversed();  // put the cursor at last
-            let linelen = linechars_rev.len();
-            //log::info!("line: {:?}", linechars_rev);
-
-            // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work, because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
+            // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work,
+            // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
             // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
             //     https://github.com/cessen/ropey/issues/93
-            if let Some(foundat) = linechars_rev.position(|c| c == '@') {
-                let maybecommand = linelen.saturating_sub(1).saturating_sub(foundat as usize);
+            if let Some(foundat) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '@') {
+                // `chars_at` puts the cursor at the end of the line.
+                let maybecommand = line.len_chars().saturating_sub(1).saturating_sub(foundat as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
-                log::debug!("command {}, from {}, found at {}", s, maybecommand, foundat);
+                log::debug!("command? {}, from {}, found at {}", s, maybecommand, foundat);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
