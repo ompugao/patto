@@ -13,7 +13,7 @@ Todo:
 		[- goto definition for hopping between notes]
 			[- support both [note] and [note#anchor]]
 		semantic tokens
-			[` overlappingTokenSupport`] seems not supported broadly (only neovim and vscode, AFIK)
+			[` overlappingTokenSupport`] seems not supported broadly (only neovim and vscode, AFAIK)
 		support [- note] and anchor completion
 		find references from other notes
 		document references and anchor references
