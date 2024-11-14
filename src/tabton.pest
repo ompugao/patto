@@ -6,7 +6,7 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_img|expr_builtin_symbols|expr_code_inline |expr_url_link| expr_mail_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
+statement = ${ SOI ~ (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
 raw_sentence = @{ (!("[" | "]" | "{@" | (WHITE_SPACE_INLINE+ ~ expr_anchor)) ~ ANY)+ }
 // WARN: statement_nestable must be the subset of statement
 statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)+ }  //todo url
@@ -79,6 +79,10 @@ parameter = @{ (LETTER|CJK)+ }
 expr_code_inline = ${ "[`" ~ WHITE_SPACE_INLINE* ~ code_inline ~ "`]" }
 code_inline = @{ code_inline_char* }
 code_inline_char = _{ !"`]" ~ ANY }
+
+expr_math_inline = ${ "[$" ~ WHITE_SPACE_INLINE* ~ math_inline ~ "$]" }
+math_inline = @{ math_inline_char* }
+math_inline_char = _{ !"$]" ~ ANY }
 
 expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ property_keyword_arg ~ "=" ~ property_keyword_value)* ~ "}" }
 //expr_property = ${ "{@" ~ property_name ~ ( WHITE_SPACE_INLINE+ ~ _property_arg  )* ~ "}" }

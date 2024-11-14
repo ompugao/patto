@@ -1091,6 +1091,21 @@ fn transform_statement<'a, 'b>(
                 ));
                 nodes.push(code);
             }
+            Rule::expr_math_inline => {
+                let math = AstNode::math(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(inner.as_span()) + indent),
+                    true,
+                );
+                let math_inline = inner.into_inner().next().unwrap();
+                math.add_content(AstNode::text(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(math_inline.as_span()) + indent),
+                ));
+                nodes.push(math);
+            }
             Rule::expr_property => {
                 if let Some(prop) = transform_property(inner) {
                     props.push(prop);
@@ -1276,6 +1291,22 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_parse_math_inline() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "[$ math = a * b * c$]";
+        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        let math = &nodes[0];
+        if let AstNodeKind::Math { inline } = math.value().kind {
+            assert_eq!(inline, true);
+        } else {
+            panic! {"Inline math could not be parsed"};
+        }
+        assert_eq!(math.value().contents.lock().unwrap()[0].extract_str(), "math = a * b * c");
+        Ok(())
+    }
+
 
     #[test]
     fn test_parse_unknown_command() {

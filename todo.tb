@@ -1,7 +1,8 @@
 Todo:
 	Parser
 		handle link to localfile {@task status=todo}
-		handle inline math {@task status=todo}
+		handle inline math [$ math text $]{@task status=done}
+		rendering math {@task status=todo}
 		handle [XXX mailto:XXX@example.com] {@task status=done}
 		support abbrev task, like [` !2024-09-24T13:00 `]
 		better anchor handling [` name#anchor`]. some note contains # in its name.
@@ -12,6 +13,7 @@ Todo:
 		[- goto definition for hopping between notes]
 			[- support both [note] and [note#anchor]]
 		semantic tokens
+			[` overlappingTokenSupport`] seems not supported broadly (only neovim and vscode, AFIK)
 		support [- note] and anchor completion
 		find references from other notes
 		document references and anchor references
