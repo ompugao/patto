@@ -421,7 +421,7 @@ impl LanguageServer for Backend {
                         }
                         if matcher.fuzzy_match(&path, &s).is_some() {
                             return Some(CompletionItem {
-                                label: format!("[{}]", path),
+                                label: format!("{}", path),
                                 detail: Some(path.clone()),
                                 kind: Some(CompletionItemKind::FILE),
                                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
