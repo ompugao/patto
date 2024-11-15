@@ -28,7 +28,7 @@ impl ops::Add<usize> for Span {
 
 impl Span {
     pub fn contains(&self, col: usize) -> bool {
-        return (self.0 <= col && col < self.1);
+        return self.0 <= col && col < self.1;
     }
 }
 
@@ -78,6 +78,7 @@ impl From<pest::error::InputLocation> for Span {
 }
 
 impl Location {
+    #[allow(dead_code)]
     fn merge(&self, other: &Self) -> Self {
         use std::cmp::{max, min};
         assert_eq!(self.input, other.input);
@@ -501,7 +502,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                             depth,
                         );
                         // TODO should be text rather than line?
-                        let newline = AstNode::line(&linetext, iline, Some(Span(linestart, linetext.len())), props);
+                        let newline = AstNode::line(&linetext, iline, Some(Span(linestart, linetext.len())), Some(props));
                         newline.add_contents(nodes);
                         quote.add_child(newline);
                     }
@@ -523,8 +524,11 @@ pub fn parse_text(text: &str) -> ParserResult {
                 block.add_child(text);
                 continue;
             } else {
+                #[allow(unused_variables)]
                 let table = parent.value().contents.lock().unwrap().last().expect("no way! should be table block").clone();
                 todo!("table rows might have empty lines, do not start from `depth'");
+                #[allow(unreachable_code)]
+                {
                 let columntexts = &linetext[depth..].split('\t');
                 let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
                 let columns = columntexts.to_owned().zip(span_starts)
@@ -555,6 +559,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                 newline.add_contents(columns);
                 table.add_child(newline);
                 continue;
+                }
             }
         }
 
@@ -604,7 +609,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                         iline,
                         cmp::min(depth, indent),
                     );
-                    let newline = AstNode::line(&linetext, iline, None, props);
+                    let newline = AstNode::line(&linetext, iline, None, Some(props));
                     newline.add_contents(nodes);
                     lastlinenode = newline.clone();
                     log::debug!("{newline}");
@@ -995,25 +1000,12 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     }
 }
 
-fn parse_trailing_properties(s: &str) -> Option<Vec<Property>> {
-    let Ok(mut trailing_properties) = TabtonLineParser::parse(Rule::trailing_properties, s) else {
-        return None;
-    };
-    let mut properties: Vec<Property> = vec![];
-    for pair in trailing_properties.next().unwrap().into_inner() {
-        if let Some(prop) = transform_property(pair) {
-            properties.push(prop);
-        }
-    }
-    Some(properties)
-}
-
 fn transform_statement<'a, 'b>(
     pair: Pair<'a, Rule>,
     line: &'a str,
     row: usize,
     indent: usize,
-) -> (Vec<AstNode>, Option<Vec<Property>>) {
+) -> (Vec<AstNode>, Vec<Property>) {
     let mut nodes: Vec<AstNode> = vec![];
     let mut props: Vec<Property> = vec![];
 
@@ -1142,7 +1134,7 @@ fn transform_statement<'a, 'b>(
             }
         }
     }
-    return (nodes, Some(props));
+    return (nodes, props);
 }
 
 #[cfg(test)]
@@ -1159,7 +1151,7 @@ mod tests {
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
         // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
-        let (astnode, props) = parse_command_line(input, 0, 0);
+        let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
@@ -1183,7 +1175,7 @@ mod tests {
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
         // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
-        let (astnode, props) = parse_command_line(input, 0, 0);
+        let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
@@ -1239,11 +1231,10 @@ mod tests {
         }
     }
     #[test]
-    fn test_parse_trailing_properties() {
+    fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>>  {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
-        let Some(props) = parse_trailing_properties(input) else {
-            panic!("Failed to parse trailing properties");
-        };
+        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
         if let Property::Anchor { name } = anchor1 {
             assert_eq!(name, "anchor1");
@@ -1270,13 +1261,14 @@ mod tests {
         } else {
             panic!("anchor2 is not extracted properly");
         };
+        Ok(())
     }
 
     #[test]
     fn test_parse_math() {
         let input = "[@math  ]";
         let indent = input.chars().take_while(|&c| c == '\t').count();
-        let (astnode, props) = parse_command_line(input, 0, 0);
+        let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
@@ -1296,7 +1288,7 @@ mod tests {
     fn test_parse_math_inline() -> Result<(), Box<dyn std::error::Error>> {
         let input = "[$ math = a * b * c$]";
         let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
-        let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let math = &nodes[0];
         if let AstNodeKind::Math { inline } = math.value().kind {
             assert_eq!(inline, true);
@@ -1347,8 +1339,8 @@ mod tests {
             panic!("text not extracted");
         }
 
-        assert!(props.is_some());
-        if let Property::Anchor { ref name } = props.unwrap()[0] {
+        assert_eq!(props.len(), 1);
+        if let Property::Anchor { ref name } = props[0] {
             assert_eq!(name, "anchor");
         } else {
             panic!("anchor is not extracted properly");
