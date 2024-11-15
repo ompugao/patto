@@ -101,6 +101,20 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     return (ast, diagnostics);
 }
 
+fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
+    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+        for prop in properties {
+            if let Property::Anchor { name } = prop {
+                anchors.push(name.to_string());
+            }
+        }
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_anchors(child, anchors);
+    }
+}
+
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
     if let AstNodeKind::Line { ref properties } = &parent.value().kind {
         for prop in properties {
@@ -230,7 +244,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec!["[", "@img", "@math", "@quote", "@table", "@task"].into_iter().map(ToString::to_string).collect()),
+                    trigger_characters: Some(vec!["[", "#", "@img", "@math", "@quote", "@table", "@task"].into_iter().map(ToString::to_string).collect()),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
                     ..Default::default()
@@ -407,6 +421,39 @@ impl LanguageServer for Backend {
             // }
 
             let line = rope.get_line(position.line as usize)?;
+
+            let c = line.char((position.character as usize).saturating_sub(1));
+            if c == '#' {
+                if let Some(foundbracket) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '[') {
+                    let maybelink = line.len_chars().saturating_sub(1).saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
+                    let s = line.slice(maybelink..((position.character - 1) as usize)).as_str()?;
+                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+
+                    if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                        let mut linkuri = root_uri.clone();
+                        if maybelink == (position.character - 1) as usize {
+                            // self link
+                            linkuri = uri.clone();
+                        } else {
+                            linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(s)).as_str());
+                        }
+                        if let Some(ast) = self.ast_map.get(&linkuri.to_string()) {
+                            let mut anchors = vec![];
+                            gather_anchors(ast.value(), &mut anchors);
+                            return Some(anchors.iter().map(|anchor| {
+                                CompletionItem {
+                                    label: format!("#{}", anchor).into(),
+                                    kind: Some(CompletionItemKind::REFERENCE),
+                                    filter_text: Some(anchor.to_string()),
+                                    insert_text: Some(anchor.to_string()),
+                                    ..Default::default()
+                                }
+                            }).collect());
+                        }
+                    }
+                }
+            }
+
             if let Some(foundbracket) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '[') {
                 let maybelink = line.len_chars().saturating_sub(1).saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybelink..position.character as usize).as_str()?;
@@ -584,7 +631,12 @@ impl LanguageServer for Backend {
             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                 //let linkuri = root_uri.join(format!("{}.{}", link, "tb").as_str()).expect("url join should work");
                 let mut linkuri = root_uri.clone();
-                linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(link)).as_str());
+                if link.len() > 0 {
+                    linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(link)).as_str());
+                } else {
+                    //self link
+                    linkuri = uri.clone();
+                }
                 let start = Range::new(Position::new(0, 0), Position::new(0, 1));
                 if let Some(anchor) = anchor {
                     let range = self.ast_map.get(linkuri.as_str()).and_then(|r| {

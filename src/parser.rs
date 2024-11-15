@@ -804,6 +804,15 @@ fn transform_wiki_link<'a>(
                 None,
             ));
         }
+        Rule::self_link_anchored => {
+            return Some(AstNode::wikilink(
+                line,
+                row,
+                Some(span),
+                "",
+                Some(inner.into_inner().next().unwrap().into_inner().next().unwrap().as_str()),
+            ));
+        }
         _ => {
             unreachable!();
         }
@@ -1375,6 +1384,28 @@ mod tests {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
+                        assert!(anchor.is_some());
+                        if let Some(anchor) = anchor {
+                            assert_eq!(anchor, "anchored");
+                        }
+                    }
+                    _ => {
+                        println!("{:?}", wiki_link);
+                        panic! {"wiki_link is not correctly parse"};
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_self_link_anchored() {
+        let input = "[#anchored]";
+        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
+            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+                match &wiki_link.value().kind {
+                    AstNodeKind::WikiLink { link, anchor } => {
+                        assert_eq!(link, "");
                         assert!(anchor.is_some());
                         if let Some(anchor) = anchor {
                             assert_eq!(anchor, "anchored");
