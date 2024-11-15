@@ -9,7 +9,7 @@ line = ${ expr_command | statement }
 statement = ${ SOI ~ (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | raw_sentence)* ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI} // todo url, img
 raw_sentence = @{ (!("[" | "]" | "{@" | (WHITE_SPACE_INLINE+ ~ expr_anchor)) ~ ANY)+ }
 // WARN: statement_nestable must be the subset of statement
-statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)+ }  //todo url
+statement_nestable = ${ (expr_builtin_symbols|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }  //todo url
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { (symbol_bold | symbol_italic | symbol_underline | symbol_deleted)+ }
