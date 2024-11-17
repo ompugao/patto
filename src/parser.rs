@@ -617,8 +617,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                 }
                 Err(e) => {
                     // TODO accumulate error
-                    log::warn!("parsing statement error!: {}", e);
-                    // log::warn!("{:?}", e);
+                    // log::warn!("parsing statement error!: {}", e);
                     errors.push(ParserError::ParseError(Location {
                         input: Arc::from(linetext),
                         row: iline,

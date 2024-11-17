@@ -43,7 +43,7 @@ local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|".")+ ~ "/")+ ~ (ASCII_ALPHANUME
 
 expr_wiki_link = ${"[" ~ (wiki_link_anchored | wiki_link | self_link_anchored) ~ "]"}
 wiki_link_anchored = ${ wiki_link ~ expr_anchor}
-wiki_link = @{ (!("[" | "]" | "://" | "/" | "#") ~ ANY)+ }  // should we exclude "." and ":" ??
+wiki_link = @{ (!("[" | "]" | "://" | "#") ~ ANY)+ }  // should we exclude "." and ":" ??
 self_link_anchored = { expr_anchor }
 
 expr_url_link = ${"[" ~ (expr_title_url | expr_url_title | expr_url_url | expr_url_only )  ~ "]"}

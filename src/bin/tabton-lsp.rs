@@ -11,7 +11,7 @@ use ropey::Rope;
 
 use serde_json::Value;
 use tokio;
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{Result, Error};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -37,6 +37,35 @@ fn get_node_range(from: &AstNode) -> Range {
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
+fn scan_directory(
+    client: &Client,
+    dir: PathBuf,
+    document_map: Arc<DashMap<String, Rope>>,
+    ast_map: Arc<DashMap<String, AstNode>>,
+) -> Result<()> {
+    let Ok(paths) = std::fs::read_dir(dir) else {
+        return Err(Error::internal_error());
+    };
+
+    for path in paths {
+        let path = path.unwrap().path();
+        if path.is_dir() {
+            scan_directory(client, path, Arc::clone(&document_map), Arc::clone(&ast_map))?;
+        } else if path.extension().map_or(false, |ext| ext == "tb") {
+            log::info!("Found file: {:?}", path);
+            let uri = Url::from_file_path(path.clone()).unwrap();
+            let _ = std::fs::read_to_string(path).map(|x| {
+                let (ast, _diagnostics) = parse_text(&x.as_str());
+                let rope = ropey::Rope::from_str(&x.as_str());
+                let uri_s = uri.to_string();
+                document_map.insert(uri_s.clone(), rope);
+                ast_map.insert(uri_s, ast);
+            });
+        }
+    }
+    Ok(())
+}
+
 async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
@@ -45,31 +74,14 @@ async fn scan_workspace(
 ) -> Result<()> {
     client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
 
+    let client2 = client.clone();
     // Use blocking I/O in a spawned blocking task
     let _ = tokio::task::spawn_blocking(move || {
         log::debug!("Start reading dir: {:?}", workspace_path);
-        let paths = std::fs::read_dir(workspace_path)
-            .expect("Unable to read workspace directory");
+        let _ = scan_directory(&client, workspace_path, document_map, ast_map);
+    }).await;
 
-        for path in paths {
-            let file_path = path.unwrap().path();
-            if file_path.extension().map_or(false, |ext| ext == "tb") {
-                log::info!("Found file: {:?}", file_path);
-                let uri = Url::from_file_path(file_path.clone()).unwrap();
-                let _ = std::fs::read_to_string(file_path).map(|x| {
-                    let (ast, _diagnostics) = parse_text(&x.as_str());
-                    let rope = ropey::Rope::from_str(&x.as_str());
-                    let uri_s = uri.to_string();
-                    document_map.insert(uri_s.clone(), rope);
-                    ast_map.insert(uri_s, ast);
-                });
-            }
-        }
-        log::debug!("{:?}", ast_map);
-    })
-    .await;
-
-    client.log_message(MessageType::INFO, "Workspace scan complete.").await;
+    client2.log_message(MessageType::INFO, "Workspace scan complete.").await;
 
     Ok(())
 }
@@ -424,10 +436,11 @@ impl LanguageServer for Backend {
 
             let c = line.char((position.character as usize).saturating_sub(1));
             if c == '#' {
-                if let Some(foundbracket) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '[') {
-                    let maybelink = line.len_chars().saturating_sub(1).saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
+                let slice = line.slice(..position.character as usize);
+                if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
+                    let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                     let s = line.slice(maybelink..((position.character - 1) as usize)).as_str()?;
-                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+                    log::info!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
 
                     if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                         let mut linkuri = root_uri.clone();
@@ -435,8 +448,9 @@ impl LanguageServer for Backend {
                             // self link
                             linkuri = uri.clone();
                         } else {
-                            linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(s)).as_str());
+                            linkuri.set_path(format!("{}/{}.tb", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
                         }
+                        log::info!("linkuri: {}", linkuri);
                         if let Some(ast) = self.ast_map.get(&linkuri.to_string()) {
                             let mut anchors = vec![];
                             gather_anchors(ast.value(), &mut anchors);
@@ -454,10 +468,12 @@ impl LanguageServer for Backend {
                 }
             }
 
-            if let Some(foundbracket) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '[') {
-                let maybelink = line.len_chars().saturating_sub(1).saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
+            let slice = line.slice(..position.character as usize);
+            let slicelen = slice.len_chars();
+            if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
+                let maybelink = slicelen.saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybelink..position.character as usize).as_str()?;
-                log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+                log::info!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
 
                 if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                     let matcher = SkimMatcherV2::default();
@@ -492,11 +508,13 @@ impl LanguageServer for Backend {
             // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
             // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
             //     https://github.com/cessen/ropey/issues/93
-            if let Some(foundat) = line.slice(..position.character as usize).chars_at(position.character as usize).reversed().position(|c| c == '@') {
+            let slice = line.slice(..position.character as usize);
+            let slicelen = slice.len_chars();
+            if let Some(foundat) = slice.chars_at(position.character as usize).reversed().position(|c| c == '@') {
                 // `chars_at` puts the cursor at the end of the line.
-                let maybecommand = line.len_chars().saturating_sub(1).saturating_sub(foundat as usize);  // -1 since the cursor at first points to the end of the line `\n`.
+                let maybecommand = slicelen.saturating_sub(foundat as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
-                log::debug!("command? {}, from {}, found at {}", s, maybecommand, foundat);
+                log::info!("command? {}, from {}, found at {}", s, maybecommand, foundat);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
