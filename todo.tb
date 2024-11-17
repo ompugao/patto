@@ -22,6 +22,7 @@ Todo:
 		todo extraction
 			this needs client-side development
 		note renaming
+		anchor renaming
 		make error.variant.message() user-friendly
 		fix indentation error at a line after a block with trailing empty lines
 	Previewer
