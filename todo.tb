@@ -1,5 +1,6 @@
 Todo:
 	Parser
+		scan file in subdirectories
 		handle link to localfile {@task status=todo}
 		handle inline math [$ math text $]{@task status=done}
 		rendering math {@task status=todo}
@@ -15,11 +16,12 @@ Todo:
 		semantic tokens
 			[` overlappingTokenSupport`] seems not supported broadly (only neovim and vscode, AFAIK)
 		[- support [- note] and [- anchor] completion]
-		find references from other notes
 		document references and anchor references
 			directional graph construction
+		find references (backlinks) from other notes
 		todo extraction
 			this needs client-side development
+		note renaming
 		make error.variant.message() user-friendly
 		fix indentation error at a line after a block with trailing empty lines
 	Previewer
