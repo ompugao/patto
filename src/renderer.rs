@@ -4,6 +4,7 @@ use std::io::Write;
 use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
 use crate::utils::{get_twitter_embed, get_youtube_id};
+use html_escape::encode_text;
 
 #[derive(Debug, Default)]
 pub struct Options {
@@ -179,7 +180,7 @@ impl HtmlRenderer {
                     } else {
                         write!(output, "<pre><code class={}>", lang)?;
                         for child in ast.value().children.lock().unwrap().iter() {
-                            write!(output, "{}\n", child.extract_str())?;
+                            write!(output, "{}\n", encode_text(child.extract_str()))?;  // TODO encode all at once?
                             //write!(output, "<br/>")?;
                         }
                         write!(output, "</code></pre>")?;
