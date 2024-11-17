@@ -1,13 +1,13 @@
 Todo:
 	Parser
-		scan file in subdirectories
-		handle link to localfile {@task status=todo}
+		[- scan file in subdirectories]
+		handle link to localfile
 		handle inline math [$ math text $]{@task status=done}
-		rendering math {@task status=todo}
+		rendering math
 		handle [XXX mailto:XXX@example.com] {@task status=done}
 		support abbrev task, like [` !2024-09-24T13:00 `]
 		better anchor handling [` name#anchor`]. some note contains # in its name.
-		better depth and state handling {@task status=todo}
+		better depth and state handling
 	LSP server
 		[- async note scanning]
 		[- return all errors as diagnostics]
