@@ -6,7 +6,8 @@ Todo:
 		rendering math
 		handle [XXX mailto:XXX@example.com] {@task status=done}
 		support abbrev task, like [` !2024-09-24T13:00 `]
-		better anchor handling [` name#anchor`]. some note contains # in its name.
+		[- better anchor handling [` name#anchor`]. some note contains [` #`] in its name.]
+			we do not support [` #`] for the name of notes.
 		better depth and state handling
 	LSP server
 		[- async note scanning]
@@ -22,6 +23,9 @@ Todo:
 		todo extraction
 			this needs client-side development
 		note renaming
+			vim-lsp does not support CreateFile/RenameFile/DeleteFile
+				[https://github.com/prabirshrestha/vim-lsp/issues/1371]
+			yegappan/lsp supports these
 		anchor renaming
 		make error.variant.message() user-friendly
 		fix indentation error at a line after a block with trailing empty lines
