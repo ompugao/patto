@@ -21,10 +21,10 @@ Todo:
 			directional graph construction
 		find references (backlinks) from other notes
 		todo extraction
-			this needs client-side development
-				[- vim-lsp version]
-				nvim-lspconfig version
-				[- vscode version]
+			[- aggregation command]
+			[- vim-lsp version]
+			nvim-lspconfig version
+			[- vscode version]
 			auto refresh
 		note renaming
 			vim-lsp does not support CreateFile/RenameFile/DeleteFile
