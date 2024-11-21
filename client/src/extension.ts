@@ -4,6 +4,7 @@
  * ------------------------------------------------------------------------------------------ */
 
 import { window, workspace, ExtensionContext, OutputChannel, commands } from 'vscode';
+import * as vscode from 'vscode';
 
 import {
 	Executable,
@@ -13,8 +14,70 @@ import {
 	ExecuteCommandRequest,
 } from 'vscode-languageclient/node';
 
+import * as fs from 'fs';
+import * as path from 'path';
 
 let client: LanguageClient;
+
+export class TasksProvider implements vscode.TreeDataProvider<Task> {
+  private tasks: Task[];
+  constructor() {
+	this.tasks = [];
+  }
+
+  getTreeItem(element: Task): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: Task): Thenable<Task[]> {
+    if (element) {
+      return Promise.resolve([]);
+    } else {
+      return Promise.resolve(this.tasks);
+    }
+  }
+
+  private _onDidChangeTreeData: vscode.EventEmitter<Task | undefined | null | void> = new vscode.EventEmitter<Task | undefined | null | void>();
+  readonly onDidChangeTreeData: vscode.Event<Task | undefined | null | void> = this._onDidChangeTreeData.event;
+
+  refresh(result): void {
+    this.tasks = [];
+    for (let i = 0; i < result.length; ++i) {
+      this.tasks.push(new Task(
+        result[i]['text'],
+        vscode.TreeItemCollapsibleState.Collapsed
+      ));
+    }
+    this._onDidChangeTreeData.fire();
+  }
+
+  //private pathExists(p: string): boolean {
+  //  try {
+  //    fs.accessSync(p);
+  //  } catch (err) {
+  //    return false;
+  //  }
+  //  return true;
+  //}
+}
+
+class Task extends vscode.TreeItem {
+  constructor(
+    public readonly label: string,
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState
+  ) {
+    super(label, collapsibleState);
+    this.tooltip = `${this.label}`;
+    this.description = this.label;
+  }
+
+  //iconPath = {
+  //  light: path.join(__filename, '..', '..', 'resources', 'light', 'task.svg'),
+  //  dark: path.join(__filename, '..', '..', 'resources', 'dark', 'task.svg')
+  //};
+}
+
+
 
 export function activate(context: ExtensionContext): void {
 	const command = process.env.SERVER_PATH || "tabton-lsp";
@@ -64,17 +127,28 @@ export function activate(context: ExtensionContext): void {
 		clientOptions
 	);
 
+	const tasksProvider = new TasksProvider();
+	context.subscriptions.push(window.createTreeView('tabtonTasks', {
+		treeDataProvider: tasksProvider
+	}));
+
 	// Start the client. This will also launch the server
-	client.start();
+	//client.start();
 	// context.subscriptions.push(client.start());
-	// context.subscriptions.push(
-	// 	commands.registerCommand("experimental/aggregate_tasks", async () => {
-	// 		await client.sendRequest(ExecuteCommandRequest.type, {
-	// 			command: "experimental/aggregate_tasks",
-	// 			arguments: [],
-	// 		});
-	// 	})
-	// );
+	context.subscriptions.push(
+		commands.registerCommand("tabton.tasks", async () => {
+			await client.start(),
+			await client.sendRequest(ExecuteCommandRequest.type, {
+				command: "experimental/aggregate_tasks",
+				arguments: [],
+			}).then((response) => {
+				traceOutputChannel.appendLine("[tabton-lsp-extension] " + response);
+				tasksProvider.refresh(response);
+			} , (error) => {
+				traceOutputChannel.appendLine("[tabton-lsp-extension] error! " + error);
+			});
+		})
+	);
 }
 
 export function deactivate(): Thenable<void> | undefined {

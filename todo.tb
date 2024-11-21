@@ -22,6 +22,10 @@ Todo:
 		find references (backlinks) from other notes
 		todo extraction
 			this needs client-side development
+				[- vim-lsp version]
+				nvim-lspconfig version
+				[- vscode version]
+			auto refresh
 		note renaming
 			vim-lsp does not support CreateFile/RenameFile/DeleteFile
 				[https://github.com/prabirshrestha/vim-lsp/issues/1371]

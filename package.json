@@ -16,8 +16,7 @@
   },
   "enabledApiProposals": [],
   "activationEvents": [
-    "onLanguage:tabton",
-    "onCommand:experimental/aggregate_tasks"
+    "onLanguage:tabton"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -31,10 +30,18 @@
     ],
     "commands": [
       {
-        "command": "experimental/aggregate_tasks",
-        "title": "Tabton: Aggreate tasks in the workspace"
+        "command": "tabton.tasks",
+        "title": "Tabton: Aggreate tasks in the workspace in vscode"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "tabtonTasks",
+          "name": "Tabton Tasks"
+        }
+      ]
+    },
     "configuration": {
       "type": "object",
       "title": "tabton-language-server",

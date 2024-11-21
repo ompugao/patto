@@ -480,7 +480,7 @@ impl LanguageServer for Backend {
                 if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                     let s = line.slice(maybelink..((position.character - 1) as usize)).as_str()?;
-                    log::info!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
 
                     if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                         let mut linkuri = root_uri.clone();
@@ -490,7 +490,7 @@ impl LanguageServer for Backend {
                         } else {
                             linkuri.set_path(format!("{}/{}.tb", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
                         }
-                        log::info!("linkuri: {}", linkuri);
+                        log::debug!("linkuri: {}", linkuri);
                         if let Some(ast) = self.ast_map.get(&linkuri.to_string()) {
                             let mut anchors = vec![];
                             gather_anchors(ast.value(), &mut anchors);
@@ -513,7 +513,7 @@ impl LanguageServer for Backend {
             if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
                 let maybelink = slicelen.saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybelink..position.character as usize).as_str()?;
-                log::info!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
+                log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
 
                 if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
                     let matcher = SkimMatcherV2::default();
@@ -554,7 +554,7 @@ impl LanguageServer for Backend {
                 // `chars_at` puts the cursor at the end of the line.
                 let maybecommand = slicelen.saturating_sub(foundat as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                 let s = line.slice(maybecommand..position.character as usize).as_str()?;
-                log::info!("command? {}, from {}, found at {}", s, maybecommand, foundat);
+                log::debug!("command? {}, from {}, found at {}", s, maybecommand, foundat);
                 match s {
                     "@code" => {
                         let item = CompletionItem {
@@ -657,25 +657,24 @@ impl LanguageServer for Backend {
                     });
                 });
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
-                let ret = tasks.iter().map(|(uri, line, due)| {
+                let ret = json!(tasks.iter().map(|(uri, line, due)| {
                     //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
                     TaskInformation::new(Location::new(Url::parse(uri).unwrap(), get_node_range(&line)),
                                          line.extract_str().trim_start().to_string(),
                                          "".to_string())
                                          //due.clone())
                     //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
-                }).collect::<Vec<_>>();
-                let ret = json!(ret);
-                self.client
-                    .log_message(MessageType::INFO, format!("response: {:?}", ret))
-                    .await;
+                }).collect::<Vec<_>>());
+                //self.client
+                //    .log_message(MessageType::INFO, format!("response: {:?}", ret))
+                //    .await;
                 return Ok(Some(ret));
             },
             c => {
                 log::info!("unknown command: {}", c);
             }
         }
-        log::info!("command execution: {:?}", params);
+        log::info!("unhandled command execution: {:?}", params);
         Ok(None)
     }
 
