@@ -68,9 +68,9 @@ export function activate(context: ExtensionContext): void {
 	client.start();
 	// context.subscriptions.push(client.start());
 	// context.subscriptions.push(
-	// 	commands.registerCommand("tabton-lsp.aggregate_tasks", async () => {
+	// 	commands.registerCommand("experimental/aggregate_tasks", async () => {
 	// 		await client.sendRequest(ExecuteCommandRequest.type, {
-	// 			command: "tabton-lsp.aggregate_tasks",
+	// 			command: "experimental/aggregate_tasks",
 	// 			arguments: [],
 	// 		});
 	// 	})

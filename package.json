@@ -17,7 +17,7 @@
   "enabledApiProposals": [],
   "activationEvents": [
     "onLanguage:tabton",
-    "onCommand:tabton-lsp.aggregate_tasks"
+    "onCommand:experimental/aggregate_tasks"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -31,7 +31,7 @@
     ],
     "commands": [
       {
-        "command": "tabton-lsp.aggregate_tasks",
+        "command": "experimental/aggregate_tasks",
         "title": "Tabton: Aggreate tasks in the workspace"
       }
     ],

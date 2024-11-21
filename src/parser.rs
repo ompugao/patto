@@ -11,6 +11,8 @@ use log;
 use pest;
 use pest::iterators::Pair;
 
+//use serde::{Deserialize, Serialize};
+
 #[derive(Parser)]
 #[grammar = "tabton.pest"]
 struct TabtonLineParser;
@@ -129,7 +131,7 @@ pub struct AstNodeInternal {
 //     }
 // }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, PartialOrd, Eq, Ord)] //, Deserialize, Serialize)]
 pub enum Deadline {
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),

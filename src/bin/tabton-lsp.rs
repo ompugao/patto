@@ -9,13 +9,14 @@ use chrono;
 use dashmap::DashMap;
 use ropey::Rope;
 
-use serde_json::Value;
+use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use tokio;
 use tower_lsp::jsonrpc::{Result, Error};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use tabton::parser::{self, AstNode, AstNodeKind, Property, ParserResult};
+use tabton::parser::{self, AstNode, AstNodeKind, Property, ParserResult, TaskStatus, Deadline};
 use tabton::semantic_token::LEGEND_TYPE;
 
 use fuzzy_matcher::FuzzyMatcher;
@@ -124,6 +125,45 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
 
     for child in parent.value().children.lock().unwrap().iter() {
         gather_anchors(child, anchors);
+    }
+}
+
+fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
+    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+        for prop in properties {
+            if let Property::Task { status, due } = prop {
+                if ! matches!(status, TaskStatus::Done) {
+                    tasklines.push((parent.clone(), due.clone()));
+                    break;
+                }
+            }
+        }
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_tasks(child, tasklines);
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
+pub struct TaskInformation {
+    /// The location of this task
+    pub location: Location,
+
+    /// The text of this task
+    pub text: String,
+
+    pub message: String,
+    //pub due: Deadline,
+}
+
+impl TaskInformation {
+    pub fn new(location: Location, text: String, message: String) -> Self {
+        Self {
+            location,
+            text,
+            message,
+        }
     }
 }
 
@@ -262,7 +302,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["tabton-lsp.aggregate_tasks".to_string()],
+                    commands: vec!["experimental/aggregate_tasks".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -602,18 +642,40 @@ impl LanguageServer for Backend {
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        self.client
+            .log_message(MessageType::INFO, format!("command executed!: {:?}", params))
+            .await;
+ 
         match params.command.as_str() {
-            "tabton-lsp.aggregate_tasks" => {
-                let _: Vec<_> = self.ast_map.iter().map(|e| {
-                    //TODO show results in panel. this requires client-side development.
-                    log::info!("{:?}, {:?}", e.key(), e.value());
-                    Some(1)
-                }).collect();
+            "experimental/aggregate_tasks" => {
+                let mut tasks: Vec<(String, AstNode, Deadline)> = vec![];
+                self.ast_map.iter().for_each(|entry| {
+                    let mut tasklines = vec![];
+                    gather_tasks(entry.value(), &mut tasklines);
+                    tasklines.into_iter().for_each(|(line, due)| {
+                        tasks.push((entry.key().clone(), line.clone(), due.clone()));
+                    });
+                });
+                tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
+                let ret = tasks.iter().map(|(uri, line, due)| {
+                    //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
+                    TaskInformation::new(Location::new(Url::parse(uri).unwrap(), get_node_range(&line)),
+                                         line.extract_str().trim_start().to_string(),
+                                         "".to_string())
+                                         //due.clone())
+                    //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
+                }).collect::<Vec<_>>();
+                let ret = json!(ret);
+                self.client
+                    .log_message(MessageType::INFO, format!("response: {:?}", ret))
+                    .await;
+                return Ok(Some(ret));
             },
             c => {
                 log::info!("unknown command: {}", c);
             }
         }
+        log::info!("command execution: {:?}", params);
         Ok(None)
     }
 
