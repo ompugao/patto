@@ -1,0 +1,63 @@
+augroup tabton-language-server
+    au!
+    au User lsp_setup call s:setup_server()
+    au User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
+augroup END
+
+function! s:setup_server() abort
+    echomsg 'Setting up tabton language server'
+    let s:msls_client_id = lsp#register_server({
+                \ 'name': 'tabton-lsp',
+                \ 'cmd': ['tabton-lsp' ],
+                \ 'allowlist': ['tabton'],
+                \ })
+endfunction
+
+function! s:on_lsp_buffer_enabled() abort
+  echomsg 'buffer loaded'
+  command! -buffer LspTabtonTasks call <SID>tabton_tasks()
+  nnoremap <buffer> <plug>(lsp-tabton-tasks) :<c-u>call <SID>tabton_tasks()<cr>
+endfunction
+
+function! s:tabton_tasks() abort
+    call lsp#callbag#pipe(
+        \ lsp#request('tabton-lsp', {
+        \   'method': 'workspace/executeCommand',
+        \   'params': {
+        \       'command': 'experimental/aggregate_tasks',
+        \       'arguments': [],
+        \   }
+        \ }),
+        \ lsp#callbag#subscribe({
+        \   'next':{x->s:show_task(x['response']['result'])},
+        \   'error':{e->lsp_settings#utils#error(e)},
+        \ })
+        \ )
+endfunction
+
+function! s:show_task(res) abort
+    echomsg a:res
+    let l:list = []
+    for l:item in a:res
+        let l:path = lsp#utils#uri_to_path(l:item['location']['uri'])
+        let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:item['location']['range']['start'])
+        let l:location_item = {
+            \ 'filename': l:path,
+            \ 'lnum': l:line,
+            \ 'col': l:col,
+            \ 'text': l:item['text']
+            \ }
+        call add(l:list, l:location_item)
+    endfor
+
+    if empty(l:list)
+        call lsp#utils#error('No tasks. Great!')
+        return
+    else
+        call setloclist(0, l:list)
+        echo 'Retrieved tasks'
+        botright lopen 8
+    endif
+endfunction
+
+
