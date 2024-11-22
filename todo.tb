@@ -20,6 +20,7 @@ Todo:
 		document references and anchor references
 			directional graph construction
 		find references (backlinks) from other notes
+		export markdown
 		todo extraction
 			[- aggregation command]
 			[- vim-lsp version]
