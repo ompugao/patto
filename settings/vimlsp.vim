@@ -5,7 +5,6 @@ augroup tabton-language-server
 augroup END
 
 function! s:setup_server() abort
-    echomsg 'Setting up tabton language server'
     let s:msls_client_id = lsp#register_server({
                 \ 'name': 'tabton-lsp',
                 \ 'cmd': ['tabton-lsp' ],
@@ -14,7 +13,6 @@ function! s:setup_server() abort
 endfunction
 
 function! s:on_lsp_buffer_enabled() abort
-  echomsg 'buffer loaded'
   command! -buffer LspTabtonTasks call <SID>tabton_tasks()
   nnoremap <buffer> <plug>(lsp-tabton-tasks) :<c-u>call <SID>tabton_tasks()<cr>
 endfunction
@@ -36,7 +34,6 @@ function! s:tabton_tasks() abort
 endfunction
 
 function! s:show_task(res) abort
-    echomsg a:res
     let l:list = []
     for l:item in a:res
         let l:path = lsp#utils#uri_to_path(l:item['location']['uri'])
