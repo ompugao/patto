@@ -931,6 +931,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "patto"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "dashmap 6.1.0",
+ "fuzzy-matcher",
+ "html-escape",
+ "log",
+ "pest",
+ "pest_derive",
+ "reqwest",
+ "ropey",
+ "serde",
+ "serde_json",
+ "simplelog",
+ "thiserror",
+ "tokio",
+ "tower-lsp",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1404,30 +1428,6 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "tabton"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dashmap 6.1.0",
- "fuzzy-matcher",
- "html-escape",
- "log",
- "pest",
- "pest_derive",
- "reqwest",
- "ropey",
- "serde",
- "serde_json",
- "simplelog",
- "thiserror",
- "tokio",
- "tower-lsp",
- "url",
- "urlencoding",
 ]
 
 [[package]]

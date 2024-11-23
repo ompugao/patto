@@ -1,5 +1,5 @@
 let s:root_dir = expand('<sfile>:h:h')
-function! tabton#init() abort
+function! patto#init() abort
     if exists('g:lsp_loaded')
         " vim-lsp
         let l:script = s:root_dir . '/settings/vimlsp.vim'

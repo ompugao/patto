@@ -1,6 +1,6 @@
-setlocal suffixesadd=.tb
+setlocal suffixesadd=.pn
 
-" hard tab is important in tabton
+" hard tab is important in patto
 setlocal noexpandtab
 
 " conceal+wrap in vim/neovim is still weird

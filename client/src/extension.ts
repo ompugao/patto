@@ -80,10 +80,10 @@ class Task extends vscode.TreeItem {
 
 
 export function activate(context: ExtensionContext): void {
-	const command = process.env.SERVER_PATH || "tabton-lsp";
+	const command = process.env.SERVER_PATH || "patto-lsp";
 
-	const traceOutputChannel: OutputChannel = window.createOutputChannel("Tabton-Language-Server-trace");
-	traceOutputChannel.appendLine("[tabton-lsp-extension] Start running " + command);
+	const traceOutputChannel: OutputChannel = window.createOutputChannel("Patto-Language-Server-trace");
+	traceOutputChannel.appendLine("[patto-lsp-extension] Start running " + command);
 	traceOutputChannel.show(true);
 
 	const run: Executable = {
@@ -109,8 +109,8 @@ export function activate(context: ExtensionContext): void {
 	const clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
 		documentSelector: [
-			{ scheme: "file", language: "tabton" },
-			{ scheme: "untitled", language: "tabton" },
+			{ scheme: "file", language: "patto" },
+			{ scheme: "untitled", language: "patto" },
 		],
 		synchronize: {
 			// Notify the server about file changes to '.clientrc files contained in the workspace
@@ -121,14 +121,14 @@ export function activate(context: ExtensionContext): void {
 
 	// Create the language client and start the client.
 	client = new LanguageClient(
-		'tabton-language-server',
-		'Tabton Language Server',
+		'patto-language-server',
+		'Patto Language Server',
 		serverOptions,
 		clientOptions
 	);
 
 	const tasksProvider = new TasksProvider();
-	context.subscriptions.push(window.createTreeView('tabtonTasks', {
+	context.subscriptions.push(window.createTreeView('pattoTasks', {
 		treeDataProvider: tasksProvider
 	}));
 
@@ -136,16 +136,16 @@ export function activate(context: ExtensionContext): void {
 	//client.start();
 	// context.subscriptions.push(client.start());
 	context.subscriptions.push(
-		commands.registerCommand("tabton.tasks", async () => {
+		commands.registerCommand("patto.tasks", async () => {
 			await client.start(),
 			await client.sendRequest(ExecuteCommandRequest.type, {
 				command: "experimental/aggregate_tasks",
 				arguments: [],
 			}).then((response) => {
-				traceOutputChannel.appendLine("[tabton-lsp-extension] " + response);
+				traceOutputChannel.appendLine("[patto-lsp-extension] " + response);
 				tasksProvider.refresh(response);
 			} , (error) => {
-				traceOutputChannel.appendLine("[tabton-lsp-extension] error! " + error);
+				traceOutputChannel.appendLine("[patto-lsp-extension] error! " + error);
 			});
 		})
 	);

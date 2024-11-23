@@ -16,8 +16,8 @@ use tower_lsp::jsonrpc::{Result, Error};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use tabton::parser::{self, AstNode, AstNodeKind, Property, ParserResult, TaskStatus, Deadline};
-use tabton::semantic_token::LEGEND_TYPE;
+use patto::parser::{self, AstNode, AstNodeKind, Property, ParserResult, TaskStatus, Deadline};
+use patto::semantic_token::LEGEND_TYPE;
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -52,7 +52,7 @@ fn scan_directory(
         let path = path.unwrap().path();
         if path.is_dir() {
             scan_directory(client, path, Arc::clone(&document_map), Arc::clone(&ast_map))?;
-        } else if path.extension().map_or(false, |ext| ext == "tb") {
+        } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::info!("Found file: {:?}", path);
             let uri = Url::from_file_path(path.clone()).unwrap();
             let _ = std::fs::read_to_string(path).map(|x| {
@@ -318,7 +318,7 @@ impl LanguageServer for Backend {
                             text_document_registration_options: {
                                 TextDocumentRegistrationOptions {
                                     document_selector: Some(vec![DocumentFilter {
-                                        language: Some("tb".to_string()),
+                                        language: Some("pn".to_string()),
                                         scheme: Some("file".to_string()),
                                         pattern: None,
                                     }]),
@@ -349,7 +349,7 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "tabton-lsp server initialized!")
+            .log_message(MessageType::INFO, "patto-lsp server initialized!")
             .await;
     }
 
@@ -409,8 +409,8 @@ impl LanguageServer for Backend {
             //             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
             //                 let files = self.document_map.iter().map(|e| {
             //                     let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-            //                     if path.ends_with(".tb") {
-            //                         path = path.strip_suffix(".tb").unwrap().to_string();
+            //                     if path.ends_with(".pn") {
+            //                         path = path.strip_suffix(".pn").unwrap().to_string();
             //                     }
             //                     CompletionItem {
             //                         label: path.clone(),
@@ -452,8 +452,8 @@ impl LanguageServer for Backend {
             //         if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
             //             let files = self.document_map.iter().map(|e| {
             //                 let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-            //                 if path.ends_with(".tb") {
-            //                     path = path.strip_suffix(".tb").unwrap().to_string();
+            //                 if path.ends_with(".pn") {
+            //                     path = path.strip_suffix(".pn").unwrap().to_string();
             //                 }
             //                 CompletionItem {
             //                     label: path.clone(),
@@ -488,7 +488,7 @@ impl LanguageServer for Backend {
                             // self link
                             linkuri = uri.clone();
                         } else {
-                            linkuri.set_path(format!("{}/{}.tb", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
+                            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
                         }
                         log::debug!("linkuri: {}", linkuri);
                         if let Some(ast) = self.ast_map.get(&linkuri.to_string()) {
@@ -519,8 +519,8 @@ impl LanguageServer for Backend {
                     let matcher = SkimMatcherV2::default();
                     let files = self.document_map.iter().filter_map(|e| {
                         let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-                        if path.ends_with(".tb") {
-                            path = path.strip_suffix(".tb").unwrap().to_string();
+                        if path.ends_with(".pn") {
+                            path = path.strip_suffix(".pn").unwrap().to_string();
                         }
                         if matcher.fuzzy_match(&path, &s).is_some() {
                             return Some(CompletionItem {
@@ -708,10 +708,10 @@ impl LanguageServer for Backend {
                 return None;
             };
             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                //let linkuri = root_uri.join(format!("{}.{}", link, "tb").as_str()).expect("url join should work");
+                //let linkuri = root_uri.join(format!("{}.{}", link, "pn").as_str()).expect("url join should work");
                 let mut linkuri = root_uri.clone();
                 if link.len() > 0 {
-                    linkuri.set_path(format!("{}/{}.tb", root_uri.path(), encode(link)).as_str());
+                    linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
                 } else {
                     //self link
                     linkuri = uri.clone();
@@ -750,7 +750,7 @@ fn init_logger() {
         simplelog::WriteLogger::new(
             simplelog::LevelFilter::Info,
             simplelog::Config::default(),
-            File::create("tabton-lsp.log").unwrap(),
+            File::create("patto-lsp.log").unwrap(),
         ),
     ])
     .unwrap();
@@ -769,7 +769,7 @@ async fn main() {
         root_uri: Arc::new(Mutex::new(None)),
         //semantic_token_map: DashMap::new(),
     });
-    log::info!("Tabton Language Server Protocol started");
+    log::info!("Patto Language Server Protocol started");
     Server::new(stdin, stdout, socket).serve(service).await;
-    log::info!("Tabton Language Server Protocol exits");
+    log::info!("Patto Language Server Protocol exits");
 }

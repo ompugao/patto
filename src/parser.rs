@@ -14,8 +14,8 @@ use pest::iterators::Pair;
 //use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
-#[grammar = "tabton.pest"]
-struct TabtonLineParser;
+#[grammar = "patto.pest"]
+struct PattoLineParser;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Span(pub usize, pub usize);
@@ -495,7 +495,7 @@ pub fn parse_text(text: &str) -> ParserResult {
         if parsing_state != ParsingState::Line {
             if parsing_state == ParsingState::Quote  {
                 let quote = parent.value().contents.lock().unwrap().last().expect("no way! should be quote block").clone();
-                match TabtonLineParser::parse(Rule::statement_nestable, &linetext[linestart..]) {
+                match PattoLineParser::parse(Rule::statement_nestable, &linetext[linestart..]) {
                     Ok(mut parsed) => {
                         let (nodes, props) = transform_statement(
                             parsed.next().unwrap(),
@@ -534,7 +534,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                 let columntexts = &linetext[depth..].split('\t');
                 let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
                 let columns = columntexts.to_owned().zip(span_starts)
-                    .map(|(t, c)| (TabtonLineParser::parse(Rule::statement_nestable, t), c))
+                    .map(|(t, c)| (PattoLineParser::parse(Rule::statement_nestable, t), c))
                     .map(|(ret, c)| {
                         match ret {
                             Ok(mut parsed) => {
@@ -600,7 +600,7 @@ pub fn parse_text(text: &str) -> ParserResult {
             log::debug!("---- input ----");
             log::debug!("{}", &linetext[cmp::min(depth,indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
-            match TabtonLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
+            match PattoLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
                     log::debug!("---- parsed ----");
                     log::debug!("{:?}", parsed);
@@ -644,7 +644,7 @@ fn parse_command_line(
     row: usize,
     indent: usize,
 ) -> (Option<AstNode>, Vec<Property>) {
-    let Ok(mut pairs) = TabtonLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
+    let Ok(mut pairs) = PattoLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
     let parsed_command_line = pairs.next().unwrap();
@@ -1155,7 +1155,7 @@ mod tests {
     #[test]
     fn test_parse_code_command() {
         let input = "[@code rust]";
-        // let parsed = TabtonLineParser::parse(Rule::expr_command, input);
+        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
         // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
@@ -1179,7 +1179,7 @@ mod tests {
     #[test]
     fn test_parse_code_emtpy_lang() {
         let input = "[@code   ]";
-        // let parsed = TabtonLineParser::parse(Rule::expr_command, input);
+        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
         // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
@@ -1243,7 +1243,7 @@ mod tests {
     #[test]
     fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>>  {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
-        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
         if let Property::Anchor { name } = anchor1 {
@@ -1297,7 +1297,7 @@ mod tests {
     #[test]
     fn test_parse_math_inline() -> Result<(), Box<dyn std::error::Error>> {
         let input = "[$ math = a * b * c$]";
-        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let math = &nodes[0];
         if let AstNodeKind::Math { inline } = math.value().kind {
@@ -1322,7 +1322,7 @@ mod tests {
     #[test]
     fn test_parse_code_inline_text_anchor() -> Result<(), Box<dyn std::error::Error>>{
         let input = "[` inline ![] code 123`] raw text    #anchor";
-        let mut parsed = TabtonLineParser::parse(Rule::statement, input)?;
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         //assert_eq!(code.extract_str(), "inline code 123");
         let code = &nodes[0];
@@ -1361,7 +1361,7 @@ mod tests {
     #[test]
     fn test_parse_wiki_link() {
         let input = "[test wiki_page]";
-        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
+        if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
@@ -1380,7 +1380,7 @@ mod tests {
     #[test]
     fn test_parse_wiki_link_anchored() {
         let input = "[test wiki_page#anchored]";
-        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
+        if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
@@ -1402,7 +1402,7 @@ mod tests {
     #[test]
     fn test_parse_self_link_anchored() {
         let input = "[#anchored]";
-        if let Ok(mut parsed) = TabtonLineParser::parse(Rule::expr_wiki_link, input) {
+        if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
                 match &wiki_link.value().kind {
                     AstNodeKind::WikiLink { link, anchor } => {
@@ -1428,7 +1428,7 @@ mod tests {
             ("[@img https://gyazo.com/path/to/icon.png \"img alt title\"]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
             ("[@img https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", None),
             (r##"[@img ./local/path/to/icon.png "img escaped \"alt title"]"##, "./local/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string()))] {
-            match TabtonLineParser::parse(Rule::expr_img, input) {
+            match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
                     let node = transform_img(parsed.next().unwrap(), input, 0, 0).ok_or("transform_img failed")?;
                     if let AstNodeKind::Image{src, alt} = &node.value().kind {
@@ -1460,7 +1460,7 @@ mod tests {
             ("[https://username@example.com/path/to/url?param=1&newparam=2]", "https://username@example.com/path/to/url?param=1&newparam=2", None),
             ("[https://google.com https://google.com]", "https://google.com", Some("https://google.com".to_string()))] {
                 println!("parsing {input}");
-                match TabtonLineParser::parse(Rule::expr_url_link, input) {
+                match PattoLineParser::parse(Rule::expr_url_link, input) {
                     Ok(mut parsed) => {
                         if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
                             match &link.value().kind {
@@ -1490,7 +1490,7 @@ mod tests {
             ("[mailto:hoge@example.com example email]", "mailto:hoge@example.com", Some("example email".to_string())),
         ]{
                 println!("parsing {input}");
-                match TabtonLineParser::parse(Rule::expr_mail_link, input) {
+                match PattoLineParser::parse(Rule::expr_mail_link, input) {
                     Ok(mut parsed) => {
                         if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
                             match &link.value().kind {
@@ -1515,7 +1515,7 @@ mod tests {
     }
     // #[test]
     // fn test_parse_error() {
-    //     let err = TabtonLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
+    //     let err = PattoLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
     //     println!("{:?}", err);
     //     log::debug!("{:?}", err.variant.message());
     //     todo!();
