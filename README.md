@@ -33,10 +33,15 @@ To be released
 Hello world.
 	itemize lines with a leading hard tab `\t'
 		that can be nested
-	the second element
+	the second element  #sampleanchor
 	the third element
 	[@quote]
 		quoted text must be indented with '\t'
+
+Task Management
+	a task {@task status=todo}
+	another task with deadline {@task status=todo due=2030-12-31T23:59:00}
+	a completed task {@task status=done}
 
 Decoration:
 	[* bold text]
@@ -44,10 +49,18 @@ Decoration:
 	[*/ bold italic text]
 
 Links:
-	[wikilink]
-	[https://google.com url title]
-	[url title https://google.com]
-	[@img https://via.placeholder.com/50 width=300 height=300]
+	[other note]
+		link to other note in a workspace
+	[other note#anchor]
+		direct link to an anchored line
+	[#sampleanchor]
+		self note link to the anchored line
+	url link:
+		[https://google.com url title]
+	title and url can be flipped:
+		[url title https://google.com]
+	link to an image
+		[@img https://via.placeholder.com/50 width=300 height=300]
 
 Code highlight with highlight.js
 	[@code python]
