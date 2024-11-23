@@ -657,7 +657,7 @@ impl LanguageServer for Backend {
                     });
                 });
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
-                let ret = json!(tasks.iter().map(|(uri, line, due)| {
+                let ret = json!(tasks.iter().map(|(uri, line, _due)| {
                     //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
                     TaskInformation::new(Location::new(Url::parse(uri).unwrap(), get_node_range(&line)),
                                          line.extract_str().trim_start().to_string(),
