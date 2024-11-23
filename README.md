@@ -3,6 +3,7 @@ Yet another plain text format for quick note taking and task management.
 
 ## Description
 Patto Note is a [Cosense (formerly Scrapbox)](https://scrapbox.io)-inspired text format.
+This enables quick note taking and task management in your favorite editor powered by [Language Server Protocol](https://microsoft.github.io/language-server-protocol/).
 Unlike markdown format, newline "\n" literally create a new line, and a leading (hard) tab "\t" itemize the line.
 
 ## Features
@@ -15,7 +16,16 @@ Unlike markdown format, newline "\n" literally create a new line, and a leading 
     * jumping between notes by go-to definition
     * note/anchor completion
 
-Upcoming features:
+## Installation
+### Using cargo
+```sh
+cargo install patto
+```
+
+## Syntax
+TBD
+
+## Upcoming features:
 ### parser
 * [ ] link to localfile
 
@@ -25,14 +35,6 @@ Upcoming features:
 ### renderer
 * [ ] markdown export
 * [ ] math expression rendering
-
-### Using cargo
-```sh
-cargo install patto
-```
-
-## Syntax
-TBD
 
 ## Misc
 ## unix command utilities
