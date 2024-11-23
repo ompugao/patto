@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
+clap-verbosity-flag = "3.0.0"
 dashmap = "6.1.0"
 fuzzy-matcher = "0.3.7"
 html-escape = "0.2.13"

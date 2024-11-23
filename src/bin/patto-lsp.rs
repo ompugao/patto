@@ -740,25 +740,37 @@ impl LanguageServer for Backend {
 
 }
 
-fn init_logger() {
-    simplelog::CombinedLogger::init(vec![
-        // simplelog::TermLogger::new(
-        //     simplelog::LevelFilter::Warn,
-        //     simplelog::Config::default(),
-        //     simplelog::TerminalMode::Mixed,
-        // ),
-        simplelog::WriteLogger::new(
-            simplelog::LevelFilter::Info,
-            simplelog::Config::default(),
-            File::create("patto-lsp.log").unwrap(),
-        ),
-    ])
-    .unwrap();
+use clap::Parser as ClapParser;
+use clap_verbosity_flag::{Verbosity, InfoLevel};
+
+#[derive(ClapParser)]
+#[command(version, about, long_about=None)]
+struct Cli {
+    /// an input file to parse
+    #[arg(short, long, value_name = "FILE")]
+    debuglogfile: Option<PathBuf>,
+    /// an output html file
+    #[command(flatten)]
+    verbose: Verbosity<InfoLevel>,
+}
+
+fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
+    let mut loggers = Vec::new();
+    if let Some(filename) = logfile {
+        loggers.push(
+            simplelog::WriteLogger::new(
+                filter_level,
+                simplelog::Config::default(),
+                File::create(filename).unwrap(),
+            ) as Box<dyn simplelog::SharedLogger>)
+    }
+    simplelog::CombinedLogger::init(loggers).unwrap();
 }
 
 #[tokio::main]
 async fn main() {
-    init_logger();
+    let args = Cli::parse();
+    init_logger(args.verbose.log_level_filter(), args.debuglogfile);
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
