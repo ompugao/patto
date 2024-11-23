@@ -270,3 +270,190 @@ impl HtmlRenderer {
         Ok(())
     }
 }
+
+
+
+pub struct MarkdownRenderer {
+}
+
+impl Renderer for MarkdownRenderer {
+    fn new(_options: Options) -> Self {
+        Self { }
+    }
+
+    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        let depth: usize = 0;
+        self._format_impl(ast, output, depth)?;
+        Ok(())
+    }
+}
+
+impl MarkdownRenderer {
+    fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
+        match &ast.value().kind {
+            AstNodeKind::Dummy => {
+                for child in ast.value().children.lock().unwrap().iter() {
+                    self._format_impl(&child, output, depth)?;
+                    //write!(output, "  ")?;  // more than two trailing spaces represent a newline
+                }
+            }
+            AstNodeKind::Line { properties } => {
+                for _ in 0..depth {
+                    write!(output, "  ")?;
+                }
+                write!(output, "* ")?;
+                for property in properties {
+                    if let Property::Task { status, .. } = property {
+                        if matches!(status, TaskStatus::Done) {
+                            write!(output, "[-] ")?;
+                        } else {
+                            write!(output, "[ ] ")?;
+                        }
+                        break;
+                    }
+                }
+
+                for content in ast.value().contents.lock().unwrap().iter() {
+                    self._format_impl(&content, output, depth)?;
+                }
+                if properties.len() > 0 {
+                    for property in properties {
+                        match property {
+                            Property::Anchor { name } => {
+                                write!(output, "#\"{}\"", name)?;
+                            }
+                            Property::Task { status, due } => match status {
+                                TaskStatus::Done => {
+                                    // do nothing
+                                }
+                                _ => {
+                                    write!(output, "  due: {}", due)?
+                                }
+                            },
+                        }
+                    }
+                }
+                write!(output, "\n")?;
+                if ast.value().children.lock().unwrap().len() > 0 {
+                    for child in ast.value().children.lock().unwrap().iter() {
+                        self._format_impl(&child, output, depth + 1)?;
+                    }
+                }
+            }
+            AstNodeKind::Quote => {
+                for child in ast.value().children.lock().unwrap().iter() {
+                    for _ in 0..depth {
+                        write!(output, "  ")?;
+                    }
+                    write!(output, "> ")?;
+                    self._format_impl(&child, output, depth + 1)?;
+                }
+            }
+            AstNodeKind::Math{inline} => {
+                if *inline {
+                    write!(output, "$$ ")?;
+                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
+                    write!(output, " $$")?;
+                } else {
+                    write!(output, "[[ \n")?;
+                    for child in ast.value().children.lock().unwrap().iter() {
+                        write!(output, "{}\n", child.extract_str())?;
+                    }
+                    write!(output, " ]]\n")?;
+                }
+            }
+            AstNodeKind::Code { lang, inline } => {
+                if *inline {
+                    write!(output, "`")?;
+                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?;
+                    write!(output, "`")?;
+                } else {
+                    //TODO use syntext
+                    write!(output, "```{}\n", lang)?;
+                    for child in ast.value().children.lock().unwrap().iter() {
+                        write!(output, "{}\n", child.extract_str())?;
+                    }
+                    write!(output, "```\n")?;
+                }
+            }
+            AstNodeKind::Image { src, alt } => {
+                if let Some(alt) = alt {
+                    write!(output, "![{}]({})", alt, src)?;
+                } else {
+                    write!(output, "![{}]({})", src, src)?;
+                }
+            }
+            AstNodeKind::WikiLink { link, anchor } => {
+                if let Some(anchor) = anchor {
+                    write!(
+                        output,
+                        "[{}#{}]({}#{})",
+                        link, anchor, link, anchor
+                    )?;
+                } else {
+                    write!(output, "[{}]({})", link, link)?;
+                }
+            }
+            AstNodeKind::Link { link, title } => {
+                if let Some(youtube_id) = get_youtube_id(link) {
+                    write!(
+                        output,
+                        "<iframe class=\"videoContainer__video\" width=\"640\" height=\"480\" src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\"></iframe>")?;
+                } else if let Some(embed) = get_twitter_embed(link) {
+                    write!(output, "{}", embed)?;
+                } else if let Some(title) = title {
+                    write!(output, "[{}]({})", title, link)?;
+                } else {
+                    write!(output, "[{}]({})", link, link)?;
+                }
+            }
+            AstNodeKind::Decoration{ fontsize, italic, underline, deleted } => {
+                if *fontsize > 0 && !*italic {
+                    // bold
+                    write!(output, "**")?;
+                } else if *italic && *fontsize <= 0 {
+                    // italic
+                    write!(output, "*")?;
+                } else if *italic && *fontsize > 0 {
+                    // bold italic
+                    write!(output, "***")?;
+                }
+                if *underline {
+                    write!(output, "<ins>")?;
+                }
+                if *deleted {
+                    write!(output, "<del>")?;
+                }
+                for content in ast.value().contents.lock().unwrap().iter() {
+                    self._format_impl(&content, output, depth)?;
+                }
+                if *deleted {
+                    write!(output, "</del>")?;
+                }
+                if *underline {
+                    write!(output, "</ins>")?;
+                }
+                if *fontsize > 0 && !*italic {
+                    // bold
+                    write!(output, "**")?;
+                } else if *italic && *fontsize <= 0 {
+                    // italic
+                    write!(output, "*")?;
+                } else if *italic && *fontsize > 0 {
+                    // bold italic
+                    write!(output, "***")?;
+                }
+            }
+            AstNodeKind::Text => {
+                write!(output, "{}", ast.extract_str())?;
+            }
+            AstNodeKind::Table => {todo!()}
+            AstNodeKind::TableColumn => {
+                for content in ast.value().contents.lock().unwrap().iter() {
+                    self._format_impl(&content, output, depth)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
