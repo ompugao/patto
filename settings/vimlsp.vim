@@ -1,4 +1,4 @@
-augroup tabton-language-server
+augroup patto-language-server
     au!
     au User lsp_setup call s:setup_server()
     au User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
@@ -6,20 +6,20 @@ augroup END
 
 function! s:setup_server() abort
     let s:msls_client_id = lsp#register_server({
-                \ 'name': 'tabton-lsp',
-                \ 'cmd': ['tabton-lsp' ],
-                \ 'allowlist': ['tabton'],
+                \ 'name': 'patto-lsp',
+                \ 'cmd': ['patto-lsp' ],
+                \ 'allowlist': ['patto'],
                 \ })
 endfunction
 
 function! s:on_lsp_buffer_enabled() abort
-  command! -buffer LspTabtonTasks call <SID>tabton_tasks()
-  nnoremap <buffer> <plug>(lsp-tabton-tasks) :<c-u>call <SID>tabton_tasks()<cr>
+  command! -buffer LspPattoTasks call <SID>patto_tasks()
+  nnoremap <buffer> <plug>(lsp-patto-tasks) :<c-u>call <SID>patto_tasks()<cr>
 endfunction
 
-function! s:tabton_tasks() abort
+function! s:patto_tasks() abort
     call lsp#callbag#pipe(
-        \ lsp#request('tabton-lsp', {
+        \ lsp#request('patto-lsp', {
         \   'method': 'workspace/executeCommand',
         \   'params': {
         \       'command': 'experimental/aggregate_tasks',

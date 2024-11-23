@@ -18,9 +18,9 @@ struct Cli {
     theme: String,
 }
 
-use tabton::parser;
-use tabton::renderer;
-use tabton::renderer::Renderer;
+use patto::parser;
+use patto::renderer;
+use patto::renderer::Renderer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     let args = Cli::parse();

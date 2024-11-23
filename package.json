@@ -1,6 +1,6 @@
 {
-  "name": "tabton-language-server",
-  "description": "tabton language server",
+  "name": "patto-language-server",
+  "description": "patto language server",
   "license": "MIT",
   "version": "0.1.0",
   "categories": [],
@@ -9,44 +9,44 @@
     "tower-lsp"
   ],
   "repository": {
-    "url": "https://github.com/ompugao/tabton"
+    "url": "https://github.com/ompugao/patto"
   },
   "engines": {
     "vscode": "^1.66.0"
   },
   "enabledApiProposals": [],
   "activationEvents": [
-    "onLanguage:tabton"
+    "onLanguage:patto"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "tabton",
+        "id": "patto",
         "extensions": [
-          ".tb"
+          ".pn"
         ]
       }
     ],
     "commands": [
       {
-        "command": "tabton.tasks",
-        "title": "Tabton: Aggreate tasks in the workspace in vscode"
+        "command": "patto.tasks",
+        "title": "Patto: Aggreate tasks in the workspace in vscode"
       }
     ],
     "views": {
       "explorer": [
         {
-          "id": "tabtonTasks",
-          "name": "Tabton Tasks"
+          "id": "pattoTasks",
+          "name": "Patto Note Tasks"
         }
       ]
     },
     "configuration": {
       "type": "object",
-      "title": "tabton-language-server",
+      "title": "patto-language-server",
       "properties": {
-        "tabton-language-server.trace.server": {
+        "patto-language-server.trace.server": {
           "type": "string",
           "scope": "window",
           "enum": [

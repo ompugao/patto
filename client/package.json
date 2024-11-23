@@ -1,5 +1,5 @@
 {
-	"name": "tabton-language-client",
+	"name": "patto-language-client",
 	"description": "VSCode lsp client extension",
 	"license": "MIT",
 	"version": "0.1.0",
