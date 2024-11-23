@@ -17,13 +17,51 @@ Unlike markdown format, newline "\n" literally create a new line, and a leading 
     * note/anchor completion
 
 ## Installation
-### Using cargo
+### Install lsp server using cargo
 ```sh
 cargo install patto
 ```
+### Setup vim with vim-lsp
+```vim
+Plug 'ompugao/patto', {'for': 'patto'}
+```
+### Setup vscode extension
+To be released
 
 ## Syntax
-TBD
+```txt
+Hello world.
+	itemize lines with a leading hard tab `\t'
+		that can be nested
+	the second element
+	the third element
+	[@quote]
+		quoted text must be indented with '\t'
+
+Decoration:
+	[* bold text]
+	[/ italic text]
+	[*/ bold italic text]
+
+Links:
+	[wikilink]
+	[https://google.com url title]
+	[url title https://google.com]
+	[@img https://via.placeholder.com/50 width=300 height=300]
+
+Code highlight with highlight.js
+	[@code python]
+		import numpy as np
+		print(np.sum(10))
+	[` inline code `]
+
+Math with katex
+	[@math]
+		O(n^2)\\
+		sum_{i=0}^{10}{i} = 55
+	inline math: [$ O(n log(n)) $]
+```
+
 
 ## Upcoming features:
 ### parser
