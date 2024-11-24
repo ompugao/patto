@@ -70,6 +70,7 @@ impl From<pest::Span<'_>> for Span {
         Self(from.start(), from.end())
     }
 }
+
 impl From<pest::error::InputLocation> for Span {
     fn from(from: pest::error::InputLocation) -> Span {
         match from {
@@ -472,12 +473,12 @@ pub fn parse_text(text: &str) -> ParserResult {
                 depth = indent;
             }
         } else {
-            log::debug!("content_len: {content_len}");
+            log::trace!("content_len: {content_len}");
             if content_len == 0 {
                 depth = parsing_depth;
             }
         }
-        log::debug!("depth: {depth}, parsing_depth: {parsing_depth}");
+        log::trace!("depth: {depth}, parsing_depth: {parsing_depth}");
 
         let parent: AstNode =
             find_parent_line(root.clone(), depth).unwrap_or_else(|| {
@@ -567,9 +568,9 @@ pub fn parse_text(text: &str) -> ParserResult {
 
         // TODO gather parsing errors
         let (has_command, props) = parse_command_line(&linetext, iline, linestart);
-        log::debug!("==============================");
+        log::trace!("==============================");
         if let Some(command_node) = has_command {
-            log::debug!("parsed command: {:?}", command_node.extract_str());
+            log::trace!("parsed command: {:?}", command_node.extract_str());
             match &command_node.value().kind {
                 AstNodeKind::Quote => {
                     parsing_state = ParsingState::Quote;
@@ -597,14 +598,14 @@ pub fn parse_text(text: &str) -> ParserResult {
             lastlinenode = newline.clone();
             parent.add_child(newline);
         } else {
-            log::debug!("---- input ----");
-            log::debug!("{}", &linetext[cmp::min(depth,indent)..]);
+            log::trace!("---- input ----");
+            log::trace!("{}", &linetext[cmp::min(depth,indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
             match PattoLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
-                    log::debug!("---- parsed ----");
-                    log::debug!("{:?}", parsed);
-                    log::debug!("---- result ----");
+                    log::trace!("---- parsed ----");
+                    log::trace!("{:?}", parsed);
+                    log::trace!("---- result ----");
                     let (nodes, props) = transform_statement(
                         parsed.next().unwrap(),
                         linetext,
@@ -614,7 +615,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     let newline = AstNode::line(&linetext, iline, None, Some(props));
                     newline.add_contents(nodes);
                     lastlinenode = newline.clone();
-                    log::debug!("{newline}");
+                    log::trace!("{newline}");
                     parent.add_child(newline);
                 }
                 Err(e) => {

@@ -193,7 +193,7 @@ fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<Ast
 
 fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     let parentrow = parent.location().row;
-    log::debug!("finding row {}, scanning row: {}", row, parentrow);
+    log::debug!("finding row, col ({}, {}), scanning row: {}", row, col, parentrow);
     if matches!(parent.value().kind, AstNodeKind::Dummy) ||
         parentrow < row {
         for child in parent.value().children.lock().unwrap().iter() {
@@ -204,12 +204,12 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
         }
     } else if parentrow == row {
         if parent.value().contents.lock().unwrap().len() == 0 {
-            log::debug!("must be leaf");
+            log::debug!("{:?} must be leaf", parent.extract_str());
             return Some(vec![parent.clone()]);
         }
         for content in parent.value().contents.lock().unwrap().iter() {
             if content.location().span.contains(col) {
-                log::debug!("in content: ({}, {})", content.location().span.0, content.location().span.1);
+                log::debug!("in content: {:?}, spanning ({}, {})", content.extract_str(), content.location().span.0, content.location().span.1);
                 if let Some(mut route) = locate_node_route_impl(content, row, col) {
                     route.push(parent.clone());
                     return Some(route);
@@ -685,12 +685,15 @@ impl LanguageServer for Backend {
         let definition = async {
             let uri = params.text_document_position_params.text_document.uri;
             let ast = self.ast_map.get(uri.as_str())?;
-            // let rope = self.document_map.get(uri.as_str())?;
+            let rope = self.document_map.get(uri.as_str())?;
 
             let position = params.text_document_position_params.position;
             // let char = rope.try_line_to_char(position.line as usize).ok()?;
             // self.client.log_message(MessageType::INFO, &format!("{:#?}, {}", ast.value(), offset)).await;
-            let Some(node_route) = locate_node_route(&ast, position.line as usize, position.character as usize) else {
+            let line = rope.get_line(position.line as usize)?;
+            // NOTE: spans in our parser (and in pest) are in bytes, not chars
+            let posbyte = ropey::str_utils::char_to_byte_idx(line.as_str()?, position.character as usize);
+            let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) else {
                 return None;
             };
             //if node_route.len() == 0 {
