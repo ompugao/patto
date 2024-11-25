@@ -21,9 +21,28 @@ Unlike markdown format, newline "\n" literally create a new line, and a leading 
 ```sh
 cargo install patto
 ```
-### Setup vim with vim-lsp
+### Setup vim with vim-lsp (using vim-plug)
 ```vim
+call plug#begin()
+Plug 'prabirshrestha/asyncomplete.vim'
+Plug 'prabirshrestha/asyncomplete-lsp.vim'
+Plug 'prabirshrestha/vim-lsp'
 Plug 'ompugao/patto', {'for': 'patto'}
+call plug#end()
+```
+### Setup neovim with nvim-lspconfig (using vim-plug)
+```vim
+call plug#begin()
+Plug 'neovim/nvim-lspconfig'
+Plug 'hrsh7th/cmp-nvim-lsp'
+Plug 'hrsh7th/nvim-cmp'
+Plug 'ompugao/patto'
+call plug#end()
+
+lua << EOF
+  require('patto')
+  require('lspconfig.configs').patto_lsp.setup({})
+EOF
 ```
 ### Setup vscode extension
 To be released
@@ -84,7 +103,7 @@ Math with katex
 * [ ] semantic tokens
 * [ ] document backlinks using find references
 ### renderer
-* [ ] markdown export
+* [-] markdown export
 * [ ] math expression rendering
 
 ## Misc
