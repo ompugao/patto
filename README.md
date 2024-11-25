@@ -94,6 +94,11 @@ Math with katex
 	inline math: [$ O(n log(n)) $]
 ```
 
+### Line property
+A text in the form of `{@XXX YYY=ZZZ}` is named as `line property` and adds an property to the line (not the whole text).
+Currently, `anchor` and `task` properties are implemented:
+* `{@anchor name}`: adds an anchor to the line. abbrev: `#name`
+* `{@task status=todo due=2024-12-31}`: marks the line as a todo. The due date only supports the ISO 8601 UTC formats (YYYY-MM-DD or YYYY-MM-DDThh:mm). Its abbreviation is coming soon (TBD).
 
 ## Upcoming features:
 ### parser
