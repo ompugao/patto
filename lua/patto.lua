@@ -1,25 +1,6 @@
 local util = require 'lspconfig.util'
 local async = require 'lspconfig.async'
 
-local function aggregate_tasks(bufnr)
-  bufnr = util.validate_bufnr(bufnr)
-  local clients = util.get_lsp_clients { bufnr = bufnr, name = 'patto-lsp' }
-  for _, client in ipairs(clients) do
-    vim.notify 'Aggregating tasks in a workspace'
-    client.request('experimental/aggregate_tasks',
-    function(res)
-      -- TODO: Show tasks in a location window
-      vim.notify 'Tasks aggregated'
-    end,
-    function(err)
-      if err then
-        error(tostring(err))
-      end
-      vim.notify 'Tasks aggregated'
-    end, 0)
-  end
-end
-
 patto_lsp_config = {
   default_config = {
     cmd = { 'patto-lsp' },
@@ -34,27 +15,31 @@ patto_lsp_config = {
   commands = {
     LspPattoTasks = {
       function()
-        local bufpath = vim.api.nvim_buf_get_name(0)
-        vim.lsp.buf_request(0, 'workspace/executeCommand', {
+        vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
           command = 'experimental/aggregate_tasks',
           arguments = {},
-        }, function(_, result, _, _)
-          if not result then
-            return
+        }, function(results, _ctx, _config)
+          local alllocs = {}
+          for _, vres in pairs(results) do
+            if vres.result == nil then
+              goto continue
+            end
+            local locs = vim.tbl_map(function(item)
+              local location_item = {}
+              location_item.filename = vim.uri_to_fname(item.location.uri)
+              location_item.lnum = item.location.range.start.line + 1
+              location_item.col = item.location.range.start.character + 1
+              location_item.text = item.text
+              return location_item
+            end, vres.result)
+
+            for k,v in ipairs(locs) do
+              alllocs[k] = v
+            end 
+
+            ::continue::
           end
-          local locs = vim.tbl_map(function(item)
-            local location_item = {}
-            location_item.filename = vim.uri_to_fname(item.location.uri)
-            location_item.lnum = item.location.range.start.line + 1
-            location_item.col = item.location.range.start.character + 1
-            location_item.text = item.text
-            return location_item
-          end, result)
-          if #locs == 0 then
-            vim.cmd("echo 'No tasks found'")
-            return
-          end
-          vim.fn.setloclist(0, locs)
+          vim.fn.setloclist(0, alllocs)
           vim.cmd("botright lopen 8")
         end)
       end,
@@ -69,4 +54,7 @@ patto-lsp, a language server for Patto Note
   },
 }
 
-require('lspconfig.configs').patto_lsp = patto_lsp_config
+local configs = require('lspconfig.configs')
+if not configs.patto_lsp then
+  configs.patto_lsp = patto_lsp_config
+end
