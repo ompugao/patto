@@ -38,6 +38,10 @@ fn get_node_range(from: &AstNode) -> Range {
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
+fn decode_uri(uri: &Url) -> Option<String> {
+    return decode(&uri.to_string()).map(|e| e.to_string()).ok();
+}
+
 fn scan_directory(
     client: &Client,
     dir: PathBuf,
@@ -55,13 +59,16 @@ fn scan_directory(
         } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::info!("Found file: {:?}", path);
             let uri = Url::from_file_path(path.clone()).unwrap();
-            let _ = std::fs::read_to_string(path).map(|x| {
-                let (ast, _diagnostics) = parse_text(&x.as_str());
-                let rope = ropey::Rope::from_str(&x.as_str());
-                let uri_s = uri.to_string();
-                document_map.insert(uri_s.clone(), rope);
-                ast_map.insert(uri_s, ast);
-            });
+            if let Some(uri_decoded) = decode_uri(&uri) {
+                let _ = std::fs::read_to_string(path).map(|x| {
+                    let (ast, _diagnostics) = parse_text(&x.as_str());
+                    let rope = ropey::Rope::from_str(&x.as_str());
+                    document_map.insert(uri_decoded.clone(), rope);
+                    ast_map.insert(uri_decoded, ast);
+                });
+            } else {
+                log::error!("Failed to decode uri: {}", uri.to_string());
+            }
         }
     }
     Ok(())
@@ -223,13 +230,17 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let rope = ropey::Rope::from_str(&params.text);
+        let Some(uri_decoded) = decode_uri(&params.uri) else {
+            log::warn!("Failed to decode uri: {}", params.uri);
+            return;
+        };
         self.document_map
-            .insert(params.uri.to_string(), rope);
+            .insert(uri_decoded.clone(), rope);
         let (ast, diagnostics) = parse_text(&params.text);
 
         self.client
             .publish_diagnostics(
-                params.uri.clone(),
+                params.uri,
                 diagnostics,
                 Some(params.version),
             )
@@ -237,7 +248,7 @@ impl Backend {
 
         //self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
         //log::info!("{}", ast);
-        self.ast_map.insert(params.uri.to_string(), ast);
+        self.ast_map.insert(uri_decoded, ast);
         // self.client
         //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
         //     .await;
@@ -358,6 +369,8 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        log::info!("did_open: {:?}", params.text_document.uri);
+        self.ast_map.iter().for_each(|e| log::info!("saved: {}", e.key().to_string()));
         self.on_change(TextDocumentItem {
             language_id: "".to_string(),
             uri: params.text_document.uri,
@@ -381,12 +394,8 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, format!("file {} saved!", param.text_document.uri.as_str()))
             .await;
-        // if let Some(ast) = self.ast_map.get(param.text_document.uri.as_str()) {
-        //     self.client
-        //         .log_message(MessageType::INFO, format!("{:?}", *ast))
-        //         .await;
-        // }
     }
+
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         self.document_map.remove(&uri);
@@ -398,9 +407,12 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
+        let Some(uri_decoded) = decode_uri(&uri) else {
+            return Ok(None);
+        };
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
-            let rope = self.document_map.get(&uri.to_string())?;
+            let rope = self.document_map.get(&uri_decoded)?;
             // NOTE: trigger_character is not supported by vim-lsp.
             // we manually consider the context.
             // if let Some(context) = params.context {
@@ -488,10 +500,15 @@ impl LanguageServer for Backend {
                             // self link
                             linkuri = uri.clone();
                         } else {
-                            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
+                            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), &s).as_str());
+                            //linkuri.set_path(format!("{}/{}.pn", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
                         }
                         log::debug!("linkuri: {}", linkuri);
-                        if let Some(ast) = self.ast_map.get(&linkuri.to_string()) {
+                        let Some(linkuri_decoded) = decode_uri(&linkuri) else {
+                            log::debug!("Failed to decode linkuri: {}", linkuri);
+                            return None;
+                        };
+                        if let Some(ast) = self.ast_map.get(&linkuri_decoded) {
                             let mut anchors = vec![];
                             gather_anchors(ast.value(), &mut anchors);
                             return Some(anchors.iter().map(|anchor| {
@@ -684,8 +701,11 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let definition = async {
             let uri = params.text_document_position_params.text_document.uri;
-            let ast = self.ast_map.get(uri.as_str())?;
-            let rope = self.document_map.get(uri.as_str())?;
+            let Some(uri_decoded) = decode_uri(&uri) else {
+                return None;
+            };
+            let ast = self.ast_map.get(&uri_decoded)?;
+            let rope = self.document_map.get(&uri_decoded)?;
 
             let position = params.text_document_position_params.position;
             // let char = rope.try_line_to_char(position.line as usize).ok()?;
@@ -699,7 +719,7 @@ impl LanguageServer for Backend {
             //if node_route.len() == 0 {
             //    log::info!("-- route.len() is 0");
             //    return None;
-            //
+            // }
             let Some((link, anchor)) = node_route.iter().find_map(|n| {
                 if let AstNodeKind::WikiLink{link, anchor} = &n.value().kind {
                     return Some((link, anchor));
@@ -719,9 +739,12 @@ impl LanguageServer for Backend {
                     //self link
                     linkuri = uri.clone();
                 }
+                let Some(linkuri_decoded) = decode_uri(&linkuri) else {
+                    return None;
+                };
                 let start = Range::new(Position::new(0, 0), Position::new(0, 1));
                 if let Some(anchor) = anchor {
-                    let range = self.ast_map.get(linkuri.as_str()).and_then(|r| {
+                    let range = self.ast_map.get(&linkuri_decoded).and_then(|r| {
                         let linkast = r.value();
                         find_anchor(linkast, anchor)
                     }).map_or(start,
