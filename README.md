@@ -108,7 +108,7 @@ Currently, `anchor` and `task` properties are implemented:
 * [ ] semantic tokens
 * [ ] document backlinks using find references
 ### renderer
-* [-] markdown export
+* [x] markdown export
 * [ ] math expression rendering
 
 ## Misc
