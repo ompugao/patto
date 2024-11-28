@@ -1,5 +1,5 @@
 # 🐙 Patto Note
-A simple, plain-text format for quick note-taking, outlining, and task management.
+🐙 A simple, language server-powered plain-text format for quick note-taking, outlining, and task management.
 
 ## Description
 Patto Note is a [Cosense (formerly Scrapbox)](https://scrapbox.io)-inspired text format.
