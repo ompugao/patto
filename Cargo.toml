@@ -4,6 +4,15 @@ version = "0.1.2"
 edition = "2021"
 license = "MIT"
 description = "🐙 Yet another plain text format for quick note taking and task management"
+repository = "https://github.com/ompugao/patto"
+homepage = "https://github.com/ompugao/patto"
+authors = ["Shohei Fujii <fujii.shohei@gmail.com>"]
+
+[package.metadata.wix]
+upgrade-guid = "08E8D49C-D108-4CCE-9F20-64D308C6BFD9"
+path-guid = "638CD8B9-6D88-4219-A7A9-7B54609ED590"
+license = false
+eula = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,3 +36,8 @@ tokio = { version = "1.17.0", features = ["full"] }
 tower-lsp = { version = "0.20.0", features = ["runtime-tokio", "proposed"]}
 url = "2.5.2"
 urlencoding = "2.1.3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
