@@ -94,7 +94,7 @@ property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
 trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor))+ }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
-anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_")+ }
+anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
 
 WHITE_SPACE_INLINE = _{ " " | "\t" }
 CJK = _{ HAN | HIRAGANA | KATAKANA | HANGUL | BOPOMOFO | "ー"}  // TODO some CJK characters are not recognized somehow
