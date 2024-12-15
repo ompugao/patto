@@ -57,7 +57,7 @@ fn scan_directory(
         if path.is_dir() {
             scan_directory(client, path, Arc::clone(&document_map), Arc::clone(&ast_map))?;
         } else if path.extension().map_or(false, |ext| ext == "pn") {
-            log::info!("Found file: {:?}", path);
+            log::debug!("Found file: {:?}", path);
             let uri = Url::from_file_path(path.clone()).unwrap();
             if let Some(uri_decoded) = decode_uri(&uri) {
                 let _ = std::fs::read_to_string(path).map(|x| {
@@ -370,7 +370,7 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         log::info!("did_open: {:?}", params.text_document.uri);
-        self.ast_map.iter().for_each(|e| log::info!("saved: {}", e.key().to_string()));
+        self.ast_map.iter().for_each(|e| log::debug!("opening: {}", e.key().to_string()));
         self.on_change(TextDocumentItem {
             language_id: "".to_string(),
             uri: params.text_document.uri,
