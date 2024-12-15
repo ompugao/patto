@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
-use crate::utils::{get_twitter_embed, get_youtube_id};
+use crate::utils::{get_twitter_embed, get_youtube_id, get_gyazo_img_src};
 use html_escape::encode_text;
 
 #[derive(Debug, Default)]
@@ -188,10 +188,14 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Image { src, alt } => {
+                let mut src_exported = src.clone();
+                if let Some(src) = get_gyazo_img_src(src) {
+                    src_exported = src.clone();
+                }
                 if let Some(alt) = alt {
-                    write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src)?;
+                    write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
                 } else {
-                    write!(output, "<img src=\"{}\"/>", src)?;
+                    write!(output, "<img src=\"{}\"/>", src_exported)?;
                 }
             }
             AstNodeKind::WikiLink { link, anchor } => {
