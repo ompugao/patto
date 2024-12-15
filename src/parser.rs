@@ -1114,13 +1114,13 @@ fn transform_statement<'a, 'b>(
                     props.push(prop);
                 }
             }
-            // Rule::expr_anchor => {
-            //     //println!("non-trailing anchor will be treated as a text");
-            //     //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
-            //     if let Some(prop) = transform_property(inner) {
-            //         props.push(prop);
-            //     }
-            // }
+            Rule::expr_anchor => {
+                //println!("non-trailing anchor will be treated as a text");
+                //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
+                if let Some(prop) = transform_property(inner) {
+                    props.push(prop);
+                }
+            }
             Rule::raw_sentence => {
                 nodes.push(AstNode::text(
                     line,
