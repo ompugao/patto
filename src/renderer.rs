@@ -264,6 +264,9 @@ impl HtmlRenderer {
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
             }
+            AstNodeKind::HorizontalLine => {
+                write!(output, "<hr/>")?;
+            }
             AstNodeKind::Table => {todo!()}
             AstNodeKind::TableColumn => {
                 for content in ast.value().contents.lock().unwrap().iter() {
@@ -450,6 +453,9 @@ impl MarkdownRenderer {
             }
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
+            }
+            AstNodeKind::HorizontalLine => {
+                write!(output, "---")?;
             }
             AstNodeKind::Table => {todo!()}
             AstNodeKind::TableColumn => {

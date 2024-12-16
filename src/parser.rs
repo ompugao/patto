@@ -212,6 +212,7 @@ pub enum AstNodeKind {
     TableColumn,
 
     Text,
+    HorizontalLine,
     #[default]
     Dummy,
 }
@@ -309,6 +310,9 @@ impl AstNode {
     }
     pub fn text(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Text))
+    }
+    pub fn horizontal_line(input: &str, row: usize, span: Option<Span>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::HorizontalLine))
     }
     pub fn image(input: &str, row: usize, span: Option<Span>, src: &str, alt: Option<&str>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Image{src: src.to_string(), alt: alt.map(str::to_string)}))
@@ -1128,6 +1132,13 @@ fn transform_statement<'a, 'b>(
                     Some(Into::<Span>::into(inner.as_span()) + indent),
                 ));
             }
+            Rule::expr_hr => {
+                nodes.push(AstNode::horizontal_line(
+                    line,
+                    row,
+                    Some(Into::<Span>::into(inner.as_span()) + indent),
+                ));
+            }
             Rule::trailing_properties => {
                 props.extend(
                     inner
@@ -1513,6 +1524,18 @@ mod tests {
                     }
                 }
             }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_horizontal_line() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "-----";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        let hr = &nodes[0];
+        if !matches!(hr.value().kind, AstNodeKind::HorizontalLine) {
+            panic! {"HorizontalLine could not be parsed"};
+        }
         Ok(())
     }
     // #[test]

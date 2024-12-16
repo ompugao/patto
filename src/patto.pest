@@ -6,8 +6,9 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_anchor ~ trailing_properties? | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
+statement = ${ SOI ~ (expr_anchor ~ trailing_properties? | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | expr_hr | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
 raw_sentence = @{ (!("[" | "]" | "{@" | (WHITE_SPACE_INLINE+ ~ expr_anchor)) ~ ANY)+ }
+expr_hr = @{ "-"{5,} }
 // WARN: statement_nestable must be the subset of statement
 statement_nestable = ${ (expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
 
