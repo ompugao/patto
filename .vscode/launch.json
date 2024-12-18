@@ -19,7 +19,7 @@
         "script": "watch"
       },
       "env": {
-        "SERVER_PATH": "${workspaceRoot}/target/debug/tabton-lsp",
+        "SERVER_PATH": "${workspaceRoot}/target/debug/patto-lsp",
         "VSCODE_DEBUG_MODE": "true"
       }
     },
