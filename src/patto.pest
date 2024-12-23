@@ -97,8 +97,8 @@ trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor | e
 expr_anchor = ${ "#" ~ anchor }
 anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
 expr_task = ${ (symbol_task_done | symbol_task_doing | symbol_task_todo ) ~ task_due }
-symbol_task_done = @{"_"}
-symbol_task_doing = @{"-"}
+symbol_task_done = @{"-"}
+symbol_task_doing = @{"*"}
 symbol_task_todo = @{"!"}
 task_due = @{ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} ~ ("T" ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2})? }  // TODO
 
