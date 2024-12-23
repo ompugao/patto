@@ -156,7 +156,7 @@ impl fmt::Display for Deadline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TaskStatus {
     Todo,
     Doing,
@@ -1009,6 +1009,35 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             }
             return Some(Property::Task { status, due });
         }
+        Rule::expr_task => {
+            let mut inner = pair.into_inner();
+            let symbol = inner.by_ref().next().unwrap();
+            let status = match symbol.as_rule() {
+                Rule::symbol_task_done => {
+                    TaskStatus::Done
+                }
+                Rule::symbol_task_doing => {
+                    TaskStatus::Doing
+                }
+                Rule::symbol_task_todo => {
+                    TaskStatus::Todo
+                }
+                _ => unreachable!(),
+            };
+            let due_str = inner.as_str();
+            let due = if let Ok(datetime) =
+                chrono::NaiveDateTime::parse_from_str(due_str, "%Y-%m-%dT%H:%M")
+            {
+                Deadline::DateTime(datetime)
+            } else if let Ok(date) =
+                chrono::NaiveDate::parse_from_str(due_str, "%Y-%m-%d")
+            {
+                Deadline::Date(date)
+            } else {
+                Deadline::Uninterpretable(due_str.to_string())
+            };
+            return Some(Property::Task { status, due });
+        }
         _ => {
             panic!("Unhandled token: {:?}", pair.as_rule());
         }
@@ -1121,6 +1150,11 @@ fn transform_statement<'a, 'b>(
             Rule::expr_anchor => {
                 //println!("non-trailing anchor will be treated as a text");
                 //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
+                if let Some(prop) = transform_property(inner) {
+                    props.push(prop);
+                }
+            }
+            Rule::expr_task => {
                 if let Some(prop) = transform_property(inner) {
                     props.push(prop);
                 }
@@ -1538,6 +1572,31 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_parse_abbrev_task() -> Result<(), Box<dyn std::error::Error>>  {
+        let input = "!2024-10-10 #anchor2 -2024-10-11T20:00";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        let task = &props[0];
+        if let Property::Task { status, due } = task {
+            assert_eq!(*status, TaskStatus::Todo);
+            assert_eq!(*due, Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap()));
+        } else {
+            panic!("task could not be parsed");
+        };
+
+        let task = &props[2];
+        if let Property::Task { status, due } = task {
+            assert_eq!(*status, TaskStatus::Doing);
+            assert_eq!(*due, Deadline::DateTime(chrono::NaiveDateTime::parse_from_str("2024-10-11T20:00", "%Y-%m-%dT%H:%M").unwrap()));
+        } else {
+            panic!("task could not be parsed");
+        };
+
+        Ok(())
+    }
+
     // #[test]
     // fn test_parse_error() {
     //     let err = PattoLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
