@@ -2,7 +2,7 @@
   "name": "patto-language-server",
   "description": "patto language server",
   "license": "MIT",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "categories": [],
   "keywords": [
     "language-server",
@@ -67,7 +67,6 @@
   },
   "scripts": {
     "postinstall": "cd client && pnpm i",
-    "vscode:prepublish": "npm run esbuild-base -- --minify",
     "test-compile": "tsc -p ./",
     "compile": "cross-env NODE_ENV=production tsc -b",
     "watch": "rm -rf dist && tsc -b -w",
@@ -96,6 +95,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@vscode/vsce": "^3.2.1",
     "vscode-languageclient": "9.0.1"
   }
 }
