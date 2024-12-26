@@ -67,7 +67,7 @@ impl Renderer for HtmlRenderer {
 
 impl HtmlRenderer {
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        match &ast.value().kind {
+        match &ast.kind() {
             AstNodeKind::Dummy => {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
                 for child in ast.value().children.lock().unwrap().iter() {
@@ -299,7 +299,7 @@ impl Renderer for MarkdownRenderer {
 
 impl MarkdownRenderer {
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
-        match &ast.value().kind {
+        match &ast.kind() {
             AstNodeKind::Dummy => {
                 for child in ast.value().children.lock().unwrap().iter() {
                     self._format_impl(&child, output, depth)?;
@@ -326,10 +326,11 @@ impl MarkdownRenderer {
                     self._format_impl(&content, output, depth)?;
                 }
                 if properties.len() > 0 {
+                    write!(output, " ")?;
                     for property in properties {
                         match property {
                             Property::Anchor { name } => {
-                                write!(output, "#\"{}\"", name)?;
+                                write!(output, "#{}", name)?;
                             }
                             Property::Task { status, due } => match status {
                                 TaskStatus::Done => {
@@ -394,13 +395,14 @@ impl MarkdownRenderer {
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
-                    write!(
-                        output,
-                        "[{}#{}]({}#{})",
-                        link, anchor, link, anchor
-                    )?;
+                    write!(output, "[[{}#{}]]", link, anchor)?;
+                    //write!(
+                    //    output,
+                    //    "[{}#{}]({}.md#{})",
+                    //    link, anchor, link, anchor
+                    //)?;
                 } else {
-                    write!(output, "[{}]({})", link, link)?;
+                    write!(output, "[[{}]]", link)?;
                 }
             }
             AstNodeKind::Link { link, title } => {

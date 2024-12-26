@@ -348,6 +348,9 @@ impl AstNode {
     pub fn value(&self) -> &AstNodeInternal {
         &self.0.value
     }
+    pub fn kind(&self) -> &AstNodeKind {
+        &self.value().kind
+    }
     pub fn add_content(&self, content: AstNode) {
         self.value().contents.lock().unwrap().push(content);
     }
@@ -371,7 +374,7 @@ impl fmt::Display for AstNode {
         for content in self.value().contents.lock().unwrap().iter() {
             write!(f, "-- {}", content)?;
         }
-        if let AstNodeKind::Line { properties } = &self.value().kind {
+        if let AstNodeKind::Line { properties } = &self.kind() {
             for prop in properties {
                 write!(f, "property -- {:?}\n", prop)?;
             }
@@ -402,7 +405,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
         .lock()
         .unwrap()
         .iter()
-        .filter_map(|e| match e.value().kind {
+        .filter_map(|e| match e.kind() {
             AstNodeKind::Line { .. } => Some(e.clone()),
             _ => None,
         })
@@ -575,7 +578,7 @@ pub fn parse_text(text: &str) -> ParserResult {
         log::trace!("==============================");
         if let Some(command_node) = has_command {
             log::trace!("parsed command: {:?}", command_node.extract_str());
-            match &command_node.value().kind {
+            match &command_node.kind() {
                 AstNodeKind::Quote => {
                     parsing_state = ParsingState::Quote;
                     parsing_depth = depth + 1;
@@ -1211,7 +1214,7 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match &node.value().kind {
+        match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "rust");
                 assert_eq!(*inline, false);
@@ -1235,7 +1238,7 @@ mod tests {
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
         };
-        match &node.value().kind {
+        match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "");
                 assert_eq!(*inline, false);
@@ -1259,7 +1262,7 @@ mod tests {
             panic!("no way!");
         };
         assert_eq!(node.location().span, Span(indent, end_code + 1));
-        match &node.value().kind {
+        match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "なでしこ");
                 assert_eq!(*inline, false);
@@ -1330,9 +1333,9 @@ mod tests {
         };
         println!("{:?}", node);
         assert_eq!(node.location().span, Span(indent, input.len()));
-        match node.value().kind {
-            AstNodeKind::Math { inline } => {
-                assert_eq!(inline, false);
+        match node.kind() {
+            AstNodeKind::Math { ref inline } => {
+                assert_eq!(*inline, false);
             }
             _ => {
                 panic! {"Math command could not be parsed"};
@@ -1346,8 +1349,8 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let math = &nodes[0];
-        if let AstNodeKind::Math { inline } = math.value().kind {
-            assert_eq!(inline, true);
+        if let AstNodeKind::Math { ref inline } = math.kind() {
+            assert_eq!(*inline, true);
         } else {
             panic! {"Inline math could not be parsed"};
         }
@@ -1372,10 +1375,10 @@ mod tests {
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         //assert_eq!(code.extract_str(), "inline code 123");
         let code = &nodes[0];
-        match code.value().kind {
-            AstNodeKind::Code { ref lang, inline } => {
+        match code.kind() {
+            AstNodeKind::Code { ref lang, ref inline } => {
                 assert_eq!(lang, "");
-                assert_eq!(inline, true);
+                assert_eq!(*inline, true);
             }
             _ => {
                 println!("{:?}", code);
@@ -1385,7 +1388,7 @@ mod tests {
         //println!("{:?}", code.value.contents[0].extract_str());
         //
         let raw_text = &nodes[1];
-        if let AstNodeKind::Text = raw_text.value().kind {
+        if let AstNodeKind::Text = raw_text.kind() {
             assert_eq!(
                 &raw_text.location().input
                     [raw_text.location().span.0..raw_text.location().span.1],
@@ -1409,7 +1412,7 @@ mod tests {
         let input = "[test wiki_page]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match &wiki_link.value().kind {
+                match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_none());
@@ -1428,7 +1431,7 @@ mod tests {
         let input = "[test wiki_page#anchored]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match &wiki_link.value().kind {
+                match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
                         assert!(anchor.is_some());
@@ -1450,7 +1453,7 @@ mod tests {
         let input = "[#anchored]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
             if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
-                match &wiki_link.value().kind {
+                match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "");
                         assert!(anchor.is_some());
@@ -1478,7 +1481,7 @@ mod tests {
             match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
                     let node = transform_img(parsed.next().unwrap(), input, 0, 0).ok_or("transform_img failed")?;
-                    if let AstNodeKind::Image{src, alt} = &node.value().kind {
+                    if let AstNodeKind::Image{src, alt} = &node.kind() {
                         assert_eq!(src, g_path);
                         assert_eq!(*alt, g_alt);
                     } else {
@@ -1510,7 +1513,7 @@ mod tests {
                 match PattoLineParser::parse(Rule::expr_url_link, input) {
                     Ok(mut parsed) => {
                         if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
-                            match &link.value().kind {
+                            match &link.kind() {
                                 AstNodeKind::Link { link, title } => {
                                     assert_eq!(link, g_url);
                                     //assert!(title.is_some());
@@ -1540,7 +1543,7 @@ mod tests {
                 match PattoLineParser::parse(Rule::expr_mail_link, input) {
                     Ok(mut parsed) => {
                         if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
-                            match &link.value().kind {
+                            match &link.kind() {
                                 AstNodeKind::Link { link, title } => {
                                     assert_eq!(link, g_mail);
                                     //assert!(title.is_some());
@@ -1567,7 +1570,7 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let hr = &nodes[0];
-        if !matches!(hr.value().kind, AstNodeKind::HorizontalLine) {
+        if !matches!(hr.kind(), AstNodeKind::HorizontalLine) {
             panic! {"HorizontalLine could not be parsed"};
         }
         Ok(())
