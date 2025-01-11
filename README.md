@@ -44,13 +44,13 @@ Links:
 	[other note#anchor]
 		direct link to an anchored line
 	[#sampleanchor]
-		self note link to the anchored line
+		self note link to the anchored line (i.e., this line) #sampleanchor
 	url link:
 		[https://google.com url title]
 	title and url can be flipped:
 		[url title https://google.com]
 	link to an image
-		[@img https://via.placeholder.com/50 width=300 height=300]
+		[@img https://via.placeholder.com/50]
 
 Code highlight with highlight.js
 	[@code python]
@@ -120,14 +120,21 @@ To be released.
 
 ## Upcoming features:
 ### parser
-* [ ] link to localfile
+* [ ] link to local files
 
 ### lsp
-* [ ] semantic tokens
 * [ ] document backlinks using find references
+* [ ] semantic tokens
+* [ ] file renaming keeping note connections
+* [ ] anchor renaming
+
 ### renderer
 * [x] markdown export
 * [ ] math expression rendering
+* [ ] replace highlight.js with syntect
+
+### other todos
+please refer to [todo](./todo.pn)
 
 ## Misc
 ## unix command utilities
