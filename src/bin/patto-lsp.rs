@@ -96,7 +96,7 @@ async fn scan_workspace(
 
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
-    let diagnostics = parse_errors
+    let diagnostics: Vec<Diagnostic> = parse_errors
         .into_iter()
         .filter_map(|item| {
             let (message, loc) = match item {
@@ -111,18 +111,23 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
             || -> Option<Diagnostic> {
                 let start_position = Position::new(loc.row as u32, loc.span.0 as u32);
                 let end_position = Position::new(loc.row as u32, loc.span.1 as u32);
-                Some(Diagnostic::new_simple(
+                Some(Diagnostic::new(
                     Range::new(start_position, end_position),
+                    Some(DiagnosticSeverity::ERROR),
+                    None,
+                    None,
                     message,
+                    None,
+                    None
                 ))
             }()
         })
-        .collect::<Vec<_>>();
+        .collect();
     return (ast, diagnostics);
 }
 
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
-    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Anchor { name } = prop {
                 anchors.push(name.to_string());
@@ -136,7 +141,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
 }
 
 fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
-    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Task { status, due } = prop {
                 if ! matches!(status, TaskStatus::Done) {
@@ -175,7 +180,7 @@ impl TaskInformation {
 }
 
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
-    if let AstNodeKind::Line { ref properties } = &parent.value().kind {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Anchor { name } = prop {
                 if name == anchor {
@@ -201,7 +206,7 @@ fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<Ast
 fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     let parentrow = parent.location().row;
     log::debug!("finding row, col ({}, {}), scanning row: {}", row, col, parentrow);
-    if matches!(parent.value().kind, AstNodeKind::Dummy) ||
+    if matches!(parent.kind(), AstNodeKind::Dummy) ||
         parentrow < row {
         for child in parent.value().children.lock().unwrap().iter() {
             if let Some(mut route) = locate_node_route_impl(child, row, col) {
@@ -721,7 +726,7 @@ impl LanguageServer for Backend {
             //    return None;
             // }
             let Some((link, anchor)) = node_route.iter().find_map(|n| {
-                if let AstNodeKind::WikiLink{link, anchor} = &n.value().kind {
+                if let AstNodeKind::WikiLink{link, anchor} = &n.kind() {
                     return Some((link, anchor));
                 } else {
                     return None;

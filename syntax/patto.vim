@@ -60,6 +60,9 @@ syn match  pattoLineAnchor   /.*\s\+\zs\#\S\+\ze$/
 " some task {@task status=done}
 syn match  pattoTaskHighPriority     /^\s*\zs.*{@task.*priority=high.*}.*$/
 syn match  pattoTaskDone     /^\s*\zs.*{@task.*status=done.*}.*$/
+" some task !date
+syn match  pattoAbbrevTask   /.*\zs[!\*]\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
+syn match  pattoAbbrevTaskDone   /^\s*\zs.*\-\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
 
 """ Code
 " [`"patto"`]
@@ -97,6 +100,8 @@ hi def link pattoQuote    SpecialComment
 hi def link pattoStrike   Comment
 hi def link pattoTaskHighPriority Type
 hi def link pattoTaskDone NonText
+hi def link pattoAbbrevTask Type
+hi def link pattoAbbrevTaskDone NonText
 hi Folded ctermbg=Black ctermfg=Yellow
 
 

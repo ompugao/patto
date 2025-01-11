@@ -6,8 +6,8 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ (expr_anchor ~ trailing_properties? | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | expr_hr | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
-raw_sentence = @{ (!("[" | "]" | "{@" | (WHITE_SPACE_INLINE+ ~ expr_anchor)) ~ ANY)+ }
+statement = ${ SOI ~ ((expr_anchor | expr_task) | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | expr_hr | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
+raw_sentence = @{ (!("[" | "]" | "{@" | WHITE_SPACE_INLINE+ ~ expr_anchor | WHITE_SPACE_INLINE+ ~ expr_task) ~ ANY)+ }
 expr_hr = @{ "-"{5,} }
 // WARN: statement_nestable must be the subset of statement
 statement_nestable = ${ (expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
@@ -93,9 +93,14 @@ property_arg = @{ ASCII_ALPHANUMERIC+ }
 property_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
-trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor))+ }  // ignore white spaces
+trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor | expr_task))+ }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
 anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
+expr_task = ${ (symbol_task_done | symbol_task_doing | symbol_task_todo ) ~ task_due }
+symbol_task_done = @{"-"}
+symbol_task_doing = @{"*"}
+symbol_task_todo = @{"!"}
+task_due = @{ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} ~ ("T" ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2})? }  // TODO
 
 WHITE_SPACE_INLINE = _{ " " | "\t" }
 CJK = _{ HAN | HIRAGANA | KATAKANA | HANGUL | BOPOMOFO | "ー"}  // TODO some CJK characters are not recognized somehow
