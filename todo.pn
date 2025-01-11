@@ -3,9 +3,9 @@ Todo:
 		[- scan file in subdirectories]
 		handle link to localfile
 		handle inline math [$ math text $]{@task status=done}
-		rendering math
+		rendering inline math
 		handle [XXX mailto:XXX@example.com] {@task status=done}
-		support abbrev task, like [` !2024-09-24T13:00 `]
+		[- support abbrev task, like [` !2024-09-24T13:00 `]]
 		[- better anchor handling [` name#anchor`]. some note contains [` #`] in its name.]
 			we do not support [` #`] for the name of notes.
 		better depth and state handling
@@ -24,7 +24,7 @@ Todo:
 		todo extraction
 			[- aggregation command]
 			[- vim-lsp version]
-			nvim-lspconfig version
+			[- nvim-lspconfig version]
 			[- vscode version]
 			auto refresh
 		note renaming
