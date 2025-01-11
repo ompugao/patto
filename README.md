@@ -9,7 +9,7 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 
 ## Features
 * Primary [Zettelkasten](https://zettelkasten.de/introduction/) support
-* Task management support by `line property` (please refer to the syntax section below)
+* Task management with `line property` (please refer to the syntax section below)
 * Integrated vim plugin
 * Language server protocol
     * asynchronous workspace scanning
@@ -22,6 +22,12 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 ```sh
 cargo install patto
 ```
+
+This will install the following utilities:
+* `patto-lsp`: a lsp server
+* `patto-markdown-renderer`: a format converter from patto note to markdown
+* `patto-html-renderer`: a format converter from patto note to html
+
 ### Setup vim with vim-lsp (using vim-plug)
 ```vim
 call plug#begin()
@@ -45,8 +51,14 @@ lua << EOF
   require('lspconfig.configs').patto_lsp.setup({})
 EOF
 ```
+### Usage with (neo)vim
+* First, open a file with suffix `.pn`, or `:new` and `:set syntax=patto`
+* Then, write your memos.
+* Once you type `[` and `@`, lsp client will complete links and snippets respectively (snippet completion will only be supported in neovim).
+* You will have `:LspPattoTasks` command; that will gather tasks from your patto notes in your workspace and show them in a location window.
+
 ### Setup vscode extension
-To be released
+To be released.
 
 ## Syntax
 ```txt
@@ -56,11 +68,12 @@ Hello world.
 	the second element  #sampleanchor
 	the third element
 	[@quote]
-		quoted text must be indented with '\t'
+		quoted text must be indented with `\t'
 
 Task Management
 	a task {@task status=todo}
 	another task with deadline {@task status=todo due=2030-12-31T23:59:00}
+		abbreviated version of task !2030-12-31
 	a completed task {@task status=done}
 
 Decoration:
@@ -99,7 +112,12 @@ Math with katex
 A text in the form of `{@XXX YYY=ZZZ}` is named as `line property` and adds an property to the line (not the whole text).
 Currently, `anchor` and `task` properties are implemented:
 * `{@anchor name}`: adds an anchor to the line. abbrev: `#name`
-* `{@task status=todo due=2024-12-31}`: marks the line as a todo. The due date only supports the ISO 8601 UTC formats (YYYY-MM-DD or YYYY-MM-DDThh:mm). Its abbreviation is coming soon (TBD).
+* `{@task status=todo due=2024-12-31}`: marks the line as a todo. The due date only supports the ISO 8601 UTC formats (YYYY-MM-DD or YYYY-MM-DDThh:mm).  
+  abbrev (symbols might be changed some time):
+    * todo: `!2024-12-31`
+    * doing: `*2024-12-31`
+    * done: `-2024-12-31`
+
 
 ## Upcoming features:
 ### parser
