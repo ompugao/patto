@@ -17,49 +17,6 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
     * jumping between notes by go-to definition
     * note/anchor completion
 
-## Installation
-### Install lsp server using cargo
-```sh
-cargo install patto
-```
-
-This will install the following utilities:
-* `patto-lsp`: a lsp server
-* `patto-markdown-renderer`: a format converter from patto note to markdown
-* `patto-html-renderer`: a format converter from patto note to html
-
-### Setup vim with vim-lsp (using vim-plug)
-```vim
-call plug#begin()
-Plug 'prabirshrestha/asyncomplete.vim'
-Plug 'prabirshrestha/asyncomplete-lsp.vim'
-Plug 'prabirshrestha/vim-lsp'
-Plug 'ompugao/patto', {'for': 'patto'}
-call plug#end()
-```
-### Setup neovim with nvim-lspconfig (using vim-plug)
-```vim
-call plug#begin()
-Plug 'neovim/nvim-lspconfig'
-Plug 'hrsh7th/cmp-nvim-lsp'
-Plug 'hrsh7th/nvim-cmp'
-Plug 'ompugao/patto'
-call plug#end()
-
-lua << EOF
-  require('patto')
-  require('lspconfig.configs').patto_lsp.setup({})
-EOF
-```
-### Usage with (neo)vim
-* First, open a file with suffix `.pn`, or `:new` and `:set syntax=patto`
-* Then, write your memos.
-* Once you type `[` and `@`, lsp client will complete links and snippets respectively (snippet completion will only be supported in neovim).
-* You will have `:LspPattoTasks` command; that will gather tasks from your patto notes in your workspace and show them in a location window.
-
-### Setup vscode extension
-To be released.
-
 ## Syntax
 ```txt
 Hello world.
@@ -118,6 +75,48 @@ Currently, `anchor` and `task` properties are implemented:
     * doing: `*2024-12-31`
     * done: `-2024-12-31`
 
+## Installation
+### Install lsp server using cargo
+```sh
+cargo install patto
+```
+
+This will install the following utilities:
+* `patto-lsp`: a lsp server
+* `patto-markdown-renderer`: a format converter from patto note to markdown
+* `patto-html-renderer`: a format converter from patto note to html
+
+### Setup vim with vim-lsp (using vim-plug)
+```vim
+call plug#begin()
+Plug 'prabirshrestha/asyncomplete.vim'
+Plug 'prabirshrestha/asyncomplete-lsp.vim'
+Plug 'prabirshrestha/vim-lsp'
+Plug 'ompugao/patto', {'for': 'patto'}
+call plug#end()
+```
+### Setup neovim with nvim-lspconfig (using vim-plug)
+```vim
+call plug#begin()
+Plug 'neovim/nvim-lspconfig'
+Plug 'hrsh7th/cmp-nvim-lsp'
+Plug 'hrsh7th/nvim-cmp'
+Plug 'ompugao/patto'
+call plug#end()
+
+lua << EOF
+  require('patto')
+  require('lspconfig.configs').patto_lsp.setup({})
+EOF
+```
+### Usage with (neo)vim
+* First, open a file with suffix `.pn`, or `:new` and `:set syntax=patto`
+* Then, write your memos.
+* Once you type `[` and `@`, lsp client will complete links and snippets respectively (snippet completion will only be supported in neovim).
+* You will have `:LspPattoTasks` command; that will gather tasks from your patto notes in your workspace and show them in a location window.
+
+### Setup vscode extension
+To be released.
 
 ## Upcoming features:
 ### parser
