@@ -17,6 +17,9 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
     * jumping between notes by go-to definition
     * note/anchor completion
 
+## Demo
+![demo.gif](https://github.com/user-attachments/assets/a1f1dcb4-e1b2-4fff-91de-e587009f2dae)
+
 ## Syntax
 ```txt
 Hello world.
