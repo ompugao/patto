@@ -7,6 +7,9 @@ It works with your favorite editor, powered by the [Language Server Protocol](ht
 Unlike Markdown, every newline (\n) creates a new line, and a leading hard tab (\t) itemizes the line.
 This simple, line-oriented structure makes it easy to outline ideas, organize tasks, and brainstorm effectively.
 
+## Demo
+![demo.gif](https://github.com/user-attachments/assets/a1f1dcb4-e1b2-4fff-91de-e587009f2dae)
+
 ## Features
 * Primary [Zettelkasten](https://zettelkasten.de/introduction/) support
 * Task management with `line property` (please refer to the syntax section below)
@@ -16,9 +19,6 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
     * diagnostics
     * jumping between notes by go-to definition
     * note/anchor completion
-
-## Demo
-![demo.gif](https://github.com/user-attachments/assets/a1f1dcb4-e1b2-4fff-91de-e587009f2dae)
 
 ## Syntax
 ```txt
@@ -72,11 +72,19 @@ Math with katex
 A text in the form of `{@XXX YYY=ZZZ}` is named as `line property` and adds an property to the line (not the whole text).
 Currently, `anchor` and `task` properties are implemented:
 * `{@anchor name}`: adds an anchor to the line. abbrev: `#name`
-* `{@task status=todo due=2024-12-31}`: marks the line as a todo. The due date only supports the ISO 8601 UTC formats (YYYY-MM-DD or YYYY-MM-DDThh:mm).  
+* `{@task status=todo due=2024-12-31}`: marks the line as a todo.  
+  The due date only supports the ISO 8601 UTC formats (YYYY-MM-DD or YYYY-MM-DDThh:mm).  
   abbrev (symbols might be changed some time):
     * todo: `!2024-12-31`
     * doing: `*2024-12-31`
     * done: `-2024-12-31`
+
+## Usage with (neo)vim
+* First, open a file in a workspace with suffix `.pn`, or `:new` and `:set syntax=patto`
+* Then, write your memos.
+* Once you type `[` and `@`, lsp client will complete links and snippets respectively
+	* snippets will only be completed with lsp-oriented snippet plugins such as [vim-vsnip](https://github.com/hrsh7th/vim-vsnip)).
+* You will have `:LspPattoTasks` command; that will gather tasks from the notes in your workspace and show them in a location window.
 
 ## Installation
 ### Install lsp server using cargo
@@ -112,11 +120,6 @@ lua << EOF
   require('lspconfig.configs').patto_lsp.setup({})
 EOF
 ```
-### Usage with (neo)vim
-* First, open a file with suffix `.pn`, or `:new` and `:set syntax=patto`
-* Then, write your memos.
-* Once you type `[` and `@`, lsp client will complete links and snippets respectively (snippet completion will only be supported in neovim).
-* You will have `:LspPattoTasks` command; that will gather tasks from your patto notes in your workspace and show them in a location window.
 
 ### Setup vscode extension
 To be released.
