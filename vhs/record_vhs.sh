@@ -1,10 +1,20 @@
+#!/bin/bash
+cat > another\ note.pn <<EOF
+Here is another note.
+jump back from here: [note].
+
+Here is the anchored line. #anchor
+	a #a1
+	b #a2
+	c #a3
+EOF
+rm -f ~/.nvimswap/note.pn.*
+rm -f note.pn
+touch note2.pn note3.pn note4.pn
+cat > demo.tape << EOF
 Set FontSize 26
 Set Width 1200
 Set Height 600
-Hide
-Type "rm -f ~/.nvimswap/note.pn.* && rm note.pn && touch note2.pn && touch note3.pn && touch note4.pn && clear"
-Enter
-Show
 Type "nvim"
 Sleep 0.5s
 Enter
@@ -84,4 +94,7 @@ Escape
 Type ";wqa"
 Sleep 500ms
 Ctrl+D
+EOF
+vhs demo.tape
+rm *.pn demo.tape
 
