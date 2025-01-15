@@ -86,6 +86,8 @@ Currently, `anchor` and `task` properties are implemented:
 	* snippets will only be completed with lsp-oriented snippet plugins such as [vim-vsnip](https://github.com/hrsh7th/vim-vsnip)).
 * You will have `:LspPattoTasks` command; that will gather tasks from the notes in your workspace and show them in a location window.
 
+![task aggregation demo](https://github.com/user-attachments/assets/a0d285ef-5ef3-46d8-907a-c33b24b58e19)
+
 ## Installation
 ### Install lsp server using cargo
 ```sh
