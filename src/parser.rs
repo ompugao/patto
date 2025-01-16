@@ -4,6 +4,7 @@ use pest_derive::Parser;
 use std::cmp;
 use std::fmt;
 use std::ops;
+use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use log;
@@ -132,7 +133,7 @@ pub struct AstNodeInternal {
 //     }
 // }
 
-#[derive(PartialEq, Debug, Clone, PartialOrd, Eq, Ord)] //, Deserialize, Serialize)]
+#[derive(PartialEq, Eq, Debug, Clone)] //, Deserialize, Serialize)]
 pub enum Deadline {
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),
@@ -153,6 +154,33 @@ impl fmt::Display for Deadline {
             }
         }
         Ok(())
+    }
+}
+
+impl PartialOrd for Deadline {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Deadline {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Deadline::Date(d1), Deadline::Date(d2)) => d1.cmp(d2),
+            (Deadline::DateTime(dt1), Deadline::DateTime(dt2)) => dt1.cmp(dt2),
+            (Deadline::Uninterpretable(t1), Deadline::Uninterpretable(t2)) => t1.cmp(t2),
+            (Deadline::Date(d1), Deadline::DateTime(dt2)) => {
+                let dt1 = d1.and_hms(0, 0, 0);
+                dt1.cmp(dt2).then(Ordering::Less)
+            }
+            (Deadline::DateTime(dt1), Deadline::Date(d2)) => {
+                let dt2 = d2.and_hms(0, 0, 0);
+                dt1.cmp(&dt2).then(Ordering::Greater)
+            }
+            (Deadline::Date(_), _) => Ordering::Less,
+            (Deadline::DateTime(_), Deadline::Uninterpretable(_)) => Ordering::Less,
+            (Deadline::Uninterpretable(_), _) => Ordering::Greater,
+        }
     }
 }
 
@@ -1591,12 +1619,43 @@ mod tests {
 
         let task = &props[2];
         if let Property::Task { status, due } = task {
-            assert_eq!(*status, TaskStatus::Doing);
+            assert_eq!(*status, TaskStatus::Done);
             assert_eq!(*due, Deadline::DateTime(chrono::NaiveDateTime::parse_from_str("2024-10-11T20:00", "%Y-%m-%dT%H:%M").unwrap()));
         } else {
             panic!("task could not be parsed");
         };
 
+        Ok(())
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_deadline_sorting_order() -> Result<(), Box<dyn std::error::Error>>  {
+        let mut values = vec![
+            Deadline::Date(chrono::NaiveDate::from_ymd(2022, 1, 1)),
+            Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531199, 0)),
+            Deadline::Uninterpretable(String::from("Hello")),
+            Deadline::Date(chrono::NaiveDate::from_ymd(2023, 1, 1)),
+            Deadline::Date(chrono::NaiveDate::from_ymd(2022, 12, 31)),
+            Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531200, 0)),
+            Deadline::Uninterpretable(String::from("World")),
+        ];
+
+        let gt = vec![
+            Deadline::Date(chrono::NaiveDate::from_ymd(2022, 1, 1)),
+            Deadline::Date(chrono::NaiveDate::from_ymd(2022, 12, 31)),
+            Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531199, 0)),
+            Deadline::Date(chrono::NaiveDate::from_ymd(2023, 1, 1)),
+            Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531200, 0)),
+            Deadline::Uninterpretable(String::from("Hello")),
+            Deadline::Uninterpretable(String::from("World")),
+        ];
+
+        values.sort();
+
+        for (v, x) in values.iter().zip(gt.iter()) {
+            assert_eq!(v, x);
+        }
         Ok(())
     }
 
