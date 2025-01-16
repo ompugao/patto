@@ -2,12 +2,12 @@
 cat > project1.pn <<EOF
 Project1
 You can record tasks whereever you want.
-	re-write design doc {@task status=todo due=2025-04-01}
-	task2 {@task status=todo due=2025-04-02}
+	re-write design doc    {@task status=todo due=2025-04-01}
+	task2                  {@task status=todo due=2025-04-02}
 
 Due with time:
-	re-organize code {@task status=todo due=2025-04-15T11:59}
-	done {@task status=done due=2025-04-15T11:59}
+	re-organize code       {@task status=todo due=2025-05-15T11:59}
+	done                   {@task status=done due=2025-06-15T10:00}
 EOF
 cat > project2.pn <<EOF
 Here is the note for project2.
@@ -63,7 +63,7 @@ Type ";lopen"
 Sleep 1s
 Enter
 Sleep 1s
-Type "jjjj"
+Type "jj"
 Sleep 1s
 Enter
 Sleep 2s
