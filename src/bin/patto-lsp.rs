@@ -74,6 +74,17 @@ fn scan_directory(
     Ok(())
 }
 
+fn link_to_uri(link: &str, root_uri: Option<&Url>) -> Option<Url> {
+    if let Some(root_uri) = root_uri {
+        if link.len() > 0 {
+            let mut linkuri = root_uri.clone();
+            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
+            return Some(linkuri);
+        }
+    }
+    return None;
+}
+
 async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
@@ -498,34 +509,24 @@ impl LanguageServer for Backend {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                     let s = line.slice(maybelink..((position.character - 1) as usize)).as_str()?;
                     log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-
-                    if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                        let mut linkuri = root_uri.clone();
-                        if maybelink == (position.character - 1) as usize {
-                            // self link
-                            linkuri = uri.clone();
-                        } else {
-                            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), &s).as_str());
-                            //linkuri.set_path(format!("{}/{}.pn", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
-                        }
-                        log::debug!("linkuri: {}", linkuri);
-                        let Some(linkuri_decoded) = decode_uri(&linkuri) else {
-                            log::debug!("Failed to decode linkuri: {}", linkuri);
-                            return None;
-                        };
-                        if let Some(ast) = self.ast_map.get(&linkuri_decoded) {
-                            let mut anchors = vec![];
-                            gather_anchors(ast.value(), &mut anchors);
-                            return Some(anchors.iter().map(|anchor| {
-                                CompletionItem {
-                                    label: format!("#{}", anchor).into(),
-                                    kind: Some(CompletionItemKind::REFERENCE),
-                                    filter_text: Some(anchor.to_string()),
-                                    insert_text: Some(anchor.to_string()),
-                                    ..Default::default()
-                                }
-                            }).collect());
-                        }
+                    let linkuri = link_to_uri(s, self.root_uri.lock().unwrap().as_ref()).unwrap_or(uri);
+                    log::debug!("linkuri: {}", linkuri);
+                    let Some(linkuri_decoded) = decode_uri(&linkuri) else {
+                        log::debug!("Failed to decode linkuri: {}", linkuri);
+                        return None;
+                    };
+                    if let Some(ast) = self.ast_map.get(&linkuri_decoded) {
+                        let mut anchors = vec![];
+                        gather_anchors(ast.value(), &mut anchors);
+                        return Some(anchors.iter().map(|anchor| {
+                            CompletionItem {
+                                label: format!("#{}", anchor).into(),
+                                kind: Some(CompletionItemKind::REFERENCE),
+                                filter_text: Some(anchor.to_string()),
+                                insert_text: Some(anchor.to_string()),
+                                ..Default::default()
+                            }
+                        }).collect());
                     }
                 }
             }
@@ -735,34 +736,22 @@ impl LanguageServer for Backend {
                 log::debug!("it is not wikilink");
                 return None;
             };
-            if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                //let linkuri = root_uri.join(format!("{}.{}", link, "pn").as_str()).expect("url join should work");
-                let mut linkuri = root_uri.clone();
-                if link.len() > 0 {
-                    linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
-                } else {
-                    //self link
-                    linkuri = uri.clone();
-                }
-                let Some(linkuri_decoded) = decode_uri(&linkuri) else {
-                    return None;
-                };
-                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-                if let Some(anchor) = anchor {
-                    let range = self.ast_map.get(&linkuri_decoded).and_then(|r| {
-                        let linkast = r.value();
-                        find_anchor(linkast, anchor)
-                    }).map_or(start,
-                        |anchored_line| {
-                            get_node_range(&anchored_line)
-                        });
-                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
-                } else {
-                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
-                }
+            let linkuri = link_to_uri(link, self.root_uri.lock().unwrap().as_ref()).unwrap_or(uri);
+            let Some(linkuri_decoded) = decode_uri(&linkuri) else {
+                return None;
+            };
+            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+            if let Some(anchor) = anchor {
+                let range = self.ast_map.get(&linkuri_decoded).and_then(|r| {
+                    let linkast = r.value();
+                    find_anchor(linkast, anchor)
+                }).map_or(start,
+                    |anchored_line| {
+                        get_node_range(&anchored_line)
+                    });
+                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
             } else {
-                log::debug!("root_uri is not set");
-                None
+                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
             }
         }
         .await;
