@@ -26,11 +26,17 @@ use patto::semantic_token::LEGEND_TYPE;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef; // for petgraph::stable_graph::EdgeReference.id()
+use petgraph::stable_graph::StableDiGraph;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
     ast_map: Arc<DashMap<String, AstNode>>,
     document_map: Arc<DashMap<String, Rope>>,
+    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
+    graph_node_map: Arc<DashMap<String, NodeIndex>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
@@ -50,6 +56,8 @@ fn scan_directory(
     client: &Client,
     dir: PathBuf,
     document_map: Arc<DashMap<String, Rope>>,
+    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
+    graph_node_map: Arc<DashMap<String, NodeIndex>>,
     ast_map: Arc<DashMap<String, AstNode>>,
 ) -> Result<()> {
     let Ok(paths) = std::fs::read_dir(dir) else {
@@ -59,7 +67,8 @@ fn scan_directory(
     for path in paths {
         let path = path.unwrap().path();
         if path.is_dir() {
-            scan_directory(client, path, Arc::clone(&document_map), Arc::clone(&ast_map))?;
+            scan_directory(client, path,
+                Arc::clone(&document_map), Arc::clone(&document_graph), Arc::clone(&graph_node_map), Arc::clone(&ast_map))?;
         } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::debug!("Found file: {:?}", path);
             let uri = Url::from_file_path(path.clone()).unwrap();
@@ -78,13 +87,11 @@ fn scan_directory(
     Ok(())
 }
 
-fn link_to_uri(link: &str, root_uri: Option<&Url>) -> Option<Url> {
-    if let Some(root_uri) = root_uri {
-        if link.len() > 0 {
-            let mut linkuri = root_uri.clone();
-            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
-            return Some(linkuri);
-        }
+fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
+    if link.len() > 0 {
+        let mut linkuri = root_uri.clone();
+        linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
+        return Some(linkuri);
     }
     return None;
 }
@@ -93,6 +100,8 @@ async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
     document_map: Arc<DashMap<String, Rope>>,
+    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
+    graph_node_map: Arc<DashMap<String, NodeIndex>>,
     ast_map: Arc<DashMap<String, AstNode>>,
 ) -> Result<()> {
     client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
@@ -101,7 +110,7 @@ async fn scan_workspace(
     // Use blocking I/O in a spawned blocking task
     let _ = tokio::task::spawn_blocking(move || {
         log::debug!("Start reading dir: {:?}", workspace_path);
-        let _ = scan_directory(&client, workspace_path, document_map, ast_map);
+        let _ = scan_directory(&client, workspace_path, document_map, document_graph, graph_node_map, ast_map);
     }).await;
 
     client2.log_message(MessageType::INFO, "Workspace scan complete.").await;
@@ -169,6 +178,20 @@ fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
 
     for child in parent.value().children.lock().unwrap().iter() {
         gather_tasks(child, tasklines);
+    }
+}
+
+fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<String>)>) {
+    if let AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
+        wikilinks.push((link.clone(), anchor.clone()));
+    }
+
+    for content in parent.value().contents.lock().unwrap().iter() {
+        gather_wikilinks(content, wikilinks);
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_wikilinks(child, wikilinks);
     }
 }
 
@@ -257,6 +280,34 @@ impl Backend {
         self.document_map
             .insert(uri_decoded.clone(), rope);
         let (ast, diagnostics) = parse_text(&params.text);
+        let mut wikilinks = vec![];
+        gather_wikilinks(&ast, &mut wikilinks);
+        let root_uri_opt = self.root_uri.lock().unwrap().as_ref().cloned();
+        if let Some(root_uri) = root_uri_opt {
+            let decoded_link_uris = wikilinks.iter()
+                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri)) // ignore self-link
+                .filter_map(|ref uri| decode_uri(uri)).collect::<String>();
+            if let Ok(mut graph) = self.document_graph.try_lock() {
+                let entry = self.graph_node_map.entry(uri_decoded.clone()).or_insert_with(|| {
+                    return graph.add_node(uri_decoded.clone());
+                });
+                for (wikilink, anchor_opt) in wikilinks {
+                    let Some(decoded_linked_uri) = decode_uri(&link_to_uri(&wikilink, &root_uri).unwrap_or(params.uri.clone())) else {
+                        log::warn!("failed to decode uri for wikilink: {}", wikilink);
+                        continue;
+                    };
+                    // graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).map(|e_id| graph.remove_edge(e_id));
+                    // Is this safe?
+                    //for e_id in graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).into_iter() {
+                    //}
+                    for e_id in graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).collect::<Vec<_>>() {
+                        graph.remove_edge(e_id);
+                    }
+                    // TODO connect edges
+                }
+            }
+        }
+
 
         self.client
             .publish_diagnostics(
@@ -290,9 +341,11 @@ impl LanguageServer for Backend {
                 self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
                 let ast_map = Arc::clone(&self.ast_map);
                 let document_map = Arc::clone(&self.document_map);
+                let document_graph = Arc::clone(&self.document_graph);
+                let graph_node_map = Arc::clone(&self.graph_node_map);
                 tokio::spawn(async move {
                     // Run the workspace scan in the background
-                    if let Err(e) = scan_workspace(client, path, document_map, ast_map).await {
+                    if let Err(e) = scan_workspace(client, path, document_map, document_graph, graph_node_map, ast_map).await {
                         log::warn!("Failed to scan workspace: {:?}", e);
                     }
                 });
@@ -515,7 +568,11 @@ impl LanguageServer for Backend {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                     let s = line.slice(maybelink..prev_col).as_str()?;
                     log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-                    let linkuri = link_to_uri(s, self.root_uri.lock().unwrap().as_ref()).unwrap_or(uri);
+                    let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
+                        log::debug!("root_uri is not set");
+                        return None;
+                    };
+                    let linkuri = link_to_uri(s, &root_uri).unwrap_or(uri);
                     log::debug!("linkuri: {}", linkuri);
                     let Some(linkuri_decoded) = decode_uri(&linkuri) else {
                         log::debug!("Failed to decode linkuri: {}", linkuri);
@@ -743,7 +800,11 @@ impl LanguageServer for Backend {
                 log::debug!("it is not wikilink");
                 return None;
             };
-            let linkuri = link_to_uri(link, self.root_uri.lock().unwrap().as_ref()).unwrap_or(uri);
+            let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
+                log::debug!("root_uri is not set");
+                return None;
+            };
+            let linkuri = link_to_uri(link, &root_uri).unwrap_or(uri);
             let Some(linkuri_decoded) = decode_uri(&linkuri) else {
                 return None;
             };
@@ -805,6 +866,8 @@ async fn main() {
         client,
         ast_map: Arc::new(DashMap::new()),
         document_map: Arc::new(DashMap::new()),
+        document_graph: Arc::new(Mutex::new(StableDiGraph::new())),
+        graph_node_map: Arc::new(DashMap::new()),
         root_uri: Arc::new(Mutex::new(None)),
         //semantic_token_map: DashMap::new(),
     });
