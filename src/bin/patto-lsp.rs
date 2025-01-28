@@ -8,6 +8,10 @@ use urlencoding::{encode, decode};
 use chrono;
 use dashmap::DashMap;
 use ropey::Rope;
+use str_indices::utf16::{
+    from_byte_idx as utf16_from_byte_idx,
+    to_byte_idx as utf16_to_byte_idx
+};
 
 use serde_json::{json, Value};
 use serde::{Deserialize, Serialize};
@@ -33,8 +37,8 @@ struct Backend {
 
 fn get_node_range(from: &AstNode) -> Range {
     let row = from.location().row as u32;
-    let s = from.location().span.0 as u32;
-    let e = from.location().span.1 as u32;
+    let s = utf16_from_byte_idx(from.extract_str(), from.location().span.0) as u32;
+    let e = utf16_from_byte_idx(from.extract_str(), from.location().span.1) as u32;
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
@@ -307,6 +311,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
+                position_encoding: Some(PositionEncodingKind::UTF16),  // vscode only supports utf-16 ;(
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
@@ -375,7 +380,6 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         log::info!("did_open: {:?}", params.text_document.uri);
-        self.ast_map.iter().for_each(|e| log::debug!("opening: {}", e.key().to_string()));
         self.on_change(TextDocumentItem {
             language_id: "".to_string(),
             uri: params.text_document.uri,
@@ -490,13 +494,15 @@ impl LanguageServer for Backend {
             // }
 
             let line = rope.get_line(position.line as usize)?;
-
-            let c = line.char((position.character as usize).saturating_sub(1));
+            let cur_col = line.byte_to_char(utf16_to_byte_idx(line.as_str()?, (position.character as usize)));
+            let prev_col = cur_col.saturating_sub(1);
+            //let prev_col_byte = line.char_to_byte(prev_col);
+            let c = line.char(prev_col);
             if c == '#' {
-                let slice = line.slice(..position.character as usize);
-                if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
+                let slice = line.slice(..cur_col);
+                if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
-                    let s = line.slice(maybelink..((position.character - 1) as usize)).as_str()?;
+                    let s = line.slice(maybelink..prev_col).as_str()?;
                     log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
 
                     if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
@@ -530,11 +536,11 @@ impl LanguageServer for Backend {
                 }
             }
 
-            let slice = line.slice(..position.character as usize);
+            let slice = line.slice(..cur_col);
             let slicelen = slice.len_chars();
-            if let Some(foundbracket) = slice.chars_at(position.character as usize).reversed().position(|c| c == '[') {
-                let maybelink = slicelen.saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
-                let s = line.slice(maybelink..position.character as usize).as_str()?;
+            if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
+                let maybelink = slicelen.saturating_sub(foundbracket as usize);
+                let s = line.slice(maybelink..cur_col).as_str()?;
                 log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
 
                 if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
@@ -552,7 +558,7 @@ impl LanguageServer for Backend {
                                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                                 text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                     new_text: path.clone(),
-                                    range: Range{start: Position{line: position.line, character: maybelink as u32},
+                                    range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybelink)) as u32},
                                                 end: Position{line: position.line, character: position.character}}
                                     })),
                                 ..Default::default()
@@ -570,12 +576,12 @@ impl LanguageServer for Backend {
             // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
             // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
             //     https://github.com/cessen/ropey/issues/93
-            let slice = line.slice(..position.character as usize);
+            let slice = line.slice(..cur_col);
             let slicelen = slice.len_chars();
-            if let Some(foundat) = slice.chars_at(position.character as usize).reversed().position(|c| c == '@') {
+            if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
                 // `chars_at` puts the cursor at the end of the line.
                 let maybecommand = slicelen.saturating_sub(foundat as usize);  // -1 since the cursor at first points to the end of the line `\n`.
-                let s = line.slice(maybecommand..position.character as usize).as_str()?;
+                let s = line.slice(maybecommand..cur_col).as_str()?;
                 log::debug!("command? {}, from {}, found at {}", s, maybecommand, foundat);
                 match s {
                     "@code" => {
@@ -587,7 +593,7 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@code ${1:lang}]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
                             ..Default::default()
@@ -602,7 +608,7 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@math]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
                             ..Default::default()
@@ -617,7 +623,7 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@quote]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
                             ..Default::default()
@@ -632,7 +638,7 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
                             ..Default::default()
@@ -647,7 +653,7 @@ impl LanguageServer for Backend {
                             insert_text_format: Some(InsertTextFormat::SNIPPET),
                             text_edit: Some(CompletionTextEdit::Edit(TextEdit{
                                 new_text: format!("{{@task status=${{1:todo}} due=${{2:{}}}}}$0", chrono::Local::now().format("%Y-%m-%d")),  // T%H:%M:%S
-                                range: Range{start: Position{line: position.line, character: (maybecommand) as u32},
+                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
                                              end: Position{line: position.line, character: position.character}}
                                 })),
                             ..Default::default()
@@ -717,8 +723,9 @@ impl LanguageServer for Backend {
             // self.client.log_message(MessageType::INFO, &format!("{:#?}, {}", ast.value(), offset)).await;
             let line = rope.get_line(position.line as usize)?;
             // NOTE: spans in our parser (and in pest) are in bytes, not chars
-            let posbyte = ropey::str_utils::char_to_byte_idx(line.as_str()?, position.character as usize);
+            let posbyte = utf16_to_byte_idx(line.as_str()?, position.character as usize);
             let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) else {
+                log::debug!("Node not found at {:?}, posbyte: {:?}", position, posbyte);
                 return None;
             };
             //if node_route.len() == 0 {
