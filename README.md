@@ -111,6 +111,7 @@ Plug 'ompugao/patto', {'for': 'patto'}
 call plug#end()
 ```
 ### Setup neovim with nvim-lspconfig (using vim-plug)
+Note: We recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
 ```vim
 call plug#begin()
 Plug 'neovim/nvim-lspconfig'
