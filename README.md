@@ -147,6 +147,24 @@ To be released.
 ### other todos
 please refer to [todo](./todo.pn)
 
+## FAQ
+### Why not Markdown?
+The differences in behavior between Markdown parsers led me to create the Patto format.
+For example, in GitHub Markdown, code fences can be contained within a list item, whereas in Obsidian, they cannot:
+
+- item
+- ```python
+  print('hello')
+  ```
+- item3
+
+### Custom template?
+Please use your favorite template/snippet engine of your editor. I personally use [LuaSnip](https://github.com/L3MON4D3/LuaSnip) in neovim.  
+Other candidate vim plugins:
+- https://github.com/mattn/vim-sonictemplate
+- https://github.com/hrsh7th/vim-vsnip
+- https://github.com/echasnovski/mini.snippets
+
 ## Misc
 ## unix command utilities
 ### sort tasks with grep and sort
