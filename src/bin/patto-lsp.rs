@@ -58,7 +58,7 @@ fn scan_directory(
 ) -> Result<()> {
     scan_directory_impl(&client, &dir, document_map, Arc::clone(&document_graph), Arc::clone(&ast_map))?;
     let root_uri = Url::from_directory_path(&dir).unwrap();
-    if let Ok(mut graph) = document_graph.try_lock() {
+    if let Ok(mut graph) = document_graph.lock() {
         let _ = ast_map.iter().map(|ref_multi| {
             let uri_decoded = ref_multi.key();
             let ast = ref_multi.value();
@@ -66,7 +66,7 @@ fn scan_directory(
             gather_wikilinks(&ast, &mut wikilinks);
             let decoded_link_uris = wikilinks.iter()
                 .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri))
-                .filter_map(|ref uri| decode_uri(uri)).collect::<Vec<_>>();
+                .filter_map(|ref uri| decode_uri(uri)).collect::<Vec<String>>();
             let ast_clone = ast.clone();
             let node = graph.get(&uri_decoded).unwrap_or_else(|| {
                 let n = GraphNode::new(uri_decoded.clone(), ast_clone);
@@ -76,6 +76,7 @@ fn scan_directory(
             for decoded_linked_uri in decoded_link_uris.iter() {
                 if !node.iter_out().any(|x| x.target().key() == decoded_linked_uri) {
                     // if not connected, connect
+                    // TODO connect nodes even when nodes are non-existent 
                     ast_map.get(decoded_linked_uri.as_str()).and_then(|linked_ast| {
                         node.connect(&graph.get(&decoded_linked_uri).unwrap_or_else(|| {
                             let n = GraphNode::new(decoded_linked_uri.clone(), linked_ast.clone());
@@ -132,6 +133,18 @@ fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
         return Some(linkuri);
     }
     return None;
+}
+
+fn encode_uri(s: &String) -> Option<Url> {
+    log::debug!("--encoding--");
+    log::debug!("s: {}", s);
+    let mut new_url = Url::from_file_path(s).ok()?;
+    log::debug!("new_url: {}", new_url);
+    new_url.set_path(new_url.path_segments()?.map(|seg| {
+        log::debug!("seg: {}", seg);
+        encode(seg).to_owned()
+    }).collect::<Vec<_>>().join("/").as_str());
+    Some(new_url)
 }
 
 async fn scan_workspace(
@@ -467,7 +480,7 @@ impl LanguageServer for Backend {
                 ),
                 // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(false)),
+                references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(false)),
                 ..ServerCapabilities::default()
             },
@@ -867,6 +880,35 @@ impl LanguageServer for Backend {
         }
         .await;
         Ok(definition)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let references = async {
+            let Some(uri_decoded) = decode_uri(&params.text_document_position.text_document.uri) else {
+                log::debug!("decode failed");
+                return None;
+            };
+            if let Ok(graph) = self.document_graph.lock() {
+                let Some(node) = graph.get(&uri_decoded) else {
+                    log::debug!("node not found in the graph");
+                    return None;
+                };
+                //TODO record and use range
+                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+                log::debug!("references retrieved from graph");
+                return Some(node.iter_in().filter_map(|uri| {
+                    log::debug!("{:?}", encode_uri(&uri.source().key()));
+                    //log::debug!("{:?}", encode_uri(&uri.source().key()).unwrap().to_file_path());
+                    encode_uri(&uri.source().key())
+                }).map(|url| {
+                    Location::new(url, start)
+                }).collect::<_>());
+            }
+            log::debug!("failed to lock graph");
+            return None;
+        }
+        .await;
+        Ok(references)
     }
 
 }

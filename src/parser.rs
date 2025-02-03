@@ -170,12 +170,14 @@ impl Ord for Deadline {
             (Deadline::DateTime(dt1), Deadline::DateTime(dt2)) => dt1.cmp(dt2),
             (Deadline::Uninterpretable(t1), Deadline::Uninterpretable(t2)) => t1.cmp(t2),
             (Deadline::Date(d1), Deadline::DateTime(dt2)) => {
-                let dt1 = d1.and_hms(0, 0, 0);
-                dt1.cmp(dt2).then(Ordering::Less)
+                d1.and_hms_opt(0, 0, 0).map_or(Ordering::Less, |dt1| {
+                    dt1.cmp(dt2).then(Ordering::Less)
+                })
             }
             (Deadline::DateTime(dt1), Deadline::Date(d2)) => {
-                let dt2 = d2.and_hms(0, 0, 0);
-                dt1.cmp(&dt2).then(Ordering::Greater)
+                d2.and_hms_opt(0, 0, 0).map_or(Ordering::Greater, |dt2| {
+                    dt1.cmp(&dt2).then(Ordering::Greater)
+                })
             }
             (Deadline::Date(_), _) => Ordering::Less,
             (Deadline::DateTime(_), Deadline::Uninterpretable(_)) => Ordering::Less,
@@ -370,9 +372,6 @@ impl AstNode {
         Self::new(input, row, span, Some(AstNodeKind::TableColumn))
     }
 
-    pub fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
     pub fn value(&self) -> &AstNodeInternal {
         &self.0.value
     }
@@ -393,6 +392,12 @@ impl AstNode {
     }
     pub fn extract_str(&self) -> &str {
         self.location().as_str()
+    }
+}
+
+impl Clone for AstNode {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
     }
 }
 
