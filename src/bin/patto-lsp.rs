@@ -2,6 +2,7 @@ use log;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use regex;
 use urlencoding::{encode, decode};
 
 
@@ -26,11 +27,14 @@ use patto::semantic_token::LEGEND_TYPE;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-#[derive(Debug)]
+use gdsl::sync_digraph::{Graph, Node as GraphNode};
+
+//#[derive(Debug)]
 struct Backend {
     client: Client,
-    ast_map: Arc<DashMap<String, AstNode>>,
-    document_map: Arc<DashMap<String, Rope>>,
+    ast_map: Arc<DashMap<Url, AstNode>>,
+    document_map: Arc<DashMap<Url, Rope>>,
+    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
@@ -42,15 +46,70 @@ fn get_node_range(from: &AstNode) -> Range {
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
-fn decode_uri(uri: &Url) -> Option<String> {
-    return decode(&uri.to_string()).map(|e| e.to_string()).ok();
+fn normalize_url_percent_encoding(url: &Url) -> Url {
+    let re = regex::Regex::new(r"%[0-9a-fA-F]{2}").unwrap();
+    let normalized = re.replace_all(url.as_str(), |caps: &regex::Captures| {
+        caps[0].to_uppercase()
+    });
+
+    Url::parse(&normalized).unwrap_or(url.clone())
 }
 
 fn scan_directory(
     client: &Client,
     dir: PathBuf,
-    document_map: Arc<DashMap<String, Rope>>,
-    ast_map: Arc<DashMap<String, AstNode>>,
+    document_map: Arc<DashMap<Url, Rope>>,
+    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
+    ast_map: Arc<DashMap<Url, AstNode>>,
+) -> Result<()> {
+    scan_directory_impl(&client, &dir, document_map, Arc::clone(&document_graph), Arc::clone(&ast_map))?;
+    let root_uri = Url::from_directory_path(&dir).unwrap();
+    log::debug!("hogehoge");
+    if let Ok(mut graph) = document_graph.lock() {
+        log::debug!("fuga");
+        ast_map.iter().for_each(|ref_multi| {
+            let uri = ref_multi.key();
+            log::debug!("uri:{}", uri);
+            let ast = ref_multi.value();
+            let mut wikilinks = vec![];
+            gather_wikilinks(&ast, &mut wikilinks);
+            let link_uris = wikilinks.iter()
+                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri))
+                .collect::<Vec<_>>();
+            let ast_clone = ast.clone();
+            let node = graph.get(&uri).unwrap_or_else(|| {
+                let n = GraphNode::new(uri.clone(), ast_clone);
+                graph.insert(n.clone());
+                n
+            });
+            for link_uri in link_uris.iter() {
+                //let from_str = uri_to_link(&uri, &root_uri).unwrap();
+                //let to_str = uri_to_link(&link_uri, &root_uri).unwrap();
+                log::debug!("checking from {:?} to {:?}", uri, link_uri);
+                if !node.iter_out().any(|x| x.target().key() == link_uri) {
+                    // if not connected, connect
+                    // TODO connect nodes even when nodes are non-existent 
+                    log::debug!("connecting {} to {}", uri, link_uri);
+                    if let Some(linked_ast) = ast_map.get(&link_uri) {
+                        node.connect(&graph.get(&link_uri).unwrap_or_else(|| {
+                            let n = GraphNode::new(link_uri.clone(), linked_ast.clone());
+                            graph.insert(n.clone());
+                            n
+                        }), ());
+                    }
+                }
+            }
+        });
+    }
+    Ok(())
+}
+
+fn scan_directory_impl(
+    client: &Client,
+    dir: &PathBuf,
+    document_map: Arc<DashMap<Url, Rope>>,
+    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
+    ast_map: Arc<DashMap<Url, AstNode>>,
 ) -> Result<()> {
     let Ok(paths) = std::fs::read_dir(dir) else {
         return Err(Error::internal_error());
@@ -59,30 +118,69 @@ fn scan_directory(
     for path in paths {
         let path = path.unwrap().path();
         if path.is_dir() {
-            scan_directory(client, path, Arc::clone(&document_map), Arc::clone(&ast_map))?;
+            scan_directory_impl(client, &path,
+                Arc::clone(&document_map), Arc::clone(&document_graph), Arc::clone(&ast_map))?;
         } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::debug!("Found file: {:?}", path);
-            let uri = Url::from_file_path(path.clone()).unwrap();
-            if let Some(uri_decoded) = decode_uri(&uri) {
-                let _ = std::fs::read_to_string(path).map(|x| {
+            if let Ok(uri) = Url::from_file_path(path.clone()) {
+                let _ = std::fs::read_to_string(path.clone()).map(|x| {
                     let (ast, _diagnostics) = parse_text(&x.as_str());
                     let rope = ropey::Rope::from_str(&x.as_str());
-                    document_map.insert(uri_decoded.clone(), rope);
-                    ast_map.insert(uri_decoded, ast);
+                    log::debug!("{:?} parsed and registered", path);
+                    document_map.insert(uri.clone(), rope);
+                    ast_map.insert(uri, ast);
                 });
             } else {
-                log::error!("Failed to decode uri: {}", uri.to_string());
+                log::error!("Failed to parse uri: {}", path.display());
             }
         }
     }
     Ok(())
 }
 
+
+fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
+    if link.len() > 0 {
+        fn ensure_trailing_slash(s: &str) -> String {
+            if s.ends_with('/') {
+                s.to_string()
+            } else {
+                format!("{}/", s)
+            }
+        }
+        let mut linkuri = root_uri.clone();
+        linkuri.set_path(format!("{}{}.pn", ensure_trailing_slash(root_uri.path()), encode(link)).as_str());
+        return Some(normalize_url_percent_encoding(&linkuri))
+    }
+    return None;
+}
+
+
+// fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
+//     if base.scheme() != uri.scheme() {
+//         log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
+//         return None;
+//     }
+// 
+//     let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
+//     let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
+// 
+//     if !uri_path.starts_with(&base_path) {
+//         log::debug!("uri is not inside base: {}, {}", uri, base);
+//         return None; // uri is not inside base
+//     }
+// 
+//     // Extract the remainder after the base path
+//     let relative_path = &uri_path[base_path.len()..];
+//     Some(relative_path.join("/"))
+// }
+
 async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
-    document_map: Arc<DashMap<String, Rope>>,
-    ast_map: Arc<DashMap<String, AstNode>>,
+    document_map: Arc<DashMap<Url, Rope>>,
+    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
+    ast_map: Arc<DashMap<Url, AstNode>>,
 ) -> Result<()> {
     client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
 
@@ -90,7 +188,7 @@ async fn scan_workspace(
     // Use blocking I/O in a spawned blocking task
     let _ = tokio::task::spawn_blocking(move || {
         log::debug!("Start reading dir: {:?}", workspace_path);
-        let _ = scan_directory(&client, workspace_path, document_map, ast_map);
+        let _ = scan_directory(&client, workspace_path, document_map, document_graph, ast_map);
     }).await;
 
     client2.log_message(MessageType::INFO, "Workspace scan complete.").await;
@@ -158,6 +256,20 @@ fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
 
     for child in parent.value().children.lock().unwrap().iter() {
         gather_tasks(child, tasklines);
+    }
+}
+
+fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<String>)>) {
+    if let AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
+        wikilinks.push((link.clone(), anchor.clone()));
+    }
+
+    for content in parent.value().contents.lock().unwrap().iter() {
+        gather_wikilinks(content, wikilinks);
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_wikilinks(child, wikilinks);
     }
 }
 
@@ -239,13 +351,46 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let rope = ropey::Rope::from_str(&params.text);
-        let Some(uri_decoded) = decode_uri(&params.uri) else {
-            log::warn!("Failed to decode uri: {}", params.uri);
-            return;
-        };
+
+        let uri = normalize_url_percent_encoding(&params.uri);
         self.document_map
-            .insert(uri_decoded.clone(), rope);
+            .insert(uri.clone(), rope);
         let (ast, diagnostics) = parse_text(&params.text);
+        let mut wikilinks = vec![];
+        gather_wikilinks(&ast, &mut wikilinks);
+        let root_uri_opt = self.root_uri.lock().unwrap().as_ref().cloned();
+        if let Some(root_uri) = root_uri_opt {
+            let wikilink_uris = wikilinks.iter()
+                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri)) // ignore self-link
+                .collect::<Vec<_>>();
+            if let Ok(mut graph) = self.document_graph.try_lock() {
+                let ast_clone = ast.clone();
+                let node = graph.get(&uri).unwrap_or_else(|| {
+                    let n = GraphNode::new(uri.clone(), ast_clone);
+                    graph.insert(n.clone());
+                    n
+                });
+                for wikilink_uri in wikilink_uris.iter() {
+                    if !node.iter_out().any(|x| x.target().key() == wikilink_uri) {
+                        // if not connected, connect
+                        if let Some(linked_ast) = self.ast_map.get(&wikilink_uri) {
+                            node.connect(&graph.get(&wikilink_uri).unwrap_or_else(|| {
+                                let n = GraphNode::new(wikilink_uri.clone(), linked_ast.clone());
+                                graph.insert(n.clone());
+                                n
+                            }), ());
+                        }
+                    }
+                }
+                // if connected, disconnect
+                for edge in node.iter_out() {
+                    if !wikilink_uris.contains(edge.target().key()) {
+                        let _ = edge.source().disconnect(edge.target().key());
+                    }
+                }
+            }
+        }
+
 
         self.client
             .publish_diagnostics(
@@ -257,7 +402,7 @@ impl Backend {
 
         //self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
         //log::info!("{}", ast);
-        self.ast_map.insert(uri_decoded, ast);
+        self.ast_map.insert(uri, ast);
         // self.client
         //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
         //     .await;
@@ -279,9 +424,10 @@ impl LanguageServer for Backend {
                 self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
                 let ast_map = Arc::clone(&self.ast_map);
                 let document_map = Arc::clone(&self.document_map);
+                let document_graph = Arc::clone(&self.document_graph);
                 tokio::spawn(async move {
                     // Run the workspace scan in the background
-                    if let Err(e) = scan_workspace(client, path, document_map, ast_map).await {
+                    if let Err(e) = scan_workspace(client, path, document_map, document_graph, ast_map).await {
                         log::warn!("Failed to scan workspace: {:?}", e);
                     }
                 });
@@ -360,7 +506,7 @@ impl LanguageServer for Backend {
                 ),
                 // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(false)),
+                references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(false)),
                 ..ServerCapabilities::default()
             },
@@ -406,7 +552,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
+        let uri = params.text_document.uri;
         self.document_map.remove(&uri);
         self.ast_map.remove(&uri);
         self.client
@@ -415,13 +561,10 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let Some(uri_decoded) = decode_uri(&uri) else {
-            return Ok(None);
-        };
+        let uri = normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
-            let rope = self.document_map.get(&uri_decoded)?;
+            let rope = self.document_map.get(&uri)?;
             // NOTE: trigger_character is not supported by vim-lsp.
             // we manually consider the context.
             // if let Some(context) = params.context {
@@ -494,7 +637,7 @@ impl LanguageServer for Backend {
             // }
 
             let line = rope.get_line(position.line as usize)?;
-            let cur_col = line.byte_to_char(utf16_to_byte_idx(line.as_str()?, (position.character as usize)));
+            let cur_col = line.byte_to_char(utf16_to_byte_idx(line.as_str()?, position.character as usize));
             let prev_col = cur_col.saturating_sub(1);
             //let prev_col_byte = line.char_to_byte(prev_col);
             let c = line.char(prev_col);
@@ -504,34 +647,24 @@ impl LanguageServer for Backend {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket as usize);  // -1 since the cursor at first points to the end of the line `\n`.
                     let s = line.slice(maybelink..prev_col).as_str()?;
                     log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-
-                    if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                        let mut linkuri = root_uri.clone();
-                        if maybelink == (position.character - 1) as usize {
-                            // self link
-                            linkuri = uri.clone();
-                        } else {
-                            linkuri.set_path(format!("{}/{}.pn", root_uri.path(), &s).as_str());
-                            //linkuri.set_path(format!("{}/{}.pn", root_uri.path(), s.split("/").map(encode).collect::<Vec<_>>().join("/")).as_str());
-                        }
-                        log::debug!("linkuri: {}", linkuri);
-                        let Some(linkuri_decoded) = decode_uri(&linkuri) else {
-                            log::debug!("Failed to decode linkuri: {}", linkuri);
-                            return None;
-                        };
-                        if let Some(ast) = self.ast_map.get(&linkuri_decoded) {
-                            let mut anchors = vec![];
-                            gather_anchors(ast.value(), &mut anchors);
-                            return Some(anchors.iter().map(|anchor| {
-                                CompletionItem {
-                                    label: format!("#{}", anchor).into(),
-                                    kind: Some(CompletionItemKind::REFERENCE),
-                                    filter_text: Some(anchor.to_string()),
-                                    insert_text: Some(anchor.to_string()),
-                                    ..Default::default()
-                                }
-                            }).collect());
-                        }
+                    let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
+                        log::debug!("root_uri is not set");
+                        return None;
+                    };
+                    let linkuri = link_to_uri(s, &root_uri).unwrap_or(uri);
+                    log::debug!("linkuri: {}", linkuri);
+                    if let Some(ast) = self.ast_map.get(&linkuri) {
+                        let mut anchors = vec![];
+                        gather_anchors(ast.value(), &mut anchors);
+                        return Some(anchors.iter().map(|anchor| {
+                            CompletionItem {
+                                label: format!("#{}", anchor).into(),
+                                kind: Some(CompletionItemKind::REFERENCE),
+                                filter_text: Some(anchor.to_string()),
+                                insert_text: Some(anchor.to_string()),
+                                ..Default::default()
+                            }
+                        }).collect());
                     }
                 }
             }
@@ -543,10 +676,16 @@ impl LanguageServer for Backend {
                 let s = line.slice(maybelink..cur_col).as_str()?;
                 log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
 
-                if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                //if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() 
+                if let Some(root_uri_str) = self.root_uri.lock().unwrap().as_ref().and_then(|root_uri| root_uri.to_file_path().ok()) {
+                    let baselen = root_uri_str.to_string_lossy().len();
                     let matcher = SkimMatcherV2::default();
                     let files = self.document_map.iter().filter_map(|e| {
-                        let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                        //// this is a bit slow
+                        //let Some(mut path) = uri_to_link(&e.key(), &root_uri) else {
+                        //    return None;
+                        //};
+                        let mut path = decode(&e.key().to_file_path().unwrap().to_string_lossy()[baselen+1..]).unwrap().to_string();
                         if path.ends_with(".pn") {
                             path = path.strip_suffix(".pn").unwrap().to_string();
                         }
@@ -665,7 +804,7 @@ impl LanguageServer for Backend {
             }
             return None;
         }();
-        log::debug!("completions: {:?}", completions);
+        //log::debug!("completions: {:?}", completions);
         Ok(completions.map(CompletionResponse::Array))
     }
 
@@ -676,7 +815,7 @@ impl LanguageServer for Backend {
  
         match params.command.as_str() {
             "experimental/aggregate_tasks" => {
-                let mut tasks: Vec<(String, AstNode, Deadline)> = vec![];
+                let mut tasks: Vec<(Url, AstNode, Deadline)> = vec![];
                 self.ast_map.iter().for_each(|entry| {
                     let mut tasklines = vec![];
                     gather_tasks(entry.value(), &mut tasklines);
@@ -687,7 +826,7 @@ impl LanguageServer for Backend {
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
                 let ret = json!(tasks.iter().map(|(uri, line, _due)| {
                     //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
-                    TaskInformation::new(Location::new(Url::parse(uri).unwrap(), get_node_range(&line)),
+                    TaskInformation::new(Location::new(uri.clone(), get_node_range(&line)),
                                          line.extract_str().trim_start().to_string(),
                                          "".to_string())
                                          //due.clone())
@@ -711,12 +850,9 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let definition = async {
-            let uri = params.text_document_position_params.text_document.uri;
-            let Some(uri_decoded) = decode_uri(&uri) else {
-                return None;
-            };
-            let ast = self.ast_map.get(&uri_decoded)?;
-            let rope = self.document_map.get(&uri_decoded)?;
+            let uri = normalize_url_percent_encoding(&params.text_document_position_params.text_document.uri);
+            let ast = self.ast_map.get(&uri)?;
+            let rope = self.document_map.get(&uri)?;
 
             let position = params.text_document_position_params.position;
             // let char = rope.try_line_to_char(position.line as usize).ok()?;
@@ -742,38 +878,47 @@ impl LanguageServer for Backend {
                 log::debug!("it is not wikilink");
                 return None;
             };
-            if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                //let linkuri = root_uri.join(format!("{}.{}", link, "pn").as_str()).expect("url join should work");
-                let mut linkuri = root_uri.clone();
-                if link.len() > 0 {
-                    linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
-                } else {
-                    //self link
-                    linkuri = uri.clone();
-                }
-                let Some(linkuri_decoded) = decode_uri(&linkuri) else {
-                    return None;
-                };
-                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-                if let Some(anchor) = anchor {
-                    let range = self.ast_map.get(&linkuri_decoded).and_then(|r| {
-                        let linkast = r.value();
-                        find_anchor(linkast, anchor)
-                    }).map_or(start,
-                        |anchored_line| {
-                            get_node_range(&anchored_line)
-                        });
-                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
-                } else {
-                    Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
-                }
-            } else {
+            let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
                 log::debug!("root_uri is not set");
-                None
+                return None;
+            };
+            let linkuri = link_to_uri(link, &root_uri).unwrap_or(uri);
+            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+            if let Some(anchor) = anchor {
+                let range = self.ast_map.get(&linkuri).and_then(|r| {
+                    let linkast = r.value();
+                    find_anchor(linkast, anchor)
+                }).map_or(start,
+                    |anchored_line| {
+                        get_node_range(&anchored_line)
+                    });
+                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
+            } else {
+                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
             }
         }
         .await;
         Ok(definition)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let references = async {
+            let uri = normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
+            if let Ok(graph) = self.document_graph.lock() {
+                let Some(node) = graph.get(&uri) else {
+                    log::debug!("node not found in the graph");
+                    return None;
+                };
+                //TODO record and use range
+                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+                log::debug!("references retrieved from graph");
+                return Some(node.iter_in().map(|e| Location::new(e.source().key().clone(), start)).collect::<_>());
+            }
+            log::debug!("failed to lock graph");
+            return None;
+        }
+        .await;
+        Ok(references)
     }
 
 }
@@ -816,6 +961,7 @@ async fn main() {
         client,
         ast_map: Arc::new(DashMap::new()),
         document_map: Arc::new(DashMap::new()),
+        document_graph: Arc::new(Mutex::new(Graph::new())),
         root_uri: Arc::new(Mutex::new(None)),
         //semantic_token_map: DashMap::new(),
     });

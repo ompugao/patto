@@ -134,10 +134,10 @@ To be released.
 * [ ] link to local files
 
 ### lsp
-* [ ] document backlinks using find references
+* [x] document backlinks using find references
+    * [ ] file renaming keeping note connections
+    * [ ] anchor renaming
 * [ ] semantic tokens
-* [ ] file renaming keeping note connections
-* [ ] anchor renaming
 
 ### renderer
 * [x] markdown export

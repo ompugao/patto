@@ -19,7 +19,7 @@ Todo:
 		[- support [- note] and [- anchor] completion]
 		document references and anchor references
 			directional graph construction
-		find references (backlinks) from other notes
+		[- find references (backlinks) from other notes]
 		export markdown
 		todo extraction
 			[- aggregation command]
