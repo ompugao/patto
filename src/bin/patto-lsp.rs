@@ -64,9 +64,12 @@ fn scan_directory(
 ) -> Result<()> {
     scan_directory_impl(&client, &dir, document_map, Arc::clone(&document_graph), Arc::clone(&ast_map))?;
     let root_uri = Url::from_directory_path(&dir).unwrap();
+    log::debug!("hogehoge");
     if let Ok(mut graph) = document_graph.lock() {
-        let _ = ast_map.iter().map(|ref_multi| {
+        log::debug!("fuga");
+        ast_map.iter().for_each(|ref_multi| {
             let uri = ref_multi.key();
+            log::debug!("uri:{}", uri);
             let ast = ref_multi.value();
             let mut wikilinks = vec![];
             gather_wikilinks(&ast, &mut wikilinks);
@@ -80,17 +83,20 @@ fn scan_directory(
                 n
             });
             for link_uri in link_uris.iter() {
+                //let from_str = uri_to_link(&uri, &root_uri).unwrap();
+                //let to_str = uri_to_link(&link_uri, &root_uri).unwrap();
+                log::debug!("checking from {:?} to {:?}", uri, link_uri);
                 if !node.iter_out().any(|x| x.target().key() == link_uri) {
                     // if not connected, connect
                     // TODO connect nodes even when nodes are non-existent 
-                    ast_map.get(&link_uri).and_then(|linked_ast| {
+                    log::debug!("connecting {} to {}", uri, link_uri);
+                    if let Some(linked_ast) = ast_map.get(&link_uri) {
                         node.connect(&graph.get(&link_uri).unwrap_or_else(|| {
                             let n = GraphNode::new(link_uri.clone(), linked_ast.clone());
                             graph.insert(n.clone());
                             n
                         }), ());
-                        Some(())
-                    });
+                    }
                 }
             }
         });
@@ -117,9 +123,10 @@ fn scan_directory_impl(
         } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::debug!("Found file: {:?}", path);
             if let Ok(uri) = Url::from_file_path(path.clone()) {
-                let _ = std::fs::read_to_string(path).map(|x| {
+                let _ = std::fs::read_to_string(path.clone()).map(|x| {
                     let (ast, _diagnostics) = parse_text(&x.as_str());
                     let rope = ropey::Rope::from_str(&x.as_str());
+                    log::debug!("{:?} parsed and registered", path);
                     document_map.insert(uri.clone(), rope);
                     ast_map.insert(uri, ast);
                 });
@@ -134,7 +141,7 @@ fn scan_directory_impl(
 fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
     if link.len() > 0 {
         let mut linkuri = root_uri.clone();
-        linkuri.set_path(format!("{}/{}.pn", root_uri.path(), encode(link)).as_str());
+        linkuri.set_path(format!("{}{}.pn", root_uri.path(), encode(link)).as_str());
         return Some(normalize_url_percent_encoding(&linkuri))
     }
     return None;
@@ -801,7 +808,7 @@ impl LanguageServer for Backend {
             }
             return None;
         }();
-        log::debug!("completions: {:?}", completions);
+        //log::debug!("completions: {:?}", completions);
         Ok(completions.map(CompletionResponse::Array))
     }
 
