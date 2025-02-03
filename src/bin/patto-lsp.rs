@@ -26,17 +26,14 @@ use patto::semantic_token::LEGEND_TYPE;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef; // for petgraph::stable_graph::EdgeReference.id()
-use petgraph::stable_graph::StableDiGraph;
+use gdsl::sync_digraph::{Graph, Node as GraphNode};
 
-#[derive(Debug)]
+//#[derive(Debug)]
 struct Backend {
     client: Client,
     ast_map: Arc<DashMap<String, AstNode>>,
     document_map: Arc<DashMap<String, Rope>>,
-    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
-    graph_node_map: Arc<DashMap<String, NodeIndex>>,
+    document_graph: Arc<Mutex<Graph<String, AstNode, ()>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
@@ -56,8 +53,49 @@ fn scan_directory(
     client: &Client,
     dir: PathBuf,
     document_map: Arc<DashMap<String, Rope>>,
-    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
-    graph_node_map: Arc<DashMap<String, NodeIndex>>,
+    document_graph: Arc<Mutex<Graph<String, AstNode, ()>>>,
+    ast_map: Arc<DashMap<String, AstNode>>,
+) -> Result<()> {
+    scan_directory_impl(&client, &dir, document_map, Arc::clone(&document_graph), Arc::clone(&ast_map))?;
+    let root_uri = Url::from_directory_path(&dir).unwrap();
+    if let Ok(mut graph) = document_graph.try_lock() {
+        let _ = ast_map.iter().map(|ref_multi| {
+            let uri_decoded = ref_multi.key();
+            let ast = ref_multi.value();
+            let mut wikilinks = vec![];
+            gather_wikilinks(&ast, &mut wikilinks);
+            let decoded_link_uris = wikilinks.iter()
+                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri))
+                .filter_map(|ref uri| decode_uri(uri)).collect::<Vec<_>>();
+            let ast_clone = ast.clone();
+            let node = graph.get(&uri_decoded).unwrap_or_else(|| {
+                let n = GraphNode::new(uri_decoded.clone(), ast_clone);
+                graph.insert(n.clone());
+                n
+            });
+            for decoded_linked_uri in decoded_link_uris.iter() {
+                if !node.iter_out().any(|x| x.target().key() == decoded_linked_uri) {
+                    // if not connected, connect
+                    ast_map.get(decoded_linked_uri.as_str()).and_then(|linked_ast| {
+                        node.connect(&graph.get(&decoded_linked_uri).unwrap_or_else(|| {
+                            let n = GraphNode::new(decoded_linked_uri.clone(), linked_ast.clone());
+                            graph.insert(n.clone());
+                            n
+                        }), ());
+                        Some(())
+                    });
+                }
+            }
+        });
+    }
+    Ok(())
+}
+
+fn scan_directory_impl(
+    client: &Client,
+    dir: &PathBuf,
+    document_map: Arc<DashMap<String, Rope>>,
+    document_graph: Arc<Mutex<Graph<String, AstNode, ()>>>,
     ast_map: Arc<DashMap<String, AstNode>>,
 ) -> Result<()> {
     let Ok(paths) = std::fs::read_dir(dir) else {
@@ -67,8 +105,8 @@ fn scan_directory(
     for path in paths {
         let path = path.unwrap().path();
         if path.is_dir() {
-            scan_directory(client, path,
-                Arc::clone(&document_map), Arc::clone(&document_graph), Arc::clone(&graph_node_map), Arc::clone(&ast_map))?;
+            scan_directory_impl(client, &path,
+                Arc::clone(&document_map), Arc::clone(&document_graph), Arc::clone(&ast_map))?;
         } else if path.extension().map_or(false, |ext| ext == "pn") {
             log::debug!("Found file: {:?}", path);
             let uri = Url::from_file_path(path.clone()).unwrap();
@@ -100,8 +138,7 @@ async fn scan_workspace(
     client: Client,
     workspace_path: PathBuf,
     document_map: Arc<DashMap<String, Rope>>,
-    document_graph: Arc<Mutex<StableDiGraph<String, ()>>>,
-    graph_node_map: Arc<DashMap<String, NodeIndex>>,
+    document_graph: Arc<Mutex<Graph<String, AstNode, ()>>>,
     ast_map: Arc<DashMap<String, AstNode>>,
 ) -> Result<()> {
     client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
@@ -110,7 +147,7 @@ async fn scan_workspace(
     // Use blocking I/O in a spawned blocking task
     let _ = tokio::task::spawn_blocking(move || {
         log::debug!("Start reading dir: {:?}", workspace_path);
-        let _ = scan_directory(&client, workspace_path, document_map, document_graph, graph_node_map, ast_map);
+        let _ = scan_directory(&client, workspace_path, document_map, document_graph, ast_map);
     }).await;
 
     client2.log_message(MessageType::INFO, "Workspace scan complete.").await;
@@ -286,24 +323,31 @@ impl Backend {
         if let Some(root_uri) = root_uri_opt {
             let decoded_link_uris = wikilinks.iter()
                 .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri)) // ignore self-link
-                .filter_map(|ref uri| decode_uri(uri)).collect::<String>();
+                .filter_map(|ref uri| decode_uri(uri)).collect::<Vec<_>>();
             if let Ok(mut graph) = self.document_graph.try_lock() {
-                let entry = self.graph_node_map.entry(uri_decoded.clone()).or_insert_with(|| {
-                    return graph.add_node(uri_decoded.clone());
+                let ast_clone = ast.clone();
+                let node = graph.get(&uri_decoded).unwrap_or_else(|| {
+                    let n = GraphNode::new(uri_decoded.clone(), ast_clone);
+                    graph.insert(n.clone());
+                    n
                 });
-                for (wikilink, anchor_opt) in wikilinks {
-                    let Some(decoded_linked_uri) = decode_uri(&link_to_uri(&wikilink, &root_uri).unwrap_or(params.uri.clone())) else {
-                        log::warn!("failed to decode uri for wikilink: {}", wikilink);
-                        continue;
-                    };
-                    // graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).map(|e_id| graph.remove_edge(e_id));
-                    // Is this safe?
-                    //for e_id in graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).into_iter() {
-                    //}
-                    for e_id in graph.edges_directed(*entry.value(), petgraph::Direction::Outgoing).map(|e| e.id()).collect::<Vec<_>>() {
-                        graph.remove_edge(e_id);
+                for decoded_linked_uri in decoded_link_uris.iter() {
+                    if !node.iter_out().any(|x| x.target().key() == decoded_linked_uri) {
+                        // if not connected, connect
+                        if let Some(linked_ast) = self.ast_map.get(decoded_linked_uri.as_str()) {
+                            node.connect(&graph.get(&decoded_linked_uri).unwrap_or_else(|| {
+                                let n = GraphNode::new(decoded_linked_uri.clone(), linked_ast.clone());
+                                graph.insert(n.clone());
+                                n
+                            }), ());
+                        }
                     }
-                    // TODO connect edges
+                }
+                // if connected, disconnect
+                for edge in node.iter_out() {
+                    if !decoded_link_uris.contains(edge.target().key()) {
+                        let _ = edge.source().disconnect(edge.target().key());
+                    }
                 }
             }
         }
@@ -342,10 +386,9 @@ impl LanguageServer for Backend {
                 let ast_map = Arc::clone(&self.ast_map);
                 let document_map = Arc::clone(&self.document_map);
                 let document_graph = Arc::clone(&self.document_graph);
-                let graph_node_map = Arc::clone(&self.graph_node_map);
                 tokio::spawn(async move {
                     // Run the workspace scan in the background
-                    if let Err(e) = scan_workspace(client, path, document_map, document_graph, graph_node_map, ast_map).await {
+                    if let Err(e) = scan_workspace(client, path, document_map, document_graph, ast_map).await {
                         log::warn!("Failed to scan workspace: {:?}", e);
                     }
                 });
@@ -866,8 +909,7 @@ async fn main() {
         client,
         ast_map: Arc::new(DashMap::new()),
         document_map: Arc::new(DashMap::new()),
-        document_graph: Arc::new(Mutex::new(StableDiGraph::new())),
-        graph_node_map: Arc::new(DashMap::new()),
+        document_graph: Arc::new(Mutex::new(Graph::new())),
         root_uri: Arc::new(Mutex::new(None)),
         //semantic_token_map: DashMap::new(),
     });
