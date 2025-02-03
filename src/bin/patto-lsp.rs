@@ -156,35 +156,23 @@ fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
 }
 
 
-fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
-    if base.scheme() != uri.scheme() {
-        log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
-        return None;
-    }
-
-    let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-    let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-
-    if !uri_path.starts_with(&base_path) {
-        log::debug!("uri is not inside base: {}, {}", uri, base);
-        return None; // uri is not inside base
-    }
-
-    // Extract the remainder after the base path
-    let relative_path = &uri_path[base_path.len()..];
-    Some(relative_path.join("/"))
-}
-
-// fn encode_uri(s: &String) -> Option<Url> {
-//     log::debug!("--encoding--");
-//     log::debug!("s: {}", s);
-//     let mut new_url = Url::from_file_path(s).ok()?;
-//     log::debug!("new_url: {}", new_url);
-//     new_url.set_path(new_url.path_segments()?.map(|seg| {
-//         log::debug!("seg: {}", seg);
-//         encode(seg).to_owned()
-//     }).collect::<Vec<_>>().join("/").as_str());
-//     Some(new_url)
+// fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
+//     if base.scheme() != uri.scheme() {
+//         log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
+//         return None;
+//     }
+// 
+//     let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
+//     let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
+// 
+//     if !uri_path.starts_with(&base_path) {
+//         log::debug!("uri is not inside base: {}, {}", uri, base);
+//         return None; // uri is not inside base
+//     }
+// 
+//     // Extract the remainder after the base path
+//     let relative_path = &uri_path[base_path.len()..];
+//     Some(relative_path.join("/"))
 // }
 
 async fn scan_workspace(
