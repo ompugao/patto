@@ -138,10 +138,18 @@ fn scan_directory_impl(
     Ok(())
 }
 
+
 fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
     if link.len() > 0 {
+        fn ensure_trailing_slash(s: &str) -> String {
+            if s.ends_with('/') {
+                s.to_string()
+            } else {
+                format!("{}/", s)
+            }
+        }
         let mut linkuri = root_uri.clone();
-        linkuri.set_path(format!("{}{}.pn", root_uri.path(), encode(link)).as_str());
+        linkuri.set_path(format!("{}{}.pn", ensure_trailing_slash(root_uri.path()), encode(link)).as_str());
         return Some(normalize_url_percent_encoding(&linkuri))
     }
     return None;
