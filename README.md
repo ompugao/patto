@@ -18,6 +18,7 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
     * asynchronous workspace scanning
     * diagnostics
     * jumping between notes by go-to definition
+    * backlinks by find-references
     * note/anchor completion
 
 ## Syntax
