@@ -14,7 +14,7 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 * Primary [Zettelkasten](https://zettelkasten.de/introduction/) support
 * Task management with `line property` (please refer to the syntax section below)
 * Integrated vim plugin
-* Language server protocol
+* Primary Language Server Protocol support
     * asynchronous workspace scanning
     * diagnostics
     * jumping between notes by go-to definition
