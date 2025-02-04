@@ -15,6 +15,8 @@ endfunction
 function! s:on_lsp_buffer_enabled() abort
   command! -buffer LspPattoTasks call <SID>patto_tasks()
   nnoremap <buffer> <plug>(lsp-patto-tasks) :<c-u>call <SID>patto_tasks()<cr>
+  command! -buffer LspPattoScanWorkspace call <SID>patto_scan_workspace()
+  nnoremap <buffer> <plug>(lsp-patto-scan-workspace) :<c-u>call <SID>patto_scan_workspace()<cr>
 endfunction
 
 function! s:patto_tasks() abort
@@ -58,3 +60,14 @@ function! s:show_task(res) abort
 endfunction
 
 
+function! s:patto_scan_workspace() abort
+    call lsp#callbag#pipe(
+        \ lsp#request('patto-lsp', {
+        \   'method': 'workspace/executeCommand',
+        \   'params': {
+        \       'command': 'experimental/scan_workspace',
+        \       'arguments': [],
+        \   }
+        \ }),
+        \ )
+endfunction
