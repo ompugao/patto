@@ -84,7 +84,7 @@ Currently, `anchor` and `task` properties are implemented:
 * First, open a file in a workspace with suffix `.pn`, or `:new` and `:set syntax=patto`
 * Then, write your memos.
 * Once you type `[` and `@`, lsp client will complete links and snippets respectively
-	* snippets will only be completed with lsp-oriented snippet plugins such as [vim-vsnip](https://github.com/hrsh7th/vim-vsnip)).
+	* snippets will only be completed with lsp-oriented snippet plugins such as [vim-vsnip](https://github.com/hrsh7th/vim-vsnip).
 * You will have `:LspPattoTasks` command; that will gather tasks from the notes in your workspace and show them in a location window.
 
 ![task aggregation demo](https://github.com/user-attachments/assets/7d05ffdd-0ccd-4fb7-9f5c-d90491a7cb88)
@@ -112,7 +112,6 @@ Plug 'ompugao/patto', {'for': 'patto'}
 call plug#end()
 ```
 ### Setup neovim with nvim-lspconfig (using vim-plug)
-Note: We recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
 ```vim
 call plug#begin()
 Plug 'neovim/nvim-lspconfig'
@@ -126,6 +125,7 @@ lua << EOF
   require('lspconfig.configs').patto_lsp.setup({})
 EOF
 ```
+Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
 
 ### Setup vscode extension
 To be released.
