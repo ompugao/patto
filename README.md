@@ -92,7 +92,10 @@ Currently, `anchor` and `task` properties are implemented:
 
 
 ## Installation
-### Install lsp server using cargo
+### Install lsp server
+Please download binaries from [GitHub release](https://github.com/ompugao/patto/releases)
+
+or, use cargo:
 ```sh
 cargo install patto
 ```
