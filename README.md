@@ -141,6 +141,7 @@ To be released.
 * [x] document backlinks using find references
     * [ ] file renaming keeping note connections
     * [ ] anchor renaming
+* [ ] 2-hop links
 * [ ] semantic tokens
 
 ### renderer
