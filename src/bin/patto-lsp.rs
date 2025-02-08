@@ -2,6 +2,7 @@ use log;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+//use std::ops::ControlFlow;
 use regex;
 use urlencoding::{encode, decode};
 
@@ -469,7 +470,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["experimental/aggregate_tasks".to_string()],
+                    commands: vec!["experimental/aggregate_tasks".to_string(), "experimental/retrieve_two_hop_notes".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -837,34 +838,29 @@ impl LanguageServer for Backend {
                 //    .await;
                 return Ok(Some(ret));
             },
-            "experimental/obtain_two_hop_notes" => {
-                if let Ok(mut graph) = self.document_graph.lock() {
-                    // obtain two-hop node files from this file
-                    // both edge direction needs to be considered here.
-                    // group the files by the nearest node and sort them based on the number of connections
-                    let mut twohop_urls = vec![];
-                    node.iter_out().for_each(|edge| {
-                        let target = edge.target();
-                        let mut connected_urls = target.iter_out().map(|edge| edge.target().key().clone()).collect::<Vec<Url>>();
-                        target.iter_in().for_each(|edge| {
-                            connected_urls.push(edge.source().key().clone());
-                        });
-                        twohop_urls.push((target.key().clone(), connected_urls));
-                    });
-
-                    node.iter_in().for_each(|edge| {
-                        let source = edge.source();
-                        let mut connected_urls = source.iter_out().map(|edge| edge.target().key().clone()).collect::<Vec<Url>>();
-                        source.iter_in().for_each(|edge| {
-                            connected_urls.push(edge.source().key().clone());
-                        });
-                        twohop_urls.push((source.key().clone(), connected_urls));
-                    });
-
-                    twohop_urls.sort_by_key(|x| x.1.iter().count());
-                    twohop_urls.dedup();
-                    log::debug!("urls: {:?}", twohop_urls);
-                }
+            "experimental/retrieve_two_hop_notes" => {
+                let Ok(graph) = self.document_graph.lock() else {
+                    return Ok(None);
+                };
+                let Some(url) = params.arguments.first().and_then(|a| a.as_str()).and_then(|url| Url::parse(url).ok()) else {
+                    return Ok(None);
+                };
+                let Some(node) = graph.get(&url) else {
+                    return Ok(None);
+                };
+                let mut twohop_urls = node.iter_out().map(|edge| {
+                    let target = edge.target();
+                    let connected_urls = target.iter_in().map(|edge| edge.source().key().clone())
+                        .filter(|n| n != target.key() && n != &url).collect::<Vec<Url>>();
+                    (target.key().clone(), connected_urls)
+                })
+                .filter(|x| x.1.len() > 0)
+                .collect::<Vec<(Url, Vec<_>)>>();
+                twohop_urls.sort_by_key(|x| - (x.1.iter().count() as i16));
+                twohop_urls.dedup();
+                log::debug!("urls: {:?}", twohop_urls);
+                return Ok(Some(json!(twohop_urls)));
+            },
             c => {
                 log::info!("unknown command: {}", c);
             }
