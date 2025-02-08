@@ -1,6 +1,47 @@
 local util = require 'lspconfig.util'
 local async = require 'lspconfig.async'
 
+local function open_scratch_buffer(name)
+  local h = math.floor(vim.api.nvim_win_get_height(0) * 0.3)
+  -- Check if buffer already exists
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf) == name then
+      -- Find window containing the buffer and switch to it
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == buf then
+          vim.api.nvim_set_current_win(win)
+          return buf
+        end
+      end
+      -- If buffer exists but not visible, open in a split
+      vim.cmd(string.format("botright %dsplit", h))
+      vim.api.nvim_set_current_buf(buf)
+      return buf
+    end
+  end
+
+  -- Create new buffer
+  local buf = vim.api.nvim_create_buf(false, true) -- No file, scratch buffer
+  vim.api.nvim_buf_set_name(buf, name)
+
+  -- Open in a split window
+  vim.cmd(string.format("botright %dsplit", h))
+  vim.api.nvim_win_set_buf(0, buf)
+
+  -- Set buffer options
+  vim.api.nvim_buf_set_option(buf, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(buf, 'swapfile', false)
+  -- vim.api.nvim_buf_set_option(buf, 'readonly', true)
+  vim.api.nvim_buf_set_option(buf, 'buflisted', false)
+  vim.api.nvim_buf_set_option(buf, 'wrap', false)
+  vim.api.nvim_buf_set_option(buf, 'number', false)
+  vim.api.nvim_buf_set_option(buf, 'relativenumber', false)
+  vim.api.nvim_buf_set_option(buf, 'spell', false)
+  vim.api.nvim_buf_set_option(buf, 'signcolumn', 'no')
+
+  return buf
+end
+
 function PattoShowTwoHopLinks()
   -- Get the current buffer's URI
   local uri = vim.uri_from_bufnr(0)
@@ -15,17 +56,20 @@ function PattoShowTwoHopLinks()
       return
     end
 
-    -- Create a scratch buffer
-    vim.api.nvim_command('new')
-    local bufnr = vim.api.nvim_get_current_buf()
-    vim.api.nvim_buf_set_option(bufnr, 'buftype', 'nofile')
-    vim.api.nvim_buf_set_option(bufnr, 'swapfile', false)
-    vim.api.nvim_buf_set_option(bufnr, 'buflisted', false)
-    vim.api.nvim_buf_set_option(bufnr, 'wrap', false)
-    vim.api.nvim_buf_set_option(bufnr, 'number', false)
-    vim.api.nvim_buf_set_option(bufnr, 'relativenumber', false)
-    vim.api.nvim_buf_set_option(bufnr, 'spell', false)
-    vim.api.nvim_buf_set_option(bufnr, 'signcolumn', 'no')
+    -- Check if the "[2hop links]" buffer already exists
+    local bufnr = open_scratch_buffer("patto://[2hop links]")
+    local ns = vim.api.nvim_create_namespace('links')
+
+    -- clear content
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
+    for m, _, _ in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, {})) do
+      vim.api.nvim_buf_del_extmark(bufnr, ns, m)
+    end
+
+    if result == nil or #result == 0 then
+      print("No 2hop links")
+      return
+    end
 
     -- Populate the scratch buffer with the two-hop links
     local lines = {}
@@ -47,7 +91,7 @@ function PattoShowTwoHopLinks()
 
     -- Add text properties for each link
     for _, prop in ipairs(props) do
-      vim.api.nvim_buf_set_extmark(bufnr, vim.api.nvim_create_namespace('links'), prop.line - 1, 0, {
+      vim.api.nvim_buf_set_extmark(bufnr, ns, prop.line - 1, 0, {
         virt_text = {{vim.uri_decode(prop.url), 'Comment'}},
         virt_text_pos = 'eol_right_align',
         virt_text_hide = true,
