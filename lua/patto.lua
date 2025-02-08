@@ -61,10 +61,10 @@ function PattoShowTwoHopLinks()
     local ns = vim.api.nvim_create_namespace('links')
 
     -- clear content
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
     for m, _, _ in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, {})) do
       vim.api.nvim_buf_del_extmark(bufnr, ns, m)
     end
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
 
     if result == nil or #result == 0 then
       print("No 2hop links")
@@ -122,7 +122,7 @@ function PattoOpenLinkUnderCursor()
 end
 
 -- Add a key mapping to show two-hop links
-vim.api.nvim_set_keymap('n', '<leader>th', '<cmd>lua PattoShowTwoHopLinks()<CR>', { noremap = true, silent = true })
+-- vim.api.nvim_set_keymap('n', '<leader>th', '<cmd>lua PattoShowTwoHopLinks()<CR>', { noremap = true, silent = true })
 
 patto_lsp_config = {
   default_config = {
@@ -168,6 +168,10 @@ patto_lsp_config = {
       end,
       description = 'Aggregate tasks in a workspace',
     },
+    LspPattoTwoHopLinks = {
+      PattoShowTwoHopLinks,
+      description = 'Show two-hop links for the current buffer'
+    }
   },
   docs = {
     description = [[
