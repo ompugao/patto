@@ -90,7 +90,7 @@ Currently, `anchor` and `task` properties are implemented:
 
 ![task aggregation demo](https://github.com/user-attachments/assets/7d05ffdd-0ccd-4fb7-9f5c-d90491a7cb88)
 
-* You will see 2-hop links with `:LspPattoTwoHopLinks` command (only in neovim, currently).
+* You will see 2-hop links of the current buffer with `:LspPattoTwoHopLinks` command (only in neovim, currently).
 
 ## Installation
 ### Install lsp server
