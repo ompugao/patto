@@ -19,6 +19,7 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
     * diagnostics
     * jumping between notes by go-to definition
     * backlinks by find-references
+    * 2-hop links
     * note/anchor completion
 
 ## Syntax
@@ -89,7 +90,7 @@ Currently, `anchor` and `task` properties are implemented:
 
 ![task aggregation demo](https://github.com/user-attachments/assets/7d05ffdd-0ccd-4fb7-9f5c-d90491a7cb88)
 
-
+* You will see 2-hop links with `:LspPattoTwoHopLinks` command (only in neovim, currently).
 
 ## Installation
 ### Install lsp server
@@ -141,7 +142,7 @@ To be released.
 * [x] document backlinks using find references
     * [ ] file renaming keeping note connections
     * [ ] anchor renaming
-* [ ] 2-hop links
+* [x] 2-hop links
 * [ ] semantic tokens
 
 ### renderer
