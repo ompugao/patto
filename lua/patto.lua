@@ -66,6 +66,7 @@ function PattoShowTwoHopLinks()
       vim.api.nvim_buf_del_extmark(bufnr, ns, m)
     end
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
+    vim.api.nvim_buf_set_option(bufnr, 'modified', false)
 
     if result == nil or #result == 0 then
       print("No 2hop links")
@@ -99,6 +100,7 @@ function PattoShowTwoHopLinks()
         hl_mode = 'combine',
       })
     end
+    vim.api.nvim_buf_set_option(bufnr, 'modified', false)
 
     -- Add key mapping to open the link under the cursor
     vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>', ':lua PattoOpenLinkUnderCursor()<CR>', { noremap = true, silent = true })
