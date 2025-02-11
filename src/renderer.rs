@@ -71,7 +71,7 @@ impl HtmlRenderer {
             AstNodeKind::Dummy => {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
                 for child in ast.value().children.lock().unwrap().iter() {
-                    write!(output, "<li style=\"list-style-type: none\">")?;
+                    write!(output, "<li style=\"list-style-type: none; min-height: 1em;\">")?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -123,22 +123,8 @@ impl HtmlRenderer {
                 if ast.value().children.lock().unwrap().len() > 0 {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
                     for child in ast.value().children.lock().unwrap().iter() {
-                        // TODO stealing the internal content, not efficient
-                        // implement a trait that overloads `write' function that counts the
-                        // written bytes
-                        let mut bufcur = io::Cursor::new(Vec::<u8>::new());
-                        self._format_impl(&child, &mut bufcur)?;
-                        let s = unsafe {String::from_utf8_unchecked(bufcur.into_inner())};
-                        if s.len() == 0 {
-                            write!(output, "<li style=\"list-style-type: none\">")?;
-                            write!(output, "{}<br/>", s)?;
-                        } else {
-                            write!(output, "<li>")?;
-                            write!(output, "{}", s)?;
-                        }
-                        // no stealing:
-                        // write!(output, "<li>")?;
-                        // self._format_impl(&child, output)?;
+                        write!(output, "<li style=\"list-style-type: none; min-height: 1em;\">")?;
+                        self._format_impl(&child, output)?;
                         write!(output, "</li>")?;
                     }
                     write!(output, "</ul>")?;
