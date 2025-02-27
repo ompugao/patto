@@ -31,7 +31,7 @@ impl ops::Add<usize> for Span {
 
 impl Span {
     pub fn contains(&self, col: usize) -> bool {
-        return self.0 <= col && col < self.1;
+        self.0 <= col && col < self.1
     }
 }
 
@@ -44,7 +44,7 @@ pub struct Location {
 
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}\n", self.input)?;
+        writeln!(f, "{}", self.input)?;
         // if self.span.0 >= self.input.len() {
         //     log::warn!("input: {}, span: {:?}", self.input, self.span);
         // }
@@ -109,8 +109,8 @@ pub struct Annotation<T> {
 }
 
 //impl<T> fmt::Display for Annotation<'_, T>
-//// where
-////     T: fmt::Display,
+// where
+//     T: fmt::Display,
 //{
 //    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 //        write!(f, "{}", self.location)
@@ -277,7 +277,7 @@ impl AstNode {
             row,
             span,
             Some(AstNodeKind::Line {
-                properties: props.unwrap_or(vec![]),
+                properties: props.unwrap_or_default(),
             }),
         )
     }
@@ -403,17 +403,17 @@ impl Clone for AstNode {
 
 impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "extracted: {}\n", self.extract_str())?;
+        writeln!(f, "extracted: {}", self.extract_str())?;
         for content in self.value().contents.lock().unwrap().iter() {
             write!(f, "-- {}", content)?;
         }
         if let AstNodeKind::Line { properties } = &self.kind() {
             for prop in properties {
-                write!(f, "property -- {:?}\n", prop)?;
+                writeln!(f, "property -- {:?}", prop)?;
             }
         }
         for (i, child) in self.value().children.lock().unwrap().iter().enumerate() {
-            write!(f, "\t{i}child -- {:?}\n", child)?;
+            writeln!(f, "\t{i}child -- {:?}", child)?;
         }
         Ok(())
     }
@@ -432,7 +432,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
     if depth == 0 {
         return Some(parent);
     }
-    let Some(last_child_line) = parent
+    let last_child_line = parent
         .value()
         .children
         .lock()
@@ -442,11 +442,8 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
             AstNodeKind::Line { .. } => Some(e.clone()),
             _ => None,
         })
-        .last()
-    else {
-        return None;
-    };
-    return find_parent_line(last_child_line, depth - 1);
+        .last()?;
+    find_parent_line(last_child_line, depth - 1)
 }
 
 #[derive(Error, Debug)]
@@ -468,14 +465,14 @@ pub struct ParserResult {
 }
 
 pub fn parse_text(text: &str) -> ParserResult {
-    let indent_content_len: Vec<_> = (&text).lines().map(|l| {
+    let indent_content_len: Vec<_> = text.lines().map(|l| {
         let indent = l.chars().take_while(|&c| c == '\t').count();
         let content_len = l.len() - indent;
         (indent, content_len)
     }).collect();
     let numlines = indent_content_len.len();
 
-    let root = AstNode::new(&text, 0, None, Some(AstNodeKind::Dummy));
+    let root = AstNode::new(text, 0, None, Some(AstNodeKind::Dummy));
     let mut lastlinenode = root.clone();
 
     let mut parsing_state: ParsingState = ParsingState::Line;
@@ -545,7 +542,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                             depth,
                         );
                         // TODO should be text rather than line?
-                        let newline = AstNode::line(&linetext, iline, Some(Span(linestart, linetext.len())), Some(props));
+                        let newline = AstNode::line(linetext, iline, Some(Span(linestart, linetext.len())), Some(props));
                         newline.add_contents(nodes);
                         quote.add_child(newline);
                     }
@@ -555,15 +552,15 @@ pub fn parse_text(text: &str) -> ParserResult {
                             row: iline,
                             span: Span(linestart, linetext.len()),
                         }, e.variant.message().to_string()));
-                        let newline = AstNode::line(&linetext, iline, None, None);
-                        newline.add_content(AstNode::text(&linetext, iline, Some(Span(linestart, linetext.len()))));
+                        let newline = AstNode::line(linetext, iline, None, None);
+                        newline.add_content(AstNode::text(linetext, iline, Some(Span(linestart, linetext.len()))));
                         quote.add_child(newline);
                     }
                 }
                 continue;
             } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
                 let block = parent.value().contents.lock().unwrap().last().expect("no way! should be code or math block").clone();
-                let text = AstNode::text(&linetext, iline, Some(Span(linestart, linetext.len())));
+                let text = AstNode::text(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
             } else {
@@ -587,18 +584,18 @@ pub fn parse_text(text: &str) -> ParserResult {
                                     iline,
                                     depth,
                                 );
-                                let column = AstNode::tablecolumn(&linetext, iline, Some(span));
+                                let column = AstNode::tablecolumn(linetext, iline, Some(span));
                                 column.add_contents(nodes);
-                                return column;
+                                column
                             }
                             Err(e) => {
                                 let span = Span(c, c + e.line().len());  // TODO is this correct span?
-                                let column = AstNode::tablecolumn(&linetext, iline, Some(span.clone()));
-                                column.add_content(AstNode::text(&linetext, iline, Some(span)));
-                                return column;
+                                let column = AstNode::tablecolumn(linetext, iline, Some(span.clone()));
+                                column.add_content(AstNode::text(linetext, iline, Some(span)));
+                                column
                             }}
                     }).collect();
-                let newline = AstNode::line(&linetext, iline, Some(Span(depth, linetext.len())), None);
+                let newline = AstNode::line(linetext, iline, Some(Span(depth, linetext.len())), None);
                 newline.add_contents(columns);
                 table.add_child(newline);
                 continue;
@@ -607,7 +604,7 @@ pub fn parse_text(text: &str) -> ParserResult {
         }
 
         // TODO gather parsing errors
-        let (has_command, props) = parse_command_line(&linetext, iline, linestart);
+        let (has_command, props) = parse_command_line(linetext, iline, linestart);
         log::trace!("==============================");
         if let Some(command_node) = has_command {
             log::trace!("parsed command: {:?}", command_node.extract_str());
@@ -633,7 +630,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     parsing_depth = depth;
                 }
             }
-            let newline = AstNode::line(&linetext, iline, None, Some(props));
+            let newline = AstNode::line(linetext, iline, None, Some(props));
             newline.add_content(command_node);
             lastlinenode = newline.clone();
             parent.add_child(newline);
@@ -652,7 +649,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                         iline,
                         cmp::min(depth, indent),
                     );
-                    let newline = AstNode::line(&linetext, iline, None, Some(props));
+                    let newline = AstNode::line(linetext, iline, None, Some(props));
                     newline.add_contents(nodes);
                     lastlinenode = newline.clone();
                     log::trace!("{newline}");
@@ -666,8 +663,8 @@ pub fn parse_text(text: &str) -> ParserResult {
                         row: iline,
                         span: Span(linestart, linetext.len()),
                     }, e.to_string()));
-                    let newline = AstNode::line(&linetext, iline, None, None);
-                    newline.add_content(AstNode::text(&linetext, iline, None));
+                    let newline = AstNode::line(linetext, iline, None, None);
+                    newline.add_content(AstNode::text(linetext, iline, None));
                     lastlinenode = newline.clone();
                     parent.add_child(newline);
                 }
@@ -702,7 +699,7 @@ fn parse_command_line(
             }
         }
     };
-    return (command_node, properties);
+    (command_node, properties)
 }
 
 fn transform_command<'a>(
@@ -777,36 +774,36 @@ fn transform_img<'a>(
             //                 Ok(v) =>
             //     }
             // }
-            return Some(AstNode::image(
+            Some(AstNode::image(
                 line,
                 row,
                 Some(span),
                 img_path,
                 Some(alt_img),
-            ));
+            ))
         }
         Rule::img_path_alt_opts => {
             let mut inner2 = inner.into_inner();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
             let alt_img = inner2.next().unwrap().into_inner().next().unwrap().into_inner().next().unwrap().as_str();
-            return Some(AstNode::image(
+            Some(AstNode::image(
                 line,
                 row,
                 Some(span),
                 img_path,
                 Some(alt_img),
-            ));
+            ))
         }
         Rule::img_path_opts => {
             let mut inner2 = inner.into_inner();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            return Some(AstNode::image(
+            Some(AstNode::image(
                 line,
                 row,
                 Some(span),
                 img_path,
                 None,
-            ));
+            ))
         }
         _ => {
             unreachable!();
@@ -829,31 +826,31 @@ fn transform_wiki_link<'a>(
             let mut inner2 = inner.into_inner();
             let wiki_link = inner2.next().unwrap();
             let expr_anchor = inner2.next().unwrap();
-            return Some(AstNode::wikilink(
+            Some(AstNode::wikilink(
                 line,
                 row,
                 Some(span),
                 wiki_link.as_str(),
                 Some(expr_anchor.into_inner().next().unwrap().as_str()),
-            ));
+            ))
         }
         Rule::wiki_link => {
-            return Some(AstNode::wikilink(
+            Some(AstNode::wikilink(
                 line,
                 row,
                 Some(span),
                 inner.as_str(),
                 None,
-            ));
+            ))
         }
         Rule::self_link_anchored => {
-            return Some(AstNode::wikilink(
+            Some(AstNode::wikilink(
                 line,
                 row,
                 Some(span),
                 "",
                 Some(inner.into_inner().next().unwrap().into_inner().next().unwrap().as_str()),
-            ));
+            ))
         }
         _ => {
             unreachable!();
@@ -875,48 +872,48 @@ fn transform_url_link<'a>(
             let mut inner2 = inner.into_inner();
             let url = inner2.next().unwrap();
             let title = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 url.as_str(),
                 Some(title.as_str()),
-            ));
+            ))
         }
         Rule::expr_title_url => {
             let mut inner2 = inner.into_inner();
             let title = inner2.next().unwrap();
             let url = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 url.as_str(),
                 Some(title.as_str()),
-            ));
+            ))
         }
         Rule::expr_url_only => {
             let mut inner2 = inner.into_inner();
             let url = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 url.as_str(),
                 None,
-            ));
+            ))
         }
         Rule::expr_url_url => {
             let mut inner2 = inner.into_inner();
             let url = inner2.next().unwrap();
             let url2 = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 url.as_str(),
                 Some(url2.as_str()),
-            ));
+            ))
         }
         _ => {
             unreachable!();
@@ -937,48 +934,48 @@ fn transform_mail_link<'a>(
             let mut inner2 = inner.into_inner();
             let mail = inner2.next().unwrap();
             let title = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 mail.as_str(),
                 Some(title.as_str()),
-            ));
+            ))
         }
         Rule::expr_title_mail => {
             let mut inner2 = inner.into_inner();
             let title = inner2.next().unwrap();
             let mail = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 mail.as_str(),
                 Some(title.as_str()),
-            ));
+            ))
         }
         Rule::expr_mail_only => {
             let mut inner2 = inner.into_inner();
             let mail = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 mail.as_str(),
                 None,
-            ));
+            ))
         }
         Rule::expr_mail_mail => {
             let mut inner2 = inner.into_inner();
             let mail = inner2.next().unwrap();
             let mail2 = inner2.next().unwrap();
-            return Some(AstNode::link(
+            Some(AstNode::link(
                 line,
                 row,
                 Some(span),
                 mail.as_str(),
                 Some(mail2.as_str()),
-            ));
+            ))
         }
         _ => {
             unreachable!();
@@ -992,7 +989,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             let anchor = Property::Anchor {
                 name: pair.into_inner().next().unwrap().as_str().to_string(),
             };
-            return Some(anchor);
+            Some(anchor)
         }
         Rule::expr_property => {
             let mut inner = pair.into_inner();
@@ -1043,7 +1040,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                     }
                 }
             }
-            return Some(Property::Task { status, due });
+            Some(Property::Task { status, due })
         }
         Rule::expr_task => {
             let mut inner = pair.into_inner();
@@ -1072,7 +1069,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             } else {
                 Deadline::Uninterpretable(due_str.to_string())
             };
-            return Some(Property::Task { status, due });
+            Some(Property::Task { status, due })
         }
         _ => {
             panic!("Unhandled token: {:?}", pair.as_rule());
@@ -1080,7 +1077,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
     }
 }
 
-fn transform_statement<'a, 'b>(
+fn transform_statement<'a>(
     pair: Pair<'a, Rule>,
     line: &'a str,
     row: usize,
@@ -1098,7 +1095,7 @@ fn transform_statement<'a, 'b>(
             }
             Rule::expr_builtin_symbols => {
                 let s = Some(Into::<Span>::into(inner.as_span()) + indent);
-                let mut inner2 = inner.into_inner().into_iter();
+                let mut inner2 = inner.into_inner();
                 let symbols = inner2.by_ref().next().unwrap();
                 let mut boldsize = 0;
                 let mut italic = false;
@@ -1213,7 +1210,6 @@ fn transform_statement<'a, 'b>(
                 props.extend(
                     inner
                         .into_inner()
-                        .into_iter()
                         .filter_map(|e| transform_property(e)),
                 );
             }
@@ -1226,7 +1222,7 @@ fn transform_statement<'a, 'b>(
             }
         }
     }
-    return (nodes, props);
+    (nodes, props)
 }
 
 #[cfg(test)]
@@ -1250,7 +1246,7 @@ mod tests {
         match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "rust");
-                assert_eq!(*inline, false);
+                assert!(!(*inline));
             }
             _ => {
                 panic! {"it is weird"};
@@ -1274,7 +1270,7 @@ mod tests {
         match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "");
-                assert_eq!(*inline, false);
+                assert!(!*inline);
             }
             _ => {
                 panic! {"it is weird"};
@@ -1298,7 +1294,7 @@ mod tests {
         match &node.kind() {
             AstNodeKind::Code { lang, inline } => {
                 assert_eq!(lang, "なでしこ");
-                assert_eq!(*inline, false);
+                assert!(!*inline);
             }
             _ => {
                 panic! {"it is weird"};
@@ -1368,7 +1364,7 @@ mod tests {
         assert_eq!(node.location().span, Span(indent, input.len()));
         match node.kind() {
             AstNodeKind::Math { ref inline } => {
-                assert_eq!(*inline, false);
+                assert!(!*inline);
             }
             _ => {
                 panic! {"Math command could not be parsed"};
@@ -1383,7 +1379,7 @@ mod tests {
         let (nodes, _props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let math = &nodes[0];
         if let AstNodeKind::Math { ref inline } = math.kind() {
-            assert_eq!(*inline, true);
+            assert!(*inline);
         } else {
             panic! {"Inline math could not be parsed"};
         }
@@ -1411,7 +1407,7 @@ mod tests {
         match code.kind() {
             AstNodeKind::Code { ref lang, ref inline } => {
                 assert_eq!(lang, "");
-                assert_eq!(*inline, true);
+                assert!(*inline);
             }
             _ => {
                 println!("{:?}", code);
@@ -1636,7 +1632,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_deadline_sorting_order() -> Result<(), Box<dyn std::error::Error>>  {
-        let mut values = vec![
+        let mut values = [
             Deadline::Date(chrono::NaiveDate::from_ymd(2022, 1, 1)),
             Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531199, 0)),
             Deadline::Uninterpretable(String::from("Hello")),
@@ -1646,7 +1642,7 @@ mod tests {
             Deadline::Uninterpretable(String::from("World")),
         ];
 
-        let gt = vec![
+        let gt = [
             Deadline::Date(chrono::NaiveDate::from_ymd(2022, 1, 1)),
             Deadline::Date(chrono::NaiveDate::from_ymd(2022, 12, 31)),
             Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531199, 0)),
