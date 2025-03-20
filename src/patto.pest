@@ -56,7 +56,7 @@ url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_cha
 non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
 // non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
-URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "-" | "_")+}
+URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_")+}
 
 expr_mail_link = ${"[" ~ (expr_title_mail | expr_mail_title | expr_mail_mail | expr_mail_only )  ~ "]"}
 expr_mail_title = ${MAIL ~ WHITE_SPACE_INLINE+ ~ mail_title}
