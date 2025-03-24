@@ -26,41 +26,7 @@ impl Renderer for HtmlRenderer {
     }
 
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        write!(output, "<html>\n")?;
-        write!(output, "<head>\n")?;
-        write!(output, "</head>\n")?;
-
-        //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/yegor256/tacit@gh-pages/tacit-css-1.8.1.min.css\"/>\n")?;
-        write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css\" type=\"text/css\" media=\"screen\">\n")?;
-        //write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-dark.css\" type=\"text/css\">\n");
-        if self.options.theme == "dark" {
-            write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: dark)\">\n")?;
-        } else {
-            write!(output, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/sakura.css/css/sakura-vader.css\" type=\"text/css\" media=\"screen and (prefers-color-scheme: light)\">\n")?;
-        }
-
-
-        if self.options.theme == "dark" {
-            write!(output, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css\" type=\"text/css\" type=\"text/css\" >")?;
-        } else {
-            write!(output, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css\" type=\"text/css\" type=\"text/css\" >")?;
-        }
-        write!(output, "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>")?;
-        write!(output, "<script>hljs.highlightAll();</script>")?;
-
-        write!(output, "<script id=\"MathJax-script\" async src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script>")?;
-        write!(output, "<body style=\"max-width: max-content\">\n")?;
-        write!(output, "<script type=\"module\">")?;
-        write!(output, "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';")?;
-        write!(output, "mermaid.initialize({{ startOnLoad: true, theme: 'forest' }});")?;
-        write!(output, "</script>")?;
-        write!(output, "<section style=\"width: 1920px; max-width: 100%;\">\n")?;
-        write!(output, "<article>\n")?;
         self._format_impl(ast, output)?;
-        write!(output, "</article>\n")?;
-        write!(output, "</section>\n")?;
-        write!(output, "</body>\n")?;
-        write!(output, "</html>\n")?;
         Ok(())
     }
 }
