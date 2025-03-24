@@ -60,6 +60,14 @@
             color: white;
             padding: 10px 15px;
             margin: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .title a {
+            color: white;
+            text-decoration: none;
         }
 
         .empty-state {
@@ -73,7 +81,10 @@
     </style>
 </head>
 <body>
-    <h1 class="title">Patto Previewer</h1>
+    <h1 class="title">
+        <a href="/">Patto Previewer</a>
+        <span id="current-path"></span>
+    </h1>
     <div class="container">
         <div class="sidebar">
             <h3>Files</h3>
@@ -93,6 +104,16 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if we have a path in the URL
+            const path = getPathFromUrl();
+            if (path) {
+                currentFile = path;
+                document.getElementById('current-path').textContent = path;
+            }
+        });
+
         ws.onopen = () => {
             console.log('WebSocket connection established');
         };
@@ -102,6 +123,11 @@
 
             if (data.type === 'FileList') {
                 updateFileList(data.data.files);
+
+                // If we have a path from the URL, select that file
+                if (currentFile) {
+                    selectFileFromPath(currentFile);
+                }
             } else if (data.type === 'FileChanged') {
                 handleFileChanged(data.data.path, data.data.html);
             }
@@ -136,6 +162,11 @@
         function selectFile(file) {
             currentFile = file;
 
+            // Update URL without reloading the page
+            const newUrl = `/notes/${file}`;
+            history.pushState({ path: file }, '', newUrl);
+            document.getElementById('current-path').textContent = file;
+
             // Update UI to show active file
             document.querySelectorAll('#file-list li').forEach(li => {
                 li.classList.remove('active');
@@ -165,6 +196,13 @@
                         li.classList.add('active');
                     }
                 });
+
+                // Update URL and path display if needed
+                if (getPathFromUrl() !== path) {
+                    const newUrl = `/notes/${path}`;
+                    history.pushState({ path }, '', newUrl);
+                    document.getElementById('current-path').textContent = path;
+                }
             }
         }
 
@@ -172,6 +210,39 @@
             const preview = document.getElementById('preview');
             preview.innerHTML = html;
         }
+
+        function getPathFromUrl() {
+            const path = window.location.pathname;
+            if (path.startsWith('/notes/')) {
+                return decodeURIComponent(path.substring(7)); // Remove '/notes/' prefix
+            }
+            return null;
+        }
+
+        function selectFileFromPath(path) {
+            // Check if the file exists in our list
+            if (files.includes(path)) {
+                selectFile(path);
+            } else {
+                console.warn(`File not found: ${path}`);
+                // Optionally, redirect to home or show an error
+            }
+        }
+
+        // Handle browser back/forward navigation
+        window.addEventListener('popstate', (event) => {
+            if (event.state && event.state.path) {
+                selectFile(event.state.path);
+            } else {
+                // Handle navigation to root
+                currentFile = null;
+                document.getElementById('current-path').textContent = '';
+                document.getElementById('preview').innerHTML = '<div class="empty-state">Select a file to preview</div>';
+                document.querySelectorAll('#file-list li').forEach(li => {
+                    li.classList.remove('active');
+                });
+            }
+        });
     </script>
 </body>
 </html>

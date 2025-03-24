@@ -1,6 +1,8 @@
 use axum::{
-    extract::{State, WebSocketUpgrade},
-    response::{Html, IntoResponse},
+    body::Body,
+    extract::{Path as AxumPath, State, WebSocketUpgrade},
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
@@ -17,6 +19,7 @@ use tokio::{
     sync::broadcast,
 };
 use serde::{Serialize, Deserialize};
+use std::io::Error as IoError;
 
 // CLI argument parsing
 #[derive(Parser, Debug)]
@@ -62,6 +65,25 @@ fn get_extension(path: &Path) -> String {
         .to_string()
 }
 
+// Helper function to get MIME type based on file extension
+fn get_mime_type(path: &Path) -> &str {
+    match get_extension(path).as_str() {
+        "html" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        "json" => "application/json",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "pn" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
@@ -92,6 +114,8 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
+        .route("/notes/*path", get(file_handler))
+        .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
 
     // Start server
@@ -105,6 +129,52 @@ async fn main() {
 // Handler for the index page
 async fn index_handler() -> Html<String> {
     Html(include_str!("../../static/index.html").to_string())
+}
+
+// Handler for file access (both notes and static files)
+async fn file_handler(
+    AxumPath(path): AxumPath<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let file_path = state.dir.join(&path);
+
+    // Check if the file exists
+    if !file_path.exists() {
+        // If file doesn't exist, serve the SPA (for client-side routing)
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html")
+            .body(Body::from(include_str!("../../static/index.html").to_string()))
+            .unwrap();
+    }
+
+    // If it's a patto file, serve the SPA (client will handle rendering)
+    if get_extension(&file_path) == "pn" {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html")
+            .body(Body::from(include_str!("../../static/index.html").to_string()))
+            .unwrap();
+    }
+
+    // For other file types, serve the file directly
+    match fs::read(&file_path).await {
+        Ok(contents) => {
+            let mime_type = get_mime_type(&file_path);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime_type)
+                .body(Body::from(contents))
+                .unwrap()
+        },
+        Err(_) => {
+            // If there's an error reading the file, return 404
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("File not found"))
+                .unwrap()
+        }
+    }
 }
 
 // WebSocket handler
