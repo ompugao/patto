@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patto Previewer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 250px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-right: 1px solid #e0e0e0;
+        }
+
+        .preview {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .sidebar ul {
+            padding: 0;
+            margin: 0;
+            list-style-type: none;
+        }
+
+        .sidebar li {
+            padding: 8px 0;
+            cursor: pointer;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .sidebar li:hover {
+            background-color: #e8e8e8;
+        }
+
+        .sidebar li.active {
+            background-color: #ddeeff;
+            font-weight: bold;
+        }
+
+        .title {
+            background-color: #333;
+            color: white;
+            padding: 10px 15px;
+            margin: 0;
+        }
+
+        .empty-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #888;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="title">Patto Previewer</h1>
+    <div class="container">
+        <div class="sidebar">
+            <h3>Files</h3>
+            <ul id="file-list"></ul>
+        </div>
+        <div class="preview" id="preview">
+            <div class="empty-state">Select a file to preview</div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentFile = null;
+        let files = [];
+
+        // Establish WebSocket connection
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+        ws.onopen = () => {
+            console.log('WebSocket connection established');
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'FileList') {
+                updateFileList(data.data.files);
+            } else if (data.type === 'FileChanged') {
+                handleFileChanged(data.data.path, data.data.html);
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+        };
+
+        function updateFileList(newFiles) {
+            files = newFiles;
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = '';
+
+            files.sort().forEach(file => {
+                const li = document.createElement('li');
+                li.textContent = file;
+                li.onclick = () => selectFile(file);
+
+                if (file === currentFile) {
+                    li.classList.add('active');
+                }
+
+                fileList.appendChild(li);
+            });
+        }
+
+        function selectFile(file) {
+            currentFile = file;
+
+            // Update UI to show active file
+            document.querySelectorAll('#file-list li').forEach(li => {
+                li.classList.remove('active');
+                if (li.textContent === file) {
+                    li.classList.add('active');
+                }
+            });
+
+            // Send file selection to server
+            ws.send(JSON.stringify({
+                type: 'SelectFile',
+                data: {
+                    path: file
+                }
+            }));
+        }
+
+        function handleFileChanged(path, html) {
+            if (path === currentFile || (currentFile === null && files.length === 0)) {
+                currentFile = path;
+                updatePreview(html);
+
+                // Update UI to show active file
+                document.querySelectorAll('#file-list li').forEach(li => {
+                    li.classList.remove('active');
+                    if (li.textContent === path) {
+                        li.classList.add('active');
+                    }
+                });
+            }
+        }
+
+        function updatePreview(html) {
+            const preview = document.getElementById('preview');
+            preview.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
