@@ -91,10 +91,11 @@
             <ul id="file-list"></ul>
         </div>
         <div class="preview" id="preview">
-            <div class="empty-state">Select a file to preview</div>
+            <div class="empty-state" id="preview-content">Select a file to preview</div>
         </div>
     </div>
 
+    <script src="https://unpkg.com/idiomorph@0.7.3"></script>
     <script>
         // Global state
         let currentFile = null;
@@ -207,8 +208,8 @@
         }
 
         function updatePreview(html) {
-            const preview = document.getElementById('preview');
-            preview.innerHTML = html;
+            const preview = document.getElementById('preview-content');
+            Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>");
         }
 
         function getPathFromUrl() {

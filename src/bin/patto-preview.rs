@@ -8,18 +8,21 @@ use axum::{
 };
 use axum::extract::ws::WebSocket;
 use clap::Parser;
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, recommended_watcher, RecommendedWatcher, RecursiveMode, Watcher};
 use patto::{
     parser,
     renderer::{HtmlRenderer, Options, Renderer}
 };
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::{
     fs,
     sync::broadcast,
+    time::sleep,
 };
 use serde::{Serialize, Deserialize};
-use std::io::Error as IoError;
 
 // CLI argument parsing
 #[derive(Parser, Debug)]
@@ -260,7 +263,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             // Load and render the selected file
                             let file_path = state.dir.join(&path);
                             if let Ok(content) = fs::read_to_string(&file_path).await {
-                                if let Ok(html) = render_patto_to_html(&content) {
+                                if let Ok(html) = render_patto_to_html(&content).await {
                                     // Send the rendered HTML to the client
                                     let message = WsMessage::FileChanged {
                                         path: path.clone(),
@@ -344,16 +347,56 @@ async fn watch_files(state: AppState) {
 
     println!("Watching directory: {}", dir_display);
 
+    // Debouncing: track last modification time for each file
+    let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+    let debounce_duration = Duration::from_millis(100); // 300ms debounce
+
     // Process events from the channel
     while let Some(event) = rx.recv().await {
-        for path in event.paths {
-            if !path.is_file() || get_extension(&path) != "pn" {
-                continue;
-            }
+        if event.kind.is_modify() || event.kind.is_create() {
+            for path in event.paths {
+                if !path.is_file() || get_extension(&path) != "pn" {
+                    continue;
+                }
 
-            // Process file change using the state that wasn't moved
-            if let Err(e) = process_file_change(&state, &path).await {
-                eprintln!("Error processing file change: {}", e);
+                // Update pending changes with current time
+                {
+                    let mut changes = pending_changes.lock().unwrap();
+                    changes.insert(path.clone(), Instant::now());
+                }
+
+                // Spawn a debounced task for this file
+                let state_clone = state.clone();
+                let path_clone = path.clone();
+                let pending_changes_clone = Arc::clone(&pending_changes);
+                
+                tokio::spawn(async move {
+                    // Wait for debounce duration
+                    sleep(debounce_duration).await;
+
+                    // Check if this is still the latest change for this file
+                    let should_process = {
+                        let mut changes = pending_changes_clone.lock().unwrap();
+                        if let Some(&last_change) = changes.get(&path_clone) {
+                            let is_latest = Instant::now().duration_since(last_change) >= debounce_duration;
+                            if is_latest {
+                                changes.remove(&path_clone);
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+
+                    if should_process {
+                        println!("Processing debounced file change: {}", path_clone.display());
+                        if let Err(e) = process_file_change(&state_clone, &path_clone).await {
+                            eprintln!("Error processing file change: {}", e);
+                        }
+                    }
+                });
             }
         }
     }
@@ -361,33 +404,45 @@ async fn watch_files(state: AppState) {
 
 // Process a file change
 async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<()> {
-    println!("File changed: {}", path.display());
-
+    println!("Processing file: {}", path.display());
     // Read file contents
     let content = fs::read_to_string(path).await?;
 
     // Parse and render to HTML
-    let html = render_patto_to_html(&content)?;
+    let start = Instant::now();
+    let html = render_patto_to_html(&content).await?;
 
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
 
+    println!("{} Rendered, taking {} msec. Sending via websocket...", path.display(), start.elapsed().as_millis());
+
     // Broadcast change
     let _ = state.tx.send(Message::FileChanged(rel_path.to_path_buf(), html));
+    println!("{} Sent", path.display());
 
     Ok(())
 }
 
 // Render patto content to HTML
-fn render_patto_to_html(content: &str) -> std::io::Result<String> {
-    let result = parser::parse_text(content);
-    let mut html_output = Vec::new();
+async fn render_patto_to_html(content: &str) -> std::io::Result<String> {
+    // Clone content to move into the blocking task
+    let content = content.to_string();
+    
+    let html_output = tokio::task::spawn_blocking(move || {
+        let result = parser::parse_text(&content);
+        let mut html_output = Vec::new();
+        
+        let renderer = HtmlRenderer::new(Options {
+            ..Options::default()
+        });
+        
+        let _ = renderer.format(&result.ast, &mut html_output);
+        html_output
+    }).await;
 
-    let renderer = HtmlRenderer::new(Options {
-        theme: "light".to_string(),
-    });
-
-    renderer.format(&result.ast, &mut html_output)?;
-
-    Ok(String::from_utf8(html_output).unwrap())
+    match html_output {
+        Ok(output) => Ok(String::from_utf8(output).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
+        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+    }
 }
