@@ -2,13 +2,13 @@ use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State, WebSocketUpgrade},
     http::{header, StatusCode},
-    response::{Html, IntoResponse, Json, Redirect, Response},
+    response::{Html, IntoResponse, Json, Response},
     routing::get,
     Router,
 };
 use axum::extract::ws::WebSocket;
 use clap::Parser;
-use notify::{Config, recommended_watcher, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use patto::{
     parser,
     renderer::{HtmlRenderer, Options, Renderer}

@@ -17,6 +17,7 @@ pub trait Renderer {
 }
 
 pub struct HtmlRenderer {
+    #[allow(dead_code)]
     options: Options,
 }
 
