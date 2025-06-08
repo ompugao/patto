@@ -54,7 +54,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
     let options = renderer::Options {
-        theme: args.theme.clone(),
         ..renderer::Options::default()
     };
 
