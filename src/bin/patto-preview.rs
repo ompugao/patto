@@ -1,8 +1,8 @@
 use axum::{
     body::Body,
-    extract::{Path as AxumPath, State, WebSocketUpgrade},
+    extract::{Path as AxumPath, Query, State, WebSocketUpgrade},
     http::{header, StatusCode},
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Json, Redirect, Response},
     routing::get,
     Router,
 };
@@ -117,6 +117,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
+        .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/notes/*path", get(file_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
@@ -132,6 +133,31 @@ async fn main() {
 // Handler for the index page
 async fn index_handler() -> Html<String> {
     Html(include_str!("../../static/index.html").to_string())
+}
+
+// Handler for Twitter embed proxy
+async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let url = match params.get("url") {
+        Some(url) => url,
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Missing url parameter"}))),
+    };
+
+    // Validate that this is actually a Twitter/X URL
+    if !url.contains("twitter.com") && !url.contains("x.com") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid Twitter URL"})));
+    }
+
+    let api_url = format!("https://publish.twitter.com/oembed?url={}", urlencoding::encode(url));
+    
+    match reqwest::get(&api_url).await {
+        Ok(response) => {
+            match response.json::<serde_json::Value>().await {
+                Ok(json) => (StatusCode::OK, Json(json)),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to parse Twitter response"}))),
+            }
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch Twitter embed"}))),
+    }
 }
 
 // Handler for file access (both notes and static files)
@@ -415,7 +441,7 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
 
-    println!("{} Rendered, taking {} msec. Sending via websocket...", path.display(), start.elapsed().as_millis());
+    println!("{} html Generated, taking {} msec in total. Sending via websocket...", path.display(), start.elapsed().as_millis());
 
     // Broadcast change
     let _ = state.tx.send(Message::FileChanged(rel_path.to_path_buf(), html));
@@ -426,18 +452,25 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 
 // Render patto content to HTML
 async fn render_patto_to_html(content: &str) -> std::io::Result<String> {
-    // Clone content to move into the blocking task
-    let content = content.to_string();
+    // Use Arc to avoid cloning large content
+    let content = std::sync::Arc::new(content.to_string());
     
     let html_output = tokio::task::spawn_blocking(move || {
+        //let start = Instant::now();
         let result = parser::parse_text(&content);
-        let mut html_output = Vec::new();
+        //println!("-- Parsed, taking {} msec.", start.elapsed().as_millis());
+        
+        // Pre-allocate buffer with estimated size to reduce reallocations
+        let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
+        let mut html_output = Vec::with_capacity(estimated_size);
         
         let renderer = HtmlRenderer::new(Options {
             ..Options::default()
         });
         
+        //let start = Instant::now();
         let _ = renderer.format(&result.ast, &mut html_output);
+        //println!("-- Rendered, taking {} msec.", start.elapsed().as_millis());
         html_output
     }).await;
 

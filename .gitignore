@@ -2,3 +2,5 @@
 /.markshift
 node_modules
 dist/
+sandbox/
+.env

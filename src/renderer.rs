@@ -8,7 +8,7 @@ use html_escape::encode_text;
 
 #[derive(Debug, Default)]
 pub struct Options {
-    pub theme: String,
+    // maybe deleted in the future
 }
 
 pub trait Renderer {
@@ -32,11 +32,13 @@ impl Renderer for HtmlRenderer {
 }
 
 impl HtmlRenderer {
+
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
-                for child in ast.value().children.lock().unwrap().iter() {
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
                     write!(output, "<li style=\"list-style-type: none; min-height: 1em;\">")?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
@@ -61,7 +63,8 @@ impl HtmlRenderer {
                 if isdone {
                     write!(output, "<del>")?;
                 }
-                for content in ast.value().contents.lock().unwrap().iter() {
+                let contents = ast.value().contents.lock().unwrap();
+                for content in contents.iter() {
                     self._format_impl(&content, output)?;
                 }
                 if isdone {
@@ -86,24 +89,12 @@ impl HtmlRenderer {
                     }
                     write!(output, "</aside>")?;
                 }
-                if ast.value().children.lock().unwrap().len() > 0 {
+                let children = ast.value().children.lock().unwrap();
+                if !children.is_empty() {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
-                    for child in ast.value().children.lock().unwrap().iter() {
-                        // TODO stealing the internal content, not efficient
-                        // implement a trait that overloads `write' function that counts the
-                        // written bytes
-                        let mut bufcur = io::Cursor::new(Vec::<u8>::new());
-                        self._format_impl(&child, &mut bufcur)?;
-                        let s = unsafe {String::from_utf8_unchecked(bufcur.into_inner())};
-                        if s.len() == 0 {
-                            write!(output, "<li style=\"list-style-type: none;min-height: 1em;\">")?;
-                        } else {
-                            write!(output, "<li style=\"min-height: 1em;\">")?;
-                            write!(output, "{}", s)?;
-                        }
-                        // no stealing:
-                        // write!(output, "<li>")?;
-                        // self._format_impl(&child, output)?;
+                    for child in children.iter() {
+                        write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\">")?;
+                        self._format_impl(&child, output)?;
                         write!(output, "</li>")?;
                     }
                     write!(output, "</ul>")?;
@@ -111,7 +102,8 @@ impl HtmlRenderer {
             }
             AstNodeKind::Quote => {
                 write!(output, "<blockquote>")?;
-                for child in ast.value().children.lock().unwrap().iter() {
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
                     self._format_impl(&child, output)?;
                     write!(output, "<br/>")?;
                 }
@@ -120,11 +112,13 @@ impl HtmlRenderer {
             AstNodeKind::Math{inline} => {
                 if *inline {
                     write!(output, "$$ ")?;
-                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
+                    let contents = ast.value().contents.lock().unwrap();
+                    write!(output, "{}", contents[0].extract_str())?; //TODO html escape?
                     write!(output, " $$")?;
                 } else {
                     write!(output, "[[ ")?;
-                    for child in ast.value().children.lock().unwrap().iter() {
+                    let children = ast.value().children.lock().unwrap();
+                    for child in children.iter() {
                         write!(output, "{}", child.extract_str())?;
                         write!(output, "\n")?;
                     }
@@ -134,19 +128,22 @@ impl HtmlRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "<code>")?;
-                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape
+                    let contents = ast.value().contents.lock().unwrap();
+                    write!(output, "{}", contents[0].extract_str())?; //TODO html escape
                     write!(output, "</code>")?;
                 } else {
                     //TODO use syntext
                     if lang == "mermaid" {
                         write!(output, "<pre class={}>", lang)?;
-                        for child in ast.value().children.lock().unwrap().iter() {
+                        let children = ast.value().children.lock().unwrap();
+                        for child in children.iter() {
                             write!(output, "{}\n", child.extract_str())?;
                         }
                         write!(output, "</pre>")?;
                     } else {
                         write!(output, "<pre><code class={}>", lang)?;
-                        for child in ast.value().children.lock().unwrap().iter() {
+                        let children = ast.value().children.lock().unwrap();
+                        for child in children.iter() {
                             write!(output, "{}\n", encode_text(child.extract_str()))?;  // TODO encode all at once?
                             //write!(output, "<br/>")?;
                         }
@@ -169,11 +166,11 @@ impl HtmlRenderer {
                 if let Some(anchor) = anchor {
                     write!(
                         output,
-                        "<a href=\"{}#{}\">{}#{}</a>",
+                        "<a href=\"{}.pn#{}\">{}#{}</a>",
                         link, anchor, link, anchor
                     )?;
                 } else {
-                    write!(output, "<a href=\"{}\">{}</a>", link, link)?;
+                    write!(output, "<a href=\"{}.pn\">{}</a>", link, link)?;
                 }
             }
             AstNodeKind::Link { link, title } => {
@@ -181,8 +178,13 @@ impl HtmlRenderer {
                     write!(
                         output,
                         "<iframe class=\"videoContainer__video\" width=\"640\" height=\"480\" src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\"></iframe>")?;
-                } else if let Some(embed) = get_twitter_embed(link) {
-                    write!(output, "{}", embed)?;
+                } else if link.contains("twitter.com") || link.contains("x.com") {
+                    // Render as placeholder that can be enhanced client-side
+                    write!(
+                        output,
+                        "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a> <small>(Loading embed...)</small></div>",
+                        link, link, title.as_deref().unwrap_or(link)
+                    )?;
                 } else if let Some(title) = title {
                     write!(
                         output,
@@ -214,8 +216,9 @@ impl HtmlRenderer {
                 if *deleted {
                     write!(output, "<del>")?;
                 }
-                for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(&content, output)?;
+                let contents = ast.value().contents.lock().unwrap();
+                for content in contents.iter() {
+                    self._format_impl(content, output)?;
                 }
                 if *deleted {
                     write!(output, "</del>")?;
@@ -236,8 +239,9 @@ impl HtmlRenderer {
             }
             AstNodeKind::Table => {todo!()}
             AstNodeKind::TableColumn => {
-                for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(&content, output)?;
+                let contents = ast.value().contents.lock().unwrap();
+                for content in contents.iter() {
+                    self._format_impl(content, output)?;
                 }
             }
         }
@@ -267,7 +271,7 @@ impl MarkdownRenderer {
         match &ast.kind() {
             AstNodeKind::Dummy => {
                 for child in ast.value().children.lock().unwrap().iter() {
-                    self._format_impl(&child, output, depth)?;
+                    self._format_impl(child, output, depth)?;
                     //write!(output, "  ")?;  // more than two trailing spaces represent a newline
                 }
             }

@@ -78,6 +78,16 @@
             color: #888;
             font-style: italic;
         }
+
+        /* Hide bullet points for empty list items */
+        .patto-item:empty {
+            list-style-type: none;
+        }
+        
+        /* Also handle items that only contain whitespace */
+        .patto-item:blank {
+            list-style-type: none;
+        }
     </style>
 </head>
 <body>
@@ -96,6 +106,7 @@
     </div>
 
     <script src="https://unpkg.com/idiomorph@0.7.3"></script>
+    <!--<script src="https://unpkg.com/morphdom@2.7.4/dist/morphdom-umd.min.js"></script>-->
     <script>
         // Global state
         let currentFile = null;
@@ -210,6 +221,33 @@
         function updatePreview(html) {
             const preview = document.getElementById('preview-content');
             Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>");
+            
+            // Load Twitter embeds asynchronously after DOM update
+            loadTwitterEmbeds();
+        }
+
+        async function loadTwitterEmbeds() {
+            const placeholders = document.querySelectorAll('.twitter-placeholder');
+            
+            for (const placeholder of placeholders) {
+                const url = placeholder.dataset.url;
+                if (!url) continue;
+                
+                try {
+                    // Fetch Twitter embed through our proxy
+                    const response = await fetch(`/api/twitter-embed?url=${encodeURIComponent(url)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.html) {
+                            placeholder.innerHTML = data.html;
+                            placeholder.classList.remove('twitter-placeholder');
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to load Twitter embed:', error);
+                    // Keep the fallback link if embed fails
+                }
+            }
         }
 
         function getPathFromUrl() {
