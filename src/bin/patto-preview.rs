@@ -91,7 +91,10 @@ fn get_mime_type(path: &Path) -> &str {
 async fn main() {
     // Parse command line arguments
     let args = Args::parse();
-    let dir = PathBuf::from(&args.dir);
+    let dir = std::fs::canonicalize(PathBuf::from(&args.dir)).unwrap_or_else(|_| {
+        eprintln!("Failed to canonicalize directory: {}", args.dir);
+        std::process::exit(1);
+    });
 
     if !dir.exists() {
         eprintln!("Directory does not exist: {}", dir.display());
