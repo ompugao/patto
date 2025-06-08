@@ -221,6 +221,11 @@
         function updatePreview(html) {
             const preview = document.getElementById('preview-content');
             Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>");
+            //const preview = document.getElementById('preview-content');
+            //const tempDiv = document.createElement('div');
+            //tempDiv.id = 'preview-content';
+            //tempDiv.innerHTML = html;
+            //morphdom(preview, tempDiv);
             
             // Load Twitter embeds asynchronously after DOM update
             loadTwitterEmbeds();
