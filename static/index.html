@@ -98,6 +98,15 @@
     <div class="container">
         <div class="sidebar">
             <h3>Files</h3>
+            <div style="margin-bottom: 10px;">
+                <label for="sort-select" style="font-size: 12px; margin-right: 5px;">Sort by:</label>
+                <select id="sort-select" style="font-size: 12px; padding: 2px;">
+                    <option value="modified">Most Recently Modified</option>
+                    <option value="created">Most Recently Created</option>
+                    <option value="linked">Most Linked</option>
+                    <option value="title">Title</option>
+                </select>
+            </div>
             <ul id="file-list"></ul>
         </div>
         <div class="preview" id="preview">
@@ -111,6 +120,7 @@
         // Global state
         let currentFile = null;
         let files = [];
+        let fileMetadata = {};
 
         // Establish WebSocket connection
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -124,6 +134,17 @@
                 currentFile = path;
                 document.getElementById('current-path').textContent = path;
             }
+
+            // Restore saved sorting preference
+            const savedSort = localStorage.getItem('patto-sort-order') || 'modified';
+            document.getElementById('sort-select').value = savedSort;
+
+            // Add sort dropdown change handler
+            document.getElementById('sort-select').addEventListener('change', (e) => {
+                const sortValue = e.target.value;
+                localStorage.setItem('patto-sort-order', sortValue);
+                sortAndUpdateFileList(sortValue);
+            });
         });
 
         ws.onopen = () => {
@@ -134,7 +155,7 @@
             const data = JSON.parse(event.data);
 
             if (data.type === 'FileList') {
-                updateFileList(data.data.files);
+                updateFileList(data.data.files, data.data.metadata);
 
                 // If we have a path from the URL, select that file
                 if (currentFile) {
@@ -142,6 +163,10 @@
                 }
             } else if (data.type === 'FileChanged') {
                 handleFileChanged(data.data.path, data.data.html);
+            } else if (data.type === 'FileAdded') {
+                handleFileAdded(data.data.path, data.data.metadata);
+            } else if (data.type === 'FileRemoved') {
+                handleFileRemoved(data.data.path);
             }
         };
 
@@ -153,12 +178,49 @@
             console.log('WebSocket connection closed');
         };
 
-        function updateFileList(newFiles) {
+        function updateFileList(newFiles, metadata = {}) {
             files = newFiles;
+            fileMetadata = metadata;
+            
+            // Sort files based on current sort option (restore from localStorage if available)
+            const sortOption = document.getElementById('sort-select').value || localStorage.getItem('patto-sort-order') || 'title';
+            sortAndUpdateFileList(sortOption);
+        }
+
+        function sortAndUpdateFileList(sortBy) {
+            let sortedFiles = [...files];
+            
+            switch(sortBy) {
+                case 'title':
+                    sortedFiles.sort();
+                    break;
+                case 'modified':
+                    sortedFiles.sort((a, b) => {
+                        const aTime = fileMetadata[a]?.modified || 0;
+                        const bTime = fileMetadata[b]?.modified || 0;
+                        return bTime - aTime; // Most recent first
+                    });
+                    break;
+                case 'created':
+                    sortedFiles.sort((a, b) => {
+                        const aTime = fileMetadata[a]?.created || 0;
+                        const bTime = fileMetadata[b]?.created || 0;
+                        return bTime - aTime; // Most recent first
+                    });
+                    break;
+                case 'linked':
+                    sortedFiles.sort((a, b) => {
+                        const aCount = fileMetadata[a]?.linkCount || 0;
+                        const bCount = fileMetadata[b]?.linkCount || 0;
+                        return bCount - aCount; // Most linked first
+                    });
+                    break;
+            }
+
             const fileList = document.getElementById('file-list');
             fileList.innerHTML = '';
 
-            files.sort().forEach(file => {
+            sortedFiles.forEach(file => {
                 const li = document.createElement('li');
                 li.textContent = file;
                 li.onclick = () => selectFile(file);
@@ -169,6 +231,42 @@
 
                 fileList.appendChild(li);
             });
+        }
+
+        function handleFileAdded(filePath, metadata) {
+            console.log('File added:', filePath);
+            
+            // Add to files array if not already present
+            if (!files.includes(filePath)) {
+                files.push(filePath);
+                fileMetadata[filePath] = metadata;
+                
+                // Re-sort and update the display
+                const sortOption = document.getElementById('sort-select').value;
+                sortAndUpdateFileList(sortOption);
+            }
+        }
+
+        function handleFileRemoved(filePath) {
+            console.log('File removed:', filePath);
+            
+            // Remove from files array and metadata
+            const index = files.indexOf(filePath);
+            if (index > -1) {
+                files.splice(index, 1);
+                delete fileMetadata[filePath];
+                
+                // If the removed file was currently selected, clear the preview
+                if (currentFile === filePath) {
+                    currentFile = null;
+                    document.getElementById('current-path').textContent = '';
+                    document.getElementById('preview-content').innerHTML = '<div class="empty-state">Select a file to preview</div>';
+                }
+                
+                // Re-sort and update the display
+                const sortOption = document.getElementById('sort-select').value;
+                sortAndUpdateFileList(sortOption);
+            }
         }
 
         function selectFile(file) {
