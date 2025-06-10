@@ -16,7 +16,7 @@ use patto::{
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::{
     fs,
     sync::broadcast,
@@ -49,14 +49,27 @@ struct AppState {
 enum Message {
     FileChanged(PathBuf, String),
     FileList(Vec<PathBuf>),
+    FileAdded(PathBuf, FileMetadata),
+    FileRemoved(PathBuf),
+}
+
+// File metadata for sorting
+#[derive(Serialize, Deserialize, Clone)]
+struct FileMetadata {
+    modified: u64,  // Unix timestamp
+    created: u64,   // Unix timestamp
+    #[serde(rename = "linkCount")]
+    link_count: u32,
 }
 
 // WebSocket messages
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 enum WsMessage {
-    FileList { files: Vec<String> },
+    FileList { files: Vec<String>, metadata: HashMap<String, FileMetadata> },
     FileChanged { path: String, html: String },
+    FileAdded { path: String, metadata: FileMetadata },
+    FileRemoved { path: String },
     SelectFile { path: String },
 }
 
@@ -121,6 +134,7 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
+        .route("/static/*path", get(static_handler))
         .route("/notes/*path", get(file_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
@@ -163,7 +177,42 @@ async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) ->
     }
 }
 
-// Handler for file access (both notes and static files)
+// Handler for static files
+async fn static_handler(
+    AxumPath(path): AxumPath<String>,
+) -> impl IntoResponse {
+    match path.as_str() {
+        "js/idiomorph.min.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/idiomorph.min.js")))
+                .unwrap()
+        },
+        "js/mermaid.min.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/mermaid.min.js")))
+                .unwrap()
+        },
+        "js/app.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/app.js")))
+                .unwrap()
+        },
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("File not found"))
+                .unwrap()
+        }
+    }
+}
+
+// Handler for file access (notes only)
 async fn file_handler(
     AxumPath(path): AxumPath<String>,
     State(state): State<AppState>,
@@ -229,15 +278,17 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Send initial file list immediately
     let dir = state.dir.clone();
     let mut file_paths = Vec::new();
+    let mut file_metadata = HashMap::new();
 
     // Collect files synchronously to avoid spawning tasks
     if dir.is_dir() {
-        collect_patto_files(&dir, &dir, &mut file_paths);
+        collect_patto_files_with_metadata(&dir, &dir, &mut file_paths, &mut file_metadata);
     }
 
     // Send initial file list
     let message = WsMessage::FileList {
         files: file_paths,
+        metadata: file_metadata,
     };
 
     if let Ok(json) = serde_json::to_string(&message) {
@@ -264,6 +315,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             Message::FileList(files) => {
                                 WsMessage::FileList {
                                     files: files.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                    metadata: HashMap::new(), // Empty metadata for now since FileList isn't used
+                                }
+                            },
+                            Message::FileAdded(path, metadata) => {
+                                WsMessage::FileAdded {
+                                    path: path.to_string_lossy().to_string(),
+                                    metadata,
+                                }
+                            },
+                            Message::FileRemoved(path) => {
+                                WsMessage::FileRemoved {
+                                    path: path.to_string_lossy().to_string(),
                                 }
                             }
                         };
@@ -327,20 +390,75 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-// Helper function to collect patto files
-fn collect_patto_files(dir: &Path, base_dir: &Path, files: &mut Vec<String>) {
+// Helper function to collect patto files with metadata
+fn collect_patto_files_with_metadata(dir: &Path, base_dir: &Path, files: &mut Vec<String>, metadata: &mut HashMap<String, FileMetadata>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
 
             if path.is_dir() {
-                collect_patto_files(&path, base_dir, files);
+                collect_patto_files_with_metadata(&path, base_dir, files, metadata);
             } else if get_extension(&path) == "pn" {
                 if let Ok(rel_path) = path.strip_prefix(base_dir) {
-                    files.push(rel_path.to_string_lossy().to_string());
+                    let rel_path_str = rel_path.to_string_lossy().to_string();
+                    files.push(rel_path_str.clone());
+                    
+                    // Collect file metadata
+                    if let Ok(file_metadata) = std::fs::metadata(&path) {
+                        let modified = file_metadata.modified()
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        
+                        let created = file_metadata.created()
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        
+                        // Count links by reading file content and parsing
+                        let link_count = count_links_in_file(&path).unwrap_or(0);
+                        
+                        metadata.insert(rel_path_str, FileMetadata {
+                            modified,
+                            created,
+                            link_count,
+                        });
+                    }
                 }
             }
         }
+    }
+}
+
+// Helper function to collect patto files (legacy for compatibility)
+fn collect_patto_files(dir: &Path, base_dir: &Path, files: &mut Vec<String>) {
+    let mut metadata = HashMap::new();
+    collect_patto_files_with_metadata(dir, base_dir, files, &mut metadata);
+}
+
+// Count links in a patto file using the parser
+fn count_links_in_file(path: &Path) -> std::io::Result<u32> {
+    let content = std::fs::read_to_string(path)?;
+    let result = parser::parse_text(&content);
+    let mut wikilinks = vec![];
+    gather_wikilinks(&result.ast, &mut wikilinks);
+    Ok(wikilinks.len() as u32)
+}
+
+// Helper function to gather wikilinks from AST (from patto-lsp.rs)
+fn gather_wikilinks(parent: &parser::AstNode, wikilinks: &mut Vec<(String, Option<String>)>) {
+    if let parser::AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
+        wikilinks.push((link.clone(), anchor.clone()));
+    }
+
+    for content in parent.value().contents.lock().unwrap().iter() {
+        gather_wikilinks(content, wikilinks);
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_wikilinks(child, wikilinks);
     }
 }
 
@@ -382,50 +500,90 @@ async fn watch_files(state: AppState) {
 
     // Process events from the channel
     while let Some(event) = rx.recv().await {
-        if event.kind.is_modify() || event.kind.is_create() {
+        if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
             for path in event.paths {
-                if !path.is_file() || get_extension(&path) != "pn" {
-                    continue;
-                }
-
-                // Update pending changes with current time
-                {
-                    let mut changes = pending_changes.lock().unwrap();
-                    changes.insert(path.clone(), Instant::now());
-                }
-
-                // Spawn a debounced task for this file
-                let state_clone = state.clone();
-                let path_clone = path.clone();
-                let pending_changes_clone = Arc::clone(&pending_changes);
+                let is_pn_file = get_extension(&path) == "pn";
                 
-                tokio::spawn(async move {
-                    // Wait for debounce duration
-                    sleep(debounce_duration).await;
+                // Handle file creation
+                if event.kind.is_create() && is_pn_file {
+                    println!("File created: {}", path.display());
+                    if let Ok(rel_path) = path.strip_prefix(&state.dir) {
+                        // Generate metadata for the new file
+                        if let Ok(file_metadata) = std::fs::metadata(&path) {
+                            let modified = file_metadata.modified()
+                                .unwrap_or(SystemTime::UNIX_EPOCH)
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            
+                            let created = file_metadata.created()
+                                .unwrap_or(SystemTime::UNIX_EPOCH)
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            
+                            let link_count = count_links_in_file(&path).unwrap_or(0);
+                            
+                            let metadata = FileMetadata {
+                                modified,
+                                created,
+                                link_count,
+                            };
+                            
+                            let _ = state.tx.send(Message::FileAdded(rel_path.to_path_buf(), metadata));
+                        }
+                    }
+                }
+                
+                // Handle file removal
+                if event.kind.is_remove() && is_pn_file {
+                    println!("File removed: {}", path.display());
+                    if let Ok(rel_path) = path.strip_prefix(&state.dir) {
+                        let _ = state.tx.send(Message::FileRemoved(rel_path.to_path_buf()));
+                    }
+                }
+                
+                // Handle file content changes (modify existing .pn files)
+                if event.kind.is_modify() && path.is_file() && is_pn_file {
+                    // Update pending changes with current time
+                    {
+                        let mut changes = pending_changes.lock().unwrap();
+                        changes.insert(path.clone(), Instant::now());
+                    }
 
-                    // Check if this is still the latest change for this file
-                    let should_process = {
-                        let mut changes = pending_changes_clone.lock().unwrap();
-                        if let Some(&last_change) = changes.get(&path_clone) {
-                            let is_latest = Instant::now().duration_since(last_change) >= debounce_duration;
-                            if is_latest {
-                                changes.remove(&path_clone);
-                                true
+                    // Spawn a debounced task for this file
+                    let state_clone = state.clone();
+                    let path_clone = path.clone();
+                    let pending_changes_clone = Arc::clone(&pending_changes);
+                    
+                    tokio::spawn(async move {
+                        // Wait for debounce duration
+                        sleep(debounce_duration).await;
+
+                        // Check if this is still the latest change for this file
+                        let should_process = {
+                            let mut changes = pending_changes_clone.lock().unwrap();
+                            if let Some(&last_change) = changes.get(&path_clone) {
+                                let is_latest = Instant::now().duration_since(last_change) >= debounce_duration;
+                                if is_latest {
+                                    changes.remove(&path_clone);
+                                    true
+                                } else {
+                                    false
+                                }
                             } else {
                                 false
                             }
-                        } else {
-                            false
-                        }
-                    };
+                        };
 
-                    if should_process {
-                        println!("Processing debounced file change: {}", path_clone.display());
-                        if let Err(e) = process_file_change(&state_clone, &path_clone).await {
-                            eprintln!("Error processing file change: {}", e);
+                        if should_process {
+                            println!("Processing debounced file change: {}", path_clone.display());
+                            if let Err(e) = process_file_change(&state_clone, &path_clone).await {
+                                eprintln!("Error processing file change: {}", e);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         }
     }

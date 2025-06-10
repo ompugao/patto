@@ -98,6 +98,15 @@
     <div class="container">
         <div class="sidebar">
             <h3>Files</h3>
+            <div style="margin-bottom: 10px;">
+                <label for="sort-select" style="font-size: 12px; margin-right: 5px;">Sort by:</label>
+                <select id="sort-select" style="font-size: 12px; padding: 2px;">
+                    <option value="modified">Most Recently Modified</option>
+                    <option value="created">Most Recently Created</option>
+                    <option value="linked">Most Linked</option>
+                    <option value="title">Title</option>
+                </select>
+            </div>
             <ul id="file-list"></ul>
         </div>
         <div class="preview" id="preview">
@@ -105,188 +114,12 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/idiomorph@0.7.3"></script>
-    <!--<script src="https://unpkg.com/morphdom@2.7.4/dist/morphdom-umd.min.js"></script>-->
-    <script>
-        // Global state
-        let currentFile = null;
-        let files = [];
-
-        // Establish WebSocket connection
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-        // Initialize the app
-        document.addEventListener('DOMContentLoaded', () => {
-            // Check if we have a path in the URL
-            const path = getPathFromUrl();
-            if (path) {
-                currentFile = path;
-                document.getElementById('current-path').textContent = path;
-            }
-        });
-
-        ws.onopen = () => {
-            console.log('WebSocket connection established');
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'FileList') {
-                updateFileList(data.data.files);
-
-                // If we have a path from the URL, select that file
-                if (currentFile) {
-                    selectFileFromPath(currentFile);
-                }
-            } else if (data.type === 'FileChanged') {
-                handleFileChanged(data.data.path, data.data.html);
-            }
-        };
-
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
-
-        ws.onclose = () => {
-            console.log('WebSocket connection closed');
-        };
-
-        function updateFileList(newFiles) {
-            files = newFiles;
-            const fileList = document.getElementById('file-list');
-            fileList.innerHTML = '';
-
-            files.sort().forEach(file => {
-                const li = document.createElement('li');
-                li.textContent = file;
-                li.onclick = () => selectFile(file);
-
-                if (file === currentFile) {
-                    li.classList.add('active');
-                }
-
-                fileList.appendChild(li);
-            });
-        }
-
-        function selectFile(file) {
-            currentFile = file;
-
-            // Update URL without reloading the page
-            const newUrl = `/notes/${file}`;
-            history.pushState({ path: file }, '', newUrl);
-            document.getElementById('current-path').textContent = file;
-
-            // Update UI to show active file
-            document.querySelectorAll('#file-list li').forEach(li => {
-                li.classList.remove('active');
-                if (li.textContent === file) {
-                    li.classList.add('active');
-                }
-            });
-
-            // Send file selection to server
-            ws.send(JSON.stringify({
-                type: 'SelectFile',
-                data: {
-                    path: file
-                }
-            }));
-        }
-
-        function handleFileChanged(path, html) {
-            if (path === currentFile || (currentFile === null && files.length === 0)) {
-                currentFile = path;
-                updatePreview(html);
-
-                // Update UI to show active file
-                document.querySelectorAll('#file-list li').forEach(li => {
-                    li.classList.remove('active');
-                    if (li.textContent === path) {
-                        li.classList.add('active');
-                    }
-                });
-
-                // Update URL and path display if needed
-                if (getPathFromUrl() !== path) {
-                    const newUrl = `/notes/${path}`;
-                    history.pushState({ path }, '', newUrl);
-                    document.getElementById('current-path').textContent = path;
-                }
-            }
-        }
-
-        function updatePreview(html) {
-            const preview = document.getElementById('preview-content');
-            Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>");
-            //const preview = document.getElementById('preview-content');
-            //const tempDiv = document.createElement('div');
-            //tempDiv.id = 'preview-content';
-            //tempDiv.innerHTML = html;
-            //morphdom(preview, tempDiv);
-            
-            // Load Twitter embeds asynchronously after DOM update
-            loadTwitterEmbeds();
-        }
-
-        async function loadTwitterEmbeds() {
-            const placeholders = document.querySelectorAll('.twitter-placeholder');
-            
-            for (const placeholder of placeholders) {
-                const url = placeholder.dataset.url;
-                if (!url) continue;
-                
-                try {
-                    // Fetch Twitter embed through our proxy
-                    const response = await fetch(`/api/twitter-embed?url=${encodeURIComponent(url)}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.html) {
-                            placeholder.innerHTML = data.html;
-                            placeholder.classList.remove('twitter-placeholder');
-                        }
-                    }
-                } catch (error) {
-                    console.warn('Failed to load Twitter embed:', error);
-                    // Keep the fallback link if embed fails
-                }
-            }
-        }
-
-        function getPathFromUrl() {
-            const path = window.location.pathname;
-            if (path.startsWith('/notes/')) {
-                return decodeURIComponent(path.substring(7)); // Remove '/notes/' prefix
-            }
-            return null;
-        }
-
-        function selectFileFromPath(path) {
-            // Check if the file exists in our list
-            if (files.includes(path)) {
-                selectFile(path);
-            } else {
-                console.warn(`File not found: ${path}`);
-                // Optionally, redirect to home or show an error
-            }
-        }
-
-        // Handle browser back/forward navigation
-        window.addEventListener('popstate', (event) => {
-            if (event.state && event.state.path) {
-                selectFile(event.state.path);
-            } else {
-                // Handle navigation to root
-                currentFile = null;
-                document.getElementById('current-path').textContent = '';
-                document.getElementById('preview').innerHTML = '<div class="empty-state">Select a file to preview</div>';
-                document.querySelectorAll('#file-list li').forEach(li => {
-                    li.classList.remove('active');
-                });
-            }
-        });
+    <script src="/static/js/idiomorph.min.js"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: false, theme: 'forest' });
+        window.mermaid = mermaid;
     </script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
