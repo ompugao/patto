@@ -10,7 +10,7 @@ statement = ${ SOI ~ ((expr_anchor | expr_task) | (expr_img|expr_builtin_symbols
 raw_sentence = @{ (!("[" | "]" | "{@" | WHITE_SPACE_INLINE+ ~ expr_anchor | WHITE_SPACE_INLINE+ ~ expr_task) ~ ANY)+ }
 expr_hr = @{ "-"{5,} }
 // WARN: statement_nestable must be the subset of statement
-statement_nestable = ${ (expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
+statement_nestable = ${ (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { (symbol_bold | symbol_italic | symbol_underline | symbol_deleted)+ }
