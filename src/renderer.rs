@@ -76,7 +76,7 @@ impl HtmlRenderer {
                     for property in properties {
                         match property {
                             Property::Anchor { name } => {
-                                write!(output, "<a name=\"{}\">{}</a>", name, name)?;
+                                write!(output, "<span id=\"{}\" class=\"anchor\">{}</span>", name, name)?;
                             }
                             Property::Task { status, due } => match status {
                                 TaskStatus::Done => {
@@ -165,11 +165,16 @@ impl HtmlRenderer {
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
-                    write!(
-                        output,
-                        "<a href=\"{}.pn#{}\">{}#{}</a>",
-                        link, anchor, link, anchor
-                    )?;
+                    // TODO eliminate the logic that self-link if link is empty
+                    if link.is_empty() {
+                        write!(output, "<a href=\"#{}\">#{}</a>", anchor, anchor)?;
+                    } else {
+                        write!(
+                            output,
+                            "<a href=\"{}.pn#{}\">{}#{}</a>",
+                            link, anchor, link, anchor
+                        )?;
+                    }
                 } else {
                     write!(output, "<a href=\"{}.pn\">{}</a>", link, link)?;
                 }

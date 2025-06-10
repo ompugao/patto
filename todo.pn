@@ -8,6 +8,7 @@ Todo:
 		[- support abbrev task, like [` !2024-09-24T13:00 `]]
 		[- better anchor handling [` name#anchor`]. some note contains [` #`] in its name.]
 			we do not support [` #`] for the name of notes.
+		eliminate the logic that self-link if link is empty
 		better depth and state handling
 	LSP server
 		[- async note scanning]

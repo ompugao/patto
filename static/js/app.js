@@ -1,5 +1,6 @@
 // Global state
 let currentFile = null;
+let currentAnchor = null
 let files = [];
 let fileMetadata = {};
 
@@ -11,9 +12,12 @@ const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 document.addEventListener('DOMContentLoaded', () => {
     // Check if we have a path in the URL
     const path = getPathFromUrl();
+    const anchor = getAnchorFromUrl();
     if (path) {
         currentFile = path;
+        currentAnchor = anchor;
         document.getElementById('current-path').textContent = path;
+        console.log('Initial load - Path:', path, 'Anchor:', anchor);
     }
 
     // Restore saved sorting preference
@@ -29,6 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup sidebar toggle
     setupSidebarToggle();
+    
+    // Setup anchor monitoring for dynamic content
+    setupAnchorMonitoring();
 });
 
 ws.onopen = () => {
@@ -43,7 +50,8 @@ ws.onmessage = (event) => {
 
         // If we have a path from the URL, select that file
         if (currentFile) {
-            selectFileFromPath(currentFile);
+            console.log('Selecting file from URL:', currentFile, ', Anchor: ', currentAnchor);
+            selectFileFromPath(currentFile, currentAnchor);
         }
     } else if (data.type === 'FileChanged') {
         handleFileChanged(data.data.path, data.data.html);
@@ -153,32 +161,8 @@ function handleFileRemoved(filePath) {
     }
 }
 
-function selectFile(file) {
-    currentFile = file;
-
-    // Update URL without reloading the page
-    const newUrl = `/notes/${file}`;
-    history.pushState({ path: file }, '', newUrl);
-    document.getElementById('current-path').textContent = file;
-
-    // Update UI to show active file
-    document.querySelectorAll('#file-list li').forEach(li => {
-        li.classList.remove('active');
-        if (li.textContent === file) {
-            li.classList.add('active');
-        }
-    });
-
-    // Send file selection to server
-    ws.send(JSON.stringify({
-        type: 'SelectFile',
-        data: {
-            path: file
-        }
-    }));
-}
-
 function handleFileChanged(path, html) {
+    console.log('handleFileChanged called:', path, 'currentFile:', currentFile);
     if (path === currentFile || (currentFile === null && files.length === 0)) {
         currentFile = path;
         updatePreview(html);
@@ -192,9 +176,12 @@ function handleFileChanged(path, html) {
         });
 
         // Update URL and path display if needed
-        if (getPathFromUrl() !== path) {
-            const newUrl = `/notes/${path}`;
-            history.pushState({ path }, '', newUrl);
+        const currentPath = getPathFromUrl();
+        if (currentPath !== path) {
+            // Preserve existing anchor when updating URL
+            const anchor = getAnchorFromUrl();
+            const newUrl = anchor ? `/notes/${path}#${anchor}` : `/notes/${path}`;
+            history.pushState({ path: path, anchor: anchor }, '', newUrl);
             document.getElementById('current-path').textContent = path;
         }
     }
@@ -202,12 +189,35 @@ function handleFileChanged(path, html) {
 
 function updatePreview(html) {
     const preview = document.getElementById('preview-content');
-    Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>");
+    
+    // Use a callback to handle anchor scrolling after morphing is complete
+    Idiomorph.morph(preview, "<div id='preview-content'>" + html + "</div>", {
+        callbacks: {
+            afterNodeMorphed: () => {
+                // Check for anchor after each node is morphed
+                const hash = window.location.hash;
+                if (hash) {
+                    const anchorId = hash.substring(1);
+                    const element = document.getElementById(anchorId);
+                    if (element) {
+                        requestAnimationFrame(() => {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        });
+                    }
+                }
+            }
+        }
+    });
     
     // Load Twitter embeds asynchronously after DOM update
     loadTwitterEmbeds();
     renderMermaids();
-    hljs.highlightAll();
+    if (typeof hljs !== 'undefined') {
+        hljs.highlightAll();
+    }
+    
+    // Handle anchor scrolling after all content is processed
+    setTimeout(() => handleAnchorScroll(), 100);
 }
 
 async function renderMermaids() {
@@ -247,13 +257,121 @@ function getPathFromUrl() {
     return null;
 }
 
-function selectFileFromPath(path) {
+function getAnchorFromUrl() {
+    const hash = window.location.hash;
+    return hash ? hash.substring(1) : null;
+}
+
+function selectFileFromPath(path, anchor = null) {
     // Check if the file exists in our list
     if (files.includes(path)) {
-        selectFile(path);
+        selectFile(path, anchor);
     } else {
         console.warn(`File not found: ${path}`);
         // Optionally, redirect to home or show an error
+    }
+}
+
+// Handle anchor scrolling from URL fragment
+function handleAnchorScroll() {
+    const hash = window.location.hash;
+    console.log('handleAnchorScroll called, hash:', hash);
+    if (hash) {
+        const anchorId = hash.substring(1);
+        console.log('Looking for element with id:', anchorId);
+        
+        // Wait for content to be fully rendered with retry mechanism
+        const tryScroll = (attempts = 0) => {
+            const element = document.getElementById(anchorId);
+            console.log(`Attempt ${attempts + 1}: Found element:`, element);
+            
+            if (element) {
+                console.log('Scrolling to element:', element);
+                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Add visual highlight
+                element.style.transition = 'background-color 0.3s ease';
+                const originalBg = element.style.backgroundColor;
+                element.style.backgroundColor = '#fff3cd';
+                setTimeout(() => {
+                    element.style.backgroundColor = originalBg;
+                }, 2000);
+            } else if (attempts < 10) {
+                // Retry up to 10 times with increasing delay
+                console.log(`No element found with id: ${anchorId}, retrying...`);
+                setTimeout(() => tryScroll(attempts + 1), 100 * (attempts + 1));
+            } else {
+                console.log('No element found with id:', anchorId);
+                // Debug: List all available anchors
+                const anchors = document.querySelectorAll('.anchor');
+                console.log('All anchor elements found:', anchors);
+                anchors.forEach(a => console.log('- Anchor id:', a.id, 'text:', a.textContent));
+                console.log('Available IDs in document:', Array.from(document.querySelectorAll('[id]')).map(el => el.id));
+            }
+        };
+        
+        tryScroll();
+    }
+}
+
+function selectFile(file, anchor = null) {
+    currentFile = file;
+    currentAnchor = anchor;
+
+    // Update URL with anchor if provided
+    const newUrl = anchor ? `/notes/${file}#${anchor}` : `/notes/${file}`;
+    //history.pushState({ path: file, anchor: anchor }, '', newUrl);
+    document.getElementById('current-path').textContent = file;
+
+    // Update UI to show active file
+    document.querySelectorAll('#file-list li').forEach(li => {
+        li.classList.remove('active');
+        if (li.textContent === file) {
+            li.classList.add('active');
+        }
+    });
+
+    // Send file selection to server
+    ws.send(JSON.stringify({
+        type: 'SelectFile',
+        data: {
+            path: file
+        }
+    }));
+}
+
+// Setup anchor monitoring for dynamic content
+function setupAnchorMonitoring() {
+    // Create a MutationObserver to watch for anchor elements being added
+    const observer = new MutationObserver((mutations) => {
+        let anchorAdded = false;
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Check if the added node or its children contain anchor elements
+                        if (node.classList && node.classList.contains('anchor') || 
+                            node.querySelectorAll && node.querySelectorAll('.anchor').length > 0) {
+                            anchorAdded = true;
+                        }
+                    }
+                });
+            }
+        });
+        
+        // If anchors were added and we have a hash in the URL, try to scroll
+        if (anchorAdded && window.location.hash) {
+            console.log('Anchors detected in DOM, attempting scroll');
+            setTimeout(() => handleAnchorScroll(), 50);
+        }
+    });
+
+    // Start observing the preview content area
+    const previewContent = document.getElementById('preview-content');
+    if (previewContent) {
+        observer.observe(previewContent, {
+            childList: true,
+            subtree: true
+        });
     }
 }
 
@@ -288,14 +406,25 @@ function setupSidebarToggle() {
 // Handle browser back/forward navigation
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.path) {
-        selectFile(event.state.path);
+        selectFile(event.state.path, event.state.anchor);
+        // Handle anchor after file is loaded
+        if (event.state.anchor) {
+            setTimeout(() => handleAnchorScroll(), 500);
+        }
     } else {
         // Handle navigation to root
-        currentFile = null;
-        document.getElementById('current-path').textContent = '';
-        document.getElementById('preview').innerHTML = '<div class="empty-state">Select a file to preview</div>';
-        document.querySelectorAll('#file-list li').forEach(li => {
-            li.classList.remove('active');
-        });
+        // console.log("cleared");
+        // currentFile = null;
+        // document.getElementById('current-path').textContent = '';
+        // document.getElementById('preview').innerHTML = '<div class="empty-state">Select a file to preview</div>';
+        // document.querySelectorAll('#file-list li').forEach(li => {
+        //     li.classList.remove('active');
+        // });
     }
+});
+
+// Handle direct anchor navigation within the same page
+window.addEventListener('hashchange', () => {
+    console.log('hash changed');
+    handleAnchorScroll();
 });
