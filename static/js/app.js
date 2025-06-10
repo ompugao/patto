@@ -227,7 +227,7 @@ async function loadTwitterEmbeds() {
             if (response.ok) {
                 const data = await response.json();
                 if (data.html) {
-                    placeholder.innerHTML = data.html;
+                    Idiomorph.morph(placeholder, data.html, {morphStyle: 'innerHTML'});
                     placeholder.classList.remove('twitter-placeholder');
                 }
             }

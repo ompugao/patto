@@ -42,4 +42,4 @@ Todo:
 		feature: support sidebar folding
 		[- feature: support mermaid]
 		[- feature: support printing]
-		bugfix: Fix twitter embedding css
+		[- bugfix: Fix twitter embedding css]
