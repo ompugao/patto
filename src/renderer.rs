@@ -130,7 +130,7 @@ impl HtmlRenderer {
                 if *inline {
                     write!(output, "<code>")?;
                     let contents = ast.value().contents.lock().unwrap();
-                    write!(output, "{}", contents[0].extract_str())?; //TODO html escape
+                    write!(output, "{}", encode_text(contents[0].extract_str()))?;
                     write!(output, "</code>")?;
                 } else {
                     //TODO use syntext
