@@ -203,6 +203,27 @@ async fn static_handler(
                 .body(Body::from(include_str!("../../static/js/app.js")))
                 .unwrap()
         },
+        "js/highlight.min.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/highlight.min.js")))
+                .unwrap()
+        },
+        "css/github.min.css" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/css")
+                .body(Body::from(include_str!("../../static/css/github.min.css")))
+                .unwrap()
+        },
+        "css/style.css" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/css")
+                .body(Body::from(include_str!("../../static/css/style.css")))
+                .unwrap()
+        },
         _ => {
             Response::builder()
                 .status(StatusCode::NOT_FOUND)

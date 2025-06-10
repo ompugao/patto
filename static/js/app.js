@@ -207,6 +207,7 @@ function updatePreview(html) {
     // Load Twitter embeds asynchronously after DOM update
     loadTwitterEmbeds();
     renderMermaids();
+    hljs.highlightAll();
 }
 
 async function renderMermaids() {

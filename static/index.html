@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Patto Previewer</title>
+
     <style>
         body {
             margin: 0;
@@ -12,6 +13,10 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
+        }
+
+        code {
+            tab-size: 4;
         }
 
         .container {
@@ -67,6 +72,10 @@
 
         .sidebar-toggle:active {
             transform: scale(0.95);
+        }
+
+        .sidebar-header {
+            padding: 0px;
         }
 
         .preview {
@@ -152,16 +161,37 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/static/css/style.css"/>
+
+    <style>
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+          font-weight: 200;
+          line-height: 1.25em;
+          margin-bottom: 2px;
+          margin-top: 2px;
+          position: relative;
+          padding: 5px 15px;
+        }
+    </style>
+
+    <link rel="stylesheet" href="/static/css/github.min.css" type="text/css"/>
+    <script src="/static/js/highlight.min.js"/>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
-    <h1 class="title">
-        <a href="/">Patto Previewer</a>
+    <h2 class="title">
+        <!--<a href="/">Patto Previewer</a>-->
         <span id="current-path"></span>
-    </h1>
+    </h2>
     <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
     <div class="container">
         <div class="sidebar" id="sidebar">
-            <h3>Files</h3>
+            <h3 class="sidebar-header">Files</h3>
             <div style="margin-bottom: 10px;">
                 <label for="sort-select" style="font-size: 12px; margin-right: 5px;">Sort by:</label>
                 <select id="sort-select" style="font-size: 12px; padding: 2px;">
