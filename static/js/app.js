@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('patto-sort-order', sortValue);
         sortAndUpdateFileList(sortValue);
     });
+
+    // Setup sidebar toggle
+    setupSidebarToggle();
 });
 
 ws.onopen = () => {
@@ -251,6 +254,34 @@ function selectFileFromPath(path) {
         console.warn(`File not found: ${path}`);
         // Optionally, redirect to home or show an error
     }
+}
+
+// Setup sidebar toggle functionality
+function setupSidebarToggle() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebar-toggle');
+    
+    // Restore sidebar state from localStorage
+    const isCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (isCollapsed) {
+        sidebar.classList.add('collapsed');
+        toggle.classList.add('collapsed');
+    }
+    
+    // Add click handler
+    toggle.addEventListener('click', () => {
+        const isCurrentlyCollapsed = sidebar.classList.contains('collapsed');
+        
+        if (isCurrentlyCollapsed) {
+            sidebar.classList.remove('collapsed');
+            toggle.classList.remove('collapsed');
+            localStorage.setItem('sidebar-collapsed', 'false');
+        } else {
+            sidebar.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+            localStorage.setItem('sidebar-collapsed', 'true');
+        }
+    });
 }
 
 // Handle browser back/forward navigation
