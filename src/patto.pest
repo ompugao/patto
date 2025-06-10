@@ -38,7 +38,7 @@ escape     = @{ "\\" ~ (predefined | byte | unicode) }
 img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 //local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
-local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|" ")+ ~ "." ~ LETTER+}
+local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|" ")+ ~ ("." ~ LETTER+)+}
 // /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
 
 

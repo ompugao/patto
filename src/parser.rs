@@ -1504,9 +1504,11 @@ mod tests {
         for (input, g_path, g_alt) in vec![
             ("[@img \"img alt title\" https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
             ("[@img https://gyazo.com/path/to/icon.png \"img alt title\"]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
+            ("[@img ./path/to/image.png.png \"alt title\"]", "./path/to/image.png.png", Some("alt title".to_string())),
             ("[@img https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", None),
             (r##"[@img ./local/path/to/icon.png "img escaped \"alt title"]"##, "./local/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string())),
             (r##"[@img ./local/with space/path/to/icon.png "img escaped \"alt title"]"##, "./local/with space/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string()))] {
+
             match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
                     let node = transform_img(parsed.next().unwrap(), input, 0, 0).ok_or("transform_img failed")?;
