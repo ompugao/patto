@@ -134,6 +134,7 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
+        .route("/static/*path", get(static_handler))
         .route("/notes/*path", get(file_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
@@ -176,7 +177,42 @@ async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) ->
     }
 }
 
-// Handler for file access (both notes and static files)
+// Handler for static files
+async fn static_handler(
+    AxumPath(path): AxumPath<String>,
+) -> impl IntoResponse {
+    match path.as_str() {
+        "js/idiomorph.min.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/idiomorph.min.js")))
+                .unwrap()
+        },
+        "js/mermaid.min.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/mermaid.min.js")))
+                .unwrap()
+        },
+        "js/app.js" => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(include_str!("../../static/js/app.js")))
+                .unwrap()
+        },
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("File not found"))
+                .unwrap()
+        }
+    }
+}
+
+// Handler for file access (notes only)
 async fn file_handler(
     AxumPath(path): AxumPath<String>,
     State(state): State<AppState>,

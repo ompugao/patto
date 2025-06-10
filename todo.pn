@@ -40,6 +40,6 @@ Todo:
 		bugfix: set page title using note's name
 		bugfix: history handling
 		feature: support sidebar folding
-		feature: support mermaid
+		[- feature: support mermaid]
 		feature: support printing
 		bugfix: Fix twitter embedding css
