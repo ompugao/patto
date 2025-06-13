@@ -1,3 +1,4 @@
+import Script from 'next/script';
 import "./globals.css";
 
 export const metadata = {
@@ -9,6 +10,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <Script src="/js/idiomorph.min.js" strategy="beforeInteractive" />
         {children}
       </body>
     </html>

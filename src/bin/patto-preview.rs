@@ -36,6 +36,7 @@ struct NextJsAssets;
 #[include = "*.ico"]
 #[include = "*.svg"]
 #[include = "*.txt"]
+#[include = "js/*.js"]
 struct NextJsRoot;
 
 // CLI argument parsing
@@ -196,6 +197,7 @@ async fn main() {
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/files/*path", get(user_files_handler))
         .route("/_next/*path", get(nextjs_static_handler))
+        .route("/js/*path", get(nextjs_public_handler))
         .route("/static/*path", get(static_handler))
         .route("/notes/*path", get(file_handler))
         .route("/favicon.ico", get(favicon_handler))
@@ -339,6 +341,33 @@ async fn nextjs_static_handler(
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("Next.js asset not found"))
+                .unwrap()
+        }
+    }
+}
+
+// Handler for Next.js public directory files (like /js/idiomorph.min.js)
+async fn nextjs_public_handler(
+    AxumPath(path): AxumPath<String>,
+) -> impl IntoResponse {
+    // The path comes as "idiomorph.min.js" from "/js/idiomorph.min.js" route
+    let full_path = format!("js/{}", path);
+    
+    // Try to get the file from the NextJsRoot embedded files
+    match NextJsRoot::get(&full_path) {
+        Some(content) => {
+            let content_type = get_content_type_from_path(&path);
+            
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(content.data))
+                .unwrap()
+        }
+        None => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(format!("Public file not found: {}", full_path)))
                 .unwrap()
         }
     }
