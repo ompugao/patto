@@ -158,9 +158,9 @@ impl HtmlRenderer {
                     src_exported = src.clone();
                 }
                 if let Some(alt) = alt {
-                    write!(output, "<img style=\"height:20em\" alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
+                    write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
                 } else {
-                    write!(output, "<img style=\"height:20em\" src=\"{}\"/>", src_exported)?;
+                    write!(output, "<img src=\"{}\"/>", src_exported)?;
                 }
             }
             AstNodeKind::WikiLink { link, anchor } => {

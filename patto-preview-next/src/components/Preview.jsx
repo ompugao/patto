@@ -1,5 +1,6 @@
 import parse from 'html-react-parser';
 import { useEffect, useCallback } from 'react';
+import styles from './Preview.module.css';
 
 export default function Preview({ html, anchor }) {
   // Enhanced anchor scrolling with retry mechanism
@@ -39,10 +40,50 @@ export default function Preview({ html, anchor }) {
     }
   }, [html, anchor, scrollToAnchor]);
 
+  // Transform function to rewrite links to use file API
+  const transformOptions = {
+    replace: (domNode) => {
+      if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.href) {
+        const href = domNode.attribs.href;
+        
+        // Check if this is a relative link to a local file (not starting with http/https/mailto/#)
+        if (!href.startsWith('http') && !href.startsWith('mailto:') && !href.startsWith('#') && !href.startsWith('/api/')) {
+          // Rewrite the href to use the file API
+          const newHref = `/api/files/${href}`;
+          
+          return (
+            <a {...domNode.attribs} href={newHref}>
+              {domNode.children && domNode.children.map((child, index) => {
+                if (child.type === 'text') {
+                  return child.data;
+                }
+                return parse(child, { key: index });
+              })}
+            </a>
+          );
+        }
+      }
+      
+      // Also handle img tags for completeness
+      if (domNode.type === 'tag' && domNode.name === 'img' && domNode.attribs && domNode.attribs.src) {
+        const src = domNode.attribs.src;
+        
+        // Check if this is a relative link to a local file
+        if (!src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/')) {
+          const newSrc = `/api/files/${src}`;
+          
+          return (
+            <img className={styles.preview_img} {...domNode.attribs} src={newSrc} />
+          );
+        }
+      }
+    }
+  };
+
   return (
     <div id="preview-content">
       {html ? (
-        parse(html)
+        parse(html, transformOptions)
       ) : (
         <div 
           className="empty-state" 

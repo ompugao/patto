@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State, WebSocketUpgrade},
     http::{header, StatusCode},
-    response::{Html, IntoResponse, Json, Response},
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -98,18 +98,64 @@ fn get_extension(path: &Path) -> String {
 // Helper function to get MIME type based on file extension
 fn get_mime_type(path: &Path) -> &str {
     match get_extension(path).as_str() {
+        // Web formats
         "html" => "text/html",
         "css" => "text/css",
         "js" => "application/javascript",
         "json" => "application/json",
+        
+        // Image formats
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "tiff" | "tif" => "image/tiff",
+        "ico" => "image/x-icon",
+        "heic" => "image/heic",
+        "avif" => "image/avif",
+        
+        // Video formats
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "avi" => "video/x-msvideo",
+        "mov" => "video/quicktime",
+        "wmv" => "video/x-ms-wmv",
+        "flv" => "video/x-flv",
+        "mkv" => "video/x-matroska",
+        "m4v" => "video/x-m4v",
+        
+        // Audio formats
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" | "oga" => "audio/ogg",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
+        "m4a" => "audio/mp4",
+        "wma" => "audio/x-ms-wma",
+        
+        // Document formats
         "pdf" => "application/pdf",
         "txt" => "text/plain",
         "md" => "text/markdown",
         "pn" => "text/plain",
+        "rtf" => "application/rtf",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        
+        // Archive formats
+        "zip" => "application/zip",
+        "rar" => "application/vnd.rar",
+        "7z" => "application/x-7z-compressed",
+        "tar" => "application/x-tar",
+        "gz" => "application/gzip",
+        
         _ => "application/octet-stream",
     }
 }
@@ -148,6 +194,7 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
+        .route("/api/files/*path", get(user_files_handler))
         .route("/_next/*path", get(nextjs_static_handler))
         .route("/static/*path", get(static_handler))
         .route("/notes/*path", get(file_handler))
@@ -204,6 +251,73 @@ async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) ->
             }
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch Twitter embed"}))),
+    }
+}
+
+// Handler for user files (images, videos, etc.) from note directory
+async fn user_files_handler(
+    AxumPath(path): AxumPath<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Decode the URL-encoded path
+    let path_cloned = path.clone();
+    let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path_cloned.into());
+    let file_path = state.dir.join(decoded_path.as_ref());
+
+    // Security check - ensure the path doesn't escape the base directory
+    let canonical_base = match std::fs::canonicalize(&state.dir) {
+        Ok(base) => base,
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Base directory error"))
+                .unwrap();
+        }
+    };
+
+    let canonical_file = match std::fs::canonicalize(&file_path) {
+        Ok(file) => file,
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("File not found"))
+                .unwrap();
+        }
+    };
+
+    // Ensure the file is within the base directory (prevent directory traversal)
+    if !canonical_file.starts_with(&canonical_base) {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from("Access denied"))
+            .unwrap();
+    }
+
+    // Check if the file exists and is actually a file (not a directory)
+    if !canonical_file.exists() || !canonical_file.is_file() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("File not found"))
+            .unwrap();
+    }
+
+    // Read and serve the file
+    match fs::read(&canonical_file).await {
+        Ok(contents) => {
+            let mime_type = get_mime_type(&canonical_file);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime_type)
+                .header(header::CACHE_CONTROL, "public, max-age=3600") // Cache for 1 hour
+                .body(Body::from(contents))
+                .unwrap()
+        },
+        Err(_) => {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Error reading file"))
+                .unwrap()
+        }
     }
 }
 
