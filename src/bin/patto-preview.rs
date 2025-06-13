@@ -13,6 +13,7 @@ use patto::{
     parser,
     renderer::{HtmlRenderer, Options, Renderer}
 };
+use rust_embed::RustEmbed;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -23,6 +24,19 @@ use tokio::{
     time::sleep,
 };
 use serde::{Serialize, Deserialize};
+
+// Embed Next.js static files
+#[derive(RustEmbed)]
+#[folder = "patto-preview-next/out/_next/"]
+struct NextJsAssets;
+
+#[derive(RustEmbed)]
+#[folder = "patto-preview-next/out/"]
+#[include = "*.html"]
+#[include = "*.ico"]
+#[include = "*.svg"]
+#[include = "*.txt"]
+struct NextJsRoot;
 
 // CLI argument parsing
 #[derive(Parser, Debug)]
@@ -134,8 +148,10 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
+        .route("/_next/*path", get(nextjs_static_handler))
         .route("/static/*path", get(static_handler))
         .route("/notes/*path", get(file_handler))
+        .route("/favicon.ico", get(favicon_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
 
@@ -147,9 +163,23 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-// Handler for the index page
-async fn index_handler() -> Html<String> {
-    Html(include_str!("../../static/index.html").to_string())
+// Handler for the index page (Next.js app)
+async fn index_handler() -> impl IntoResponse {
+    match NextJsRoot::get("index.html") {
+        Some(content) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(Body::from(content.data))
+                .unwrap()
+        }
+        None => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Index file not found"))
+                .unwrap()
+        }
+    }
 }
 
 // Handler for Twitter embed proxy
@@ -177,7 +207,72 @@ async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) ->
     }
 }
 
-// Handler for static files
+// Handler for Next.js static assets
+async fn nextjs_static_handler(
+    AxumPath(path): AxumPath<String>,
+) -> impl IntoResponse {
+    match NextJsAssets::get(&path) {
+        Some(content) => {
+            let content_type = get_content_type_from_path(&path);
+            
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(content.data))
+                .unwrap()
+        }
+        None => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Next.js asset not found"))
+                .unwrap()
+        }
+    }
+}
+
+// Handler for favicon
+async fn favicon_handler() -> impl IntoResponse {
+    match NextJsRoot::get("favicon.ico") {
+        Some(content) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "image/x-icon")
+                .body(Body::from(content.data))
+                .unwrap()
+        }
+        None => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Favicon not found"))
+                .unwrap()
+        }
+    }
+}
+
+// Helper function to determine content type from path
+fn get_content_type_from_path(path: &str) -> &'static str {
+    if path.ends_with(".js") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".html") {
+        "text/html"
+    } else if path.ends_with(".ico") {
+        "image/x-icon"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+// Handler for legacy static files (if needed)
 async fn static_handler(
     AxumPath(path): AxumPath<String>,
 ) -> impl IntoResponse {

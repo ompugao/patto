@@ -212,7 +212,7 @@ impl HtmlRenderer {
                     3..=isize::MAX => "xx-large",
                     _ => "",
                 };
-                write!(output, "<span style=\"font-size: {s}\">")?;
+                write!(output, "<span style=\"font-size: {s}; font-weight: bold\">")?;
                 if *italic {
                     write!(output, "<i>")?;
                 }
