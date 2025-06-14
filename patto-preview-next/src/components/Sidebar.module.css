@@ -2,9 +2,4 @@
 }
 .SidebarToggle {
 }
-@media print {
-  .Sidebar, .SidebarToggle {
-    display: none !important;
-  }
-}
 

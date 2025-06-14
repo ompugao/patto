@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 //import Image from 'next/image';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
 import hljs from 'highlight.js'
-import 'highlight.js/styles/hybrid.css';
+import 'highlight.js/styles/github.min.css';
 
 export default function Preview({ html, anchor, onSelectFile }) {
   const router = useRouter();
