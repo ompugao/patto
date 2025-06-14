@@ -52,7 +52,7 @@ code {
   /* Ensure images fit on the page */
   #preview-content img {
     max-width: 100% !important;
-    height: auto !important;
+    height: 20em !important;
     page-break-inside: avoid;
   }
   
