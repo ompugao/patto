@@ -1,10 +1,18 @@
-import parse from 'html-react-parser';
+import parse, { domToReact } from 'html-react-parser';
 import { useEffect, useCallback, useState } from 'react';
 import styles from './Preview.module.css';
 import Script from 'next/script';
+import Link from 'next/link';
+import { useClientRouter } from '../lib/router';
+import { useRouter } from 'next/navigation';
+//import Image from 'next/image';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
+import hljs from 'highlight.js'
+import 'highlight.js/styles/hybrid.css';
 
-export default function Preview({ html, anchor }) {
+export default function Preview({ html, anchor, onSelectFile }) {
+  const router = useRouter();
+
   // Enhanced anchor scrolling with retry mechanism
   const scrollToAnchor = useCallback((anchorId, attempts = 0) => {
     if (!anchorId) return;
@@ -57,7 +65,32 @@ export default function Preview({ html, anchor }) {
         }
       }
 
-      if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.href) {
+      if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-selflink" && domNode.attribs.href) {
+		// nothing required
+		return domNode;
+	  } else if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-wikilink" && domNode.attribs.href) {
+        const url_split = domNode.attribs.href.split('#');
+        const notename = url_split[0];
+        const anchor = (url_split.length > 1) ? url_split[1] : null;
+        const newHref = `/?note=${notename}`;
+        domNode.attribs.className = domNode.attribs.class;
+        delete domNode.attribs.class;
+        delete domNode.attribs.href;
+        // setting href reloads the whole page somehow. use onSelectFile instead for loading the preview content via websocket
+        return (
+          <Link {...domNode.attribs} href="#" onClick={evt => {
+            evt.preventDefault();
+            onSelectFile(notename, anchor);
+            }} >
+            {domNode.children && domNode.children.map((child, index) => {
+              if (child.type === 'text') {
+                return child.data;
+              }
+              return parse(child, { key: index });
+            })}
+          </Link>
+        );
+      } else if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.href) {
         const href = domNode.attribs.href;
         
         // Check if this is a relative link to a local file (not starting with http/https/mailto/#)
@@ -81,21 +114,38 @@ export default function Preview({ html, anchor }) {
       // Also handle img tags for completeness
       if (domNode.type === 'tag' && domNode.name === 'img' && domNode.attribs && domNode.attribs.src) {
         const src = domNode.attribs.src;
-        
+ 
         // Check if this is a relative link to a local file
         if (!src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/')) {
           const newSrc = `/api/files/${src}`;
-          
+
+          //domNode.attribs.className = domNode.attribs.class;
+          delete domNode.attribs.class;
           return (
-            <img className={styles.preview_img} {...domNode.attribs} src={newSrc} />
+            <img className={styles.PreviewImage} {...domNode.attribs} src={newSrc} />
           );
         }
+      }
+      if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-item') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
+        return <li className={styles.PattoItem} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
+      }
+      if (domNode.type === 'tag' && domNode.name === 'code') {
+        const result = hljs.highlightAuto(domNode.children[0].data);
+        const dom = parse(result.value);
+        
+        return (
+          <code className='hljs'>
+            {dom}
+          </code>
+        )
       }
     }
   };
 
   return (
-    <div id="preview-content">
+    <div id="preview-content" className={styles.PreviewContent}>
       {html ? (
         parse(html, transformOptions)
       ) : (

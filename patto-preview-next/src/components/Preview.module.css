@@ -1,3 +1,32 @@
-.preview_img {
-	height: 20em;
+.PreviewImage {
+  height: 20em;
+}
+
+.PreviewContent {
+}
+
+@media print {
+  .PreviewContent {
+    display: block;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+.PattoLine {
+  list-style-type: none;
+  min-height: 1em;
+}
+.PattoItem {
+  list-style-type: circle;
+  min-height: 1em;
+}
+/* Hide bullet points for empty list items */
+.PattoItem:empty {
+  list-style-type: none;
+}
+/* Also handle items that only contain whitespace */
+.PattoItem:blank {
+  list-style-type: none;
 }

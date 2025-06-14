@@ -1,3 +1,5 @@
+import styles from './Sidebar.module.css';
+
 export default function Sidebar({
   files,
   fileMetadata,
@@ -42,13 +44,13 @@ export default function Sidebar({
   return (
     <>
       <button
-        className={`sidebar-toggle${collapsed ? " collapsed" : ""}`}
+        className={styles.SidebarToggle}
         id="sidebar-toggle"
         onClick={onToggle}
         style={{
           position: 'fixed',
           bottom: '20px',
-          left: collapsed ? '5px' : '15px',
+          left: '15px',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           color: 'white',
           border: 'none',
@@ -67,15 +69,17 @@ export default function Sidebar({
         }}
       >☰</button>
       <div
-        className={`sidebar${collapsed ? " collapsed" : ""}`}
+        className={styles.Sidebar}
         id="sidebar"
         style={{
-          width: collapsed ? 0 : 250,
+          width: collapsed ? 250 : 250,
           overflowY: "auto",
-          transition: "margin-left 0.3s ease",
+          transition: "margin-left 0.5s ease, padding-left 0.5s, padding-right 0.5s",
           marginLeft: collapsed ? '-250px' : '0',
           backgroundColor: '#f5f5f5',
-          padding: collapsed ? 0 : '15px',
+          paddingTop: '15px',
+          paddingLeft: collapsed ? 0 : '15px',
+          paddingRight: collapsed ? 0 : '15px',
           borderRight: '1px solid #e0e0e0',
         }}
       >

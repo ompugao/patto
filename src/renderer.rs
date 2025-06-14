@@ -40,7 +40,7 @@ impl HtmlRenderer {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    write!(output, "<li style=\"list-style-type: none; min-height: 1em;\">")?;
+                    write!(output, "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\">")?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -158,25 +158,25 @@ impl HtmlRenderer {
                     src_exported = src.clone();
                 }
                 if let Some(alt) = alt {
-                    write!(output, "<img alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
+                    write!(output, "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
                 } else {
-                    write!(output, "<img src=\"{}\"/>", src_exported)?;
+                    write!(output, "<img class=\"patto-image\" src=\"{}\"/>", src_exported)?;
                 }
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
                     // TODO eliminate the logic that self-link if link is empty
                     if link.is_empty() {
-                        write!(output, "<a href=\"#{}\">#{}</a>", anchor, anchor)?;
+                        write!(output, "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>", anchor, anchor)?;
                     } else {
                         write!(
                             output,
-                            "<a href=\"{}.pn#{}\">{}#{}</a>",
+                            "<a class=\"patto-wikilink\" href=\"{}.pn#{}\">{}#{}</a>",
                             link, anchor, link, anchor
                         )?;
                     }
                 } else {
-                    write!(output, "<a href=\"{}.pn\">{}</a>", link, link)?;
+                    write!(output, "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>", link, link)?;
                 }
             }
             AstNodeKind::Link { link, title } => {
@@ -188,7 +188,7 @@ impl HtmlRenderer {
                     // Render as placeholder that can be enhanced client-side
                     write!(
                         output,
-                        "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a> <small>(Loading embed...)</small></div>",
+                        "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
                         link, link, title.as_deref().unwrap_or(link)
                     )?;
                 } else if let Some(title) = title {
