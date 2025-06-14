@@ -1,11 +1,10 @@
 import parse from 'html-react-parser';
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import styles from './Preview.module.css';
+import Script from 'next/script';
+import Tweet, {extractTwitterId} from './Tweet.jsx';
 
 export default function Preview({ html, anchor }) {
-  const [twitterEmbeds, setTwitterEmbeds] = useState({});
-  const previewRef = useRef(null);
-
   // Enhanced anchor scrolling with retry mechanism
   const scrollToAnchor = useCallback((anchorId, attempts = 0) => {
     if (!anchorId) return;
@@ -43,131 +42,21 @@ export default function Preview({ html, anchor }) {
     }
   }, [html, anchor, scrollToAnchor]);
 
-  // Check if idiomorph is loaded
-  // Function to load Twitter embed
-  const loadTwitterEmbed = useCallback(async (url) => {
-    console.log('=== loadTwitterEmbed called ===');
-    console.log('URL:', url);
-    console.log('Current twitterEmbeds state:', twitterEmbeds);
-    
-    // Mark as loading to prevent duplicate requests
-    setTwitterEmbeds(prev => {
-      console.log('Previous state:', prev);
-      if (prev[url] !== undefined) {
-        console.log('Already exists, skipping:', prev[url]);
-        return prev; // Already loaded/loading/failed
-      }
-      console.log('Setting to loading state');
-      return { ...prev, [url]: 'loading' };
-    });
-    
-    try {
-      console.log('Making fetch request to:', `/api/twitter-embed?url=${encodeURIComponent(url)}`);
-      const response = await fetch(`/api/twitter-embed?url=${encodeURIComponent(url)}`);
-      console.log('Twitter embed response status:', response.status);
-      console.log('Response headers:', response.headers);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Twitter embed data received:', data);
-        console.log('Setting embed HTML:', data.html);
-        setTwitterEmbeds(prev => {
-          const newState = {
-            ...prev,
-            [url]: data.html || null
-          };
-          console.log('New twitterEmbeds state:', newState);
-          return newState;
-        });
-      } else {
-        const errorText = await response.text();
-        console.error('Twitter embed API error:', response.status, response.statusText, errorText);
-        setTwitterEmbeds(prev => ({
-          ...prev,
-          [url]: null
-        }));
-      }
-    } catch (error) {
-      console.error('Error loading Twitter embed:', error);
-      setTwitterEmbeds(prev => ({
-        ...prev,
-        [url]: null
-      }));
-    }
-  }, []); // Remove twitterEmbeds dependency to prevent infinite loop
-
-  // Effect to load Twitter embeds when HTML changes
-  useEffect(() => {
-    if (!html) return;
-
-    // Create a temporary DOM element to parse HTML and find Twitter placeholders
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    const twitterPlaceholders = tempDiv.querySelectorAll('.twitter-placeholder[data-url]');
-    
-    twitterPlaceholders.forEach(placeholder => {
-      const url = placeholder.getAttribute('data-url');
-      if (url && twitterEmbeds[url] === undefined) {
-        loadTwitterEmbed(url);
-      }
-    });
-  }, [html, loadTwitterEmbed, twitterEmbeds]);
-
-  // Effect to update Twitter embeds in DOM using idiomorph when embed data changes
-  useEffect(() => {
-    console.log('=== Morphing effect triggered ===');
-    console.log('previewRef.current:', previewRef.current);
-    console.log('twitterEmbeds state:', twitterEmbeds);
-    
-    if (!previewRef.current) return;
-
-    // Find Twitter placeholders in the current DOM - convert to array to avoid issues with DOM modification
-    const placeholders = Array.from(previewRef.current.querySelectorAll('.twitter-placeholder[data-url]'));
-    console.log('Found placeholders:', placeholders.length);
-    
-    placeholders.forEach((placeholder, index) => {
-      const url = placeholder.getAttribute('data-url');
-      const embedHtml = twitterEmbeds[url];
-      console.log(`Placeholder ${index}: URL=${url}, embedHtml=${embedHtml ? 'has data' : embedHtml}`);
-      
-      if (embedHtml && embedHtml !== 'loading') {
-        // Use idiomorph to replace the placeholder with the actual embed
-        if (window.Idiomorph) {
-          console.log('Morphing Twitter embed for:', url);
-          console.log('Idiomorph available:', typeof window.Idiomorph);
-          console.log('Placeholder element:', placeholder);
-          console.log('Embed HTML:', embedHtml);
-          
-          try {
-            // Idiomorph.morph expects (fromNode, toHtml)
-            window.Idiomorph.morph(placeholder, embedHtml);
-          } catch (error) {
-            console.error('Idiomorph.morph failed:', error);
-            // Fallback to direct replacement
-            placeholder.outerHTML = embedHtml;
-          }
-        } else {
-          console.log('Idiomorph not available, using fallback');
-          placeholder.outerHTML = embedHtml;
-        }
-      } else if (twitterEmbeds[url] === null) {
-        // Replace with error message using idiomorph
-        const errorHtml = `<div style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; background-color: #f9f9f9;"><p>Failed to load Twitter embed</p><a href="${url}">${url}</a></div>`;
-        if (window.Idiomorph) {
-          console.log('Morphing Twitter error for:', url);
-          window.Idiomorph.morph(placeholder, errorHtml);
-        } else {
-          placeholder.outerHTML = errorHtml;
-        }
-      } else if (twitterEmbeds[url] === 'loading') {
-        // Do nothing
-      }
-    });
-  }, [twitterEmbeds]);
-
-  // Transform function to rewrite links to use file API
+  // Transform function to handle Twitter embeds and rewrite links
   const transformOptions = {
     replace: (domNode) => {
+      // Handle Twitter placeholders
+      if (domNode.type === 'tag' && domNode.name === 'div' && 
+          domNode.attribs && domNode.attribs.class === 'twitter-placeholder') {
+        const url = domNode.attribs['data-url'];
+        const id = extractTwitterId(url);
+        if (id !== undefined) {
+          return <Tweet id={id}/>
+        } else {
+          return domNode;
+        }
+      }
+
       if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.href) {
         const href = domNode.attribs.href;
         
@@ -206,7 +95,7 @@ export default function Preview({ html, anchor }) {
   };
 
   return (
-    <div id="preview-content" ref={previewRef}>
+    <div id="preview-content">
       {html ? (
         parse(html, transformOptions)
       ) : (
@@ -224,6 +113,12 @@ export default function Preview({ html, anchor }) {
           Select a file to preview
         </div>
       )}
+
+      <Script
+        id="twitter-embed-script"
+        src="https://platform.twitter.com/widgets.js"
+        strategy="beforeInteractive"
+      />
     </div>
   );
 }
