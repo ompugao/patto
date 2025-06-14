@@ -124,6 +124,9 @@ export default function Preview({ html, anchor, onSelectFile }) {
           return (
             <img className={styles.PreviewImage} {...domNode.attribs} src={newSrc} />
           );
+        } else {
+          delete domNode.attribs.class;
+          return <img className={styles.PreviewImage} {...domNode.attribs} />;
         }
       }
       if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-item') {
