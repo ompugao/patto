@@ -58,7 +58,7 @@ export default function Preview({ html, anchor, onSelectFile }) {
           domNode.attribs && domNode.attribs.class === 'twitter-placeholder') {
         const url = domNode.attribs['data-url'];
         const id = extractTwitterId(url);
-        if (id !== undefined) {
+        if (id !== undefined && id !== null) {
           return <Tweet id={id}/>
         } else {
           return domNode;
