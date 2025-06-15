@@ -84,6 +84,28 @@ export default function PattoApp() {
     }
   }, [currentNote, sendMessage]);
 
+  // Update browser tab title
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (currentNote) {
+        document.title = `${currentNote} - Patto Preview`;
+      } else {
+        document.title = 'Patto Preview';
+      }
+    }
+  }, [currentNote]);
+
+  // Set initial title from URL on first load
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const noteParam = urlParams.get('note');
+      if (noteParam && !currentNote) {
+        document.title = `${noteParam} - Patto Preview`;
+      }
+    }
+  }, []); // Run only once on mount
+
   // Handle sort preference changes
   const handleSortChange = useCallback((newSort) => {
     setSortBy(newSort);
