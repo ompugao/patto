@@ -37,9 +37,9 @@ Todo:
 		fix indentation error at a line after a block with trailing empty lines
 	Previewer
 		[- realtime preview]
-		bugfix: id jump (including self-link)
-		bugfix: set page title using note's name
-		bugfix: history handling
+		[- bugfix: id jump (including self-link)]
+		[- bugfix: set page title using note's name]
+		[- bugfix: history handling]
 		[- feature: support sidebar folding]
 		[- feature: support mermaid]
 		[- feature: support printing]
