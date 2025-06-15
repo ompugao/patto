@@ -10,6 +10,21 @@ import Tweet, {extractTwitterId} from './Tweet.jsx';
 import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.min.css';
+import { MathJaxContext, MathJax } from 'better-react-mathjax';
+
+const mathJaxConfig = {
+  loader: { load: ["[tex]/html"] },
+  tex: {
+    packages: { "[+]": ["html"] },
+    inlineMath: [["\\(", "\\)"]],
+    displayMath: [["\\[", "\\]"]],
+    processEscapes: true,
+    processEnvironments: true
+  },
+  options: {
+    skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code", "a"]
+  }
+};
 
 export default function Preview({ html, anchor, onSelectFile }) {
   const router = useRouter();
@@ -159,30 +174,34 @@ export default function Preview({ html, anchor, onSelectFile }) {
   };
 
   return (
-    <div id="preview-content" className={styles.PreviewContent}>
-      {html ? (
-        parse(html, transformOptions)
-      ) : (
-        <div 
-          className="empty-state" 
-          style={{ 
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#888',
-            fontStyle: 'italic'
-          }}
-        >
-          Select a file to preview
-        </div>
-      )}
+    <MathJaxContext config={mathJaxConfig}>
+      <div id="preview-content" className={styles.PreviewContent}>
+        {html ? (
+          <MathJax dynamic>
+            {parse(html, transformOptions)}
+          </MathJax>
+        ) : (
+          <div 
+            className="empty-state" 
+            style={{ 
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: '#888',
+              fontStyle: 'italic'
+            }}
+          >
+            Select a file to preview
+          </div>
+        )}
 
-      <Script
-        id="twitter-embed-script"
-        src="https://platform.twitter.com/widgets.js"
-        strategy="beforeInteractive"
-      />
-    </div>
+        <Script
+          id="twitter-embed-script"
+          src="https://platform.twitter.com/widgets.js"
+          strategy="beforeInteractive"
+        />
+      </div>
+    </MathJaxContext>
   );
 }

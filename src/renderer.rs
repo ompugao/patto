@@ -112,18 +112,18 @@ impl HtmlRenderer {
             }
             AstNodeKind::Math{inline} => {
                 if *inline {
-                    write!(output, "$$ ")?;
+                    write!(output, "\\(")?;
                     let contents = ast.value().contents.lock().unwrap();
                     write!(output, "{}", contents[0].extract_str())?; //TODO html escape?
-                    write!(output, " $$")?;
+                    write!(output, "\\)")?;
                 } else {
-                    write!(output, "[[ ")?;
+                    write!(output, "\\[")?;
                     let children = ast.value().children.lock().unwrap();
                     for child in children.iter() {
                         write!(output, "{}", child.extract_str())?;
                         write!(output, "\n")?;
                     }
-                    write!(output, " ]]")?;
+                    write!(output, "\\]")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {
@@ -336,15 +336,15 @@ impl MarkdownRenderer {
             }
             AstNodeKind::Math{inline} => {
                 if *inline {
-                    write!(output, "$$ ")?;
+                    write!(output, "\\(")?;
                     write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
-                    write!(output, " $$")?;
+                    write!(output, "\\)")?;
                 } else {
-                    write!(output, "[[ \n")?;
+                    write!(output, "\\[\n")?;
                     for child in ast.value().children.lock().unwrap().iter() {
                         write!(output, "{}\n", child.extract_str())?;
                     }
-                    write!(output, " ]]\n")?;
+                    write!(output, "\\]\n")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {

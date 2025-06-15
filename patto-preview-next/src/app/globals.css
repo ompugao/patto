@@ -110,6 +110,24 @@ code {
     widows: 3;
   }
   
+  /* MathJax equations for print */
+  #preview-content .MathJax {
+    font-size: 12pt !important;
+    color: black !important;
+    page-break-inside: avoid;
+  }
+
+  #preview-content .MathJax_Display {
+    margin: 1em 0 !important;
+    text-align: center !important;
+    page-break-inside: avoid;
+  }
+
+  /* Inline math should not break across lines */
+  #preview-content .MathJax_Preview {
+    display: none !important;
+  }
+
   /* Remove any shadows, transitions, etc. */
   * {
     box-shadow: none !important;

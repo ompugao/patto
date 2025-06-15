@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@lightenna/react-mermaid-diagram": "^1.0.20",
+    "better-react-mathjax": "^2.3.0",
     "highlight.js": "^11.11.1",
     "html-react-parser": "^5.2.5",
     "mermaid": "^11.6.0",
