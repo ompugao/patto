@@ -121,11 +121,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'npm'
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
