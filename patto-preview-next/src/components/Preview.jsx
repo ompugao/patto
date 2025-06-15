@@ -144,10 +144,11 @@ export default function Preview({ html, anchor, onSelectFile }) {
             return <MermaidDiagram>{mermaidCode}</MermaidDiagram>;
           }
         }
-
+      }
+      if (domNode.type === 'tag' && domNode.name === 'code') {
         const result = hljs.highlightAuto(domNode.children[0].data);
         const dom = parse(result.value);
-        
+
         return (
           <code className='hljs'>
             {dom}
