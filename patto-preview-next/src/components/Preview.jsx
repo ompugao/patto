@@ -7,6 +7,7 @@ import { useClientRouter } from '../lib/router';
 import { useRouter } from 'next/navigation';
 //import Image from 'next/image';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
+import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.min.css';
 
@@ -134,7 +135,16 @@ export default function Preview({ html, anchor, onSelectFile }) {
         delete domNode.attribs.style;
         return <li className={styles.PattoItem} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
       }
-      if (domNode.type === 'tag' && domNode.name === 'code') {
+      // Handle mermaid diagrams
+      if (domNode.type === 'tag' && domNode.name === 'pre') {
+        // Check if this is a mermaid code block
+        if (domNode.attribs && domNode.attribs.class && domNode.attribs.class.includes('mermaid')) {
+          const mermaidCode = domNode.children && domNode.children[0] && domNode.children[0].data;
+          if (mermaidCode) {
+            return <MermaidDiagram>{mermaidCode}</MermaidDiagram>;
+          }
+        }
+
         const result = hljs.highlightAuto(domNode.children[0].data);
         const dom = parse(result.value);
         
