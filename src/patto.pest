@@ -6,11 +6,11 @@
 
 line = ${ expr_command | statement }
 //statement = ${ raw_sentence ~ trailing_properties }
-statement = ${ SOI ~ ((expr_anchor | expr_task) | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link| expr_mail_link| expr_wiki_link | expr_property | expr_hr | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
+statement = ${ SOI ~ ((expr_anchor | expr_task) | (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_local_file_link|expr_mail_link| expr_wiki_link | expr_property | expr_hr | raw_sentence)*) ~ trailing_properties? ~ WHITE_SPACE_INLINE* ~ EOI}
 raw_sentence = @{ (!("[" | "]" | "{@" | WHITE_SPACE_INLINE+ ~ expr_anchor | WHITE_SPACE_INLINE+ ~ expr_task) ~ ANY)+ }
 expr_hr = @{ "-"{5,} }
 // WARN: statement_nestable must be the subset of statement
-statement_nestable = ${ (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
+statement_nestable = ${ (expr_img|expr_builtin_symbols|expr_code_inline|expr_math_inline|expr_url_link|expr_local_file_link|expr_mail_link|expr_wiki_link  | raw_sentence)* }
 
 expr_builtin_symbols = ${"[" ~ builtin_symbols ~ WHITE_SPACE_INLINE+ ~ statement_nestable ~"]"}
 builtin_symbols = { (symbol_bold | symbol_italic | symbol_underline | symbol_deleted)+ }
@@ -38,6 +38,7 @@ escape     = @{ "\\" ~ (predefined | byte | unicode) }
 img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 //local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
+//local_file = @{"./" ~ (!"]" ~ !("\"") ~ ANY)*}
 local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|" ")+ ~ ("." ~ LETTER+)+}
 // /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
 
@@ -48,8 +49,8 @@ wiki_link = @{ (!("[" | "]" | "://" | "#") ~ ANY)+ }  // should we exclude "." a
 self_link_anchored = { expr_anchor }
 
 expr_url_link = ${"[" ~ (expr_title_url | expr_url_title | expr_url_url | expr_url_only )  ~ "]"}
-expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 expr_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
+expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 expr_url_only = ${url_only}
 expr_url_url = ${url_only ~ WHITE_SPACE_INLINE+ ~ url_only}
 url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_char_except_space+)}
@@ -57,6 +58,13 @@ non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
 // non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
 URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_")+}
+
+expr_local_file_link = ${"[" ~ (expr_local_file_title | expr_title_local_file | expr_local_file_only) ~ "]"}
+expr_title_local_file = ${local_file_title ~ WHITE_SPACE_INLINE+ ~ local_file}
+expr_local_file_title = ${local_file ~ WHITE_SPACE_INLINE+ ~ local_file_title}
+expr_local_file_only = ${local_file}
+local_file_title = @{ ((local_file_char)+ ~ (" "+))* ~ (local_file_char+)}
+local_file_char = @{ (!("./"|"["|"]"|" ") ~ ANY) }
 
 expr_mail_link = ${"[" ~ (expr_title_mail | expr_mail_title | expr_mail_mail | expr_mail_only )  ~ "]"}
 expr_mail_title = ${MAIL ~ WHITE_SPACE_INLINE+ ~ mail_title}

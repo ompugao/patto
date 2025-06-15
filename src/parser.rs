@@ -921,6 +921,56 @@ fn transform_url_link<'a>(
     }
 }
 
+fn transform_local_file_link<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode> {
+    let inner = pair.into_inner().next().unwrap();
+    let span = Into::<Span>::into(inner.as_span()) + indent;
+    match inner.as_rule() {
+        Rule::expr_local_file_title => {
+            let mut inner2 = inner.into_inner();
+            let local_file = inner2.next().unwrap();
+            let title = inner2.next().unwrap();
+            Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                local_file.as_str(),
+                Some(title.as_str()),
+            ))
+        }
+        Rule::expr_title_local_file => {
+            let mut inner2 = inner.into_inner();
+            let title = inner2.next().unwrap();
+            let local_file = inner2.next().unwrap();
+            Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                local_file.as_str(),
+                Some(title.as_str()),
+            ))
+        }
+        Rule::expr_local_file_only => {
+            let mut inner2 = inner.into_inner();
+            let local_file = inner2.next().unwrap();
+            Some(AstNode::link(
+                line,
+                row,
+                Some(span),
+                local_file.as_str(),
+                None,
+            ))
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+}
+
 fn transform_mail_link<'a>(
     pair: Pair<'a, Rule>,
     line: &'a str,
@@ -1135,6 +1185,11 @@ fn transform_statement<'a>(
             }
             Rule::expr_url_link => {
                 if let Some(node) = transform_url_link(inner, line, row, indent) {
+                    nodes.push(node);
+                }
+            }
+            Rule::expr_local_file_link => {
+                if let Some(node) = transform_local_file_link(inner, line, row, indent) {
                     nodes.push(node);
                 }
             }
@@ -1547,6 +1602,37 @@ mod tests {
                             match &link.kind() {
                                 AstNodeKind::Link { link, title } => {
                                     assert_eq!(link, g_url);
+                                    //assert!(title.is_some());
+                                    assert_eq!(*title, g_title);
+                                }
+                                _ => {
+                                    panic! {"link is not correctly parse {:?}", link};
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("{e}");
+                        return Err(Box::new(e));
+                    }
+                }
+            }
+        Ok(())
+    }
+    #[test]
+    fn test_parse_local_files() -> Result<(), Box<dyn std::error::Error>> {
+        for (input, g_local_file, g_title) in [
+            ("[./asset/to/image.png path to image]", "./asset/to/image.png", Some("path to image".to_string())),
+            ("[./nested/path/image.png path to image]", "./nested/path/image.png", Some("path to image".to_string())),
+            ("[title of file ./path/to/file.pdf]", "./path/to/file.pdf", Some("title of file".to_string())),
+            ("[./path/to/only_local_file.pdf]", "./path/to/only_local_file.pdf", None),] {
+                println!("parsing {input}");
+                match PattoLineParser::parse(Rule::expr_local_file_link, input) {
+                    Ok(mut parsed) => {
+                        if let Some(link) = transform_local_file_link(parsed.next().unwrap(), input, 0, 0) {
+                            match &link.kind() {
+                                AstNodeKind::Link { link, title } => {
+                                    assert_eq!(link, g_local_file);
                                     //assert!(title.is_some());
                                     assert_eq!(*title, g_title);
                                 }

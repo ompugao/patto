@@ -150,6 +150,9 @@ fn get_mime_type(path: &Path) -> &str {
         "ppt" => "application/vnd.ms-powerpoint",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         
+        // Programming languages
+        "py" => "text/x-python",
+
         // Archive formats
         "zip" => "application/zip",
         "rar" => "application/vnd.rar",
