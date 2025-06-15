@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 //import Image from 'next/image';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
 import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
-import hljs from 'highlight.js'
+import LazyCode from './LazyCode.jsx';
 import 'highlight.js/styles/github.min.css';
 import { MathJaxContext, MathJax } from 'better-react-mathjax';
 
@@ -160,14 +160,10 @@ export default function Preview({ html, anchor, onSelectFile }) {
         }
       }
       if (domNode.type === 'tag' && domNode.name === 'code') {
-        const result = hljs.highlightAuto(domNode.children[0].data);
-        const dom = parse(result.value);
+        const codeText = domNode.children[0]?.data || '';
+        const language = domNode.attribs?.class?.replace('language-', '') || '';
 
-        return (
-          <code className='hljs'>
-            {dom}
-          </code>
-        )
+        return <LazyCode code={codeText} language={language} />;
       }
     }
   };
