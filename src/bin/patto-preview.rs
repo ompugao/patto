@@ -198,8 +198,6 @@ async fn main() {
         .route("/api/files/*path", get(user_files_handler))
         .route("/_next/*path", get(nextjs_static_handler))
         .route("/js/*path", get(nextjs_public_handler))
-        .route("/static/*path", get(static_handler))
-        .route("/notes/*path", get(file_handler))
         .route("/favicon.ico", get(favicon_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
@@ -415,108 +413,6 @@ fn get_content_type_from_path(path: &str) -> &'static str {
     }
 }
 
-// Handler for legacy static files (if needed)
-async fn static_handler(
-    AxumPath(path): AxumPath<String>,
-) -> impl IntoResponse {
-    match path.as_str() {
-        "js/idiomorph.min.js" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/javascript")
-                .body(Body::from(include_str!("../../static/js/idiomorph.min.js")))
-                .unwrap()
-        },
-        "js/mermaid.min.js" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/javascript")
-                .body(Body::from(include_str!("../../static/js/mermaid.min.js")))
-                .unwrap()
-        },
-        "js/app.js" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/javascript")
-                .body(Body::from(include_str!("../../static/js/app.js")))
-                .unwrap()
-        },
-        "js/highlight.min.js" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/javascript")
-                .body(Body::from(include_str!("../../static/js/highlight.min.js")))
-                .unwrap()
-        },
-        "css/github.min.css" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/css")
-                .body(Body::from(include_str!("../../static/css/github.min.css")))
-                .unwrap()
-        },
-        "css/style.css" => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/css")
-                .body(Body::from(include_str!("../../static/css/style.css")))
-                .unwrap()
-        },
-        _ => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("File not found"))
-                .unwrap()
-        }
-    }
-}
-
-// Handler for file access (notes only)
-async fn file_handler(
-    AxumPath(path): AxumPath<String>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let file_path = state.dir.join(&path);
-
-    // Check if the file exists
-    if !file_path.exists() {
-        // If file doesn't exist, serve the SPA (for client-side routing)
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/html")
-            .body(Body::from(include_str!("../../static/index.html").to_string()))
-            .unwrap();
-    }
-
-    // If it's a patto file, serve the SPA (client will handle rendering)
-    if get_extension(&file_path) == "pn" {
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/html")
-            .body(Body::from(include_str!("../../static/index.html").to_string()))
-            .unwrap();
-    }
-
-    // For other file types, serve the file directly
-    match fs::read(&file_path).await {
-        Ok(contents) => {
-            let mime_type = get_mime_type(&file_path);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, mime_type)
-                .body(Body::from(contents))
-                .unwrap()
-        },
-        Err(_) => {
-            // If there's an error reading the file, return 404
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("File not found"))
-                .unwrap()
-        }
-    }
-}
-
 // WebSocket handler
 async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -689,12 +585,6 @@ fn collect_patto_files_with_metadata(dir: &Path, base_dir: &Path, files: &mut Ve
             }
         }
     }
-}
-
-// Helper function to collect patto files (legacy for compatibility)
-fn collect_patto_files(dir: &Path, base_dir: &Path, files: &mut Vec<String>) {
-    let mut metadata = HashMap::new();
-    collect_patto_files_with_metadata(dir, base_dir, files, &mut metadata);
 }
 
 // Count links in a patto file using the parser
