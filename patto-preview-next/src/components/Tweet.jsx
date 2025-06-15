@@ -1,27 +1,47 @@
 import React, { useEffect, useRef } from 'react';
 
+let twitterScriptLoaded = false;
+
 export default function Tweet({ id }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    // @ts-expect-error
-    window.twttr?.widgets.load(ref.current);
+    const loadTwitterScript = () => {
+      if (!twitterScriptLoaded && typeof window !== 'undefined') {
+        const script = document.createElement('script');
+        script.src = 'https://platform.twitter.com/widgets.js';
+        script.async = true;
+        script.onload = () => {
+          twitterScriptLoaded = true;
+          loadWidget();
+        };
+        document.head.appendChild(script);
+      } else {
+        loadWidget();
+      }
+    };
+
+    const loadWidget = () => {
+      if (window.twttr && window.twttr.widgets && ref.current) {
+        // Don't clear innerHTML, just load widgets on existing content
+        // @ts-expect-error
+        window.twttr.widgets.load(ref.current);
+      } else if (twitterScriptLoaded) {
+        // Retry if Twitter script is loaded but widgets not ready
+        setTimeout(loadWidget, 100);
+      }
+    };
+
+    loadTwitterScript();
   }, [id]);
 
   return (
-    <div
-      dangerouslySetInnerHTML={{ __html: generateEmbedHtml(id) }}
-      ref={ref}
-    />
+    <div ref={ref}>
+      <blockquote className="twitter-tweet">
+        <a href={`https://twitter.com/x/status/${id}`}></a>
+      </blockquote>
+    </div>
   );
-};
-
-function generateEmbedHtml(id) {
-  if (!/^\d+$/u.test(id)) {
-    throw new Error(`Invalid tweet ID: ${id}`);
-  }
-
-  return `<blockquote class="twitter-tweet"><a href="https://twitter.com/x/status/${id}"></a></blockquote>`;
 };
 
 export function extractTwitterId(url) {

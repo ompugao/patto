@@ -1,7 +1,6 @@
 import parse, { domToReact } from 'html-react-parser';
 import { useEffect, useCallback, useState } from 'react';
 import styles from './Preview.module.css';
-import Script from 'next/script';
 import Link from 'next/link';
 import { useClientRouter } from '../lib/router';
 import { useRouter } from 'next/navigation';
@@ -75,7 +74,7 @@ export default function Preview({ html, anchor, onSelectFile }) {
         const url = domNode.attribs['data-url'];
         const id = extractTwitterId(url);
         if (id !== undefined && id !== null) {
-          return <Tweet id={id}/>
+          return <Tweet key={`tweet-${id}`} id={id}/>
         } else {
           return domNode;
         }
@@ -196,11 +195,6 @@ export default function Preview({ html, anchor, onSelectFile }) {
           </div>
         )}
 
-        <Script
-          id="twitter-embed-script"
-          src="https://platform.twitter.com/widgets.js"
-          strategy="beforeInteractive"
-        />
       </div>
     </MathJaxContext>
   );
