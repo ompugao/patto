@@ -104,17 +104,29 @@ export default function Sidebar({
           {sortedFiles.map((file) => (
             <li
               key={file}
-              onClick={() => onSelectFile(file)}
               className={file === currentFile ? "active" : ""}
               style={{
-                cursor: "pointer",
                 background: file === currentFile ? "#ddeeff" : undefined,
                 fontWeight: file === currentFile ? "bold" : undefined,
-                padding: "8px 0",
                 borderBottom: "1px solid #e0e0e0",
               }}
             >
-              {file}
+              <a
+                href={`/?note=${encodeURIComponent(file)}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onSelectFile(file);
+                }}
+                style={{
+                  display: "block",
+                  padding: "8px 0",
+                  textDecoration: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                {file}
+              </a>
             </li>
           ))}
         </ul>
