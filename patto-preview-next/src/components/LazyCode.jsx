@@ -9,6 +9,12 @@ export default function LazyCode({ code, language }) {
   const [highlightedHtml, setHighlightedHtml] = useState('');
 
   useEffect(() => {
+    // Reset highlighted state when code changes
+    setHighlighted(false);
+    setHighlightedHtml('');
+  }, [code, language]);
+
+  useEffect(() => {
     if (!ref.current) return;
 
     const observer = new IntersectionObserver(
