@@ -109,7 +109,7 @@ export default function Preview({ html, anchor, onSelectFile }) {
         const href = domNode.attribs.href;
         
         // Check if this is a relative link to a local file (not starting with http/https/mailto/#)
-        if (!href.startsWith('http') && !href.startsWith('mailto:') && !href.startsWith('#') && !href.startsWith('/api/')) {
+        if (!href.startsWith('http') && !href.startsWith('zotero:') && !href.startsWith('mailto:') && !href.startsWith('#') && !href.startsWith('/api/')) {
           // Rewrite the href to use the file API
           const newHref = `/api/files/${href}`;
           
