@@ -56,7 +56,7 @@ Links:
 	title and url can be flipped:
 		[url title https://google.com]
 	link to an image
-		[@img https://placehold.co/100]
+		[@img https://placehold.co/100.png "alt string"]
 
 Code highlight with highlight.js
 	[@code python]
