@@ -117,13 +117,13 @@ impl HtmlRenderer {
                     write!(output, "{}", contents[0].extract_str())?; //TODO html escape?
                     write!(output, "\\)")?;
                 } else {
-                    write!(output, "\\[")?;
+                    // see https://github.com/mathjax/MathJax/issues/2312
+                    write!(output, "\\[\\displaylines{{")?;
                     let children = ast.value().children.lock().unwrap();
                     for child in children.iter() {
                         write!(output, "{}", child.extract_str())?;
-                        write!(output, "\n")?;
                     }
-                    write!(output, "\\]")?;
+                    write!(output, "}}\\]")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {
@@ -340,11 +340,12 @@ impl MarkdownRenderer {
                     write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
                     write!(output, "\\)")?;
                 } else {
-                    write!(output, "\\[\n")?;
+                    // see https://github.com/mathjax/MathJax/issues/2312
+                    write!(output, "\\[\\displaylines{{")?;
                     for child in ast.value().children.lock().unwrap().iter() {
-                        write!(output, "{}\n", child.extract_str())?;
+                        write!(output, "{}", child.extract_str())?;
                     }
-                    write!(output, "\\]\n")?;
+                    write!(output, "}}\\]")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {
