@@ -161,7 +161,7 @@ please refer to [todo](./todo.md)
 ## FAQ
 ### Why not Markdown?
 The differences in behavior between Markdown parsers led me to create the Patto format.
-For example, in GitHub Markdown, code fences can be contained within a list item, whereas in Obsidian, they cannot:
+For example, in GitHub Markdown, code fences can be contained within a list item, whereas in Obsidian, they cannot (ref [Code Block Indentation](https://forum.obsidian.md/t/code-block-indentation/43966)):
 
 - item
 - ```python
