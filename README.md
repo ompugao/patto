@@ -71,6 +71,9 @@ Math with MathJax
 	inline math: [$ O(n log(n)) $]
 ```
 
+which is rendered as follows:  
+<img src="https://github.com/user-attachments/assets/0831c133-839d-4ea9-871a-24881431b179" height="640px" />
+
 ### Line property
 A text in the form of `{@XXX YYY=ZZZ}` is named as `line property` and adds an property to the line (not the whole text).
 Currently, `anchor` and `task` properties are implemented:
