@@ -12,6 +12,7 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 
 ## Features
 * Primary [Zettelkasten](https://zettelkasten.de/introduction/) support
+* Real-time Preview support
 * Task management with `line property` (please refer to the syntax section below)
 * Integrated vim plugin
 * Primary Language Server Protocol support
@@ -55,7 +56,7 @@ Links:
 	title and url can be flipped:
 		[url title https://google.com]
 	link to an image
-		[@img https://via.placeholder.com/50]
+		[@img https://placehold.co/100]
 
 Code highlight with highlight.js
 	[@code python]
@@ -63,7 +64,7 @@ Code highlight with highlight.js
 		print(np.sum(10))
 	[` inline code `]
 
-Math with katex
+Math with MathJax
 	[@math]
 		O(n^2)\\
 		sum_{i=0}^{10}{i} = 55
@@ -103,6 +104,7 @@ cargo install patto
 
 This will install the following utilities:
 * `patto-lsp`: a lsp server
+* `patto-preview`: a preview server for your patto notes
 * `patto-markdown-renderer`: a format converter from patto note to markdown
 * `patto-html-renderer`: a format converter from patto note to html
 
@@ -136,7 +138,7 @@ To be released.
 
 ## Upcoming features:
 ### parser
-* [ ] link to local files
+* [x] link to local files
 
 ### lsp
 * [x] document backlinks using find references
@@ -147,11 +149,11 @@ To be released.
 
 ### renderer
 * [x] markdown export
-* [ ] math expression rendering
-* [ ] replace highlight.js with syntect
+* [x] math expression rendering
+* [x] replace highlight.js with syntect
 
 ### other todos
-please refer to [todo](./todo.pn)
+please refer to [todo](./todo.md)
 
 ## FAQ
 ### Why not Markdown?
