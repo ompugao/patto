@@ -183,7 +183,7 @@ impl HtmlRenderer {
                 if let Some(youtube_id) = get_youtube_id(link) {
                     write!(
                         output,
-                        "<iframe class=\"videoContainer__video\" max-width=\"100%\" max-height=\"480\" src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\"></iframe>")?;
+                        "<div style=\"max-width: 90%; height: 30vw;\"><iframe class=\"videoContainer__video\" width=100% height=100% src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
                 } else if link.contains("twitter.com") || link.contains("x.com") {
                     // Render as placeholder that can be enhanced client-side
                     write!(
@@ -385,7 +385,7 @@ impl MarkdownRenderer {
                 if let Some(youtube_id) = get_youtube_id(link) {
                     write!(
                         output,
-                        "<iframe class=\"videoContainer__video\" max-width=\"100%\" max-height=\"480\" src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\"></iframe>")?;
+                        "<div style=\"max-width: 90%; height: 30vw;\"><iframe class=\"videoContainer__video\" width=100% height=100% src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
                 } else if let Some(embed) = get_twitter_embed(link) {
                     write!(output, "{}", embed)?;
                 } else if let Some(title) = title {
