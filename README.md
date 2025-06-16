@@ -65,10 +65,10 @@ Code highlight with highlight.js
 	[` inline code `]
 
 Math with MathJax
+	inline math: [$ O(n log(n)) $]
 	[@math]
 		O(n^2)\\
 		sum_{i=0}^{10}{i} = 55
-	inline math: [$ O(n log(n)) $]
 ```
 
 which is rendered as follows:  
