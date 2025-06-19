@@ -513,7 +513,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             // Load and render the selected file
                             let file_path = state.dir.join(&path);
                             if let Ok(content) = fs::read_to_string(&file_path).await {
-                                if let Ok(html) = render_patto_to_html(&content).await {
+                                if let Ok(html) = render_patto_to_html(&content, &file_path.to_string_lossy()).await {
                                     // Send the rendered HTML to the client
                                     let message = WsMessage::FileChanged {
                                         path: path.clone(),
@@ -749,7 +749,7 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 
     // Parse and render to HTML
     let start = Instant::now();
-    let html = render_patto_to_html(&content).await?;
+    let html = render_patto_to_html(&content, &path.to_string_lossy()).await?;
 
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
@@ -764,13 +764,14 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 }
 
 // Render patto content to HTML
-async fn render_patto_to_html(content: &str) -> std::io::Result<String> {
+async fn render_patto_to_html(content: &str, file_path: &str) -> std::io::Result<String> {
     // Use Arc to avoid cloning large content
     let content = std::sync::Arc::new(content.to_string());
+    let file_path = std::sync::Arc::new(file_path.to_string());
     
     let html_output = tokio::task::spawn_blocking(move || {
         //let start = Instant::now();
-        let result = parser::parse_text(&content);
+        let result = parser::parse_text_with_line_tracking(&content, &file_path);
         //println!("-- Parsed, taking {} msec.", start.elapsed().as_millis());
         
         // Pre-allocate buffer with estimated size to reduce reallocations

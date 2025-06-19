@@ -2,6 +2,7 @@ use std::process::Command;
 
 fn main() {
     let frontend_dir = "patto-preview-next/";
+    let watch_dir = "patto-preview-next/src/";
 
     #[cfg(windows)]
     const NPM: &str = "npm.cmd"; // Or "npm.ps1" if you're explicitly using PowerShell
@@ -9,7 +10,7 @@ fn main() {
     const NPM: &str = "npm";
 
     // Only rerun build script if something in the frontend changes
-    println!("cargo:rerun-if-changed={}", frontend_dir);
+    println!("cargo:rerun-if-changed={}", watch_dir);
 
     // Run `npm install`
     let status = Command::new(NPM)

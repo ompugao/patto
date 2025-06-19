@@ -6,11 +6,13 @@ use std::fmt;
 use std::ops;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use log;
 
 use pest;
 use pest::iterators::Pair;
+use crate::line_tracker::LineTracker;
 
 //use serde::{Deserialize, Serialize};
 
@@ -122,6 +124,7 @@ pub struct AstNodeInternal {
     pub contents: Mutex<Vec<AstNode>>,
     pub children: Mutex<Vec<AstNode>>,
     pub kind: AstNodeKind,
+    pub stable_id: Mutex<Option<i64>>,
     // text will be the string matched with this AstNode.
     // will be used when contents.len() == 0
     // pub text: &'a str,
@@ -258,12 +261,25 @@ impl AstNode {
                 contents: Mutex::new(vec![]),
                 children: Mutex::new(vec![]),
                 kind: kind.unwrap_or(AstNodeKind::Dummy),
+                stable_id: Mutex::new(None),
             },
             location: Location {
                 row,
                 input: Arc::from(input),
                 span: span.unwrap_or(Span(0, input.len())),
             },
+        }))
+    }
+
+    pub fn with_line_id(_input: &str, location: Location, kind: Option<AstNodeKind>, line_id: Option<i64>) -> Self {
+        AstNode(Arc::new(AstNodeImpl {
+            value: AstNodeInternal {
+                contents: Mutex::new(vec![]),
+                children: Mutex::new(vec![]),
+                kind: kind.unwrap_or(AstNodeKind::Dummy),
+                stable_id: Mutex::new(line_id),
+            },
+            location,
         }))
     }
     pub fn line(
@@ -676,6 +692,60 @@ pub fn parse_text(text: &str) -> ParserResult {
     ParserResult{ast: root, parse_errors: errors}
 }
 
+pub fn parse_text_with_line_tracking(text: &str, file_path: &str) -> ParserResult {
+    // First, run regular parsing
+    let start = Instant::now();
+    let result = parse_text(text);
+    println!("-- {} ms for parsing", start.elapsed().as_millis());
+    
+    let start = Instant::now();
+    // Then try to apply line tracking
+    let mut line_tracker = match LineTracker::new(file_path) {
+        Ok(tracker) => tracker,
+        Err(_) => {
+            // Return regular parsing result if line tracker fails
+            return result;
+        }
+    };
+    println!("-- {} ms for db connection", start.elapsed().as_millis());
+
+    let start = Instant::now();
+    let _line_ids = match line_tracker.process_file_content(text) {
+        Ok(ids) => ids,
+        Err(_) => {
+            // Return regular parsing result if line tracking fails
+            return result;
+        }
+    };
+    println!("-- {} ms for processing file", start.elapsed().as_millis());
+
+    // Apply line IDs to Line and relevant nodes in the AST
+    apply_line_ids_to_ast(&result.ast, &line_tracker, text);
+    
+    result
+}
+
+fn apply_line_ids_to_ast(node: &AstNode, line_tracker: &LineTracker, _text: &str) {
+    if let AstNodeKind::Line { .. } = node.kind() {
+        // Get the line number from the location and assign stable_id
+        let row = node.0.location.row;
+        if let Some(line_id) = line_tracker.get_line_id(row + 1) {
+            // We need to access the internal mutable state to set stable_id
+            // This is tricky due to Arc wrapping, but we can modify the approach
+            set_node_stable_id(node, line_id);
+        }
+    }
+    
+    // Recursively apply to children
+    let children = node.value().children.lock().unwrap();
+    for child in children.iter() {
+        apply_line_ids_to_ast(child, line_tracker, _text);
+    }
+}
+
+fn set_node_stable_id(node: &AstNode, stable_id: i64) {
+    *node.value().stable_id.lock().unwrap() = Some(stable_id);
+}
 
 fn parse_command_line(
     line: &str,
