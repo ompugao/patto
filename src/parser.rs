@@ -6,7 +6,7 @@ use std::fmt;
 use std::ops;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+//use std::time::{Instant};
 use thiserror::Error;
 use log;
 
@@ -694,11 +694,11 @@ pub fn parse_text(text: &str) -> ParserResult {
 
 pub fn parse_text_with_persistent_line_tracking(text: &str, line_tracker: &mut LineTracker) -> ParserResult {
     // First, run regular parsing
-    let start = Instant::now();
+    //let start = Instant::now();
     let result = parse_text(text);
-    println!("-- {} ms for parsing", start.elapsed().as_millis());
+    //println!("-- {} ms for parsing", start.elapsed().as_millis());
 
-    let start = Instant::now();
+    //let start = Instant::now();
     let _line_ids = match line_tracker.process_file_content(text) {
         Ok(ids) => ids,
         Err(_) => {
@@ -706,7 +706,7 @@ pub fn parse_text_with_persistent_line_tracking(text: &str, line_tracker: &mut L
             return result;
         }
     };
-    println!("-- {} ms for processing file", start.elapsed().as_millis());
+    //println!("-- {} ms for processing file", start.elapsed().as_millis());
 
     // Apply line IDs to Line and relevant nodes in the AST
     apply_line_ids_to_ast(&result.ast, line_tracker, text);
