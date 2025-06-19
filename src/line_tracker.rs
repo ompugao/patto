@@ -8,6 +8,7 @@ pub struct LineTracker {
     position_to_id: HashMap<usize, i64>,
     next_id: i64,
     line_ids: Vec<i64>,
+    line_hashes: Vec<u64>
 }
 
 impl LineTracker {
@@ -17,6 +18,7 @@ impl LineTracker {
             position_to_id: HashMap::new(),
             next_id: 1,
             line_ids: Vec::new(),
+            line_hashes: Vec::new(),
         })
     }
 
@@ -31,6 +33,9 @@ impl LineTracker {
                 hasher.finish()
             })
             .collect();
+        let mut hasher = DefaultHasher::new();
+        "".hash(&mut hasher);
+        let hash_for_empty = hasher.finish();
 
         let mut new_content_to_id: HashMap<u64, Vec<i64>> = HashMap::new();
         let mut new_position_to_id: HashMap<usize, i64> = HashMap::new();
@@ -41,11 +46,14 @@ impl LineTracker {
         // Assign IDs with simple in-memory logic
         for (idx, &hash) in line_hashes.iter().enumerate() {
             let line_num = idx + 1;
-            
-            let id = if let Some(&existing_id) = self.position_to_id.get(&line_num) {
+
+            let id = if hash == hash_for_empty {
+                // id can be the same for empty lines
+                -1 as i64
+            } else if let Some(&existing_id) = self.position_to_id.get(&line_num) {
                 // Same position exists
-                if let Some(existing_hash) = self.get_hash_for_position(line_num) {
-                    if existing_hash == hash {
+                if let Some(existing_hash) = self.line_hashes.get(idx) {
+                    if *existing_hash == hash {
                         // Same content at same position - reuse ID
                         used_ids.insert(existing_id);
                         existing_id
@@ -72,20 +80,9 @@ impl LineTracker {
         self.content_to_id = new_content_to_id;
         self.position_to_id = new_position_to_id;
         self.line_ids = result_ids.clone();
-        
-        Ok(result_ids)
-    }
+        self.line_hashes = line_hashes;
 
-    fn get_hash_for_position(&self, position: usize) -> Option<u64> {
-        if let Some(&id) = self.position_to_id.get(&position) {
-            // Find hash for this ID
-            for (&hash, ids) in &self.content_to_id {
-                if ids.contains(&id) {
-                    return Some(hash);
-                }
-            }
-        }
-        None
+        Ok(result_ids)
     }
 
     fn find_or_create_id(&mut self, hash: u64, used_ids: &mut HashSet<i64>, new_content_to_id: &mut HashMap<u64, Vec<i64>>) -> i64 {
