@@ -442,7 +442,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
             AstNodeKind::Line { .. } => Some(e.clone()),
             _ => None,
         })
-        .last()?;
+        .next_back()?;
     find_parent_line(last_child_line, depth - 1)
 }
 
