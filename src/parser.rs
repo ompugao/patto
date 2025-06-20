@@ -719,9 +719,12 @@ fn apply_line_ids_to_ast(node: &AstNode, line_tracker: &LineTracker, _text: &str
         // Get the line number from the location and assign stable_id
         let row = node.0.location.row;
         if let Some(line_id) = line_tracker.get_line_id(row + 1) {
-            // We need to access the internal mutable state to set stable_id
-            // This is tricky due to Arc wrapping, but we can modify the approach
-            set_node_stable_id(node, line_id);
+            // negative id corresponds to special cases such as empty lines
+            if line_id > 0 {
+                // We need to access the internal mutable state to set stable_id
+                // This is tricky due to Arc wrapping, but we can modify the approach
+                set_node_stable_id(node, line_id);
+            }
         }
     }
     
@@ -1712,7 +1715,7 @@ mod tests {
 
     #[test]
     fn test_parse_mails() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_mail, g_title) in vec![
+        for (input, g_mail, g_title) in [
             ("[mailto:hoge@example.com example email]", "mailto:hoge@example.com", Some("example email".to_string())),
         ]{
                 println!("parsing {input}");

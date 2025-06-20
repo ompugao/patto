@@ -49,7 +49,7 @@ impl LineTracker {
 
             let id = if hash == hash_for_empty {
                 // id can be the same for empty lines
-                -1 as i64
+                -1
             } else if let Some(&existing_id) = self.position_to_id.get(&line_num) {
                 // Same position exists
                 if let Some(existing_hash) = self.line_hashes.get(idx) {

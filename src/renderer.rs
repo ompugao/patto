@@ -35,11 +35,7 @@ impl Renderer for HtmlRenderer {
 impl HtmlRenderer {
     fn get_stable_id_attr(&self, ast: &AstNode) -> String {
         if let Some(stable_id) = *ast.value().stable_id.lock().unwrap() {
-            if stable_id > 0 {
-                format!(" data-line-id=\"{}\"", stable_id)
-            } else {
-                String::new()
-            }
+            format!(" data-line-id=\"{}\"", stable_id)
         } else {
             String::new()
         }
