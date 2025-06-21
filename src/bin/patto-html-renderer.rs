@@ -49,7 +49,7 @@ fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     let args = Cli::parse();
     // TODO memory inefficient
-    let text = fs::read_to_string(args.file).expect("cannot read {filename}");
+    let text = fs::read_to_string(&args.file).expect("cannot read {filename}");
     let parser::ParserResult { ast: rootnode, parse_errors: _ } = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
