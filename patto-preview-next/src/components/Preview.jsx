@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
 import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
 import LazyCode from './LazyCode.jsx';
+import TwoHopLinks from './TwoHopLinks.jsx';
 import 'highlight.js/styles/github.min.css';
 import { MathJaxContext, MathJax } from 'better-react-mathjax';
 
@@ -25,7 +26,7 @@ const mathJaxConfig = {
   }
 };
 
-export default function Preview({ html, anchor, onSelectFile }) {
+export default function Preview({ html, anchor, onSelectFile, currentNote }) {
   const router = useRouter();
 
   // Helper function to get stable React key from DOM node
@@ -192,9 +193,12 @@ export default function Preview({ html, anchor, onSelectFile }) {
     <MathJaxContext config={mathJaxConfig}>
       <div id="preview-content" className={styles.PreviewContent}>
         {html ? (
-          <MathJax dynamic>
-            {parse(html, transformOptions)}
-          </MathJax>
+          <>
+            <MathJax dynamic>
+              {parse(html, transformOptions)}
+            </MathJax>
+            <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} />
+          </>
         ) : (
           <div 
             className="empty-state" 

@@ -165,7 +165,7 @@ export default function PattoApp() {
         />
 
         <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
-          <Preview html={previewHtml} anchor={anchor} onSelectFile={navigate} />
+          <Preview html={previewHtml} anchor={anchor} onSelectFile={navigate} currentNote={currentNote} />
         </div>
       </div>
     </div>
