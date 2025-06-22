@@ -240,8 +240,18 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       if (domNode.type === 'tag' && domNode.name === 'input' && domNode.attribs?.type === 'checkbox') {
         delete domNode.attribs.class;
         delete domNode.attribs.style;
+        let defaultChecked = false;
+        if (domNode.attribs.checked === '') {
+            defaultChecked = true;
+        }
+        if (domNode.attribs.checked === '') {
+            delete domNode.attribs.checked;
+        }
+        if (domNode.attribs.unchecked === '') {
+            delete domNode.attribs.unchecked;
+        }
         return (
-          <input className="pure-checkbox" {...domNode.attribs} />
+          <input className="pure-checkbox" defaultChecked={defaultChecked} {...domNode.attribs} />
         );
       }
 
