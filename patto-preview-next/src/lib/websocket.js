@@ -16,8 +16,8 @@ export function usePattoWebSocket(onMessage) {
     if (typeof window === 'undefined') return;
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    //const wsUrl = `${protocol}//localhost:3000/ws`;
+    //const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const wsUrl = `${protocol}//localhost:3000/ws`;
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

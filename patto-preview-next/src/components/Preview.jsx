@@ -1,5 +1,5 @@
 import parse, { domToReact } from 'html-react-parser';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, createElement } from 'react';
 import styles from './Preview.module.css';
 import Link from 'next/link';
 import { useClientRouter } from '../lib/router';
@@ -33,7 +33,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
   const getStableKey = (domNode, fallbackKey) => {
     // Use data-line-id if available for stable keys
     if (domNode.attribs && domNode.attribs['data-line-id']) {
-      return `line-${domNode.attribs['data-line-id']}`;
+      return domNode.attribs['data-line-id'];
     }
     // Fallback to content hash or position for non-line elements
     return fallbackKey;
@@ -89,6 +89,16 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
         } else {
           return domNode;
         }
+      }
+
+      // Handle elements with stable keys from data-line-id
+      if (domNode.type === 'tag' && domNode.attribs?.['data-line-id']) {
+        const stableKey = getStableKey(domNode, `${domNode.name}-${Math.random()}`);
+        return createElement(
+          domNode.name,
+          { key: stableKey, ...domNode.attribs },
+          domToReact(domNode.children, transformOptions)
+        );
       }
 
       if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-selflink" && domNode.attribs.href) {
@@ -180,6 +190,84 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
           }
         }
       }
+      // Handle tables with Pure CSS classes
+      if (domNode.type === 'tag' && domNode.name === 'table') {
+        return (
+          <table className="pure-table pure-table-striped" {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </table>
+        );
+      }
+
+      // Handle buttons with Pure CSS classes
+      if (domNode.type === 'tag' && domNode.name === 'button') {
+        return (
+          <button className="pure-button" {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </button>
+        );
+      }
+
+      // Handle forms with Pure CSS classes
+      if (domNode.type === 'tag' && domNode.name === 'form') {
+        return (
+          <form className="pure-form" {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </form>
+        );
+      }
+
+      // Handle task elements (checkboxes) first
+      if (domNode.type === 'tag' && domNode.name === 'input' && domNode.attribs?.type === 'checkbox') {
+        return (
+          <input className="pure-checkbox" {...domNode.attribs} />
+        );
+      }
+
+      // Handle other input elements with Pure CSS classes
+      if (domNode.type === 'tag' && domNode.name === 'input') {
+        return (
+          <input className="pure-input" {...domNode.attribs} />
+        );
+      }
+
+      // Handle blockquotes with enhanced styling
+      if (domNode.type === 'tag' && domNode.name === 'blockquote') {
+        return (
+          <blockquote {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </blockquote>
+        );
+      }
+
+      // Handle anchor spans with stable keys
+      if (domNode.type === 'tag' && domNode.name === 'span' && domNode.attribs?.class === 'anchor') {
+        const stableKey = getStableKey(domNode, `anchor-${domNode.attribs.id || Math.random()}`);
+        return (
+          <span key={stableKey} {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </span>
+        );
+      }
+
+      // Handle task deadline marks
+      if (domNode.type === 'tag' && domNode.name === 'mark' && domNode.attribs?.class === 'task-deadline') {
+        return (
+          <mark className="task-deadline" {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </mark>
+        );
+      }
+
+      // Handle aside elements (task metadata)
+      if (domNode.type === 'tag' && domNode.name === 'aside') {
+        return (
+          <aside {...domNode.attribs}>
+            {domToReact(domNode.children, transformOptions)}
+          </aside>
+        );
+      }
+      
       if (domNode.type === 'tag' && domNode.name === 'code') {
         const codeText = domNode.children[0]?.data || '';
         const language = domNode.attribs?.class?.replace('language-', '') || '';
