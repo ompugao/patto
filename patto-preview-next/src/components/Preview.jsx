@@ -93,7 +93,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle elements with stable keys from data-line-id
       // if (domNode.type === 'tag' && domNode.attribs?.['data-line-id']) {
-      //   const stableKey = getStableKey(domNode, `${domNode.name}-${Math.random()}`);
+      //   const stableKey = getStableKey(domNode, null);
       //   delete domNode.attribs.class;
       //   return createElement(
       //     domNode.name,
@@ -180,7 +180,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       }
       // Handle patto-line elements with stable keys
       if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-line') {
-        const stableKey = getStableKey(domNode, `patto-line-${Math.random()}`);
+        const stableKey = getStableKey(domNode, null);
         delete domNode.attribs.class;
         delete domNode.attribs.style;
         return <li key={stableKey} className={styles.PattoLine} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
@@ -188,7 +188,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       
       // Handle patto-item elements with stable keys
       if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-item') {
-        const stableKey = getStableKey(domNode, `patto-item-${Math.random()}`);
+        const stableKey = getStableKey(domNode, null);
         delete domNode.attribs.class;
         delete domNode.attribs.style;
         return <li key={stableKey} className={styles.PattoItem} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
@@ -277,7 +277,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle anchor spans with stable keys
       if (domNode.type === 'tag' && domNode.name === 'span' && domNode.attribs?.class === 'anchor') {
-        const stableKey = getStableKey(domNode, `anchor-${domNode.attribs.id || Math.random()}`);
+        const stableKey = getStableKey(domNode, `anchor-${domNode.attribs.id}`);
         delete domNode.attribs.class;
         delete domNode.attribs.style;
         return (
