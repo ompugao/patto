@@ -92,14 +92,15 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       }
 
       // Handle elements with stable keys from data-line-id
-      if (domNode.type === 'tag' && domNode.attribs?.['data-line-id']) {
-        const stableKey = getStableKey(domNode, `${domNode.name}-${Math.random()}`);
-        return createElement(
-          domNode.name,
-          { key: stableKey, ...domNode.attribs },
-          domToReact(domNode.children, transformOptions)
-        );
-      }
+      // if (domNode.type === 'tag' && domNode.attribs?.['data-line-id']) {
+      //   const stableKey = getStableKey(domNode, `${domNode.name}-${Math.random()}`);
+      //   delete domNode.attribs.class;
+      //   return createElement(
+      //     domNode.name,
+      //     { key: stableKey, ...domNode.attribs },
+      //     domToReact(domNode.children, transformOptions)
+      //   );
+      // }
 
       if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-selflink" && domNode.attribs.href) {
 		// nothing required
@@ -192,6 +193,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       }
       // Handle tables with Pure CSS classes
       if (domNode.type === 'tag' && domNode.name === 'table') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <table className="pure-table pure-table-striped" {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -201,6 +204,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle buttons with Pure CSS classes
       if (domNode.type === 'tag' && domNode.name === 'button') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <button className="pure-button" {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -210,6 +215,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle forms with Pure CSS classes
       if (domNode.type === 'tag' && domNode.name === 'form') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <form className="pure-form" {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -219,6 +226,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle task elements (checkboxes) first
       if (domNode.type === 'tag' && domNode.name === 'input' && domNode.attribs?.type === 'checkbox') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <input className="pure-checkbox" {...domNode.attribs} />
         );
@@ -226,6 +235,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle other input elements with Pure CSS classes
       if (domNode.type === 'tag' && domNode.name === 'input') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <input className="pure-input" {...domNode.attribs} />
         );
@@ -233,6 +244,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle blockquotes with enhanced styling
       if (domNode.type === 'tag' && domNode.name === 'blockquote') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <blockquote {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -243,6 +256,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
       // Handle anchor spans with stable keys
       if (domNode.type === 'tag' && domNode.name === 'span' && domNode.attribs?.class === 'anchor') {
         const stableKey = getStableKey(domNode, `anchor-${domNode.attribs.id || Math.random()}`);
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <span key={stableKey} {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -252,6 +267,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle task deadline marks
       if (domNode.type === 'tag' && domNode.name === 'mark' && domNode.attribs?.class === 'task-deadline') {
+        delete domNode.attribs.class;
         return (
           <mark className="task-deadline" {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
@@ -261,6 +277,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       // Handle aside elements (task metadata)
       if (domNode.type === 'tag' && domNode.name === 'aside') {
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
         return (
           <aside {...domNode.attribs}>
             {domToReact(domNode.children, transformOptions)}
