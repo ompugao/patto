@@ -164,7 +164,7 @@ export default function PattoApp() {
           onToggle={handleToggleSidebar}
         />
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
           <Preview html={previewHtml} anchor={anchor} onSelectFile={navigate} currentNote={currentNote} />
         </div>
       </div>

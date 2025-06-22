@@ -1,6 +1,6 @@
 .container {
-  margin: 2rem 0;
-  padding: 1.5rem;
+  margin: 2rem;
+  padding: 10px;
   border: 1px solid #e9ecef;
   border-radius: 8px;
   background-color: #f8f9fa;
@@ -66,9 +66,9 @@
 }
 
 .bridgeLink {
-  background-color: #3498db;
-  color: white;
-  border: none;
+  background-color: #ffffff;
+  color: #494949;
+  border: 1px solid #e6e6e6;
   font-size: 1rem;
   font-weight: 500;
   cursor: pointer;
@@ -80,9 +80,9 @@
 }
 
 .bridgeLink:hover {
-  background-color: #2980b9;
+  /*background-color: #2980b9;*/
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
 }
 
 .connectionCount {
@@ -101,7 +101,7 @@
 .pageLink {
   background-color: #ecf0f1;
   border: 1px solid #bdc3c7;
-  color: #2c3e50;
+  color: #364d63;
   padding: 0.4rem 0.8rem;
   border-radius: 4px;
   font-size: 0.9rem;

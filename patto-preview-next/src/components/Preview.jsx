@@ -104,7 +104,19 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
 
       if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-selflink" && domNode.attribs.href) {
 		// nothing required
-		return domNode;
+		//return domNode;
+        domNode.attribs.className = domNode.attribs.class;
+        delete domNode.attribs.class;
+        return (
+          <Link className={styles.PattoWikiLink} {...domNode.attribs}>
+            {domNode.children && domNode.children.map((child, index) => {
+              if (child.type === 'text') {
+                return child.data;
+              }
+              return parse(child, { key: getStableKey(child, `child-${index}`) });
+            })}
+          </Link>
+        );
 	  } else if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-wikilink" && domNode.attribs.href) {
         const url_split = domNode.attribs.href.split('#');
         const notename = url_split[0];
@@ -115,7 +127,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
         delete domNode.attribs.href;
         // setting href reloads the whole page somehow. use onSelectFile instead for loading the preview content via websocket
         return (
-          <Link {...domNode.attribs} href="#" onClick={evt => {
+          <Link className={styles.PattoWikiLink} {...domNode.attribs} href="#" onClick={evt => {
             evt.preventDefault();
             onSelectFile(notename, anchor);
             }} >

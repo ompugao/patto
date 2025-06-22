@@ -2,7 +2,7 @@
 .PreviewContent {
   /* max-width: 75ch; */ /* Optimal reading line length */
   margin: 0 auto;
-  padding: 1.5rem;
+  /*padding: 1.5rem;*/
   line-height: 1.7;
 }
 
@@ -30,7 +30,7 @@
   min-height: 1.2em;
   margin: 0.3em 0;
   padding-left: 0.5em;
-  margin-left: 1.5rem;
+  margin-left: 1.0rem;
   line-height: 1.6;
 }
 
@@ -43,13 +43,19 @@
   list-style-type: none;
 }
 
+.PreviewContent a {
+  text-decoration: underline;
+}
+
 /* Enhanced wikilink styling */
-.PreviewContent a[class*="patto-wikilink"] {
-  background-color: #e8f4f8;
-  color: #2c3e50;
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  border: 1px solid #bde5f2;
+.PreviewContent a[class*="patto-wikilink"],
+.PreviewContent a[class*="patto-selflink"] {
+  text-decoration: none;
+  /*background-color: #ebf6f9;*/
+  color: #0099cc;
+  padding: 0.05em 0.4em;
+  /*border-radius: 4px;*/
+  /*border: 1px solid #bde5f2;*/
   /*text-decoration: none;*/
   /*font-weight: 500;*/
   /*transition: all 0.2s ease;*/
@@ -57,8 +63,10 @@
   /*margin: 0 0.1em;*/
 }
 
-.PreviewContent a[class*="patto-wikilink"]:hover {
-  background-color: #d1ecf5;
+.PreviewContent a[class*="patto-wikilink"]:hover,
+.PreviewContent a[class*="patto-selflink"]:hover {
+  text-decoration: underline;
+  /*background-color: #d1ecf5;*/
   /*border-color: #88c9e0;*/
   /*transform: translateY(-1px);*/
   /*box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);*/

@@ -100,7 +100,7 @@ impl HtmlRenderer {
                 }
                 let children = ast.value().children.lock().unwrap();
                 if !children.is_empty() {
-                    write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
+                    write!(output, "<ul style=\"margin-bottom: 0.5rem; padding-left: 10px;\">")?;
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
                         write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>", id_attr)?;
