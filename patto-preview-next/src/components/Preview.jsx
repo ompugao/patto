@@ -28,6 +28,16 @@ const mathJaxConfig = {
 export default function Preview({ html, anchor, onSelectFile }) {
   const router = useRouter();
 
+  // Helper function to get stable React key from DOM node
+  const getStableKey = (domNode, fallbackKey) => {
+    // Use data-line-id if available for stable keys
+    if (domNode.attribs && domNode.attribs['data-line-id']) {
+      return `line-${domNode.attribs['data-line-id']}`;
+    }
+    // Fallback to content hash or position for non-line elements
+    return fallbackKey;
+  };
+
   // Enhanced anchor scrolling with retry mechanism
   const scrollToAnchor = useCallback((anchorId, attempts = 0) => {
     if (!anchorId) return;
@@ -101,7 +111,7 @@ export default function Preview({ html, anchor, onSelectFile }) {
               if (child.type === 'text') {
                 return child.data;
               }
-              return parse(child, { key: index });
+              return parse(child, { key: getStableKey(child, `child-${index}`) });
             })}
           </Link>
         );
@@ -119,7 +129,7 @@ export default function Preview({ html, anchor, onSelectFile }) {
                 if (child.type === 'text') {
                   return child.data;
                 }
-                return parse(child, { key: index });
+                return parse(child, { key: getStableKey(child, `child-${index}`) });
               })}
             </a>
           );
@@ -144,10 +154,20 @@ export default function Preview({ html, anchor, onSelectFile }) {
           return <img className={styles.PreviewImage} {...domNode.attribs} />;
         }
       }
-      if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-item') {
+      // Handle patto-line elements with stable keys
+      if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-line') {
+        const stableKey = getStableKey(domNode, `patto-line-${Math.random()}`);
         delete domNode.attribs.class;
         delete domNode.attribs.style;
-        return <li className={styles.PattoItem} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
+        return <li key={stableKey} className={styles.PattoLine} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
+      }
+      
+      // Handle patto-item elements with stable keys
+      if (domNode.type === 'tag' && domNode.name === 'li' && domNode.attribs && domNode.attribs.class === 'patto-item') {
+        const stableKey = getStableKey(domNode, `patto-item-${Math.random()}`);
+        delete domNode.attribs.class;
+        delete domNode.attribs.style;
+        return <li key={stableKey} className={styles.PattoItem} {...domNode.attribs} >{domToReact(domNode.children, transformOptions)}</li>;
       }
       // Handle mermaid diagrams
       if (domNode.type === 'tag' && domNode.name === 'pre') {

@@ -33,6 +33,13 @@ impl Renderer for HtmlRenderer {
 }
 
 impl HtmlRenderer {
+    fn get_stable_id_attr(&self, ast: &AstNode) -> String {
+        if let Some(stable_id) = *ast.value().stable_id.lock().unwrap() {
+            format!(" data-line-id=\"{}\"", stable_id)
+        } else {
+            String::new()
+        }
+    }
 
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.kind() {
@@ -40,7 +47,8 @@ impl HtmlRenderer {
                 write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    write!(output, "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\">")?;
+                    let id_attr = self.get_stable_id_attr(child);
+                    write!(output, "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\"{}>", id_attr)?;
                     self._format_impl(&child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -94,7 +102,8 @@ impl HtmlRenderer {
                 if !children.is_empty() {
                     write!(output, "<ul style=\"margin-bottom: 0.5rem\">")?;
                     for child in children.iter() {
-                        write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\">")?;
+                        let id_attr = self.get_stable_id_attr(child);
+                        write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>", id_attr)?;
                         self._format_impl(&child, output)?;
                         write!(output, "</li>")?;
                     }

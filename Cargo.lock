@@ -104,6 +104,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.98"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+
+[[package]]
 name = "async-trait"
 version = "0.1.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1207,6 +1213,7 @@ dependencies = [
 name = "patto"
 version = "0.1.14"
 dependencies = [
+ "anyhow",
  "axum",
  "chrono",
  "clap",
@@ -1220,12 +1227,14 @@ dependencies = [
  "notify",
  "pest",
  "pest_derive",
+ "rand",
  "regex",
  "reqwest",
  "ropey",
  "rust-embed",
  "serde",
  "serde_json",
+ "sha2",
  "simplelog",
  "str_indices",
  "thiserror",

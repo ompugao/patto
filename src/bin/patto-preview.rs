@@ -11,7 +11,8 @@ use clap::Parser;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use patto::{
     parser,
-    renderer::{HtmlRenderer, Options, Renderer}
+    renderer::{HtmlRenderer, Options, Renderer},
+    line_tracker::LineTracker
 };
 use rust_embed::RustEmbed;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,7 @@ struct Args {
 struct AppState {
     dir: PathBuf,
     tx: broadcast::Sender<Message>,
+    line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
 }
 
 // Messages for the broadcast channel
@@ -185,6 +187,7 @@ async fn main() {
     let state = AppState {
         dir: dir.clone(),
         tx: tx.clone(),
+        line_trackers: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Start file watcher in a separate task
@@ -513,7 +516,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             // Load and render the selected file
                             let file_path = state.dir.join(&path);
                             if let Ok(content) = fs::read_to_string(&file_path).await {
-                                if let Ok(html) = render_patto_to_html(&content).await {
+                                if let Ok(html) = render_patto_to_html(&content, &file_path.to_string_lossy(), &state).await {
                                     // Send the rendered HTML to the client
                                     let message = WsMessage::FileChanged {
                                         path: path.clone(),
@@ -749,7 +752,7 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 
     // Parse and render to HTML
     let start = Instant::now();
-    let html = render_patto_to_html(&content).await?;
+    let html = render_patto_to_html(&content, &path.to_string_lossy(), state).await?;
 
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
@@ -763,15 +766,25 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
     Ok(())
 }
 
-// Render patto content to HTML
-async fn render_patto_to_html(content: &str) -> std::io::Result<String> {
+// Render patto content to HTML with persistent line tracking
+async fn render_patto_to_html(content: &str, file_path: &str, state: &AppState) -> std::io::Result<String> {
     // Use Arc to avoid cloning large content
     let content = std::sync::Arc::new(content.to_string());
+    let file_path_buf = PathBuf::from(file_path);
+    
+    // Get or create line tracker for this file
+    let line_trackers = Arc::clone(&state.line_trackers);
     
     let html_output = tokio::task::spawn_blocking(move || {
-        //let start = Instant::now();
-        let result = parser::parse_text(&content);
-        //println!("-- Parsed, taking {} msec.", start.elapsed().as_millis());
+        // Get or create line tracker for this file
+        let mut trackers = line_trackers.lock().unwrap();
+        let line_tracker = trackers.entry(file_path_buf.clone()).or_insert_with(|| {
+            LineTracker::new().unwrap_or_else(|_| {
+                panic!();
+            })
+        });
+        
+        let result = parser::parse_text_with_persistent_line_tracking(&content, line_tracker);
         
         // Pre-allocate buffer with estimated size to reduce reallocations
         let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
@@ -781,9 +794,7 @@ async fn render_patto_to_html(content: &str) -> std::io::Result<String> {
             ..Options::default()
         });
         
-        //let start = Instant::now();
         let _ = renderer.format(&result.ast, &mut html_output);
-        //println!("-- Rendered, taking {} msec.", start.elapsed().as_millis());
         html_output
     }).await;
 
