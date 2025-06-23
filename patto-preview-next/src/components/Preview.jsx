@@ -113,13 +113,13 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
               if (child.type === 'text') {
                 return child.data;
               }
-              return parse(child, { key: getStableKey(child, `child-${index}`) });
+              return parse(child);
             })}
           </Link>
         );
 	  } else if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-wikilink" && domNode.attribs.href) {
         const url_split = domNode.attribs.href.split('#');
-        const notename = url_split[0];
+        const notename = url_split;
         const anchor = (url_split.length > 1) ? url_split[1] : null;
         const newHref = `/?note=${notename}`;
         domNode.attribs.className = domNode.attribs.class;
@@ -135,7 +135,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
               if (child.type === 'text') {
                 return child.data;
               }
-              return parse(child, { key: getStableKey(child, `child-${index}`) });
+              return parse(child);
             })}
           </Link>
         );
@@ -153,7 +153,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
                 if (child.type === 'text') {
                   return child.data;
                 }
-                return parse(child, { key: getStableKey(child, `child-${index}`) });
+                return parse(child);
               })}
             </a>
           );

@@ -33,9 +33,6 @@ impl LineTracker {
                 hasher.finish()
             })
             .collect();
-        let mut hasher = DefaultHasher::new();
-        "".hash(&mut hasher);
-        let hash_for_empty = hasher.finish();
 
         let mut new_content_to_id: HashMap<u64, Vec<i64>> = HashMap::new();
         let mut new_position_to_id: HashMap<usize, i64> = HashMap::new();
@@ -47,10 +44,7 @@ impl LineTracker {
         for (idx, &hash) in line_hashes.iter().enumerate() {
             let line_num = idx + 1;
 
-            let id = if hash == hash_for_empty {
-                // id can be the same for empty lines
-                -1
-            } else if let Some(&existing_id) = self.position_to_id.get(&line_num) {
+            let id = if let Some(&existing_id) = self.position_to_id.get(&line_num) {
                 // Same position exists
                 if let Some(existing_hash) = self.line_hashes.get(idx) {
                     if *existing_hash == hash {
