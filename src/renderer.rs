@@ -44,7 +44,7 @@ impl HtmlRenderer {
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
-                write!(output, "<ul style=\"margin-bottom: 1.5rem\">")?;
+                write!(output, "<ul>")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
@@ -100,7 +100,7 @@ impl HtmlRenderer {
                 }
                 let children = ast.value().children.lock().unwrap();
                 if !children.is_empty() {
-                    write!(output, "<ul style=\"margin-bottom: 0.5rem; padding-left: 10px;\">")?;
+                    write!(output, "<ul style=\"padding-left: 0rem;\">")?;
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
                         write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>", id_attr)?;

@@ -20,7 +20,7 @@
 .PattoLine {
   list-style-type: none;
   min-height: 1.2em;
-  margin: 0.3em 0;
+  margin: 0.0rem 0rem 0.0rem 0rem;
   padding-left: 0;
   line-height: 1.6;
 }
@@ -28,9 +28,8 @@
 .PattoItem {
   list-style-type: disc;
   min-height: 1.2em;
-  margin: 0.3em 0;
-  padding-left: 0.5em;
-  margin-left: 1.0rem;
+  margin: 0.0rem 1rem 0.0rem 1.6rem;
+  padding-left: 0.4em;
   line-height: 1.6;
 }
 
@@ -196,6 +195,7 @@
 }
 
 /* Better list nesting */
+/*
 .PreviewContent ul ul,
 .PreviewContent ol ol,
 .PreviewContent ul ol,
@@ -206,3 +206,4 @@
 .PreviewContent li > p {
   margin: 0.5em 0;
 }
+*/

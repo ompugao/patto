@@ -119,7 +119,7 @@ export default function Sidebar({
                 }}
                 style={{
                   display: "block",
-                  padding: "8px 0",
+                  padding: "6px 4px",
                   textDecoration: "none",
                   color: "inherit",
                   cursor: "pointer",
