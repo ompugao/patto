@@ -16,7 +16,7 @@ use patto::{
 };
 use rust_embed::RustEmbed;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::{
@@ -59,6 +59,8 @@ struct AppState {
     dir: PathBuf,
     tx: broadcast::Sender<Message>,
     line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
+    // Store file graphs for two-hop links: file -> files it links to
+    two_hop_links: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
 }
 
 // Messages for the broadcast channel
@@ -188,6 +190,7 @@ async fn main() {
         dir: dir.clone(),
         tx: tx.clone(),
         line_trackers: Arc::new(Mutex::new(HashMap::new())),
+        two_hop_links: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Start file watcher in a separate task
@@ -202,6 +205,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/files/*path", get(user_files_handler))
+        .route("/api/two-hop-links/*path", get(two_hop_links_handler))
         .route("/_next/*path", get(nextjs_static_handler))
         .route("/js/*path", get(nextjs_public_handler))
         .route("/favicon.ico", get(favicon_handler))
@@ -617,6 +621,154 @@ fn gather_wikilinks(parent: &parser::AstNode, wikilinks: &mut Vec<(String, Optio
     }
 }
 
+// Convert link name to file path
+fn link_to_path(link: &str, base_dir: &Path) -> Option<PathBuf> {
+    if !link.is_empty() {
+        let file_path = base_dir.join(format!("{}.pn", link));
+        if file_path.exists() {
+            Some(file_path)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// Convert file path to link name
+fn path_to_link(path: &Path, base_dir: &Path) -> Option<String> {
+    if let Ok(rel_path) = path.strip_prefix(base_dir) {
+        if let Some(stem) = rel_path.file_stem() {
+            if let Some(stem_str) = stem.to_str() {
+                return Some(stem_str.to_string());
+            }
+        }
+        // if let Some(rel_path_str) = rel_path.to_str() {
+        //     return Some(rel_path_str.to_string());
+        // }
+    }
+    None
+}
+
+// Build file link graph for two-hop analysis (initial scan)
+fn build_two_hop_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBuf>> {
+    let mut graph = HashMap::new();
+    
+    // Scan all .pn files in the directory
+    fn scan_dir_for_links(dir: &Path, base_dir: &Path, graph: &mut HashMap<PathBuf, HashSet<PathBuf>>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    scan_dir_for_links(&path, base_dir, graph);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("pn") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let result = parser::parse_text(&content);
+                        let mut wikilinks = vec![];
+                        gather_wikilinks(&result.ast, &mut wikilinks);
+                        
+                        let linked_paths: HashSet<PathBuf> = wikilinks
+                            .into_iter()
+                            .filter_map(|(link, _)| link_to_path(&link, base_dir))
+                            .collect();
+                        
+                        graph.insert(path, linked_paths);
+                    }
+                }
+            }
+        }
+    }
+    
+    scan_dir_for_links(&state.dir, &state.dir, &mut graph);
+    graph
+}
+
+// Update only the specific file's links in the graph
+fn update_two_hop_links_in_graph(
+    file_path: &Path, 
+    content: &str, 
+    base_dir: &Path,
+    graph: &mut HashMap<PathBuf, HashSet<PathBuf>>
+) {
+    // Parse the file and extract its links
+    let result = parser::parse_text(content);
+    let mut wikilinks = vec![];
+    gather_wikilinks(&result.ast, &mut wikilinks);
+    
+    let linked_paths: HashSet<PathBuf> = wikilinks
+        .into_iter()
+        .filter_map(|(link, _)| link_to_path(&link, base_dir))
+        .collect();
+    
+    // Update the graph with this file's new links
+    graph.insert(file_path.to_path_buf(), linked_paths);
+}
+
+// Two-hop links handler
+async fn two_hop_links_handler(
+    AxumPath(path): AxumPath<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path.clone().into());
+    let file_path = state.dir.join(decoded_path.as_ref());
+    
+    // Security check
+    let canonical_base = match std::fs::canonicalize(&state.dir) {
+        Ok(base) => base,
+        Err(_) => return Json(serde_json::json!({"error": "Base directory error"})),
+    };
+    
+    let canonical_file = match std::fs::canonicalize(&file_path) {
+        Ok(file) => file,
+        Err(_) => return Json(serde_json::json!({"error": "File not found"})),
+    };
+    
+    if !canonical_file.starts_with(&canonical_base) {
+        return Json(serde_json::json!({"error": "Access denied"}));
+    }
+    
+    // Build or get cached file link graph
+    let graph = {
+        let mut two_hop_links = state.two_hop_links.lock().unwrap();
+        if two_hop_links.is_empty() {
+            *two_hop_links = build_two_hop_link_graph(&state);
+        }
+        two_hop_links.clone()
+    };
+    
+    // Calculate two-hop links based on LSP algorithm
+    let mut two_hop_links: Vec<(String, Vec<String>)> = Vec::new();
+    
+    if let Some(direct_links) = graph.get(&canonical_file) {
+        for linked_file in direct_links {
+            let mut connected_files = Vec::new();
+            
+            // Find files that link to the same file as our original file links to
+            for (other_file, other_links) in &graph {
+                if other_file != &canonical_file && other_file != linked_file && other_links.contains(linked_file) {
+                    if let Some(link_name) = path_to_link(other_file, &state.dir) {
+                        connected_files.push(link_name);
+                    }
+                }
+            }
+            
+            if !connected_files.is_empty() {
+                if let Some(bridge_link_name) = path_to_link(linked_file, &state.dir) {
+                    connected_files.sort();
+                    two_hop_links.push((bridge_link_name, connected_files));
+                }
+            }
+        }
+    }
+    
+    // Sort by number of connections (descending)
+    two_hop_links.sort_by_key(|(_, connections)| -(connections.len() as i32));
+    
+    Json(serde_json::json!({
+        "twoHopLinks": two_hop_links
+    }))
+}
+
 // Watch directory for file changes
 async fn watch_files(state: AppState) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
@@ -694,6 +846,12 @@ async fn watch_files(state: AppState) {
                 if event.kind.is_remove() && is_pn_file {
                     println!("File removed: {}", path.display());
                     if let Ok(rel_path) = path.strip_prefix(&state.dir) {
+                        // Remove the file from the two-hop links graph
+                        {
+                            let mut two_hop_links = state.two_hop_links.lock().unwrap();
+                            two_hop_links.remove(&path);
+                        }
+                        
                         let _ = state.tx.send(Message::FileRemoved(rel_path.to_path_buf()));
                     }
                 }
@@ -756,6 +914,17 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
+
+    // Update only this file's links in the graph instead of clearing everything
+    {
+        let mut two_hop_links = state.two_hop_links.lock().unwrap();
+        
+        // If graph is empty, we'll build it lazily when needed
+        // If graph exists, update only this file's entry
+        if !two_hop_links.is_empty() {
+            update_two_hop_links_in_graph(path, &content, &state.dir, &mut two_hop_links);
+        }
+    }
 
     println!("{} html Generated, taking {} msec in total. Sending via websocket...", path.display(), start.elapsed().as_millis());
 
