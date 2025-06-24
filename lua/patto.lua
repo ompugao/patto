@@ -1,6 +1,46 @@
 local util = require 'lspconfig.util'
 local async = require 'lspconfig.async'
 
+local function is_wsl()
+  local f = io.open("/proc/version", "r")
+  if f then
+    local content = f:read("*a")
+    f:close()
+    -- Check for "microsoft" in /proc/version, which indicates WSL
+    return content:find("microsoft") ~= nil
+  end
+  return false
+end
+
+local function find_available_port(start_port, max_attempts)
+  start_port = start_port or 3000 -- Default starting port
+  max_attempts = max_attempts or 100 -- How many ports to try
+
+  for i = 0, max_attempts do
+    local port = start_port + i
+    local server = vim.loop.new_tcp()
+    local ok, err = server:listen(port, function(err)
+    end)
+
+    if ok then
+      server:close()
+      return port
+    else if err == "EADDRINUSE" then
+      -- Port is in use, try the next one.
+      server:close() -- Ensure server is closed even if listen fails
+    else
+      -- Other error (e.g., permission denied for low ports)
+      vim.notify("Error checking port " .. port .. ": " .. err, vim.log.levels.WARN)
+      server:close()
+      return nil -- Cannot proceed, return nil
+      end
+    end
+  end
+  vim.notify("Could not find an available port after " .. max_attempts .. " attempts.", vim.log.levels.ERROR)
+  return nil
+end
+
+
 local function open_scratch_buffer(name)
   local h = math.floor(vim.api.nvim_win_get_height(0) * 0.3)
   -- Check if buffer already exists
@@ -137,6 +177,60 @@ patto_lsp_config = {
     end,
     capabilities = {
     },
+    on_attach = function(client, bufnr)
+      -- Determine the file path for the current buffer
+      local filepath = vim.api.nvim_buf_get_name(bufnr)
+      if filepath == nil or filepath == "" then
+        return
+      end
+
+      -- Get the root directory from the LSP client configuration, or fallback to current working directory
+      local root_dir = client.config.root_dir or vim.loop.cwd()
+
+      -- Determine filetype to launch appropriate previewer
+      local filetype = vim.bo[bufnr].filetype
+
+      -- --- Previewer Launch Logic ---
+      if filetype == "patto" then
+        local available_port = find_available_port(3000) -- Start looking from port 3000
+        if not available_port then
+          vim.notify("Could not find an available port for the previewer.", vim.log.levels.ERROR)
+          return
+        end
+
+        local previewer_cmd = { "patto-preview", "--port", tostring(available_port)}
+
+        vim.fn.jobstart(previewer_cmd, {
+          cwd = root_dir,
+        })
+        vim.notify("Launched previewer for '" .. filetype .. "' on port " .. available_port .. ": " .. root_dir, vim.log.levels.INFO)
+
+        local relative_filepath = vim.fs.relpath(root_dir, filepath)
+        local url_param = ''
+        if relative_filepath then
+          url_param = '?note=' .. relative_filepath
+        end
+        -- Optional: Open the preview in your default web browser
+        -- This part depends on your OS and preference.
+        local browser_open_cmd
+        local os_name = vim.loop.os_uname().sysname
+        if is_wsl() or os_name == "Windows_NT" then
+            browser_open_cmd = { "cmd.exe", "/c", "start", "http://localhost:" .. available_port .. url_param}
+        elseif os_name == "Linux" then
+            browser_open_cmd = { "xdg-open", "http://localhost:" .. available_port  .. url_param}
+        elseif os_name == "Darwin" then -- macOS
+            browser_open_cmd = { "open", "http://localhost:" .. available_port  .. url_param}
+        else
+            vim.notify("Unsupported OS for default browser launch", vim.log.levels.WARN)
+        end
+
+        if browser_open_cmd then
+            vim.defer_fn(function()
+                vim.fn.jobstart(browser_open_cmd, { detach = true })
+            end, 500)
+        end
+      end
+    end,
   },
   commands = {
     LspPattoTasks = {
@@ -161,7 +255,7 @@ patto_lsp_config = {
 
             for k,v in ipairs(locs) do
               alllocs[k] = v
-            end 
+            end
 
             ::continue::
           end
