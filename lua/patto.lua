@@ -1,6 +1,8 @@
 local util = require 'lspconfig.util'
 local async = require 'lspconfig.async'
 
+local active_previewers = {}
+
 local function is_wsl()
   local f = io.open("/proc/version", "r")
   if f then
@@ -192,6 +194,10 @@ patto_lsp_config = {
 
       -- --- Previewer Launch Logic ---
       if filetype == "patto" then
+
+        if active_previewers[root_dir] then
+          return
+        end
         local available_port = find_available_port(3000) -- Start looking from port 3000
         if not available_port then
           vim.notify("Could not find an available port for the previewer.", vim.log.levels.ERROR)
@@ -200,10 +206,14 @@ patto_lsp_config = {
 
         local previewer_cmd = { "patto-preview", "--port", tostring(available_port)}
 
-        vim.fn.jobstart(previewer_cmd, {
+        local job_id = vim.fn.jobstart(previewer_cmd, {
           cwd = root_dir,
         })
         vim.notify("Launched previewer for '" .. filetype .. "' on port " .. available_port .. ": " .. root_dir, vim.log.levels.INFO)
+        active_previewers[root_dir] = {
+            job_id = job_id,
+            port = available_port,
+        }
 
         local relative_filepath = vim.fs.relpath(root_dir, filepath)
         local url_param = ''
