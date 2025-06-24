@@ -1,4 +1,8 @@
-.Sidebar {
+.SidebarHeader {
+  margin: 0.2em 0em 0em;
+}
+
+.Sidebar h3 {
 }
 .SidebarToggle {
 }
