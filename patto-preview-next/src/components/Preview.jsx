@@ -119,7 +119,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
         );
 	  } else if (domNode.type === 'tag' && domNode.name === 'a' && domNode.attribs && domNode.attribs.class == "patto-wikilink" && domNode.attribs.href) {
         const url_split = domNode.attribs.href.split('#');
-        const notename = url_split;
+        const notename = url_split[0];
         const anchor = (url_split.length > 1) ? url_split[1] : null;
         const newHref = `/?note=${notename}`;
         domNode.attribs.className = domNode.attribs.class;
