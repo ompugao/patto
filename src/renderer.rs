@@ -49,7 +49,7 @@ impl HtmlRenderer {
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
                     write!(output, "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\"{}>", id_attr)?;
-                    self._format_impl(&child, output)?;
+                    self._format_impl(child, output)?;
                     write!(output, "</li>")?;
                 }
                 write!(output, "</ul>")?;
@@ -74,12 +74,12 @@ impl HtmlRenderer {
                 }
                 let contents = ast.value().contents.lock().unwrap();
                 for content in contents.iter() {
-                    self._format_impl(&content, output)?;
+                    self._format_impl(content, output)?;
                 }
                 if isdone {
                     write!(output, "</del>")?;
                 }
-                if properties.len() > 0 {
+                if !properties.is_empty() {
                     write!(output, "<aside style=\"float: right; width: 285px; text-align: right\">")?;
                     for property in properties {
                         match property {
@@ -104,7 +104,7 @@ impl HtmlRenderer {
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
                         write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>", id_attr)?;
-                        self._format_impl(&child, output)?;
+                        self._format_impl(child, output)?;
                         write!(output, "</li>")?;
                     }
                     write!(output, "</ul>")?;
@@ -114,7 +114,7 @@ impl HtmlRenderer {
                 write!(output, "<blockquote>")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    self._format_impl(&child, output)?;
+                    self._format_impl(child, output)?;
                     write!(output, "<br/>")?;
                 }
                 write!(output, "</blockquote>")?;
@@ -147,14 +147,14 @@ impl HtmlRenderer {
                         write!(output, "<pre class={}>", lang)?;
                         let children = ast.value().children.lock().unwrap();
                         for child in children.iter() {
-                            write!(output, "{}\n", child.extract_str())?;
+                            writeln!(output, "{}", child.extract_str())?;
                         }
                         write!(output, "</pre>")?;
                     } else {
                         write!(output, "<pre><code class={}>", lang)?;
                         let children = ast.value().children.lock().unwrap();
                         for child in children.iter() {
-                            write!(output, "{}\n", encode_text(child.extract_str()))?;  // TODO encode all at once?
+                            writeln!(output, "{}", encode_text(child.extract_str()))?;  // TODO encode all at once?
                             //write!(output, "<br/>")?;
                         }
                         write!(output, "</code></pre>")?;
@@ -312,9 +312,9 @@ impl MarkdownRenderer {
                 }
 
                 for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(&content, output, depth)?;
+                    self._format_impl(content, output, depth)?;
                 }
-                if properties.len() > 0 {
+                if !properties.is_empty() {
                     write!(output, " ")?;
                     for property in properties {
                         match property {
@@ -332,20 +332,23 @@ impl MarkdownRenderer {
                         }
                     }
                 }
-                write!(output, "\n")?;
-                if ast.value().children.lock().unwrap().len() > 0 {
+                writeln!(output)?;
+                if !ast.value().children.lock().unwrap().is_empty() {
                     for child in ast.value().children.lock().unwrap().iter() {
-                        self._format_impl(&child, output, depth + 1)?;
+                        self._format_impl(child, output, depth + 1)?;
                     }
                 }
             }
             AstNodeKind::Quote => {
-                for child in ast.value().children.lock().unwrap().iter() {
-                    for _ in 0..depth {
+                for (ichild, child) in ast.value().children.lock().unwrap().iter().enumerate() {
+                    if ichild > 0 {
+                        for _ in 0..depth {
+                            write!(output, "  ")?;
+                        }
                         write!(output, "  ")?;
                     }
                     write!(output, "> ")?;
-                    self._format_impl(&child, output, depth + 1)?;
+                    self._format_impl(child, output, depth + 1)?;
                 }
             }
             AstNodeKind::Math{inline} => {
@@ -369,11 +372,11 @@ impl MarkdownRenderer {
                     write!(output, "`")?;
                 } else {
                     //TODO use syntext
-                    write!(output, "```{}\n", lang)?;
+                    writeln!(output, "```{}", lang)?;
                     for child in ast.value().children.lock().unwrap().iter() {
-                        write!(output, "{}\n", child.extract_str())?;
+                        writeln!(output, "{}", child.extract_str())?;
                     }
-                    write!(output, "```\n")?;
+                    writeln!(output, "```")?;
                 }
             }
             AstNodeKind::Image { src, alt } => {
@@ -426,7 +429,7 @@ impl MarkdownRenderer {
                     write!(output, "<del>")?;
                 }
                 for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(&content, output, depth)?;
+                    self._format_impl(content, output, depth)?;
                 }
                 if *deleted {
                     write!(output, "</del>")?;
@@ -454,7 +457,7 @@ impl MarkdownRenderer {
             AstNodeKind::Table => {todo!()}
             AstNodeKind::TableColumn => {
                 for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(&content, output, depth)?;
+                    self._format_impl(content, output, depth)?;
                 }
             }
         }
