@@ -15,7 +15,7 @@
     "highlight.js": "^11.11.1",
     "html-react-parser": "^5.2.5",
     "mermaid": "^11.6.0",
-    "next": "15.3.3",
+    "next": "15.3.4",
     "purecss": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -25,6 +25,6 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "eslint": "^9",
-    "eslint-config-next": "15.3.3"
+    "eslint-config-next": "15.3.4"
   }
 }
