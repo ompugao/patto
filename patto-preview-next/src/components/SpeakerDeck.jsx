@@ -114,8 +114,6 @@ export default function SpeakerDeck({ url, id }) {
       ref={containerRef} 
       style={{ 
         margin: '0',
-        border: '1px solid #ddd',
-        borderRadius: '4px',
         overflow: 'hidden'
       }} 
     />
