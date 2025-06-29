@@ -27,6 +27,25 @@ const mathJaxConfig = {
   }
 };
 
+function escapeInvalidTags(html) {
+  const tagRegex = /<\/?([a-zA-Z][\w:-]*)\b[^>]*>/g;
+
+  return html.replace(tagRegex, (match, tagName) => {
+    const testEl = document.createElement(tagName.toLowerCase());
+    const isKnown = !(testEl instanceof HTMLUnknownElement);
+
+    if (isKnown) {
+      return match; // leave valid tag alone
+    }
+
+    // escape the entire tag
+    return match
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  });
+}
+
 export default function Preview({ html, anchor, onSelectFile, currentNote }) {
   const router = useRouter();
 
@@ -342,7 +361,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
         {html ? (
           <>
             <MathJax dynamic>
-              {parse(html, transformOptions)}
+              {parse(escapeInvalidTags(html), transformOptions)}
             </MathJax>
             <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} />
           </>
