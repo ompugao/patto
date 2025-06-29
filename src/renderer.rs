@@ -200,6 +200,13 @@ impl HtmlRenderer {
                         "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
                         link, link, title.as_deref().unwrap_or(link)
                     )?;
+                } else if link.contains("speakerdeck.com") {
+                    // Render as placeholder that can be enhanced client-side
+                    write!(
+                        output,
+                        "<div class=\"speakerdeck-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
+                        link, link, title.as_deref().unwrap_or(link)
+                    )?;
                 } else if let Some(title) = title {
                     write!(
                         output,

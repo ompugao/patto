@@ -6,6 +6,7 @@ import { useClientRouter } from '../lib/router';
 import { useRouter } from 'next/navigation';
 //import Image from 'next/image';
 import Tweet, {extractTwitterId} from './Tweet.jsx';
+import SpeakerDeck, {extractSpeakerDeckId} from './SpeakerDeck.jsx';
 import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
 import LazyCode from './LazyCode.jsx';
 import TwoHopLinks from './TwoHopLinks.jsx';
@@ -86,6 +87,24 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
         const id = extractTwitterId(url);
         if (id !== undefined && id !== null) {
           return <Tweet key={`tweet-${id}`} id={id}/>
+        } else {
+          return domNode;
+        }
+      }
+
+      // Handle SpeakerDeck placeholders
+      if (domNode.type === 'tag' && domNode.name === 'div' && 
+          domNode.attribs && domNode.attribs.class === 'speakerdeck-placeholder') {
+        const url = domNode.attribs['data-url'];
+        const id = domNode.attribs['data-id']; // Support for direct hash ID
+        const speakerDeckUrl = extractSpeakerDeckId(url);
+        
+        if (id) {
+          // Use hash ID if provided
+          return <SpeakerDeck key={`speakerdeck-${id}`} id={id}/>
+        } else if (speakerDeckUrl) {
+          // Fallback to URL-based embedding
+          return <SpeakerDeck key={`speakerdeck-${speakerDeckUrl}`} url={speakerDeckUrl}/>
         } else {
           return domNode;
         }

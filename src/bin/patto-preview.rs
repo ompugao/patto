@@ -204,6 +204,7 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
+        .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/files/*path", get(user_files_handler))
         .route("/api/two-hop-links/*path", get(two_hop_links_handler))
         .route("/_next/*path", get(nextjs_static_handler))
@@ -261,6 +262,31 @@ async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) ->
             }
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch Twitter embed"}))),
+    }
+}
+
+// Handler for SpeakerDeck embed proxy
+async fn speakerdeck_embed_handler(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let url = match params.get("url") {
+        Some(url) => url,
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Missing url parameter"}))),
+    };
+
+    // Validate that this is actually a SpeakerDeck URL
+    if !url.contains("speakerdeck.com") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid SpeakerDeck URL"})));
+    }
+
+    let api_url = format!("https://speakerdeck.com/oembed.json?url={}", urlencoding::encode(url));
+    
+    match reqwest::get(&api_url).await {
+        Ok(response) => {
+            match response.json::<serde_json::Value>().await {
+                Ok(json) => (StatusCode::OK, Json(json)),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to parse SpeakerDeck response"}))),
+            }
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch SpeakerDeck embed"}))),
     }
 }
 
