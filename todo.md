@@ -18,8 +18,8 @@
     * semantic tokens
       * `overlappingTokenSupport` seems not supported broadly (only neovim and vscode, AFAIK)
     * [x] support note and anchor completion
-    * document references and anchor references
-      * directional graph construction
+    * [x] document references and anchor references
+      * [x] directional graph construction
     * [x] find references (backlinks) from other notes
     * [x] export markdown
     * todo extraction
@@ -44,4 +44,4 @@
     * [x] feature: support mermaid
     * [x] feature: support printing
     * [x] bugfix: Fix twitter embedding css
-    * back links & show two hop links
+    * [x] back links & show two hop links
