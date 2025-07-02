@@ -10,6 +10,7 @@ import SpeakerDeck, {extractSpeakerDeckId} from './SpeakerDeck.jsx';
 import {MermaidDiagram} from "@lightenna/react-mermaid-diagram";
 import LazyCode from './LazyCode.jsx';
 import TwoHopLinks from './TwoHopLinks.jsx';
+import BackLinks from './BackLinks.jsx';
 import 'highlight.js/styles/github.min.css';
 import { MathJaxContext, MathJax } from 'better-react-mathjax';
 
@@ -363,6 +364,7 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
             <MathJax dynamic>
               {parse(escapeInvalidTags(html), transformOptions)}
             </MathJax>
+            <BackLinks currentNote={currentNote} onSelectFile={onSelectFile} />
             <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} />
           </>
         ) : (

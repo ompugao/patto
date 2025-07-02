@@ -56,7 +56,7 @@ struct AppState {
     tx: broadcast::Sender<Message>,
     line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
     // Store file graphs for two-hop links: file -> files it links to
-    two_hop_links: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
+    graph: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
 }
 
 // Messages for the broadcast channel
@@ -200,7 +200,7 @@ async fn main() {
         dir: dir.clone(),
         tx: tx.clone(),
         line_trackers: Arc::new(Mutex::new(HashMap::new())),
-        two_hop_links: Arc::new(Mutex::new(HashMap::new())),
+        graph: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Start file watcher in a separate task
@@ -217,6 +217,7 @@ async fn main() {
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/files/*path", get(user_files_handler))
         .route("/api/two-hop-links/*path", get(two_hop_links_handler))
+        .route("/api/back-links/*path", get(back_links_handler))
         .route("/_next/*path", get(nextjs_static_handler))
         .route("/js/*path", get(nextjs_public_handler))
         .route("/favicon.ico", get(favicon_handler))
@@ -708,7 +709,7 @@ fn path_to_link(path: &Path, base_dir: &Path) -> Option<String> {
 }
 
 // Build file link graph for two-hop analysis (initial scan)
-fn build_two_hop_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBuf>> {
+fn build_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBuf>> {
     let mut graph = HashMap::new();
 
     // Scan all .pn files in the directory
@@ -745,7 +746,7 @@ fn build_two_hop_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBu
 }
 
 // Update only the specific file's links in the graph
-fn update_two_hop_links_in_graph(
+fn update_links_in_graph(
     file_path: &Path,
     content: &str,
     base_dir: &Path,
@@ -790,11 +791,11 @@ async fn two_hop_links_handler(
 
     // Build or get cached file link graph
     let graph = {
-        let mut two_hop_links = state.two_hop_links.lock().unwrap();
-        if two_hop_links.is_empty() {
-            *two_hop_links = build_two_hop_link_graph(&state);
+        let mut graph = state.graph.lock().unwrap();
+        if graph.is_empty() {
+            *graph = build_link_graph(&state);
         }
-        two_hop_links.clone()
+        graph.clone()
     };
 
     // Calculate two-hop links based on LSP algorithm
@@ -830,6 +831,64 @@ async fn two_hop_links_handler(
 
     Json(serde_json::json!({
         "twoHopLinks": two_hop_links
+    }))
+}
+
+// Back-links handler - finds all files that reference the current file
+async fn back_links_handler(
+    AxumPath(path): AxumPath<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path.clone().into());
+    let file_path = state.dir.join(decoded_path.as_ref());
+
+    // Security check
+    let canonical_base = match std::fs::canonicalize(&state.dir) {
+        Ok(base) => base,
+        Err(_) => return Json(serde_json::json!({"error": "Base directory error"})),
+    };
+
+    let canonical_file = match std::fs::canonicalize(&file_path) {
+        Ok(file) => file,
+        Err(_) => return Json(serde_json::json!({"error": "File not found"})),
+    };
+
+    if !canonical_file.starts_with(&canonical_base) {
+        return Json(serde_json::json!({"error": "Access denied"}));
+    }
+
+    // Get the link name for the current file (what other files would reference it as)
+    let current_link_name = match path_to_link(&canonical_file, &state.dir) {
+        Some(name) => name,
+        None => return Json(serde_json::json!({"error": "Could not determine link name"})),
+    };
+
+    // Build or get cached file link graph
+    let graph = {
+        let mut graph = state.graph.lock().unwrap();
+        if graph.is_empty() {
+            *graph = build_link_graph(&state);
+        }
+        graph.clone()
+    };
+
+    // Find all files that reference the current file
+    let mut back_links: Vec<String> = Vec::new();
+
+    for (other_file, linked_files) in &graph {
+        // Check if this file links to our current file
+        if linked_files.contains(&canonical_file) {
+            if let Some(link_name) = path_to_link(other_file, &state.dir) {
+                back_links.push(link_name);
+            }
+        }
+    }
+
+    // Sort alphabetically
+    back_links.sort();
+
+    Json(serde_json::json!({
+        "backLinks": back_links
     }))
 }
 
@@ -915,8 +974,8 @@ async fn watch_files(state: AppState) {
                     if let Ok(rel_path) = path.strip_prefix(&state.dir) {
                         // Remove the file from the two-hop links graph
                         {
-                            let mut two_hop_links = state.two_hop_links.lock().unwrap();
-                            two_hop_links.remove(&path);
+                            let mut graph = state.graph.lock().unwrap();
+                            graph.remove(&path);
                         }
 
                         let _ = state.tx.send(Message::FileRemoved(rel_path.to_path_buf()));
@@ -985,12 +1044,12 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
 
     // Update only this file's links in the graph instead of clearing everything
     {
-        let mut two_hop_links = state.two_hop_links.lock().unwrap();
+        let mut graph = state.graph.lock().unwrap();
 
         // If graph is empty, we'll build it lazily when needed
         // If graph exists, update only this file's entry
-        if !two_hop_links.is_empty() {
-            update_two_hop_links_in_graph(path, &content, &state.dir, &mut two_hop_links);
+        if !graph.is_empty() {
+            update_links_in_graph(path, &content, &state.dir, &mut graph);
         }
     }
 
