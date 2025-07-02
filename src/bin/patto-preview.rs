@@ -1,3 +1,4 @@
+use axum::extract::ws::WebSocket;
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State, WebSocketUpgrade},
@@ -6,25 +7,20 @@ use axum::{
     routing::get,
     Router,
 };
-use axum::extract::ws::WebSocket;
 use clap::Parser;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use patto::{
+    line_tracker::LineTracker,
     parser,
     renderer::{HtmlRenderer, Options, Renderer},
-    line_tracker::LineTracker
 };
 use rust_embed::RustEmbed;
-use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::{
-    fs,
-    sync::broadcast,
-    time::sleep,
-};
-use serde::{Serialize, Deserialize};
+use tokio::{fs, sync::broadcast, time::sleep};
 
 // Embed Next.js static files
 #[derive(RustEmbed)]
@@ -67,6 +63,7 @@ struct AppState {
 #[derive(Clone)]
 enum Message {
     FileChanged(PathBuf, String),
+    #[allow(dead_code)]
     FileList(Vec<PathBuf>),
     FileAdded(PathBuf, FileMetadata),
     FileRemoved(PathBuf),
@@ -75,8 +72,8 @@ enum Message {
 // File metadata for sorting
 #[derive(Serialize, Deserialize, Clone)]
 struct FileMetadata {
-    modified: u64,  // Unix timestamp
-    created: u64,   // Unix timestamp
+    modified: u64, // Unix timestamp
+    created: u64,  // Unix timestamp
     #[serde(rename = "linkCount")]
     link_count: u32,
 }
@@ -85,11 +82,24 @@ struct FileMetadata {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 enum WsMessage {
-    FileList { files: Vec<String>, metadata: HashMap<String, FileMetadata> },
-    FileChanged { path: String, html: String },
-    FileAdded { path: String, metadata: FileMetadata },
-    FileRemoved { path: String },
-    SelectFile { path: String },
+    FileList {
+        files: Vec<String>,
+        metadata: HashMap<String, FileMetadata>,
+    },
+    FileChanged {
+        path: String,
+        html: String,
+    },
+    FileAdded {
+        path: String,
+        metadata: FileMetadata,
+    },
+    FileRemoved {
+        path: String,
+    },
+    SelectFile {
+        path: String,
+    },
 }
 
 // Helper function to get file extension
@@ -108,7 +118,7 @@ fn get_mime_type(path: &Path) -> &str {
         "css" => "text/css",
         "js" => "application/javascript",
         "json" => "application/json",
-        
+
         // Image formats
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
@@ -120,7 +130,7 @@ fn get_mime_type(path: &Path) -> &str {
         "ico" => "image/x-icon",
         "heic" => "image/heic",
         "avif" => "image/avif",
-        
+
         // Video formats
         "mp4" => "video/mp4",
         "webm" => "video/webm",
@@ -131,7 +141,7 @@ fn get_mime_type(path: &Path) -> &str {
         "flv" => "video/x-flv",
         "mkv" => "video/x-matroska",
         "m4v" => "video/x-m4v",
-        
+
         // Audio formats
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
@@ -140,7 +150,7 @@ fn get_mime_type(path: &Path) -> &str {
         "flac" => "audio/flac",
         "m4a" => "audio/mp4",
         "wma" => "audio/x-ms-wma",
-        
+
         // Document formats
         "pdf" => "application/pdf",
         "txt" => "text/plain",
@@ -153,7 +163,7 @@ fn get_mime_type(path: &Path) -> &str {
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "ppt" => "application/vnd.ms-powerpoint",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        
+
         // Programming languages
         "py" => "text/x-python",
 
@@ -163,7 +173,7 @@ fn get_mime_type(path: &Path) -> &str {
         "7z" => "application/x-7z-compressed",
         "tar" => "application/x-tar",
         "gz" => "application/gzip",
-        
+
         _ => "application/octet-stream",
     }
 }
@@ -224,19 +234,15 @@ async fn main() {
 // Handler for the index page (Next.js app)
 async fn index_handler() -> impl IntoResponse {
     match NextJsRoot::get("index.html") {
-        Some(content) => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/html")
-                .body(Body::from(content.data))
-                .unwrap()
-        }
-        None => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Index file not found"))
-                .unwrap()
-        }
+        Some(content) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html")
+            .body(Body::from(content.data))
+            .unwrap(),
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Index file not found"))
+            .unwrap(),
     }
 }
 
@@ -244,49 +250,81 @@ async fn index_handler() -> impl IntoResponse {
 async fn twitter_embed_handler(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
     let url = match params.get("url") {
         Some(url) => url,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Missing url parameter"}))),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Missing url parameter"})),
+            )
+        }
     };
 
     // Validate that this is actually a Twitter/X URL
     if !url.contains("twitter.com") && !url.contains("x.com") {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid Twitter URL"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid Twitter URL"})),
+        );
     }
 
-    let api_url = format!("https://publish.twitter.com/oembed?url={}", urlencoding::encode(url));
-    
+    let api_url = format!(
+        "https://publish.twitter.com/oembed?url={}",
+        urlencoding::encode(url)
+    );
+
     match reqwest::get(&api_url).await {
-        Ok(response) => {
-            match response.json::<serde_json::Value>().await {
-                Ok(json) => (StatusCode::OK, Json(json)),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to parse Twitter response"}))),
-            }
-        }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch Twitter embed"}))),
+        Ok(response) => match response.json::<serde_json::Value>().await {
+            Ok(json) => (StatusCode::OK, Json(json)),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to parse Twitter response"})),
+            ),
+        },
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to fetch Twitter embed"})),
+        ),
     }
 }
 
 // Handler for SpeakerDeck embed proxy
-async fn speakerdeck_embed_handler(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+async fn speakerdeck_embed_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
     let url = match params.get("url") {
         Some(url) => url,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Missing url parameter"}))),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Missing url parameter"})),
+            )
+        }
     };
 
     // Validate that this is actually a SpeakerDeck URL
     if !url.contains("speakerdeck.com") {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid SpeakerDeck URL"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid SpeakerDeck URL"})),
+        );
     }
 
-    let api_url = format!("https://speakerdeck.com/oembed.json?url={}", urlencoding::encode(url));
-    
+    let api_url = format!(
+        "https://speakerdeck.com/oembed.json?url={}",
+        urlencoding::encode(url)
+    );
+
     match reqwest::get(&api_url).await {
-        Ok(response) => {
-            match response.json::<serde_json::Value>().await {
-                Ok(json) => (StatusCode::OK, Json(json)),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to parse SpeakerDeck response"}))),
-            }
-        }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to fetch SpeakerDeck embed"}))),
+        Ok(response) => match response.json::<serde_json::Value>().await {
+            Ok(json) => (StatusCode::OK, Json(json)),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to parse SpeakerDeck response"})),
+            ),
+        },
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to fetch SpeakerDeck embed"})),
+        ),
     }
 }
 
@@ -347,82 +385,68 @@ async fn user_files_handler(
                 .header(header::CACHE_CONTROL, "public, max-age=3600") // Cache for 1 hour
                 .body(Body::from(contents))
                 .unwrap()
-        },
-        Err(_) => {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Error reading file"))
-                .unwrap()
         }
+        Err(_) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Error reading file"))
+            .unwrap(),
     }
 }
 
 // Handler for Next.js static assets
-async fn nextjs_static_handler(
-    AxumPath(path): AxumPath<String>,
-) -> impl IntoResponse {
+async fn nextjs_static_handler(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
     match NextJsAssets::get(&path) {
         Some(content) => {
             let content_type = get_content_type_from_path(&path);
-            
+
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, content_type)
                 .body(Body::from(content.data))
                 .unwrap()
         }
-        None => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Next.js asset not found"))
-                .unwrap()
-        }
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Next.js asset not found"))
+            .unwrap(),
     }
 }
 
 // Handler for Next.js public directory files (like /js/idiomorph.min.js)
-async fn nextjs_public_handler(
-    AxumPath(path): AxumPath<String>,
-) -> impl IntoResponse {
+async fn nextjs_public_handler(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
     // The path comes as "idiomorph.min.js" from "/js/idiomorph.min.js" route
     let full_path = format!("js/{}", path);
-    
+
     // Try to get the file from the NextJsRoot embedded files
     match NextJsRoot::get(&full_path) {
         Some(content) => {
             let content_type = get_content_type_from_path(&path);
-            
+
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, content_type)
                 .body(Body::from(content.data))
                 .unwrap()
         }
-        None => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from(format!("Public file not found: {}", full_path)))
-                .unwrap()
-        }
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!("Public file not found: {}", full_path)))
+            .unwrap(),
     }
 }
 
 // Handler for favicon
 async fn favicon_handler() -> impl IntoResponse {
     match NextJsRoot::get("favicon.ico") {
-        Some(content) => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "image/x-icon")
-                .body(Body::from(content.data))
-                .unwrap()
-        }
-        None => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Favicon not found"))
-                .unwrap()
-        }
+        Some(content) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "image/x-icon")
+            .body(Body::from(content.data))
+            .unwrap(),
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Favicon not found"))
+            .unwrap(),
     }
 }
 
@@ -450,10 +474,7 @@ fn get_content_type_from_path(path: &str) -> &'static str {
 }
 
 // WebSocket handler
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(|socket| async move {
         handle_socket(socket, state).await;
     })
@@ -582,7 +603,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 }
 
 // Helper function to collect patto files with metadata
-fn collect_patto_files_with_metadata(dir: &Path, base_dir: &Path, files: &mut Vec<String>, metadata: &mut HashMap<String, FileMetadata>) {
+fn collect_patto_files_with_metadata(
+    dir: &Path,
+    base_dir: &Path,
+    files: &mut Vec<String>,
+    metadata: &mut HashMap<String, FileMetadata>,
+) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -593,29 +619,34 @@ fn collect_patto_files_with_metadata(dir: &Path, base_dir: &Path, files: &mut Ve
                 if let Ok(rel_path) = path.strip_prefix(base_dir) {
                     let rel_path_str = rel_path.to_string_lossy().to_string();
                     files.push(rel_path_str.clone());
-                    
+
                     // Collect file metadata
                     if let Ok(file_metadata) = std::fs::metadata(&path) {
-                        let modified = file_metadata.modified()
+                        let modified = file_metadata
+                            .modified()
                             .unwrap_or(SystemTime::UNIX_EPOCH)
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        
-                        let created = file_metadata.created()
+
+                        let created = file_metadata
+                            .created()
                             .unwrap_or(SystemTime::UNIX_EPOCH)
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        
+
                         // Count links by reading file content and parsing
                         let link_count = count_links_in_file(&path).unwrap_or(0);
-                        
-                        metadata.insert(rel_path_str, FileMetadata {
-                            modified,
-                            created,
-                            link_count,
-                        });
+
+                        metadata.insert(
+                            rel_path_str,
+                            FileMetadata {
+                                modified,
+                                created,
+                                link_count,
+                            },
+                        );
                     }
                 }
             }
@@ -679,9 +710,13 @@ fn path_to_link(path: &Path, base_dir: &Path) -> Option<String> {
 // Build file link graph for two-hop analysis (initial scan)
 fn build_two_hop_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBuf>> {
     let mut graph = HashMap::new();
-    
+
     // Scan all .pn files in the directory
-    fn scan_dir_for_links(dir: &Path, base_dir: &Path, graph: &mut HashMap<PathBuf, HashSet<PathBuf>>) {
+    fn scan_dir_for_links(
+        dir: &Path,
+        base_dir: &Path,
+        graph: &mut HashMap<PathBuf, HashSet<PathBuf>>,
+    ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -692,40 +727,40 @@ fn build_two_hop_link_graph(state: &AppState) -> HashMap<PathBuf, HashSet<PathBu
                         let result = parser::parse_text(&content);
                         let mut wikilinks = vec![];
                         gather_wikilinks(&result.ast, &mut wikilinks);
-                        
+
                         let linked_paths: HashSet<PathBuf> = wikilinks
                             .into_iter()
                             .filter_map(|(link, _)| link_to_path(&link, base_dir))
                             .collect();
-                        
+
                         graph.insert(path, linked_paths);
                     }
                 }
             }
         }
     }
-    
+
     scan_dir_for_links(&state.dir, &state.dir, &mut graph);
     graph
 }
 
 // Update only the specific file's links in the graph
 fn update_two_hop_links_in_graph(
-    file_path: &Path, 
-    content: &str, 
+    file_path: &Path,
+    content: &str,
     base_dir: &Path,
-    graph: &mut HashMap<PathBuf, HashSet<PathBuf>>
+    graph: &mut HashMap<PathBuf, HashSet<PathBuf>>,
 ) {
     // Parse the file and extract its links
     let result = parser::parse_text(content);
     let mut wikilinks = vec![];
     gather_wikilinks(&result.ast, &mut wikilinks);
-    
+
     let linked_paths: HashSet<PathBuf> = wikilinks
         .into_iter()
         .filter_map(|(link, _)| link_to_path(&link, base_dir))
         .collect();
-    
+
     // Update the graph with this file's new links
     graph.insert(file_path.to_path_buf(), linked_paths);
 }
@@ -737,22 +772,22 @@ async fn two_hop_links_handler(
 ) -> impl IntoResponse {
     let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path.clone().into());
     let file_path = state.dir.join(decoded_path.as_ref());
-    
+
     // Security check
     let canonical_base = match std::fs::canonicalize(&state.dir) {
         Ok(base) => base,
         Err(_) => return Json(serde_json::json!({"error": "Base directory error"})),
     };
-    
+
     let canonical_file = match std::fs::canonicalize(&file_path) {
         Ok(file) => file,
         Err(_) => return Json(serde_json::json!({"error": "File not found"})),
     };
-    
+
     if !canonical_file.starts_with(&canonical_base) {
         return Json(serde_json::json!({"error": "Access denied"}));
     }
-    
+
     // Build or get cached file link graph
     let graph = {
         let mut two_hop_links = state.two_hop_links.lock().unwrap();
@@ -761,23 +796,26 @@ async fn two_hop_links_handler(
         }
         two_hop_links.clone()
     };
-    
+
     // Calculate two-hop links based on LSP algorithm
     let mut two_hop_links: Vec<(String, Vec<String>)> = Vec::new();
-    
+
     if let Some(direct_links) = graph.get(&canonical_file) {
         for linked_file in direct_links {
             let mut connected_files = Vec::new();
-            
+
             // Find files that link to the same file as our original file links to
             for (other_file, other_links) in &graph {
-                if other_file != &canonical_file && other_file != linked_file && other_links.contains(linked_file) {
+                if other_file != &canonical_file
+                    && other_file != linked_file
+                    && other_links.contains(linked_file)
+                {
                     if let Some(link_name) = path_to_link(other_file, &state.dir) {
                         connected_files.push(link_name);
                     }
                 }
             }
-            
+
             if !connected_files.is_empty() {
                 if let Some(bridge_link_name) = path_to_link(linked_file, &state.dir) {
                     connected_files.sort();
@@ -786,10 +824,10 @@ async fn two_hop_links_handler(
             }
         }
     }
-    
+
     // Sort by number of connections (descending)
     two_hop_links.sort_by_key(|(_, connections)| -(connections.len() as i32));
-    
+
     Json(serde_json::json!({
         "twoHopLinks": two_hop_links
     }))
@@ -817,9 +855,7 @@ async fn watch_files(state: AppState) {
         .unwrap();
 
         // Use the cloned watch_dir instead of state.dir
-        watcher
-            .watch(&watch_dir, RecursiveMode::Recursive)
-            .unwrap();
+        watcher.watch(&watch_dir, RecursiveMode::Recursive).unwrap();
 
         // Keep the watcher alive
         std::thread::park();
@@ -828,7 +864,8 @@ async fn watch_files(state: AppState) {
     println!("Watching directory: {}", dir_display);
 
     // Debouncing: track last modification time for each file
-    let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+    let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let debounce_duration = Duration::from_millis(100); // 300ms debounce
 
     // Process events from the channel
@@ -836,38 +873,42 @@ async fn watch_files(state: AppState) {
         if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
             for path in event.paths {
                 let is_pn_file = get_extension(&path) == "pn";
-                
+
                 // Handle file creation
                 if event.kind.is_create() && is_pn_file {
                     println!("File created: {}", path.display());
                     if let Ok(rel_path) = path.strip_prefix(&state.dir) {
                         // Generate metadata for the new file
                         if let Ok(file_metadata) = std::fs::metadata(&path) {
-                            let modified = file_metadata.modified()
+                            let modified = file_metadata
+                                .modified()
                                 .unwrap_or(SystemTime::UNIX_EPOCH)
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_secs();
-                            
-                            let created = file_metadata.created()
+
+                            let created = file_metadata
+                                .created()
                                 .unwrap_or(SystemTime::UNIX_EPOCH)
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_secs();
-                            
+
                             let link_count = count_links_in_file(&path).unwrap_or(0);
-                            
+
                             let metadata = FileMetadata {
                                 modified,
                                 created,
                                 link_count,
                             };
-                            
-                            let _ = state.tx.send(Message::FileAdded(rel_path.to_path_buf(), metadata));
+
+                            let _ = state
+                                .tx
+                                .send(Message::FileAdded(rel_path.to_path_buf(), metadata));
                         }
                     }
                 }
-                
+
                 // Handle file removal
                 if event.kind.is_remove() && is_pn_file {
                     println!("File removed: {}", path.display());
@@ -877,11 +918,11 @@ async fn watch_files(state: AppState) {
                             let mut two_hop_links = state.two_hop_links.lock().unwrap();
                             two_hop_links.remove(&path);
                         }
-                        
+
                         let _ = state.tx.send(Message::FileRemoved(rel_path.to_path_buf()));
                     }
                 }
-                
+
                 // Handle file content changes (modify existing .pn files)
                 if event.kind.is_modify() && path.is_file() && is_pn_file {
                     // Update pending changes with current time
@@ -894,7 +935,7 @@ async fn watch_files(state: AppState) {
                     let state_clone = state.clone();
                     let path_clone = path.clone();
                     let pending_changes_clone = Arc::clone(&pending_changes);
-                    
+
                     tokio::spawn(async move {
                         // Wait for debounce duration
                         sleep(debounce_duration).await;
@@ -903,7 +944,8 @@ async fn watch_files(state: AppState) {
                         let should_process = {
                             let mut changes = pending_changes_clone.lock().unwrap();
                             if let Some(&last_change) = changes.get(&path_clone) {
-                                let is_latest = Instant::now().duration_since(last_change) >= debounce_duration;
+                                let is_latest =
+                                    Instant::now().duration_since(last_change) >= debounce_duration;
                                 if is_latest {
                                     changes.remove(&path_clone);
                                     true
@@ -944,7 +986,7 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
     // Update only this file's links in the graph instead of clearing everything
     {
         let mut two_hop_links = state.two_hop_links.lock().unwrap();
-        
+
         // If graph is empty, we'll build it lazily when needed
         // If graph exists, update only this file's entry
         if !two_hop_links.is_empty() {
@@ -952,24 +994,34 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
         }
     }
 
-    println!("{} html Generated, taking {} msec in total. Sending via websocket...", path.display(), start.elapsed().as_millis());
+    println!(
+        "{} html Generated, taking {} msec in total. Sending via websocket...",
+        path.display(),
+        start.elapsed().as_millis()
+    );
 
     // Broadcast change
-    let _ = state.tx.send(Message::FileChanged(rel_path.to_path_buf(), html));
+    let _ = state
+        .tx
+        .send(Message::FileChanged(rel_path.to_path_buf(), html));
     println!("{} Sent", path.display());
 
     Ok(())
 }
 
 // Render patto content to HTML with persistent line tracking
-async fn render_patto_to_html(content: &str, file_path: &str, state: &AppState) -> std::io::Result<String> {
+async fn render_patto_to_html(
+    content: &str,
+    file_path: &str,
+    state: &AppState,
+) -> std::io::Result<String> {
     // Use Arc to avoid cloning large content
     let content = std::sync::Arc::new(content.to_string());
     let file_path_buf = PathBuf::from(file_path);
-    
+
     // Get or create line tracker for this file
     let line_trackers = Arc::clone(&state.line_trackers);
-    
+
     let html_output = tokio::task::spawn_blocking(move || {
         // Get or create line tracker for this file
         let mut trackers = line_trackers.lock().unwrap();
@@ -978,23 +1030,25 @@ async fn render_patto_to_html(content: &str, file_path: &str, state: &AppState) 
                 panic!();
             })
         });
-        
+
         let result = parser::parse_text_with_persistent_line_tracking(&content, line_tracker);
-        
+
         // Pre-allocate buffer with estimated size to reduce reallocations
         let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
         let mut html_output = Vec::with_capacity(estimated_size);
-        
+
         let renderer = HtmlRenderer::new(Options {
             ..Options::default()
         });
-        
+
         let _ = renderer.format(&result.ast, &mut html_output);
         html_output
-    }).await;
+    })
+    .await;
 
     match html_output {
-        Ok(output) => Ok(String::from_utf8(output).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
+        Ok(output) => Ok(String::from_utf8(output)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
         Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
     }
 }
