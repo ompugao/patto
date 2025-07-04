@@ -53,8 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let parser::ParserResult { ast: rootnode, parse_errors: _ } = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
-    let options = renderer::Options {
-        ..renderer::Options::default()
+    let options = renderer::HtmlRendererOptions {
+        ..renderer::HtmlRendererOptions::default()
     };
 
     init_logger(args.verbose.log_level_filter(), args.debuglogfile);

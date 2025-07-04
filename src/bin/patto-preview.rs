@@ -12,7 +12,7 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use patto::{
     line_tracker::LineTracker,
     parser,
-    renderer::{HtmlRenderer, Options, Renderer},
+    renderer::{HtmlRenderer, HtmlRendererOptions, Renderer},
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -1096,8 +1096,8 @@ async fn render_patto_to_html(
         let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
         let mut html_output = Vec::with_capacity(estimated_size);
 
-        let renderer = HtmlRenderer::new(Options {
-            ..Options::default()
+        let renderer = HtmlRenderer::new(HtmlRendererOptions {
+            ..HtmlRendererOptions::default()
         });
 
         let _ = renderer.format(&result.ast, &mut html_output);

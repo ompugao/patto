@@ -10,6 +10,10 @@ struct Cli {
     /// an input file to parse
     #[arg(short, long, value_name = "FILE")]
     file: PathBuf,
+
+    #[arg(short, long, value_name = "BOOL")]
+    use_hard_line_break: bool,
+
     /// an output html file
     #[arg(short, long, value_name = "OUTPUT")]
     output: PathBuf,
@@ -26,8 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let parser::ParserResult { ast: rootnode, parse_errors: _ } = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
-    let options = renderer::Options {
-        ..renderer::Options::default()
+    let options = renderer::MarkdownRendererOptions {
+        use_hard_line_break: args.use_hard_line_break,
     };
     let renderer = renderer::MarkdownRenderer::new(options);
     renderer.format(&rootnode, &mut writer)?;

@@ -6,26 +6,21 @@ use crate::parser::{Property, TaskStatus};
 use crate::utils::{get_twitter_embed, get_youtube_id, get_gyazo_img_src};
 use html_escape::encode_text;
 
-#[derive(Debug, Default)]
-pub struct Options {
-    // maybe deleted in the future
+pub trait Renderer {
+    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()>;
 }
 
-pub trait Renderer {
-    fn new(options: Options) -> Self;
-    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()>;
+#[derive(Debug, Default)]
+pub struct HtmlRendererOptions {
+    // maybe deleted in the future
 }
 
 pub struct HtmlRenderer {
     #[allow(dead_code)]
-    options: Options,
+    options: HtmlRendererOptions,
 }
 
 impl Renderer for HtmlRenderer {
-    fn new(options: Options) -> Self {
-        HtmlRenderer { options }
-    }
-
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         self._format_impl(ast, output)?;
         Ok(())
@@ -33,6 +28,10 @@ impl Renderer for HtmlRenderer {
 }
 
 impl HtmlRenderer {
+    pub fn new(options: HtmlRendererOptions) -> Self {
+        Self { options }
+    }
+
     fn get_stable_id_attr(&self, ast: &AstNode) -> String {
         if let Some(stable_id) = *ast.value().stable_id.lock().unwrap() {
             format!(" data-line-id=\"{}\"", stable_id)
@@ -277,15 +276,24 @@ impl HtmlRenderer {
 }
 
 
+#[derive(Debug)]
+pub struct MarkdownRendererOptions {
+    pub use_hard_line_break: bool,
+}
+
+impl Default for MarkdownRendererOptions {
+    fn default() -> Self {
+        Self {
+            use_hard_line_break: true,
+        }
+    }
+}
 
 pub struct MarkdownRenderer {
+    options: MarkdownRendererOptions,
 }
 
 impl Renderer for MarkdownRenderer {
-    fn new(_options: Options) -> Self {
-        Self { }
-    }
-
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         let depth: usize = 0;
         self._format_impl(ast, output, depth)?;
@@ -294,19 +302,24 @@ impl Renderer for MarkdownRenderer {
 }
 
 impl MarkdownRenderer {
+    pub fn new(options: MarkdownRendererOptions) -> Self {
+        Self { options }
+    }
+
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
                 for child in ast.value().children.lock().unwrap().iter() {
                     self._format_impl(child, output, depth)?;
-                    //write!(output, "  ")?;  // more than two trailing spaces represent a newline
                 }
             }
             AstNodeKind::Line { properties } => {
                 for _ in 0..depth {
                     write!(output, "  ")?;
                 }
-                write!(output, "* ")?;
+                if !self.options.use_hard_line_break || depth > 0 {
+                    write!(output, "* ")?;
+                }
                 for property in properties {
                     if let Property::Task { status, .. } = property {
                         if matches!(status, TaskStatus::Done) {
@@ -339,8 +352,13 @@ impl MarkdownRenderer {
                         }
                     }
                 }
-                writeln!(output)?;
-                if !ast.value().children.lock().unwrap().is_empty() {
+                let no_children = ast.value().children.lock().unwrap().is_empty();
+                if no_children && depth == 0 && self.options.use_hard_line_break  {
+                    writeln!(output, " \\")?;
+                } else {
+                    writeln!(output)?;
+                }
+                if !no_children {
                     for child in ast.value().children.lock().unwrap().iter() {
                         self._format_impl(child, output, depth + 1)?;
                     }
