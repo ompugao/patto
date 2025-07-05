@@ -41,6 +41,9 @@
 .PattoItem:blank {
   list-style-type: none;
 }
+.PattoItem::marker {
+   color: lightgray;
+}
 
 .PreviewContent a {
   text-decoration: underline;
