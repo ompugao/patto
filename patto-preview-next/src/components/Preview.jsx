@@ -47,7 +47,7 @@ function escapeInvalidTags(html) {
   });
 }
 
-export default function Preview({ html, anchor, onSelectFile, currentNote }) {
+export default function Preview({ html, anchor, onSelectFile, currentNote, backLinks, twoHopLinks }) {
   const router = useRouter();
 
   // Helper function to get stable React key from DOM node
@@ -364,8 +364,8 @@ export default function Preview({ html, anchor, onSelectFile, currentNote }) {
             <MathJax dynamic>
               {parse(escapeInvalidTags(html), transformOptions)}
             </MathJax>
-            <BackLinks currentNote={currentNote} onSelectFile={onSelectFile} />
-            <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} />
+            <BackLinks currentNote={currentNote} onSelectFile={onSelectFile} backLinks={backLinks} />
+            <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} twoHopLinks={twoHopLinks} />
           </>
         ) : (
           <div 

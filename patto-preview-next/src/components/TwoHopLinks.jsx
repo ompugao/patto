@@ -1,61 +1,9 @@
-import { useState, useEffect } from 'react';
 import styles from './TwoHopLinks.module.css';
 
-export default function TwoHopLinks({ currentNote, onSelectFile }) {
-  const [twoHopLinks, setTwoHopLinks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (!currentNote) {
-      setTwoHopLinks([]);
-      return;
-    }
-
-    const fetchTwoHopLinks = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const response = await fetch(`/api/two-hop-links/${encodeURIComponent(currentNote)}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch two-hop links');
-        }
-        
-        const data = await response.json();
-        setTwoHopLinks(data.twoHopLinks || []);
-      } catch (err) {
-        console.error('Error fetching two-hop links:', err);
-        setError(err.message);
-        setTwoHopLinks([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTwoHopLinks();
-  }, [currentNote]);
+export default function TwoHopLinks({ currentNote, onSelectFile, twoHopLinks = [] }) {
 
   if (!currentNote) {
     return null;
-  }
-
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <h3 className={styles.title}>Two-Hop Linked Pages</h3>
-        <div className={styles.loading}>Loading...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className={styles.container}>
-        <h3 className={styles.title}>Two-Hop Linked Pages</h3>
-        <div className={styles.error}>Error: {error}</div>
-      </div>
-    );
   }
 
   if (twoHopLinks.length === 0) {

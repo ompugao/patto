@@ -67,6 +67,8 @@ enum Message {
     FileList(Vec<PathBuf>),
     FileAdded(PathBuf, FileMetadata),
     FileRemoved(PathBuf),
+    BackLinksChanged(PathBuf, Vec<String>),
+    TwoHopLinksChanged(PathBuf, Vec<(String, Vec<String>)>),
 }
 
 // File metadata for sorting
@@ -99,6 +101,14 @@ enum WsMessage {
     },
     SelectFile {
         path: String,
+    },
+    BackLinksData {
+        path: String,
+        back_links: Vec<String>,
+    },
+    TwoHopLinksData {
+        path: String,
+        two_hop_links: Vec<(String, Vec<String>)>,
     },
 }
 
@@ -216,8 +226,6 @@ async fn main() {
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/files/*path", get(user_files_handler))
-        .route("/api/two-hop-links/*path", get(two_hop_links_handler))
-        .route("/api/back-links/*path", get(back_links_handler))
         .route("/_next/*path", get(nextjs_static_handler))
         .route("/js/*path", get(nextjs_public_handler))
         .route("/favicon.ico", get(favicon_handler))
@@ -541,6 +549,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 WsMessage::FileRemoved {
                                     path: path.to_string_lossy().to_string(),
                                 }
+                            },
+                            Message::BackLinksChanged(path, back_links) => {
+                                WsMessage::BackLinksData {
+                                    path: path.to_string_lossy().to_string(),
+                                    back_links,
+                                }
+                            },
+                            Message::TwoHopLinksChanged(path, two_hop_links) => {
+                                WsMessage::TwoHopLinksData {
+                                    path: path.to_string_lossy().to_string(),
+                                    two_hop_links,
+                                }
                             }
                         };
 
@@ -578,6 +598,32 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     if let Ok(json) = serde_json::to_string(&message) {
                                         if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
                                             eprintln!("Error sending file content: {}", e);
+                                        }
+                                    }
+
+                                    // Calculate and send back-links
+                                    let back_links = calculate_back_links(&file_path, &state).await;
+                                    let back_links_message = WsMessage::BackLinksData {
+                                        path: path.clone(),
+                                        back_links,
+                                    };
+
+                                    if let Ok(json) = serde_json::to_string(&back_links_message) {
+                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                                            eprintln!("Error sending back-links: {}", e);
+                                        }
+                                    }
+
+                                    // Calculate and send two-hop links
+                                    let two_hop_links = calculate_two_hop_links(&file_path, &state).await;
+                                    let two_hop_message = WsMessage::TwoHopLinksData {
+                                        path: path.clone(),
+                                        two_hop_links,
+                                    };
+
+                                    if let Ok(json) = serde_json::to_string(&two_hop_message) {
+                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                                            eprintln!("Error sending two-hop links: {}", e);
                                         }
                                     }
                                 } else {
@@ -766,34 +812,78 @@ fn update_links_in_graph(
     graph.insert(file_path.to_path_buf(), linked_paths);
 }
 
-// Two-hop links handler
-async fn two_hop_links_handler(
-    AxumPath(path): AxumPath<String>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path.clone().into());
-    let file_path = state.dir.join(decoded_path.as_ref());
 
+// Calculate back-links for a specific file
+async fn calculate_back_links(file_path: &Path, state: &AppState) -> Vec<String> {
     // Security check
     let canonical_base = match std::fs::canonicalize(&state.dir) {
         Ok(base) => base,
-        Err(_) => return Json(serde_json::json!({"error": "Base directory error"})),
+        Err(_) => return Vec::new(),
     };
 
-    let canonical_file = match std::fs::canonicalize(&file_path) {
+    let canonical_file = match std::fs::canonicalize(file_path) {
         Ok(file) => file,
-        Err(_) => return Json(serde_json::json!({"error": "File not found"})),
+        Err(_) => return Vec::new(),
     };
 
     if !canonical_file.starts_with(&canonical_base) {
-        return Json(serde_json::json!({"error": "Access denied"}));
+        return Vec::new();
+    }
+
+    // Get the link name for the current file (what other files would reference it as)
+    let _current_link_name = match path_to_link(&canonical_file, &state.dir) {
+        Some(name) => name,
+        None => return Vec::new(),
+    };
+
+    // Build or get cached file link graph
+    let graph = {
+        let mut graph = state.graph.lock().unwrap();
+        if graph.is_empty() {
+            *graph = build_link_graph(state);
+        }
+        graph.clone()
+    };
+
+    // Find all files that reference the current file
+    let mut back_links: Vec<String> = Vec::new();
+
+    for (other_file, linked_files) in &graph {
+        // Check if this file links to our current file
+        if linked_files.contains(&canonical_file) {
+            if let Some(link_name) = path_to_link(other_file, &state.dir) {
+                back_links.push(link_name);
+            }
+        }
+    }
+
+    // Sort alphabetically
+    back_links.sort();
+    back_links
+}
+
+// Calculate two-hop links for a specific file
+async fn calculate_two_hop_links(file_path: &Path, state: &AppState) -> Vec<(String, Vec<String>)> {
+    // Security check
+    let canonical_base = match std::fs::canonicalize(&state.dir) {
+        Ok(base) => base,
+        Err(_) => return Vec::new(),
+    };
+
+    let canonical_file = match std::fs::canonicalize(file_path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+
+    if !canonical_file.starts_with(&canonical_base) {
+        return Vec::new();
     }
 
     // Build or get cached file link graph
     let graph = {
         let mut graph = state.graph.lock().unwrap();
         if graph.is_empty() {
-            *graph = build_link_graph(&state);
+            *graph = build_link_graph(state);
         }
         graph.clone()
     };
@@ -828,68 +918,7 @@ async fn two_hop_links_handler(
 
     // Sort by number of connections (descending)
     two_hop_links.sort_by_key(|(_, connections)| -(connections.len() as i32));
-
-    Json(serde_json::json!({
-        "twoHopLinks": two_hop_links
-    }))
-}
-
-// Back-links handler - finds all files that reference the current file
-async fn back_links_handler(
-    AxumPath(path): AxumPath<String>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let decoded_path = urlencoding::decode(&path).unwrap_or_else(|_| path.clone().into());
-    let file_path = state.dir.join(decoded_path.as_ref());
-
-    // Security check
-    let canonical_base = match std::fs::canonicalize(&state.dir) {
-        Ok(base) => base,
-        Err(_) => return Json(serde_json::json!({"error": "Base directory error"})),
-    };
-
-    let canonical_file = match std::fs::canonicalize(&file_path) {
-        Ok(file) => file,
-        Err(_) => return Json(serde_json::json!({"error": "File not found"})),
-    };
-
-    if !canonical_file.starts_with(&canonical_base) {
-        return Json(serde_json::json!({"error": "Access denied"}));
-    }
-
-    // Get the link name for the current file (what other files would reference it as)
-    let current_link_name = match path_to_link(&canonical_file, &state.dir) {
-        Some(name) => name,
-        None => return Json(serde_json::json!({"error": "Could not determine link name"})),
-    };
-
-    // Build or get cached file link graph
-    let graph = {
-        let mut graph = state.graph.lock().unwrap();
-        if graph.is_empty() {
-            *graph = build_link_graph(&state);
-        }
-        graph.clone()
-    };
-
-    // Find all files that reference the current file
-    let mut back_links: Vec<String> = Vec::new();
-
-    for (other_file, linked_files) in &graph {
-        // Check if this file links to our current file
-        if linked_files.contains(&canonical_file) {
-            if let Some(link_name) = path_to_link(other_file, &state.dir) {
-                back_links.push(link_name);
-            }
-        }
-    }
-
-    // Sort alphabetically
-    back_links.sort();
-
-    Json(serde_json::json!({
-        "backLinks": back_links
-    }))
+    two_hop_links
 }
 
 // Watch directory for file changes
@@ -1042,6 +1071,12 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
     // Generate relative path
     let rel_path = path.strip_prefix(&state.dir).unwrap_or(path);
 
+    // Track what files this file linked to before the change
+    let old_links = {
+        let graph = state.graph.lock().unwrap();
+        graph.get(path).cloned().unwrap_or_default()
+    };
+
     // Update only this file's links in the graph instead of clearing everything
     {
         let mut graph = state.graph.lock().unwrap();
@@ -1051,6 +1086,35 @@ async fn process_file_change(state: &AppState, path: &Path) -> std::io::Result<(
         if !graph.is_empty() {
             update_links_in_graph(path, &content, &state.dir, &mut graph);
         }
+    }
+
+    // Get the new links after the update
+    let new_links = {
+        let graph = state.graph.lock().unwrap();
+        graph.get(path).cloned().unwrap_or_default()
+    };
+
+    // Find files that need back-links updates
+    let mut files_to_update = HashSet::new();
+    
+    // Files that were previously linked to (might lose this as a back-link)
+    for old_linked_file in &old_links {
+        files_to_update.insert(old_linked_file.clone());
+    }
+    
+    // Files that are now linked to (might gain this as a back-link)
+    for new_linked_file in &new_links {
+        files_to_update.insert(new_linked_file.clone());
+    }
+
+    // Send back-links updates for affected files
+    for file_to_update in files_to_update {
+        let back_links = calculate_back_links(&file_to_update, state).await;
+        let _ = state.tx.send(Message::BackLinksChanged(file_to_update.clone(), back_links));
+        
+        // Also update two-hop links for affected files
+        let two_hop_links = calculate_two_hop_links(&file_to_update, state).await;
+        let _ = state.tx.send(Message::TwoHopLinksChanged(file_to_update, two_hop_links));
     }
 
     println!(

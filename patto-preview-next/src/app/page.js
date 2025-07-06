@@ -14,6 +14,8 @@ export default function PattoApp() {
   const [files, setFiles] = useState([]);
   const [fileMetadata, setFileMetadata] = useState({});
   const [previewHtml, setPreviewHtml] = useState('');
+  const [backLinks, setBackLinks] = useState([]);
+  const [twoHopLinks, setTwoHopLinks] = useState([]);
   const [sortBy, setSortBy] = useState('modified');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -68,7 +70,21 @@ export default function PattoApp() {
         // Clear preview if current file was removed
         if (currentNote === data.data.path) {
           setPreviewHtml('');
+          setBackLinks([]);
+          setTwoHopLinks([]);
           navigateHome();
+        }
+        break;
+        
+      case 'BackLinksData':
+        if (data.data.path === currentNote) {
+          setBackLinks(data.data.back_links || []);
+        }
+        break;
+        
+      case 'TwoHopLinksData':
+        if (data.data.path === currentNote) {
+          setTwoHopLinks(data.data.two_hop_links || []);
         }
         break;
     }
@@ -78,9 +94,13 @@ export default function PattoApp() {
   useEffect(() => {
     if (currentNote && sendMessage) {
       setPreviewHtml(''); // Clear previous content
+      setBackLinks([]); // Clear previous back-links
+      setTwoHopLinks([]); // Clear previous two-hop links
       sendMessage({ type: 'SelectFile', data: { path: currentNote } });
     } else if (!currentNote) {
       setPreviewHtml('');
+      setBackLinks([]);
+      setTwoHopLinks([]);
     }
   }, [currentNote, sendMessage]);
 
@@ -165,7 +185,14 @@ export default function PattoApp() {
         />
 
         <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
-          <Preview html={previewHtml} anchor={anchor} onSelectFile={navigate} currentNote={currentNote} />
+          <Preview 
+            html={previewHtml} 
+            anchor={anchor} 
+            onSelectFile={navigate} 
+            currentNote={currentNote}
+            backLinks={backLinks}
+            twoHopLinks={twoHopLinks}
+          />
         </div>
       </div>
     </div>
