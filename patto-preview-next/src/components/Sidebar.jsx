@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({
@@ -10,6 +11,25 @@ export default function Sidebar({
   collapsed,
   onToggle,
 }) {
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Fuzzy search algorithm
+  const fuzzyMatch = (text, searchTerm) => {
+    if (!searchTerm) return true;
+    
+    const textLower = text.toLowerCase();
+    const searchLower = searchTerm.toLowerCase();
+    
+    let searchIndex = 0;
+    for (let i = 0; i < textLower.length && searchIndex < searchLower.length; i++) {
+      if (textLower[i] === searchLower[searchIndex]) {
+        searchIndex++;
+      }
+    }
+    
+    return searchIndex === searchLower.length;
+  };
+
   // File list sorting
   const sortedFiles = [...files];
   switch (sortBy) {
@@ -40,6 +60,9 @@ export default function Sidebar({
     default:
       break;
   }
+
+  // Apply fuzzy search filter
+  const filteredFiles = sortedFiles.filter(file => fuzzyMatch(file, searchTerm));
 
   return (
     <>
@@ -83,14 +106,13 @@ export default function Sidebar({
           borderRight: '1px solid #e0e0e0',
         }}
       >
-        <h3 className={styles.SidebarHeader}>Files</h3>
-        <div style={{ marginBottom: 10 }}>
-          <label htmlFor="sort-select" style={{ fontSize: 12, marginRight: 5 }}>
+        <div style={{ padding: "6px 4px" }}>
+          <label htmlFor="sort-select" style={{ fontSize: 12, marginRight: 6 }}>
             Sort by:
           </label>
           <select
             id="sort-select"
-            style={{ fontSize: 12, padding: 2 }}
+            style={{ fontSize: 12, padding: 0 }}
             value={sortBy}
             onChange={e => onSortChange(e.target.value)}
           >
@@ -100,8 +122,24 @@ export default function Sidebar({
             <option value="title">Title</option>
           </select>
         </div>
-        <ul id="file-list" style={{ listStyle: "none", padding: 0 }}>
-          {sortedFiles.map((file) => (
+        <div style={{ marginBottom: 0 }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '4px 8px',
+              fontSize: 12,
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <ul id="file-list" style={{ listStyle: "none", padding: 0, marginTop: "5px"}}>
+          {filteredFiles.map((file) => (
             <li
               key={file}
               className={file === currentFile ? "active" : ""}
