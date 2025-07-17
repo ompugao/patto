@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind};
 use crate::parser::{Property, TaskStatus};
-use crate::utils::{get_twitter_embed, get_youtube_id, get_gyazo_img_src};
+use crate::utils::{get_gyazo_img_src, get_twitter_embed, get_youtube_id};
 use html_escape::encode_text;
 
 pub trait Renderer {
@@ -79,11 +79,18 @@ impl HtmlRenderer {
                     write!(output, "</del>")?;
                 }
                 if !properties.is_empty() {
-                    write!(output, "<aside style=\"float: right; width: 285px; text-align: right\">")?;
+                    write!(
+                        output,
+                        "<aside style=\"float: right; width: 285px; text-align: right\">"
+                    )?;
                     for property in properties {
                         match property {
                             Property::Anchor { name } => {
-                                write!(output, "<span id=\"{}\" class=\"anchor\">{}</span>", name, name)?;
+                                write!(
+                                    output,
+                                    "<span id=\"{}\" class=\"anchor\">{}</span>",
+                                    name, name
+                                )?;
                             }
                             Property::Task { status, due } => match status {
                                 TaskStatus::Done => {
@@ -102,7 +109,11 @@ impl HtmlRenderer {
                     write!(output, "<ul style=\"padding-left: 0rem;\">")?;
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
-                        write!(output, "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>", id_attr)?;
+                        write!(
+                            output,
+                            "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>",
+                            id_attr
+                        )?;
                         self._format_impl(child, output)?;
                         write!(output, "</li>")?;
                     }
@@ -118,7 +129,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "</blockquote>")?;
             }
-            AstNodeKind::Math{inline} => {
+            AstNodeKind::Math { inline } => {
                 if *inline {
                     write!(output, "\\(")?;
                     let contents = ast.value().contents.lock().unwrap();
@@ -153,7 +164,8 @@ impl HtmlRenderer {
                         write!(output, "<pre><code class={}>", lang)?;
                         let children = ast.value().children.lock().unwrap();
                         for child in children.iter() {
-                            writeln!(output, "{}", encode_text(child.extract_str()))?;  // TODO encode all at once?
+                            writeln!(output, "{}", encode_text(child.extract_str()))?;
+                            // TODO encode all at once?
                             //write!(output, "<br/>")?;
                         }
                         write!(output, "</code></pre>")?;
@@ -166,16 +178,28 @@ impl HtmlRenderer {
                     src_exported = src.clone();
                 }
                 if let Some(alt) = alt {
-                    write!(output, "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>", alt, src_exported)?;
+                    write!(
+                        output,
+                        "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
+                        alt, src_exported
+                    )?;
                 } else {
-                    write!(output, "<img class=\"patto-image\" src=\"{}\"/>", src_exported)?;
+                    write!(
+                        output,
+                        "<img class=\"patto-image\" src=\"{}\"/>",
+                        src_exported
+                    )?;
                 }
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
                     // TODO eliminate the logic that self-link if link is empty
                     if link.is_empty() {
-                        write!(output, "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>", anchor, anchor)?;
+                        write!(
+                            output,
+                            "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>",
+                            anchor, anchor
+                        )?;
                     } else {
                         write!(
                             output,
@@ -184,7 +208,11 @@ impl HtmlRenderer {
                         )?;
                     }
                 } else {
-                    write!(output, "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>", link, link)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>",
+                        link, link
+                    )?;
                 }
             }
             AstNodeKind::Link { link, title } => {
@@ -207,16 +235,17 @@ impl HtmlRenderer {
                         link, link, title.as_deref().unwrap_or(link)
                     )?;
                 } else if let Some(title) = title {
-                    write!(
-                        output,
-                        "<a href=\"{}\">{}</a>",
-                        link, title
-                    )?;
+                    write!(output, "<a href=\"{}\">{}</a>", link, title)?;
                 } else {
                     write!(output, "<a href=\"{}\">{}</a>", link, link)?;
                 }
             }
-            AstNodeKind::Decoration{ fontsize, italic, underline, deleted } => {
+            AstNodeKind::Decoration {
+                fontsize,
+                italic,
+                underline,
+                deleted,
+            } => {
                 let s = match fontsize {
                     isize::MIN..=-3 => "xx-small",
                     -2 => "x-small",
@@ -263,7 +292,9 @@ impl HtmlRenderer {
             AstNodeKind::HorizontalLine => {
                 write!(output, "<hr/>")?;
             }
-            AstNodeKind::Table => {todo!()}
+            AstNodeKind::Table => {
+                todo!()
+            }
             AstNodeKind::TableColumn => {
                 let contents = ast.value().contents.lock().unwrap();
                 for content in contents.iter() {
@@ -274,7 +305,6 @@ impl HtmlRenderer {
         Ok(())
     }
 }
-
 
 #[derive(Debug)]
 pub struct MarkdownRendererOptions {
@@ -345,15 +375,13 @@ impl MarkdownRenderer {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }
-                                _ => {
-                                    write!(output, "  due: {}", due)?
-                                }
+                                _ => write!(output, "  due: {}", due)?,
                             },
                         }
                     }
                 }
                 let no_children = ast.value().children.lock().unwrap().is_empty();
-                if no_children && depth == 0 && self.options.use_hard_line_break  {
+                if no_children && depth == 0 && self.options.use_hard_line_break {
                     writeln!(output, " \\")?;
                 } else {
                     writeln!(output)?;
@@ -376,10 +404,14 @@ impl MarkdownRenderer {
                     self._format_impl(child, output, depth + 1)?;
                 }
             }
-            AstNodeKind::Math{inline} => {
+            AstNodeKind::Math { inline } => {
                 if *inline {
                     write!(output, "\\(")?;
-                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?; //TODO html escape?
+                    write!(
+                        output,
+                        "{}",
+                        ast.value().contents.lock().unwrap()[0].extract_str()
+                    )?; //TODO html escape?
                     write!(output, "\\)")?;
                 } else {
                     // see https://github.com/mathjax/MathJax/issues/2312
@@ -393,7 +425,11 @@ impl MarkdownRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "`")?;
-                    write!(output, "{}", ast.value().contents.lock().unwrap()[0].extract_str())?;
+                    write!(
+                        output,
+                        "{}",
+                        ast.value().contents.lock().unwrap()[0].extract_str()
+                    )?;
                     write!(output, "`")?;
                 } else {
                     //TODO use syntext
@@ -436,7 +472,12 @@ impl MarkdownRenderer {
                     write!(output, "[{}]({})", link, link)?;
                 }
             }
-            AstNodeKind::Decoration{ fontsize, italic, underline, deleted } => {
+            AstNodeKind::Decoration {
+                fontsize,
+                italic,
+                underline,
+                deleted,
+            } => {
                 if *fontsize > 0 && !*italic {
                     // bold
                     write!(output, "**")?;
@@ -479,7 +520,9 @@ impl MarkdownRenderer {
             AstNodeKind::HorizontalLine => {
                 write!(output, "---")?;
             }
-            AstNodeKind::Table => {todo!()}
+            AstNodeKind::Table => {
+                todo!()
+            }
             AstNodeKind::TableColumn => {
                 for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(content, output, depth)?;
