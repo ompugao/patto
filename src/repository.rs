@@ -26,7 +26,7 @@ pub struct FileMetadata {
 /// Messages for repository change notifications
 #[derive(Clone, Debug)]
 pub enum RepositoryMessage {
-    FileChanged(PathBuf, String),
+    FileChanged(PathBuf, FileMetadata, String),
     FileAdded(PathBuf, FileMetadata),
     FileRemoved(PathBuf),
     BackLinksChanged(PathBuf, Vec<String>),
@@ -183,38 +183,36 @@ impl Repository {
                         let rel_path_str = rel_path.to_string_lossy().to_string();
                         files.push(rel_path_str.clone());
 
-                        // Collect file metadata
-                        if let Ok(file_metadata) = std::fs::metadata(&path) {
-                            let modified = file_metadata
-                                .modified()
-                                .unwrap_or(SystemTime::UNIX_EPOCH)
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs();
-
-                            let created = file_metadata
-                                .created()
-                                .unwrap_or(SystemTime::UNIX_EPOCH)
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs();
-
-                            //let link_count = self.count_links_in_file(&path).unwrap_or(0);
-                            let link_count = self.calculate_back_links(&path).len();
-
-                            metadata.insert(
-                                rel_path_str,
-                                FileMetadata {
-                                    modified,
-                                    created,
-                                    link_count: link_count.try_into().unwrap(),
-                                },
-                            );
-                        }
+                        metadata.insert(rel_path_str, self.collect_file_metadata(&path).unwrap());
                     }
                 }
             }
         }
+    }
+
+    pub fn collect_file_metadata(&self, file_path: &PathBuf) -> std::io::Result<FileMetadata> {
+        let file_metadata = std::fs::metadata(file_path)?;
+        let modified = file_metadata
+            .modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let created = file_metadata
+            .created()
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let link_count = self.calculate_back_links(file_path).len();
+
+        Ok(FileMetadata {
+            modified,
+            created,
+            link_count: link_count.try_into().unwrap(),
+        })
     }
 
     /// Build the link graph for the repository (deprecated - use document graph)
@@ -610,14 +608,16 @@ impl Repository {
                                         {
                                             // Update the document graph with new content
                                             repository_clone.add_file_to_graph(&path_clone, &content);
+                                            let metadata = repository_clone.collect_file_metadata(&path_clone).unwrap();
+
                                             // TODO update and broadcast backlinks and two-hop links when other files are created/modified/removed
                                             let start = Instant::now();
                                             if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir) {
                                                 // Update the repository's link graph
                                                 repository_clone.update_links_in_graph(&path, &content);
 
-                                                // Calculate and send back-links and two-hop links for affected files
                                                 let back_links = repository_clone.calculate_back_links(&path);
+                                                // Calculate and send back-links and two-hop links for affected files
                                                 let _ = repository_clone
                                                     .tx
                                                     .send(RepositoryMessage::BackLinksChanged(
@@ -641,7 +641,7 @@ impl Repository {
                                             }
 
                                             let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
-                                                path_clone, content,
+                                                path_clone, metadata, content,
                                             ));
 
                                         }

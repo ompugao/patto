@@ -65,6 +65,7 @@ enum WsMessage {
     },
     FileChanged {
         path: String,
+        metadata: FileMetadata,
         html: String,
     },
     FileAdded {
@@ -503,7 +504,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 match msg {
                     Ok(msg) => {
                         let ws_msg = match msg {
-                            RepositoryMessage::FileChanged(path, content) => {
+                            RepositoryMessage::FileChanged(path, metadata, content) => {
                                 let Ok(html) =
                                     render_patto_to_html(&content, &path.to_string_lossy(), &state).await else {
                                         continue;
@@ -514,6 +515,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 };
                                 WsMessage::FileChanged {
                                     path: rel_path.to_string_lossy().to_string(),
+                                    metadata,
                                     html,
                                 }
                             },
@@ -584,10 +586,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             // Load and render the selected file
                             let file_path = state.repository.root_dir.join(&path);
                             if let Ok(content) = fs::read_to_string(&file_path).await {
+                                //TODO add function to retrieve metadata in crate::Repository
+                                let metadata = state.repository.collect_file_metadata(&file_path).unwrap();
+
                                 if let Ok(html) = render_patto_to_html(&content, &file_path.to_string_lossy(), &state).await {
                                     // Send the rendered HTML to the client
                                     let message = WsMessage::FileChanged {
                                         path: path.clone(),
+                                        metadata,
                                         html,
                                     };
 

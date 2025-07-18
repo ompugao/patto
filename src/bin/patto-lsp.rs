@@ -969,7 +969,7 @@ async fn main() {
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(|client| {
-        let repository = Arc::new(Mutex::new(Some(Repository::new(PathBuf::new())))); // Root will be set in initialize
+        let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
         Backend {
             client,
             repository,

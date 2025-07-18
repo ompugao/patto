@@ -49,6 +49,11 @@ export default function PattoApp() {
         if (data.data.path === currentNote) {
           setPreviewHtml(data.data.html || '');
         }
+        setFiles(prev => prev.includes(data.data.path) ? prev : [...prev, data.data.path]);
+        setFileMetadata(prev => ({
+          ...prev,
+          [data.data.path]: data.data.metadata
+        }));
         break;
         
       case 'FileAdded':
