@@ -300,11 +300,17 @@ impl HtmlRenderer {
                 write!(output, "<tbody>")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    write!(output, "<tr>")?;
                     self._format_impl(child, output)?;
-                    write!(output, "</tr>")?;
                 }
                 write!(output, "</tbody></table>")?;
+            }
+            AstNodeKind::TableRow => {
+                write!(output, "<tr>")?;
+                let contents = ast.value().contents.lock().unwrap();
+                for content in contents.iter() {
+                    self._format_impl(content, output)?;
+                }
+                write!(output, "</tr>")?;
             }
             AstNodeKind::TableColumn => {
                 write!(output, "<td>")?;
@@ -535,16 +541,23 @@ impl MarkdownRenderer {
             }
             AstNodeKind::Table { caption } => {
                 if let Some(caption) = caption {
-                    writeln!(output, "*{}*", caption)?;
+                    writeln!(output, "*{caption}*")?;
                     writeln!(output)?;
                 }
                 let children = ast.value().children.lock().unwrap();
                 for (i, child) in children.iter().enumerate() {
-                    write!(output, "|")?;
+                    if i > 0 && !self.options.use_hard_line_break {
+                        write!(output, "  ")?;
+                    }
                     self._format_impl(child, output, depth)?;
-                    writeln!(output, "|")?;
                     // Add header separator after first row
                     if i == 0 {
+                        for _ in 0..depth {
+                            write!(output, "  ")?;
+                        }
+                        if !self.options.use_hard_line_break {
+                            write!(output, "  ")?;
+                        }
                         // Count columns to create separator
                         let col_count = child.value().contents.lock().unwrap().len();
                         write!(output, "|")?;
@@ -555,11 +568,22 @@ impl MarkdownRenderer {
                     }
                 }
             }
+            AstNodeKind::TableRow => {
+                for _ in 0..depth {
+                    write!(output, "  ")?;
+                }
+                write!(output, "|")?;
+                let contents = ast.value().contents.lock().unwrap();
+                for content in contents.iter() {
+                    self._format_impl(content, output, depth)?;
+                    write!(output, "|")?;
+                }
+                writeln!(output)?;
+            }
             AstNodeKind::TableColumn => {
                 for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(content, output, depth)?;
                 }
-                write!(output, "|")?;
             }
         }
         Ok(())

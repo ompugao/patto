@@ -217,6 +217,7 @@ pub enum AstNodeKind {
     Table {
         caption: Option<String>,
     },
+    TableRow,
     TableColumn,
     Image {
         src: String,
@@ -401,6 +402,9 @@ impl AstNode {
                 caption: caption.map(ToOwned::to_owned)
             }),
         )
+    }
+    pub fn tablerow(input: &str, row: usize, span: Option<Span>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::TableRow))
     }
     pub fn tablecolumn(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::TableColumn))
@@ -630,15 +634,15 @@ pub fn parse_text(text: &str) -> ParserResult {
                     .last()
                     .expect("no way! should be table block")
                     .clone();
-                
+
                 let columntexts: Vec<&str> = linetext[depth..].split('\t').collect();
                 let mut span_start = depth;
                 let mut columns = Vec::new();
-                
+
                 for column_text in columntexts {
                     let span_end = span_start + column_text.len();
                     let span = Span(span_start, span_end);
-                    
+
                     match PattoLineParser::parse(Rule::statement_nestable, column_text) {
                         Ok(mut parsed) => {
                             let inner = parsed.next().unwrap();
@@ -656,10 +660,10 @@ pub fn parse_text(text: &str) -> ParserResult {
                     // Move to next column start position (+1 for tab separator)
                     span_start = span_end + 1;
                 }
-                
-                let newline = AstNode::line(linetext, iline, Some(Span(depth, linetext.len())), None);
-                newline.add_contents(columns);
-                table.add_child(newline);
+
+                let row = AstNode::tablerow(linetext, iline, Some(Span(depth, linetext.len())));
+                row.add_contents(columns);
+                table.add_child(row);
                 continue;
             }
         }
