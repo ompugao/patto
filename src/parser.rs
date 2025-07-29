@@ -214,7 +214,10 @@ pub enum AstNodeKind {
         lang: String,
         inline: bool,
     },
-    Table,
+    Table {
+        caption: Option<String>,
+    },
+    TableColumn,
     Image {
         src: String,
         alt: Option<String>,
@@ -240,7 +243,6 @@ pub enum AstNodeKind {
         underline: bool,
         deleted: bool,
     },
-    TableColumn,
 
     Text,
     HorizontalLine,
@@ -387,6 +389,16 @@ impl AstNode {
                 italic,
                 underline,
                 deleted,
+            }),
+        )
+    }
+    pub fn table(input: &str, row: usize, span: Option<Span>, caption: Option<&str>) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Table {
+                caption: caption.map(ToOwned::to_owned)
             }),
         )
     }
@@ -609,8 +621,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                 let text = AstNode::text(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
-            } else {
-                #[allow(unused_variables)]
+            } else if parsing_state == ParsingState::Table {
                 let table = parent
                     .value()
                     .contents
@@ -619,46 +630,37 @@ pub fn parse_text(text: &str) -> ParserResult {
                     .last()
                     .expect("no way! should be table block")
                     .clone();
-                todo!("table rows might have empty lines, do not start from `depth'");
-                #[allow(unreachable_code)]
-                {
-                    let columntexts = &linetext[depth..].split('\t');
-                    let span_starts =
-                        columntexts.to_owned().scan(depth, |cum, x| {
-                            *cum += x.len() + 1;
-                            Some(*cum)
-                        } /* +1 for seperator*/);
-                    let columns = columntexts
-                        .to_owned()
-                        .zip(span_starts)
-                        .map(|(t, c)| (PattoLineParser::parse(Rule::statement_nestable, t), c))
-                        .map(|(ret, c)| {
-                            match ret {
-                                Ok(mut parsed) => {
-                                    let inner = parsed.next().unwrap();
-                                    let span = Into::<Span>::into(inner.as_span()) + c;
-                                    let (nodes, _) =
-                                        transform_statement(inner, linetext, iline, depth);
-                                    let column = AstNode::tablecolumn(linetext, iline, Some(span));
-                                    column.add_contents(nodes);
-                                    column
-                                }
-                                Err(e) => {
-                                    let span = Span(c, c + e.line().len()); // TODO is this correct span?
-                                    let column =
-                                        AstNode::tablecolumn(linetext, iline, Some(span.clone()));
-                                    column.add_content(AstNode::text(linetext, iline, Some(span)));
-                                    column
-                                }
-                            }
-                        })
-                        .collect();
-                    let newline =
-                        AstNode::line(linetext, iline, Some(Span(depth, linetext.len())), None);
-                    newline.add_contents(columns);
-                    table.add_child(newline);
-                    continue;
+                
+                let columntexts: Vec<&str> = linetext[depth..].split('\t').collect();
+                let mut span_start = depth;
+                let mut columns = Vec::new();
+                
+                for column_text in columntexts {
+                    let span_end = span_start + column_text.len();
+                    let span = Span(span_start, span_end);
+                    
+                    match PattoLineParser::parse(Rule::statement_nestable, column_text) {
+                        Ok(mut parsed) => {
+                            let inner = parsed.next().unwrap();
+                            let (nodes, _) = transform_statement(inner, linetext, iline, span_start);
+                            let column = AstNode::tablecolumn(linetext, iline, Some(span));
+                            column.add_contents(nodes);
+                            columns.push(column);
+                        }
+                        Err(_) => {
+                            let column = AstNode::tablecolumn(linetext, iline, Some(span.clone()));
+                            column.add_content(AstNode::text(linetext, iline, Some(span)));
+                            columns.push(column);
+                        }
+                    }
+                    // Move to next column start position (+1 for tab separator)
+                    span_start = span_end + 1;
                 }
+                
+                let newline = AstNode::line(linetext, iline, Some(Span(depth, linetext.len())), None);
+                newline.add_contents(columns);
+                table.add_child(newline);
+                continue;
             }
         }
 
@@ -680,7 +682,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     parsing_state = ParsingState::Math;
                     parsing_depth = depth + 1;
                 }
-                AstNodeKind::Table => {
+                AstNodeKind::Table { .. } => {
                     parsing_state = ParsingState::Table;
                     parsing_depth = depth + 1;
                 }
@@ -840,6 +842,40 @@ fn transform_command<'a>(
                         log::warn!("No language specified for code block");
                     }
                     return Some(AstNode::code(line, row, Some(span), lang, false));
+                }
+                Rule::command_table => {
+                    // Parse parameters for table command
+                    let mut caption: Option<String> = None;
+                    
+                    for param in inner {
+                        if param.as_rule() == Rule::parameter {
+                            let param_str = param.as_str();
+                            
+                            // Check if this is a key=value parameter
+                            if let Some(eq_pos) = param_str.find('=') {
+                                let key = &param_str[..eq_pos];
+                                let value = &param_str[eq_pos + 1..];
+                                
+                                if key == "caption" {
+                                    // Handle quoted strings by removing quotes
+                                    if value.starts_with('"') && value.ends_with('"') {
+                                        caption = Some(value[1..value.len()-1].to_string());
+                                    } else {
+                                        caption = Some(value.to_string());
+                                    }
+                                }
+                            } else {
+                                // Handle quoted parameter as caption (for backward compatibility)
+                                if param_str.starts_with('"') && param_str.ends_with('"') {
+                                    caption = Some(param_str[1..param_str.len()-1].to_string());
+                                } else {
+                                    caption = Some(param_str.to_string());
+                                }
+                            }
+                        }
+                    }
+                    
+                    return Some(AstNode::table(line, row, Some(span), caption.as_deref()));
                 }
                 Rule::parameter => {
                     log::warn!(
@@ -1525,6 +1561,54 @@ mod tests {
         match node.kind() {
             AstNodeKind::Math { ref inline } => {
                 assert!(!*inline);
+            }
+            _ => {
+                panic! {"Math command could not be parsed"};
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_table() {
+        let input = "[@table caption=\"test caption\"]";
+        let indent = input.chars().take_while(|&c| c == '\t').count();
+        let (astnode, _props) = parse_command_line(input, 0, 0);
+        let Some(node) = astnode else {
+            panic!("Failed to parse table command");
+        };
+        println!("{:?}", node);
+        assert_eq!(node.location().span, Span(indent, input.len()));
+        match node.kind() {
+            AstNodeKind::Table { ref caption } => {
+                if let Some(caption) = caption {
+                    assert_eq!(caption, "test caption");
+                } else {
+                    panic! {"caption not parsed"};
+                }
+            }
+            _ => {
+                panic! {"Math command could not be parsed"};
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_table2() {
+        let input = "[@table \"test caption\"]";
+        let indent = input.chars().take_while(|&c| c == '\t').count();
+        let (astnode, _props) = parse_command_line(input, 0, 0);
+        let Some(node) = astnode else {
+            panic!("Failed to parse table command");
+        };
+        println!("{:?}", node);
+        assert_eq!(node.location().span, Span(indent, input.len()));
+        match node.kind() {
+            AstNodeKind::Table { ref caption } => {
+                if let Some(caption) = caption {
+                    assert_eq!(caption, "test caption");
+                } else {
+                    panic! {"caption not parsed"};
+                }
             }
             _ => {
                 panic! {"Math command could not be parsed"};

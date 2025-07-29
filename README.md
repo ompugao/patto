@@ -32,6 +32,10 @@ Hello world.
 	the third element
 	[@quote]
 		quoted text must be indented with `\t'
+	[@table caption="sample table"]
+		header	column1	column2	column3	column4
+		row1	item1	item2	item3	item4
+		row2	item5	item6	item7	item8
 
 Task Management
 	a task {@task status=todo}
