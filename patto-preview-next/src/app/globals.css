@@ -87,10 +87,19 @@ code {
   /* Ensure images fit on the page */
   #preview-content img {
     max-width: 100% !important;
-    height: 20em !important;
-    page-break-inside: avoid;
+    max-height: 20em;
+    /* page-break-inside: avoid;*/
+    object-fit: scale-down;
+ }
+
+  #preview-content hr {
+    border: none;
+    height: 1px;
+    /*background: linear-gradient(to right, transparent, #e9ecef, transparent);*/
+    background: #e9ecef;
+    margin: 0rem;
   }
-  
+
   /* Ensure videos don't print (replace with placeholder) */
   #preview-content video {
     display: none;
