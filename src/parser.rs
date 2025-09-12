@@ -2,17 +2,17 @@ use chrono;
 use pest::Parser;
 use pest_derive::Parser;
 use std::cmp;
+use std::cmp::Ordering;
 use std::fmt;
 use std::ops;
-use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 //use std::time::{Instant};
-use thiserror::Error;
 use log;
+use thiserror::Error;
 
+use crate::line_tracker::LineTracker;
 use pest;
 use pest::iterators::Pair;
-use crate::line_tracker::LineTracker;
 
 //use serde::{Deserialize, Serialize};
 
@@ -172,11 +172,9 @@ impl Ord for Deadline {
             (Deadline::Date(d1), Deadline::Date(d2)) => d1.cmp(d2),
             (Deadline::DateTime(dt1), Deadline::DateTime(dt2)) => dt1.cmp(dt2),
             (Deadline::Uninterpretable(t1), Deadline::Uninterpretable(t2)) => t1.cmp(t2),
-            (Deadline::Date(d1), Deadline::DateTime(dt2)) => {
-                d1.and_hms_opt(0, 0, 0).map_or(Ordering::Less, |dt1| {
-                    dt1.cmp(dt2).then(Ordering::Less)
-                })
-            }
+            (Deadline::Date(d1), Deadline::DateTime(dt2)) => d1
+                .and_hms_opt(0, 0, 0)
+                .map_or(Ordering::Less, |dt1| dt1.cmp(dt2).then(Ordering::Less)),
             (Deadline::DateTime(dt1), Deadline::Date(d2)) => {
                 d2.and_hms_opt(0, 0, 0).map_or(Ordering::Greater, |dt2| {
                     dt1.cmp(&dt2).then(Ordering::Greater)
@@ -216,7 +214,11 @@ pub enum AstNodeKind {
         lang: String,
         inline: bool,
     },
-    Table,
+    Table {
+        caption: Option<String>,
+    },
+    TableRow,
+    TableColumn,
     Image {
         src: String,
         alt: Option<String>,
@@ -242,7 +244,6 @@ pub enum AstNodeKind {
         underline: bool,
         deleted: bool,
     },
-    TableColumn,
 
     Text,
     HorizontalLine,
@@ -271,7 +272,12 @@ impl AstNode {
         }))
     }
 
-    pub fn with_line_id(_input: &str, location: Location, kind: Option<AstNodeKind>, line_id: Option<i64>) -> Self {
+    pub fn with_line_id(
+        _input: &str,
+        location: Location,
+        kind: Option<AstNodeKind>,
+        line_id: Option<i64>,
+    ) -> Self {
         AstNode(Arc::new(AstNodeImpl {
             value: AstNodeInternal {
                 contents: Mutex::new(vec![]),
@@ -282,12 +288,7 @@ impl AstNode {
             location,
         }))
     }
-    pub fn line(
-        input: &str,
-        row: usize,
-        span: Option<Span>,
-        props: Option<Vec<Property>>,
-    ) -> Self {
+    pub fn line(input: &str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
         Self::new(
             input,
             row,
@@ -297,13 +298,7 @@ impl AstNode {
             }),
         )
     }
-    pub fn code(
-        input: &str,
-        row: usize,
-        span: Option<Span>,
-        lang: &str,
-        inline: bool,
-    ) -> Self {
+    pub fn code(input: &str, row: usize, span: Option<Span>, lang: &str, inline: bool) -> Self {
         Self::new(
             input,
             row,
@@ -360,8 +355,22 @@ impl AstNode {
     pub fn horizontal_line(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::HorizontalLine))
     }
-    pub fn image(input: &str, row: usize, span: Option<Span>, src: &str, alt: Option<&str>) -> Self {
-        Self::new(input, row, span, Some(AstNodeKind::Image{src: src.to_string(), alt: alt.map(str::to_string)}))
+    pub fn image(
+        input: &str,
+        row: usize,
+        span: Option<Span>,
+        src: &str,
+        alt: Option<&str>,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Image {
+                src: src.to_string(),
+                alt: alt.map(str::to_string),
+            }),
+        )
     }
     pub fn decoration(
         input: &str,
@@ -383,6 +392,19 @@ impl AstNode {
                 deleted,
             }),
         )
+    }
+    pub fn table(input: &str, row: usize, span: Option<Span>, caption: Option<&str>) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Table {
+                caption: caption.map(ToOwned::to_owned)
+            }),
+        )
+    }
+    pub fn tablerow(input: &str, row: usize, span: Option<Span>) -> Self {
+        Self::new(input, row, span, Some(AstNodeKind::TableRow))
     }
     pub fn tablecolumn(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::TableColumn))
@@ -481,11 +503,14 @@ pub struct ParserResult {
 }
 
 pub fn parse_text(text: &str) -> ParserResult {
-    let indent_content_len: Vec<_> = text.lines().map(|l| {
-        let indent = l.chars().take_while(|&c| c == '\t').count();
-        let content_len = l.len() - indent;
-        (indent, content_len)
-    }).collect();
+    let indent_content_len: Vec<_> = text
+        .lines()
+        .map(|l| {
+            let indent = l.chars().take_while(|&c| c == '\t').count();
+            let content_len = l.len() - indent;
+            (indent, content_len)
+        })
+        .collect();
     let numlines = indent_content_len.len();
 
     let root = AstNode::new(text, 0, None, Some(AstNodeKind::Dummy));
@@ -533,89 +558,113 @@ pub fn parse_text(text: &str) -> ParserResult {
         }
         log::trace!("depth: {depth}, parsing_depth: {parsing_depth}");
 
-        let parent: AstNode =
-            find_parent_line(root.clone(), depth).unwrap_or_else(|| {
-                log::warn!("Failed to find parent, depth {depth}");
-                errors.push(ParserError::InvalidIndentation(Location {
-                    input: Arc::from(linetext),
-                    row: iline,
-                    span: Span(indent, indent + 1),
-                }));
-                lastlinenode.clone()
-            });
+        let parent: AstNode = find_parent_line(root.clone(), depth).unwrap_or_else(|| {
+            log::warn!("Failed to find parent, depth {depth}");
+            errors.push(ParserError::InvalidIndentation(Location {
+                input: Arc::from(linetext),
+                row: iline,
+                span: Span(indent, indent + 1),
+            }));
+            lastlinenode.clone()
+        });
 
         let linestart = cmp::min(depth, indent);
 
         if parsing_state != ParsingState::Line {
-            if parsing_state == ParsingState::Quote  {
-                let quote = parent.value().contents.lock().unwrap().last().expect("no way! should be quote block").clone();
+            if parsing_state == ParsingState::Quote {
+                let quote = parent
+                    .value()
+                    .contents
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .expect("no way! should be quote block")
+                    .clone();
                 match PattoLineParser::parse(Rule::statement_nestable, &linetext[linestart..]) {
                     Ok(mut parsed) => {
-                        let (nodes, props) = transform_statement(
-                            parsed.next().unwrap(),
+                        let (nodes, props) =
+                            transform_statement(parsed.next().unwrap(), linetext, iline, depth);
+                        // TODO should be text rather than line?
+                        let newline = AstNode::line(
                             linetext,
                             iline,
-                            depth,
+                            Some(Span(linestart, linetext.len())),
+                            Some(props),
                         );
-                        // TODO should be text rather than line?
-                        let newline = AstNode::line(linetext, iline, Some(Span(linestart, linetext.len())), Some(props));
                         newline.add_contents(nodes);
                         quote.add_child(newline);
                     }
                     Err(e) => {
-                        errors.push(ParserError::ParseError(Location {
-                            input: Arc::from(linetext),
-                            row: iline,
-                            span: Span(linestart, linetext.len()),
-                        }, e.variant.message().to_string()));
+                        errors.push(ParserError::ParseError(
+                            Location {
+                                input: Arc::from(linetext),
+                                row: iline,
+                                span: Span(linestart, linetext.len()),
+                            },
+                            e.variant.message().to_string(),
+                        ));
                         let newline = AstNode::line(linetext, iline, None, None);
-                        newline.add_content(AstNode::text(linetext, iline, Some(Span(linestart, linetext.len()))));
+                        newline.add_content(AstNode::text(
+                            linetext,
+                            iline,
+                            Some(Span(linestart, linetext.len())),
+                        ));
                         quote.add_child(newline);
                     }
                 }
                 continue;
             } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
-                let block = parent.value().contents.lock().unwrap().last().expect("no way! should be code or math block").clone();
+                let block = parent
+                    .value()
+                    .contents
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .expect("no way! should be code or math block")
+                    .clone();
                 let text = AstNode::text(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
-            } else {
-                #[allow(unused_variables)]
-                let table = parent.value().contents.lock().unwrap().last().expect("no way! should be table block").clone();
-                todo!("table rows might have empty lines, do not start from `depth'");
-                #[allow(unreachable_code)]
-                {
-                let columntexts = &linetext[depth..].split('\t');
-                let span_starts = columntexts.to_owned().scan(depth, |cum, x| {*cum += x.len() + 1; Some(*cum)}/* +1 for seperator*/);
-                let columns = columntexts.to_owned().zip(span_starts)
-                    .map(|(t, c)| (PattoLineParser::parse(Rule::statement_nestable, t), c))
-                    .map(|(ret, c)| {
-                        match ret {
-                            Ok(mut parsed) => {
-                                let inner = parsed.next().unwrap();
-                                let span = Into::<Span>::into(inner.as_span()) + c;
-                                let (nodes, _) = transform_statement(
-                                    inner,
-                                    linetext,
-                                    iline,
-                                    depth,
-                                );
-                                let column = AstNode::tablecolumn(linetext, iline, Some(span));
-                                column.add_contents(nodes);
-                                column
-                            }
-                            Err(e) => {
-                                let span = Span(c, c + e.line().len());  // TODO is this correct span?
-                                let column = AstNode::tablecolumn(linetext, iline, Some(span.clone()));
-                                column.add_content(AstNode::text(linetext, iline, Some(span)));
-                                column
-                            }}
-                    }).collect();
-                let newline = AstNode::line(linetext, iline, Some(Span(depth, linetext.len())), None);
-                newline.add_contents(columns);
-                table.add_child(newline);
-                continue;
+            } else if parsing_state == ParsingState::Table {
+                let table = parent
+                    .value()
+                    .contents
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .expect("no way! should be table block")
+                    .clone();
+
+                let columntexts: Vec<&str> = linetext[depth..].split('\t').collect();
+                let mut span_start = depth;
+                let mut columns = Vec::new();
+
+                for column_text in columntexts {
+                    let span_end = span_start + column_text.len();
+                    let span = Span(span_start, span_end);
+
+                    match PattoLineParser::parse(Rule::statement_nestable, column_text) {
+                        Ok(mut parsed) => {
+                            let inner = parsed.next().unwrap();
+                            let (nodes, _) = transform_statement(inner, linetext, iline, span_start);
+                            let column = AstNode::tablecolumn(linetext, iline, Some(span));
+                            column.add_contents(nodes);
+                            columns.push(column);
+                        }
+                        Err(_) => {
+                            let column = AstNode::tablecolumn(linetext, iline, Some(span.clone()));
+                            column.add_content(AstNode::text(linetext, iline, Some(span)));
+                            columns.push(column);
+                        }
+                    }
+                    // Move to next column start position (+1 for tab separator)
+                    span_start = span_end + 1;
                 }
+
+                let row = AstNode::tablerow(linetext, iline, Some(Span(depth, linetext.len())));
+                row.add_contents(columns);
+                table.add_child(row);
+                continue;
             }
         }
 
@@ -629,15 +678,15 @@ pub fn parse_text(text: &str) -> ParserResult {
                     parsing_state = ParsingState::Quote;
                     parsing_depth = depth + 1;
                 }
-                AstNodeKind::Code{..} => {
+                AstNodeKind::Code { .. } => {
                     parsing_state = ParsingState::Code;
                     parsing_depth = depth + 1;
                 }
-                AstNodeKind::Math{..} => {
+                AstNodeKind::Math { .. } => {
                     parsing_state = ParsingState::Math;
                     parsing_depth = depth + 1;
                 }
-                AstNodeKind::Table => {
+                AstNodeKind::Table { .. } => {
                     parsing_state = ParsingState::Table;
                     parsing_depth = depth + 1;
                 }
@@ -652,7 +701,7 @@ pub fn parse_text(text: &str) -> ParserResult {
             parent.add_child(newline);
         } else {
             log::trace!("---- input ----");
-            log::trace!("{}", &linetext[cmp::min(depth,indent)..]);
+            log::trace!("{}", &linetext[cmp::min(depth, indent)..]);
             // TODO error will never happen since raw_sentence will match finally(...?)
             match PattoLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
                 Ok(mut parsed) => {
@@ -674,11 +723,14 @@ pub fn parse_text(text: &str) -> ParserResult {
                 Err(e) => {
                     // TODO accumulate error
                     // log::warn!("parsing statement error!: {}", e);
-                    errors.push(ParserError::ParseError(Location {
-                        input: Arc::from(linetext),
-                        row: iline,
-                        span: Span(linestart, linetext.len()),
-                    }, e.to_string()));
+                    errors.push(ParserError::ParseError(
+                        Location {
+                            input: Arc::from(linetext),
+                            row: iline,
+                            span: Span(linestart, linetext.len()),
+                        },
+                        e.to_string(),
+                    ));
                     let newline = AstNode::line(linetext, iline, None, None);
                     newline.add_content(AstNode::text(linetext, iline, None));
                     lastlinenode = newline.clone();
@@ -689,10 +741,16 @@ pub fn parse_text(text: &str) -> ParserResult {
             parsing_depth = depth;
         }
     }
-    ParserResult{ast: root, parse_errors: errors}
+    ParserResult {
+        ast: root,
+        parse_errors: errors,
+    }
 }
 
-pub fn parse_text_with_persistent_line_tracking(text: &str, line_tracker: &mut LineTracker) -> ParserResult {
+pub fn parse_text_with_persistent_line_tracking(
+    text: &str,
+    line_tracker: &mut LineTracker,
+) -> ParserResult {
     // First, run regular parsing
     //let start = Instant::now();
     let result = parse_text(text);
@@ -710,7 +768,7 @@ pub fn parse_text_with_persistent_line_tracking(text: &str, line_tracker: &mut L
 
     // Apply line IDs to Line and relevant nodes in the AST
     apply_line_ids_to_ast(&result.ast, line_tracker, text);
-    
+
     result
 }
 
@@ -727,7 +785,7 @@ fn apply_line_ids_to_ast(node: &AstNode, line_tracker: &LineTracker, _text: &str
             }
         }
     }
-    
+
     // Recursively apply to children
     let children = node.value().children.lock().unwrap();
     for child in children.iter() {
@@ -739,11 +797,7 @@ fn set_node_stable_id(node: &AstNode, stable_id: i64) {
     *node.value().stable_id.lock().unwrap() = Some(stable_id);
 }
 
-fn parse_command_line(
-    line: &str,
-    row: usize,
-    indent: usize,
-) -> (Option<AstNode>, Vec<Property>) {
+fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
     let Ok(mut pairs) = PattoLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
@@ -793,6 +847,40 @@ fn transform_command<'a>(
                     }
                     return Some(AstNode::code(line, row, Some(span), lang, false));
                 }
+                Rule::command_table => {
+                    // Parse parameters for table command
+                    let mut caption: Option<String> = None;
+                    
+                    for param in inner {
+                        if param.as_rule() == Rule::parameter {
+                            let param_str = param.as_str();
+                            
+                            // Check if this is a key=value parameter
+                            if let Some(eq_pos) = param_str.find('=') {
+                                let key = &param_str[..eq_pos];
+                                let value = &param_str[eq_pos + 1..];
+                                
+                                if key == "caption" {
+                                    // Handle quoted strings by removing quotes
+                                    if value.starts_with('"') && value.ends_with('"') {
+                                        caption = Some(value[1..value.len()-1].to_string());
+                                    } else {
+                                        caption = Some(value.to_string());
+                                    }
+                                }
+                            } else {
+                                // Handle quoted parameter as caption (for backward compatibility)
+                                if param_str.starts_with('"') && param_str.ends_with('"') {
+                                    caption = Some(param_str[1..param_str.len()-1].to_string());
+                                } else {
+                                    caption = Some(param_str.to_string());
+                                }
+                            }
+                        }
+                    }
+                    
+                    return Some(AstNode::table(line, row, Some(span), caption.as_deref()));
+                }
                 Rule::parameter => {
                     log::warn!(
                         "parameter must have already been consumed: {}",
@@ -827,7 +915,16 @@ fn transform_img<'a>(
     match inner.as_rule() {
         Rule::img_alt_path_opts => {
             let mut inner2 = inner.into_inner();
-            let alt_img = inner2.next().unwrap().into_inner().next().unwrap().into_inner().next().unwrap().as_str();
+            let alt_img = inner2
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
             // inner2.chunks(2).map(|(k,v)| {
             //     match k.unwrap().as_str() {
@@ -847,7 +944,16 @@ fn transform_img<'a>(
         Rule::img_path_alt_opts => {
             let mut inner2 = inner.into_inner();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            let alt_img = inner2.next().unwrap().into_inner().next().unwrap().into_inner().next().unwrap().as_str();
+            let alt_img = inner2
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .as_str();
             Some(AstNode::image(
                 line,
                 row,
@@ -859,20 +965,13 @@ fn transform_img<'a>(
         Rule::img_path_opts => {
             let mut inner2 = inner.into_inner();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                None,
-            ))
+            Some(AstNode::image(line, row, Some(span), img_path, None))
         }
         _ => {
             unreachable!();
         }
     }
 }
-
 
 /// assuming pair is expr_wiki_link
 fn transform_wiki_link<'a>(
@@ -896,24 +995,29 @@ fn transform_wiki_link<'a>(
                 Some(expr_anchor.into_inner().next().unwrap().as_str()),
             ))
         }
-        Rule::wiki_link => {
-            Some(AstNode::wikilink(
-                line,
-                row,
-                Some(span),
-                inner.as_str(),
-                None,
-            ))
-        }
-        Rule::self_link_anchored => {
-            Some(AstNode::wikilink(
-                line,
-                row,
-                Some(span),
-                "",
-                Some(inner.into_inner().next().unwrap().into_inner().next().unwrap().as_str()),
-            ))
-        }
+        Rule::wiki_link => Some(AstNode::wikilink(
+            line,
+            row,
+            Some(span),
+            inner.as_str(),
+            None,
+        )),
+        Rule::self_link_anchored => Some(AstNode::wikilink(
+            line,
+            row,
+            Some(span),
+            "",
+            Some(
+                inner
+                    .into_inner()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+                    .next()
+                    .unwrap()
+                    .as_str(),
+            ),
+        )),
         _ => {
             unreachable!();
         }
@@ -957,13 +1061,7 @@ fn transform_url_link<'a>(
         Rule::expr_url_only => {
             let mut inner2 = inner.into_inner();
             let url = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                None,
-            ))
+            Some(AstNode::link(line, row, Some(span), url.as_str(), None))
         }
         Rule::expr_url_url => {
             let mut inner2 = inner.into_inner();
@@ -1069,13 +1167,7 @@ fn transform_mail_link<'a>(
         Rule::expr_mail_only => {
             let mut inner2 = inner.into_inner();
             let mail = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                mail.as_str(),
-                None,
-            ))
+            Some(AstNode::link(line, row, Some(span), mail.as_str(), None))
         }
         Rule::expr_mail_mail => {
             let mut inner2 = inner.into_inner();
@@ -1129,7 +1221,10 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                             } else if value == "done" {
                                 status = TaskStatus::Done;
                             } else {
-                                log::warn!("Unknown task status: '{}', interpreted as 'todo'", value);
+                                log::warn!(
+                                    "Unknown task status: '{}', interpreted as 'todo'",
+                                    value
+                                );
                             }
                         } else if current_key == "due" {
                             if let Ok(datetime) =
@@ -1158,15 +1253,9 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             let mut inner = pair.into_inner();
             let symbol = inner.by_ref().next().unwrap();
             let status = match symbol.as_rule() {
-                Rule::symbol_task_done => {
-                    TaskStatus::Done
-                }
-                Rule::symbol_task_doing => {
-                    TaskStatus::Doing
-                }
-                Rule::symbol_task_todo => {
-                    TaskStatus::Todo
-                }
+                Rule::symbol_task_done => TaskStatus::Done,
+                Rule::symbol_task_doing => TaskStatus::Doing,
+                Rule::symbol_task_todo => TaskStatus::Todo,
                 _ => unreachable!(),
             };
             let due_str = inner.as_str();
@@ -1174,9 +1263,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                 chrono::NaiveDateTime::parse_from_str(due_str, "%Y-%m-%dT%H:%M")
             {
                 Deadline::DateTime(datetime)
-            } else if let Ok(date) =
-                chrono::NaiveDate::parse_from_str(due_str, "%Y-%m-%d")
-            {
+            } else if let Ok(date) = chrono::NaiveDate::parse_from_str(due_str, "%Y-%m-%d") {
                 Deadline::Date(date)
             } else {
                 Deadline::Uninterpretable(due_str.to_string())
@@ -1324,11 +1411,7 @@ fn transform_statement<'a>(
                 ));
             }
             Rule::trailing_properties => {
-                props.extend(
-                    inner
-                        .into_inner()
-                        .filter_map(|e| transform_property(e)),
-                );
+                props.extend(inner.into_inner().filter_map(|e| transform_property(e)));
             }
             Rule::EOI => {
                 continue;
@@ -1436,7 +1519,7 @@ mod tests {
         }
     }
     #[test]
-    fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>>  {
+    fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>> {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
@@ -1490,6 +1573,54 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_table() {
+        let input = "[@table caption=\"test caption\"]";
+        let indent = input.chars().take_while(|&c| c == '\t').count();
+        let (astnode, _props) = parse_command_line(input, 0, 0);
+        let Some(node) = astnode else {
+            panic!("Failed to parse table command");
+        };
+        println!("{:?}", node);
+        assert_eq!(node.location().span, Span(indent, input.len()));
+        match node.kind() {
+            AstNodeKind::Table { ref caption } => {
+                if let Some(caption) = caption {
+                    assert_eq!(caption, "test caption");
+                } else {
+                    panic! {"caption not parsed"};
+                }
+            }
+            _ => {
+                panic! {"Math command could not be parsed"};
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_table2() {
+        let input = "[@table \"test caption\"]";
+        let indent = input.chars().take_while(|&c| c == '\t').count();
+        let (astnode, _props) = parse_command_line(input, 0, 0);
+        let Some(node) = astnode else {
+            panic!("Failed to parse table command");
+        };
+        println!("{:?}", node);
+        assert_eq!(node.location().span, Span(indent, input.len()));
+        match node.kind() {
+            AstNodeKind::Table { ref caption } => {
+                if let Some(caption) = caption {
+                    assert_eq!(caption, "test caption");
+                } else {
+                    panic! {"caption not parsed"};
+                }
+            }
+            _ => {
+                panic! {"Math command could not be parsed"};
+            }
+        }
+    }
+
+    #[test]
     fn test_parse_math_inline() -> Result<(), Box<dyn std::error::Error>> {
         let input = "[$ math = a * b * c$]";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
@@ -1500,10 +1631,12 @@ mod tests {
         } else {
             panic! {"Inline math could not be parsed"};
         }
-        assert_eq!(math.value().contents.lock().unwrap()[0].extract_str(), "math = a * b * c");
+        assert_eq!(
+            math.value().contents.lock().unwrap()[0].extract_str(),
+            "math = a * b * c"
+        );
         Ok(())
     }
-
 
     #[test]
     fn test_parse_unknown_command() {
@@ -1515,14 +1648,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_code_inline_text_anchor() -> Result<(), Box<dyn std::error::Error>>{
+    fn test_parse_code_inline_text_anchor() -> Result<(), Box<dyn std::error::Error>> {
         let input = "[` inline ![] code 123`] raw text    #anchor";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         //assert_eq!(code.extract_str(), "inline code 123");
         let code = &nodes[0];
         match code.kind() {
-            AstNodeKind::Code { ref lang, ref inline } => {
+            AstNodeKind::Code {
+                ref lang,
+                ref inline,
+            } => {
                 assert_eq!(lang, "");
                 assert!(*inline);
             }
@@ -1536,8 +1672,7 @@ mod tests {
         let raw_text = &nodes[1];
         if let AstNodeKind::Text = raw_text.kind() {
             assert_eq!(
-                &raw_text.location().input
-                    [raw_text.location().span.0..raw_text.location().span.1],
+                &raw_text.location().input[raw_text.location().span.0..raw_text.location().span.1],
                 " raw text"
             );
         } else {
@@ -1617,23 +1752,48 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_img() -> Result<(), Box<dyn std::error::Error>>{
+    fn test_parse_img() -> Result<(), Box<dyn std::error::Error>> {
         for (input, g_path, g_alt) in vec![
-            ("[@img \"img alt title\" https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
-            ("[@img https://gyazo.com/path/to/icon.png \"img alt title\"]", "https://gyazo.com/path/to/icon.png", Some("img alt title".to_string())),
-            ("[@img ./path/to/image.png.png \"alt title\"]", "./path/to/image.png.png", Some("alt title".to_string())),
-            ("[@img https://gyazo.com/path/to/icon.png]", "https://gyazo.com/path/to/icon.png", None),
-            (r##"[@img ./local/path/to/icon.png "img escaped \"alt title"]"##, "./local/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string())),
-            (r##"[@img ./local/with space/path/to/icon.png "img escaped \"alt title"]"##, "./local/with space/path/to/icon.png", Some(r##"img escaped \"alt title"##.to_string()))] {
-
+            (
+                "[@img \"img alt title\" https://gyazo.com/path/to/icon.png]",
+                "https://gyazo.com/path/to/icon.png",
+                Some("img alt title".to_string()),
+            ),
+            (
+                "[@img https://gyazo.com/path/to/icon.png \"img alt title\"]",
+                "https://gyazo.com/path/to/icon.png",
+                Some("img alt title".to_string()),
+            ),
+            (
+                "[@img ./path/to/image.png.png \"alt title\"]",
+                "./path/to/image.png.png",
+                Some("alt title".to_string()),
+            ),
+            (
+                "[@img https://gyazo.com/path/to/icon.png]",
+                "https://gyazo.com/path/to/icon.png",
+                None,
+            ),
+            (
+                r##"[@img ./local/path/to/icon.png "img escaped \"alt title"]"##,
+                "./local/path/to/icon.png",
+                Some(r##"img escaped \"alt title"##.to_string()),
+            ),
+            (
+                r##"[@img ./local/with space/path/to/icon.png "img escaped \"alt title"]"##,
+                "./local/with space/path/to/icon.png",
+                Some(r##"img escaped \"alt title"##.to_string()),
+            ),
+        ] {
             match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
-                    let node = transform_img(parsed.next().unwrap(), input, 0, 0).ok_or("transform_img failed")?;
-                    if let AstNodeKind::Image{src, alt} = &node.kind() {
+                    let node = transform_img(parsed.next().unwrap(), input, 0, 0)
+                        .ok_or("transform_img failed")?;
+                    if let AstNodeKind::Image { src, alt } = &node.kind() {
                         assert_eq!(src, g_path);
                         assert_eq!(*alt, g_alt);
                     } else {
-                        panic!{"image is not correctly transformed"};
+                        panic! {"image is not correctly transformed"};
                     }
                 }
                 Err(e) => {
@@ -1644,7 +1804,6 @@ mod tests {
         }
         Ok(())
     }
-
 
     #[test]
     fn test_parse_urls() -> Result<(), Box<dyn std::error::Error>> {
@@ -1684,62 +1843,83 @@ mod tests {
     #[test]
     fn test_parse_local_files() -> Result<(), Box<dyn std::error::Error>> {
         for (input, g_local_file, g_title) in [
-            ("[./asset/to/image.png path to image]", "./asset/to/image.png", Some("path to image".to_string())),
-            ("[./nested/path/image.png path to image]", "./nested/path/image.png", Some("path to image".to_string())),
-            ("[title of file ./path/to/file.pdf]", "./path/to/file.pdf", Some("title of file".to_string())),
-            ("[./path/to/only_local_file.pdf]", "./path/to/only_local_file.pdf", None),] {
-                println!("parsing {input}");
-                match PattoLineParser::parse(Rule::expr_local_file_link, input) {
-                    Ok(mut parsed) => {
-                        if let Some(link) = transform_local_file_link(parsed.next().unwrap(), input, 0, 0) {
-                            match &link.kind() {
-                                AstNodeKind::Link { link, title } => {
-                                    assert_eq!(link, g_local_file);
-                                    //assert!(title.is_some());
-                                    assert_eq!(*title, g_title);
-                                }
-                                _ => {
-                                    panic! {"link is not correctly parse {:?}", link};
-                                }
+            (
+                "[./asset/to/image.png path to image]",
+                "./asset/to/image.png",
+                Some("path to image".to_string()),
+            ),
+            (
+                "[./nested/path/image.png path to image]",
+                "./nested/path/image.png",
+                Some("path to image".to_string()),
+            ),
+            (
+                "[title of file ./path/to/file.pdf]",
+                "./path/to/file.pdf",
+                Some("title of file".to_string()),
+            ),
+            (
+                "[./path/to/only_local_file.pdf]",
+                "./path/to/only_local_file.pdf",
+                None,
+            ),
+        ] {
+            println!("parsing {input}");
+            match PattoLineParser::parse(Rule::expr_local_file_link, input) {
+                Ok(mut parsed) => {
+                    if let Some(link) =
+                        transform_local_file_link(parsed.next().unwrap(), input, 0, 0)
+                    {
+                        match &link.kind() {
+                            AstNodeKind::Link { link, title } => {
+                                assert_eq!(link, g_local_file);
+                                //assert!(title.is_some());
+                                assert_eq!(*title, g_title);
+                            }
+                            _ => {
+                                panic! {"link is not correctly parse {:?}", link};
                             }
                         }
                     }
-                    Err(e) => {
-                        println!("{e}");
-                        return Err(Box::new(e));
-                    }
+                }
+                Err(e) => {
+                    println!("{e}");
+                    return Err(Box::new(e));
                 }
             }
+        }
         Ok(())
     }
 
     #[test]
     fn test_parse_mails() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_mail, g_title) in [
-            ("[mailto:hoge@example.com example email]", "mailto:hoge@example.com", Some("example email".to_string())),
-        ]{
-                println!("parsing {input}");
-                match PattoLineParser::parse(Rule::expr_mail_link, input) {
-                    Ok(mut parsed) => {
-                        if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
-                            match &link.kind() {
-                                AstNodeKind::Link { link, title } => {
-                                    assert_eq!(link, g_mail);
-                                    //assert!(title.is_some());
-                                    assert_eq!(*title, g_title);
-                                }
-                                _ => {
-                                    panic! {"link is not correctly parse {:?}", link};
-                                }
+        for (input, g_mail, g_title) in [(
+            "[mailto:hoge@example.com example email]",
+            "mailto:hoge@example.com",
+            Some("example email".to_string()),
+        )] {
+            println!("parsing {input}");
+            match PattoLineParser::parse(Rule::expr_mail_link, input) {
+                Ok(mut parsed) => {
+                    if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
+                        match &link.kind() {
+                            AstNodeKind::Link { link, title } => {
+                                assert_eq!(link, g_mail);
+                                //assert!(title.is_some());
+                                assert_eq!(*title, g_title);
+                            }
+                            _ => {
+                                panic! {"link is not correctly parse {:?}", link};
                             }
                         }
                     }
-                    Err(e) => {
-                        println!("{e}");
-                        return Err(Box::new(e));
-                    }
+                }
+                Err(e) => {
+                    println!("{e}");
+                    return Err(Box::new(e));
                 }
             }
+        }
         Ok(())
     }
 
@@ -1756,14 +1936,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_abbrev_task() -> Result<(), Box<dyn std::error::Error>>  {
+    fn test_parse_abbrev_task() -> Result<(), Box<dyn std::error::Error>> {
         let input = "!2024-10-10 #anchor2 -2024-10-11T20:00";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let task = &props[0];
         if let Property::Task { status, due } = task {
             assert_eq!(*status, TaskStatus::Todo);
-            assert_eq!(*due, Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap()));
+            assert_eq!(
+                *due,
+                Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap())
+            );
         } else {
             panic!("task could not be parsed");
         };
@@ -1771,7 +1954,13 @@ mod tests {
         let task = &props[2];
         if let Property::Task { status, due } = task {
             assert_eq!(*status, TaskStatus::Done);
-            assert_eq!(*due, Deadline::DateTime(chrono::NaiveDateTime::parse_from_str("2024-10-11T20:00", "%Y-%m-%dT%H:%M").unwrap()));
+            assert_eq!(
+                *due,
+                Deadline::DateTime(
+                    chrono::NaiveDateTime::parse_from_str("2024-10-11T20:00", "%Y-%m-%dT%H:%M")
+                        .unwrap()
+                )
+            );
         } else {
             panic!("task could not be parsed");
         };
@@ -1781,7 +1970,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn test_deadline_sorting_order() -> Result<(), Box<dyn std::error::Error>>  {
+    fn test_deadline_sorting_order() -> Result<(), Box<dyn std::error::Error>> {
         let mut values = [
             Deadline::Date(chrono::NaiveDate::from_ymd(2022, 1, 1)),
             Deadline::DateTime(chrono::NaiveDateTime::from_timestamp(1672531199, 0)),

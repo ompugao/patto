@@ -1,37 +1,27 @@
 use std::fs::File;
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
-//use std::ops::ControlFlow;
-use urlencoding::{encode, decode};
+use std::sync::{Arc, Mutex};
+use urlencoding::decode;
 
+use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
-use dashmap::DashMap;
-use ropey::Rope;
-use str_indices::utf16::{
-    from_byte_idx as utf16_from_byte_idx,
-    to_byte_idx as utf16_to_byte_idx
-};
-
-use serde_json::{json, Value};
 use serde::{Deserialize, Serialize};
-use tower_lsp::jsonrpc::{Result, Error};
+use serde_json::{json, Value};
+use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use patto::parser::{self, AstNode, AstNodeKind, Property, ParserResult, TaskStatus, Deadline};
+use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
+use patto::repository::Repository;
 use patto::semantic_token::LEGEND_TYPE;
 
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-
-use gdsl::sync_digraph::{Graph, Node as GraphNode};
+use fuzzy_matcher::FuzzyMatcher;
 
 //#[derive(Debug)]
 struct Backend {
     client: Client,
-    ast_map: Arc<DashMap<Url, AstNode>>,
-    document_map: Arc<DashMap<Url, Rope>>,
-    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
+    repository: Arc<Mutex<Option<Repository>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
@@ -43,153 +33,24 @@ fn get_node_range(from: &AstNode) -> Range {
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
-fn normalize_url_percent_encoding(url: &Url) -> Url {
-    let re = regex::Regex::new(r"%[0-9a-fA-F]{2}").unwrap();
-    let normalized = re.replace_all(url.as_str(), |caps: &regex::Captures| {
-        caps[0].to_uppercase()
-    });
-
-    Url::parse(&normalized).unwrap_or(url.clone())
-}
-
-fn scan_directory(
-    dir: PathBuf,
-    document_map: Arc<DashMap<Url, Rope>>,
-    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
-    ast_map: Arc<DashMap<Url, AstNode>>,
-) -> Result<()> {
-    scan_directory_impl(&dir, document_map, Arc::clone(&document_graph), Arc::clone(&ast_map))?;
-    let root_uri = Url::from_directory_path(&dir).unwrap();
-    log::debug!("hogehoge");
-    if let Ok(mut graph) = document_graph.lock() {
-        log::debug!("fuga");
-        ast_map.iter().for_each(|ref_multi| {
-            let uri = ref_multi.key();
-            log::debug!("uri:{}", uri);
-            let ast = ref_multi.value();
-            let mut wikilinks = vec![];
-            gather_wikilinks(ast, &mut wikilinks);
-            let link_uris = wikilinks.iter()
-                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri))
-                .collect::<Vec<_>>();
-            let ast_clone = ast.clone();
-            let node = graph.get(uri).unwrap_or_else(|| {
-                let n = GraphNode::new(uri.clone(), ast_clone);
-                graph.insert(n.clone());
-                n
-            });
-            for link_uri in link_uris.iter() {
-                //let from_str = uri_to_link(&uri, &root_uri).unwrap();
-                //let to_str = uri_to_link(&link_uri, &root_uri).unwrap();
-                log::debug!("checking from {:?} to {:?}", uri, link_uri);
-                if !node.iter_out().any(|x| x.target().key() == link_uri) {
-                    // if not connected, connect
-                    // TODO connect nodes even when nodes are non-existent 
-                    log::debug!("connecting {} to {}", uri, link_uri);
-                    if let Some(linked_ast) = ast_map.get(link_uri) {
-                        node.connect(&graph.get(link_uri).unwrap_or_else(|| {
-                            let n = GraphNode::new(link_uri.clone(), linked_ast.clone());
-                            graph.insert(n.clone());
-                            n
-                        }), ());
-                    }
-                }
-            }
-        });
-    }
-    Ok(())
-}
-
-fn scan_directory_impl(
-    dir: &PathBuf,
-    document_map: Arc<DashMap<Url, Rope>>,
-    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
-    ast_map: Arc<DashMap<Url, AstNode>>,
-) -> Result<()> {
-    let Ok(paths) = std::fs::read_dir(dir) else {
-        return Err(Error::internal_error());
-    };
-
-    for path in paths {
-        let path = path.unwrap().path();
-        if path.is_dir() {
-            scan_directory_impl(&path,
-                Arc::clone(&document_map), Arc::clone(&document_graph), Arc::clone(&ast_map))?;
-        } else if path.extension() == Some(std::ffi::OsStr::new("pn")) {
-            log::debug!("Found file: {:?}", path);
-            if let Ok(uri) = Url::from_file_path(path.clone()) {
-                let _ = std::fs::read_to_string(path.clone()).map(|x| {
-                    let (ast, _diagnostics) = parse_text(x.as_str());
-                    let rope = ropey::Rope::from_str(x.as_str());
-                    log::debug!("{:?} parsed and registered", path);
-                    document_map.insert(uri.clone(), rope);
-                    ast_map.insert(uri, ast);
-                });
-            } else {
-                log::error!("Failed to parse uri: {}", path.display());
-            }
-        }
-    }
-    Ok(())
-}
-
-
-fn link_to_uri(link: &str, root_uri: &Url) -> Option<Url> {
-    if !link.is_empty() {
-        fn ensure_trailing_slash(s: &str) -> String {
-            if s.ends_with('/') {
-                s.to_string()
-            } else {
-                format!("{}/", s)
-            }
-        }
-        let mut linkuri = root_uri.clone();
-        linkuri.set_path(format!("{}{}.pn", ensure_trailing_slash(root_uri.path()), encode(link)).as_str());
-        return Some(normalize_url_percent_encoding(&linkuri))
-    }
-    None
-}
-
-
 // fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
 //     if base.scheme() != uri.scheme() {
 //         log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
 //         return None;
 //     }
-// 
+//
 //     let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
 //     let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-// 
+//
 //     if !uri_path.starts_with(&base_path) {
 //         log::debug!("uri is not inside base: {}, {}", uri, base);
 //         return None; // uri is not inside base
 //     }
-// 
+//
 //     // Extract the remainder after the base path
 //     let relative_path = &uri_path[base_path.len()..];
 //     Some(relative_path.join("/"))
 // }
-
-async fn scan_workspace(
-    client: Client,
-    workspace_path: PathBuf,
-    document_map: Arc<DashMap<Url, Rope>>,
-    document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
-    ast_map: Arc<DashMap<Url, AstNode>>,
-) -> Result<()> {
-    client.log_message(MessageType::INFO, &format!("Scanning workspace {:?}...", workspace_path)).await;
-
-    let client2 = client.clone();
-    // Use blocking I/O in a spawned blocking task
-    let _ = tokio::task::spawn_blocking(move || {
-        log::debug!("Start reading dir: {:?}", workspace_path);
-        let _ = scan_directory(workspace_path, document_map, document_graph, ast_map);
-    }).await;
-
-    client2.log_message(MessageType::INFO, "Workspace scan complete.").await;
-
-    Ok(())
-}
 
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
@@ -214,7 +75,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
                 None,
                 message,
                 None,
-                None
+                None,
             )
         })
         .collect();
@@ -239,7 +100,7 @@ fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Task { status, due } = prop {
-                if ! matches!(status, TaskStatus::Done) {
+                if !matches!(status, TaskStatus::Done) {
                     tasklines.push((parent.clone(), due.clone()));
                     break;
                 }
@@ -249,20 +110,6 @@ fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
 
     for child in parent.value().children.lock().unwrap().iter() {
         gather_tasks(child, tasklines);
-    }
-}
-
-fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<String>)>) {
-    if let AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
-        wikilinks.push((link.clone(), anchor.clone()));
-    }
-
-    for content in parent.value().contents.lock().unwrap().iter() {
-        gather_wikilinks(content, wikilinks);
-    }
-
-    for child in parent.value().children.lock().unwrap().iter() {
-        gather_wikilinks(child, wikilinks);
     }
 }
 
@@ -299,13 +146,18 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
         }
     }
 
-    return parent.value().children.lock().unwrap().iter().find_map(|child| {
-        find_anchor(child, anchor)
-    }).map(|x| x.clone());
+    return parent
+        .value()
+        .children
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|child| find_anchor(child, anchor))
+        .map(|x| x.clone());
 }
 
 fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
-    if let Some(route) = locate_node_route_impl(parent, row, col){
+    if let Some(route) = locate_node_route_impl(parent, row, col) {
         //route.reverse();
         return Some(route);
     }
@@ -314,9 +166,13 @@ fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<Ast
 
 fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     let parentrow = parent.location().row;
-    log::debug!("finding row, col ({}, {}), scanning row: {}", row, col, parentrow);
-    if matches!(parent.kind(), AstNodeKind::Dummy) ||
-        parentrow < row {
+    log::debug!(
+        "finding row, col ({}, {}), scanning row: {}",
+        row,
+        col,
+        parentrow
+    );
+    if matches!(parent.kind(), AstNodeKind::Dummy) || parentrow < row {
         for child in parent.value().children.lock().unwrap().iter() {
             if let Some(mut route) = locate_node_route_impl(child, row, col) {
                 route.push(parent.clone());
@@ -330,7 +186,12 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
         }
         for content in parent.value().contents.lock().unwrap().iter() {
             if content.location().span.contains(col) {
-                log::debug!("in content: {:?}, spanning ({}, {})", content.extract_str(), content.location().span.0, content.location().span.1);
+                log::debug!(
+                    "in content: {:?}, spanning ({}, {})",
+                    content.extract_str(),
+                    content.location().span.0,
+                    content.location().span.1
+                );
                 if let Some(mut route) = locate_node_route_impl(content, row, col) {
                     route.push(parent.clone());
                     return Some(route);
@@ -343,64 +204,22 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
 
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        let rope = ropey::Rope::from_str(&params.text);
+        let uri = Repository::normalize_url_percent_encoding(&params.uri);
 
-        let uri = normalize_url_percent_encoding(&params.uri);
-        self.document_map
-            .insert(uri.clone(), rope);
-        let (ast, diagnostics) = parse_text(&params.text);
-        let mut wikilinks = vec![];
-        gather_wikilinks(&ast, &mut wikilinks);
-        let root_uri_opt = self.root_uri.lock().unwrap().as_ref().cloned();
-        if let Some(root_uri) = root_uri_opt {
-            let wikilink_uris = wikilinks.iter()
-                .filter_map(|(ref link, ref _anchor)| link_to_uri(link, &root_uri)) // ignore self-link
-                .collect::<Vec<_>>();
-            if let Ok(mut graph) = self.document_graph.try_lock() {
-                let ast_clone = ast.clone();
-                let node = graph.get(&uri).unwrap_or_else(|| {
-                    let n = GraphNode::new(uri.clone(), ast_clone);
-                    graph.insert(n.clone());
-                    n
-                });
-                for wikilink_uri in wikilink_uris.iter() {
-                    if !node.iter_out().any(|x| x.target().key() == wikilink_uri) {
-                        // if not connected, connect
-                        if let Some(linked_ast) = self.ast_map.get(wikilink_uri) {
-                            node.connect(&graph.get(wikilink_uri).unwrap_or_else(|| {
-                                let n = GraphNode::new(wikilink_uri.clone(), linked_ast.clone());
-                                graph.insert(n.clone());
-                                n
-                            }), ());
-                        }
-                    }
-                }
-                // if connected, disconnect
-                for edge in node.iter_out() {
-                    if !wikilink_uris.contains(edge.target().key()) {
-                        let _ = edge.source().disconnect(edge.target().key());
-                    }
-                }
+        // Use repository's add_file_to_graph method which handles everything
+        if let Ok(file_path) = uri.to_file_path() {
+            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                repo.add_file_to_graph(&file_path, &params.text);
             }
         }
 
+        // Parse for diagnostics (this is LSP-specific, not handled by repository)
+        let (_, diagnostics) = parse_text(&params.text);
 
+        // Publish diagnostics to the client
         self.client
-            .publish_diagnostics(
-                params.uri,
-                diagnostics,
-                Some(params.version),
-            )
+            .publish_diagnostics(params.uri, diagnostics, Some(params.version))
             .await;
-
-        //self.client.log_message(MessageType::INFO, &format!("num of diags: {}", diagnostics.len())).await;
-        //log::info!("{}", ast);
-        self.ast_map.insert(uri, ast);
-        // self.client
-        //     .log_message(MessageType::INFO, &format!("{:?}", semantic_tokens))
-        //     .await;
-        // self.semantic_token_map
-        //     .insert(params.uri.to_string(), semantic_tokens);
     }
 }
 
@@ -413,17 +232,21 @@ impl LanguageServer for Backend {
                 *backend_root_uri = Some(root_uri.clone());
             }
             if let Ok(path) = root_uri.to_file_path() {
-                let client = self.client.clone();
-                self.client.log_message(MessageType::INFO, &format!("scanning root_uri {:?}", path)).await;
-                let ast_map = Arc::clone(&self.ast_map);
-                let document_map = Arc::clone(&self.document_map);
-                let document_graph = Arc::clone(&self.document_graph);
-                tokio::spawn(async move {
-                    // Run the workspace scan in the background
-                    if let Err(e) = scan_workspace(client, path, document_map, document_graph, ast_map).await {
-                        log::warn!("Failed to scan workspace: {:?}", e);
-                    }
-                });
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        &format!("LSP workspace root set to {:?}", path),
+                    )
+                    .await;
+
+                // TODO
+                // The repository will be populated as files are opened via did_open events
+                // Since we can't easily replace the repository reference, we'll rely on
+                // on_change events to populate the document graph when files are opened
+                let mut repo = self.repository.lock().unwrap();
+                *repo = Some(Repository::new(path));
+
+                //self.client.log_message(MessageType::INFO, "Repository will be populated as files are opened.").await;
             }
         }
 
@@ -446,23 +269,30 @@ impl LanguageServer for Backend {
         //     }
         // }
 
-
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
-                position_encoding: Some(PositionEncodingKind::UTF16),  // vscode only supports utf-16 ;(
+                position_encoding: Some(PositionEncodingKind::UTF16), // vscode only supports utf-16 ;(
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec!["[", "#", "@img", "@math", "@quote", "@table", "@task"].into_iter().map(ToString::to_string).collect()),
+                    trigger_characters: Some(
+                        vec!["[", "#", "@img", "@math", "@quote", "@table", "@task"]
+                            .into_iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                    ),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["experimental/aggregate_tasks".to_string(), "experimental/retrieve_two_hop_notes".to_string()],
+                    commands: vec![
+                        "experimental/aggregate_tasks".to_string(),
+                        "experimental/retrieve_two_hop_notes".to_string(),
+                    ],
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -540,262 +370,380 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, param: DidSaveTextDocumentParams) {
         self.client
-            .log_message(MessageType::INFO, format!("file {} saved!", param.text_document.uri.as_str()))
+            .log_message(
+                MessageType::INFO,
+                format!("file {} saved!", param.text_document.uri.as_str()),
+            )
             .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
-        self.document_map.remove(&uri);
-        self.ast_map.remove(&uri);
+        //self.repository.document_map.remove(&uri);
+        //self.repository.ast_map.remove(&uri);
         self.client
             .log_message(MessageType::INFO, format!("file {} is closed!", uri))
             .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
+        let uri = Repository::normalize_url_percent_encoding(
+            &params.text_document_position.text_document.uri,
+        );
         let position = params.text_document_position.position;
         let completions = || -> Option<Vec<CompletionItem>> {
-            let rope = self.document_map.get(&uri)?;
-            // NOTE: trigger_character is not supported by vim-lsp.
-            // we manually consider the context.
-            // if let Some(context) = params.context {
-            //     match context.trigger_character.as_deref() {
-            //         Some("[") => {
-            //             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-            //                 let files = self.document_map.iter().map(|e| {
-            //                     let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-            //                     if path.ends_with(".pn") {
-            //                         path = path.strip_suffix(".pn").unwrap().to_string();
-            //                     }
-            //                     CompletionItem {
-            //                         label: path.clone(),
-            //                         kind: Some(CompletionItemKind::FILE),
-            //                         filter_text: Some(path.clone()),
-            //                         insert_text: Some(path),
-            //                         ..Default::default()
-            //                     }
-            //                 })
-            //                 .collect();
-            //                 return Some(files);
-            //             }
-            //         }
-            //         Some("@") => {
-            //             let commands = vec!["code", "math", "table", "quote", "img"];
-            //             let completions = commands
-            //                 .iter()
-            //                 .map(|x| {
-            //                     let command = x.to_string();
-            //                     CompletionItem {
-            //                         label: command.clone(),
-            //                         kind: Some(CompletionItemKind::FUNCTION),
-            //                         filter_text: Some(command.clone()),
-            //                         insert_text: Some(command),
-            //                         ..Default::default()
-            //                     }
-            //                 })
-            //                 .collect();
-            //             return Some(completions);
-            //         }
-            //         _ => {
+            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                let rope = repo.document_map.get(&uri)?;
+                // NOTE: trigger_character is not supported by vim-lsp.
+                // we manually consider the context.
+                // if let Some(context) = params.context {
+                //     match context.trigger_character.as_deref() {
+                //         Some("[") => {
+                //             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                //                 let files = self.document_map.iter().map(|e| {
+                //                     let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                //                     if path.ends_with(".pn") {
+                //                         path = path.strip_suffix(".pn").unwrap().to_string();
+                //                     }
+                //                     CompletionItem {
+                //                         label: path.clone(),
+                //                         kind: Some(CompletionItemKind::FILE),
+                //                         filter_text: Some(path.clone()),
+                //                         insert_text: Some(path),
+                //                         ..Default::default()
+                //                     }
+                //                 })
+                //                 .collect();
+                //                 return Some(files);
+                //             }
+                //         }
+                //         Some("@") => {
+                //             let commands = vec!["code", "math", "table", "quote", "img"];
+                //             let completions = commands
+                //                 .iter()
+                //                 .map(|x| {
+                //                     let command = x.to_string();
+                //                     CompletionItem {
+                //                         label: command.clone(),
+                //                         kind: Some(CompletionItemKind::FUNCTION),
+                //                         filter_text: Some(command.clone()),
+                //                         insert_text: Some(command),
+                //                         ..Default::default()
+                //                     }
+                //                 })
+                //                 .collect();
+                //             return Some(completions);
+                //         }
+                //         _ => {
 
-            //         }
-            //     }
-            // }
+                //         }
+                //     }
+                // }
 
-            // match line.char((position.character as usize).saturating_sub(1)) {
-            //     '[' => {
-            //         if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-            //             let files = self.document_map.iter().map(|e| {
-            //                 let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-            //                 if path.ends_with(".pn") {
-            //                     path = path.strip_suffix(".pn").unwrap().to_string();
-            //                 }
-            //                 CompletionItem {
-            //                     label: path.clone(),
-            //                     kind: Some(CompletionItemKind::FILE),
-            //                     filter_text: Some(path.clone()),
-            //                     insert_text: Some(path),
-            //                     ..Default::default()
-            //                 }
-            //             })
-            //             .collect();
-            //             return Some(files);
-            //         }
-            //     },
-            //     c => {
-            //         //log::info!("{}", c);
-            //     }
-            // }
+                // match line.char((position.character as usize).saturating_sub(1)) {
+                //     '[' => {
+                //         if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
+                //             let files = self.document_map.iter().map(|e| {
+                //                 let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
+                //                 if path.ends_with(".pn") {
+                //                     path = path.strip_suffix(".pn").unwrap().to_string();
+                //                 }
+                //                 CompletionItem {
+                //                     label: path.clone(),
+                //                     kind: Some(CompletionItemKind::FILE),
+                //                     filter_text: Some(path.clone()),
+                //                     insert_text: Some(path),
+                //                     ..Default::default()
+                //                 }
+                //             })
+                //             .collect();
+                //             return Some(files);
+                //         }
+                //     },
+                //     c => {
+                //         //log::info!("{}", c);
+                //     }
+                // }
 
-            let line = rope.get_line(position.line as usize)?;
-            let cur_col = line.byte_to_char(utf16_to_byte_idx(line.as_str()?, position.character as usize));
-            let prev_col = cur_col.saturating_sub(1);
-            //let prev_col_byte = line.char_to_byte(prev_col);
-            let c = line.char(prev_col);
-            if c == '#' {
-                let slice = line.slice(..cur_col);
-                if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
-                    let maybelink = slice.len_chars().saturating_sub(foundbracket);  // -1 since the cursor at first points to the end of the line `\n`.
-                    let s = line.slice(maybelink..prev_col).as_str()?;
-                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-                    let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
-                        log::debug!("root_uri is not set");
-                        return None;
-                    };
-                    let linkuri = link_to_uri(s, &root_uri).unwrap_or(uri);
-                    log::debug!("linkuri: {}", linkuri);
-                    if let Some(ast) = self.ast_map.get(&linkuri) {
-                        let mut anchors = vec![];
-                        gather_anchors(ast.value(), &mut anchors);
-                        return Some(anchors.iter().map(|anchor| {
-                            CompletionItem {
-                                label: format!("#{}", anchor),
-                                kind: Some(CompletionItemKind::REFERENCE),
-                                filter_text: Some(anchor.to_string()),
-                                insert_text: Some(anchor.to_string()),
-                                ..Default::default()
-                            }
-                        }).collect());
+                let line = rope.get_line(position.line as usize)?;
+                let cur_col = line.byte_to_char(utf16_to_byte_idx(
+                    line.as_str()?,
+                    position.character as usize,
+                ));
+                let prev_col = cur_col.saturating_sub(1);
+                //let prev_col_byte = line.char_to_byte(prev_col);
+                let c = line.char(prev_col);
+                if c == '#' {
+                    let slice = line.slice(..cur_col);
+                    if let Some(foundbracket) =
+                        slice.chars_at(cur_col).reversed().position(|c| c == '[')
+                    {
+                        let maybelink = slice.len_chars().saturating_sub(foundbracket); // -1 since the cursor at first points to the end of the line `\n`.
+                        let s = line.slice(maybelink..prev_col).as_str()?;
+                        log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+                        let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
+                            log::debug!("root_uri is not set");
+                            return None;
+                        };
+                        let linkuri = repo.link_to_uri(s, &root_uri).unwrap_or(uri);
+                        log::debug!("linkuri: {}", linkuri);
+                        if let Some(ast) = repo.ast_map.get(&linkuri) {
+                            let mut anchors = vec![];
+                            gather_anchors(ast.value(), &mut anchors);
+                            return Some(
+                                anchors
+                                    .iter()
+                                    .map(|anchor| CompletionItem {
+                                        label: format!("#{}", anchor),
+                                        kind: Some(CompletionItemKind::REFERENCE),
+                                        filter_text: Some(anchor.to_string()),
+                                        insert_text: Some(anchor.to_string()),
+                                        ..Default::default()
+                                    })
+                                    .collect(),
+                            );
+                        }
                     }
                 }
-            }
 
-            let slice = line.slice(..cur_col);
-            let slicelen = slice.len_chars();
-            if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
-                let maybelink = slicelen.saturating_sub(foundbracket);
-                let s = line.slice(maybelink..cur_col).as_str()?;
-                log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
+                let slice = line.slice(..cur_col);
+                let slicelen = slice.len_chars();
+                if let Some(foundbracket) =
+                    slice.chars_at(cur_col).reversed().position(|c| c == '[')
+                {
+                    let maybelink = slicelen.saturating_sub(foundbracket);
+                    let s = line.slice(maybelink..cur_col).as_str()?;
+                    log::debug!(
+                        "matching {}, from {}, found at {}",
+                        s,
+                        maybelink,
+                        foundbracket
+                    );
 
-                //if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() 
-                if let Some(root_uri_str) = self.root_uri.lock().unwrap().as_ref().and_then(|root_uri| root_uri.to_file_path().ok()) {
-                    let baselen = root_uri_str.to_string_lossy().len();
-                    let matcher = SkimMatcherV2::default();
-                    let files = self.document_map.iter().filter_map(|e| {
-                        //// this is a bit slow
-                        //let Some(mut path) = uri_to_link(&e.key(), &root_uri) else {
-                        //    return None;
-                        //};
-                        let mut path = decode(&e.key().to_file_path().unwrap().to_string_lossy()[baselen+1..]).unwrap().to_string();
-                        if path.ends_with(".pn") {
-                            path = path.strip_suffix(".pn").unwrap().to_string();
-                        }
-                        if matcher.fuzzy_match(&path, s).is_some() {
-                            return Some(CompletionItem {
-                                label: path.clone(),
-                                detail: Some(path.clone()),
-                                kind: Some(CompletionItemKind::FILE),
-                                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                    new_text: path.clone(),
-                                    range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybelink)) as u32},
-                                                end: Position{line: position.line, character: position.character}}
-                                    })),
+                    //if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref()
+                    if let Some(root_uri_str) = self
+                        .root_uri
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|root_uri| root_uri.to_file_path().ok())
+                    {
+                        let baselen = root_uri_str.to_string_lossy().len();
+                        let matcher = SkimMatcherV2::default();
+                        let files = repo
+                            .document_map
+                            .iter()
+                            .filter_map(|e| {
+                                //// this is a bit slow
+                                //let Some(mut path) = uri_to_link(&e.key(), &root_uri) else {
+                                //    return None;
+                                //};
+                                let mut path = decode(
+                                    &e.key().to_file_path().unwrap().to_string_lossy()
+                                        [baselen + 1..],
+                                )
+                                .unwrap()
+                                .to_string();
+                                if path.ends_with(".pn") {
+                                    path = path.strip_suffix(".pn").unwrap().to_string();
+                                }
+                                if matcher.fuzzy_match(&path, s).is_some() {
+                                    return Some(CompletionItem {
+                                        label: path.clone(),
+                                        detail: Some(path.clone()),
+                                        kind: Some(CompletionItemKind::FILE),
+                                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                                        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                            new_text: path.clone(),
+                                            range: Range {
+                                                start: Position {
+                                                    line: position.line,
+                                                    character: utf16_from_byte_idx(
+                                                        line.as_str()?,
+                                                        line.char_to_byte(maybelink),
+                                                    )
+                                                        as u32,
+                                                },
+                                                end: Position {
+                                                    line: position.line,
+                                                    character: position.character,
+                                                },
+                                            },
+                                        })),
+                                        ..Default::default()
+                                    });
+                                }
+                                None
+                            })
+                            .collect();
+                        //log::info!("files: {:?}", files);
+                        return Some(files);
+                    }
+                }
+
+                // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work,
+                // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
+                // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
+                //     https://github.com/cessen/ropey/issues/93
+                let slice = line.slice(..cur_col);
+                let slicelen = slice.len_chars();
+                if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
+                    // `chars_at` puts the cursor at the end of the line.
+                    let maybecommand = slicelen.saturating_sub(foundat); // -1 since the cursor at first points to the end of the line `\n`.
+                    let s = line.slice(maybecommand..cur_col).as_str()?;
+                    log::debug!(
+                        "command? {}, from {}, found at {}",
+                        s,
+                        maybecommand,
+                        foundat
+                    );
+                    match s {
+                        "@code" => {
+                            let item = CompletionItem {
+                                label: "@code".to_string(),
+                                kind: Some(CompletionItemKind::SNIPPET),
+                                detail: Some("code command".to_string()),
+                                //insert_text: Some("[@code ${1:lang}]$0".to_string()),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                    new_text: "[@code ${1:lang}]$0".to_string(),
+                                    range: Range {
+                                        start: Position {
+                                            line: position.line,
+                                            character: utf16_from_byte_idx(
+                                                line.as_str()?,
+                                                line.char_to_byte(maybecommand),
+                                            )
+                                                as u32,
+                                        },
+                                        end: Position {
+                                            line: position.line,
+                                            character: position.character,
+                                        },
+                                    },
+                                })),
                                 ..Default::default()
-                            });
+                            };
+                            return Some(vec![item]);
                         }
-                        None
-                    })
-                    .collect();
-                    //log::info!("files: {:?}", files);
-                    return Some(files);
+                        "@math" => {
+                            let item = CompletionItem {
+                                label: "@math".to_string(),
+                                kind: Some(CompletionItemKind::SNIPPET),
+                                detail: Some("math command".to_string()),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                    new_text: "[@math]$0".to_string(),
+                                    range: Range {
+                                        start: Position {
+                                            line: position.line,
+                                            character: utf16_from_byte_idx(
+                                                line.as_str()?,
+                                                line.char_to_byte(maybecommand),
+                                            )
+                                                as u32,
+                                        },
+                                        end: Position {
+                                            line: position.line,
+                                            character: position.character,
+                                        },
+                                    },
+                                })),
+                                ..Default::default()
+                            };
+                            return Some(vec![item]);
+                        }
+                        "@quote" => {
+                            let item = CompletionItem {
+                                label: "@quote".to_string(),
+                                kind: Some(CompletionItemKind::SNIPPET),
+                                detail: Some("quote command".to_string()),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                    new_text: "[@quote]$0".to_string(),
+                                    range: Range {
+                                        start: Position {
+                                            line: position.line,
+                                            character: utf16_from_byte_idx(
+                                                line.as_str()?,
+                                                line.char_to_byte(maybecommand),
+                                            )
+                                                as u32,
+                                        },
+                                        end: Position {
+                                            line: position.line,
+                                            character: position.character,
+                                        },
+                                    },
+                                })),
+                                ..Default::default()
+                            };
+                            return Some(vec![item]);
+                        }
+                        "@img" => {
+                            let item = CompletionItem {
+                                label: "@img".to_string(),
+                                kind: Some(CompletionItemKind::SNIPPET),
+                                detail: Some("img command".to_string()),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                    new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
+                                    range: Range {
+                                        start: Position {
+                                            line: position.line,
+                                            character: utf16_from_byte_idx(
+                                                line.as_str()?,
+                                                line.char_to_byte(maybecommand),
+                                            )
+                                                as u32,
+                                        },
+                                        end: Position {
+                                            line: position.line,
+                                            character: position.character,
+                                        },
+                                    },
+                                })),
+                                ..Default::default()
+                            };
+                            return Some(vec![item]);
+                        }
+                        "@task" => {
+                            let item = CompletionItem {
+                                label: "@task".to_string(),
+                                kind: Some(CompletionItemKind::SNIPPET),
+                                detail: Some("task property".to_string()),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                    new_text: format!(
+                                        "{{@task status=${{1:todo}} due=${{2:{}}}}}$0",
+                                        chrono::Local::now().format("%Y-%m-%d")
+                                    ), // T%H:%M:%S
+                                    range: Range {
+                                        start: Position {
+                                            line: position.line,
+                                            character: utf16_from_byte_idx(
+                                                line.as_str()?,
+                                                line.char_to_byte(maybecommand),
+                                            )
+                                                as u32,
+                                        },
+                                        end: Position {
+                                            line: position.line,
+                                            character: position.character,
+                                        },
+                                    },
+                                })),
+                                ..Default::default()
+                            };
+                            return Some(vec![item]);
+                        }
+                        &_ => {}
+                    }
                 }
+                None
+            } else {
+                None
             }
-
-            // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work,
-            // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
-            // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
-            //     https://github.com/cessen/ropey/issues/93
-            let slice = line.slice(..cur_col);
-            let slicelen = slice.len_chars();
-            if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
-                // `chars_at` puts the cursor at the end of the line.
-                let maybecommand = slicelen.saturating_sub(foundat);  // -1 since the cursor at first points to the end of the line `\n`.
-                let s = line.slice(maybecommand..cur_col).as_str()?;
-                log::debug!("command? {}, from {}, found at {}", s, maybecommand, foundat);
-                match s {
-                    "@code" => {
-                        let item = CompletionItem {
-                            label: "@code".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("code command".to_string()),
-                            //insert_text: Some("[@code ${1:lang}]$0".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: "[@code ${1:lang}]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
-                                             end: Position{line: position.line, character: position.character}}
-                                })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    },
-                    "@math" => {
-                        let item = CompletionItem {
-                            label: "@math".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("math command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: "[@math]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
-                                             end: Position{line: position.line, character: position.character}}
-                                })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    },
-                    "@quote" => {
-                        let item = CompletionItem {
-                            label: "@quote".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("quote command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: "[@quote]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
-                                             end: Position{line: position.line, character: position.character}}
-                                })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    },
-                    "@img" => {
-                        let item = CompletionItem {
-                            label: "@img".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("img command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
-                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
-                                             end: Position{line: position.line, character: position.character}}
-                                })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    },
-                    "@task" => {
-                        let item = CompletionItem {
-                            label: "@task".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("task property".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit{
-                                new_text: format!("{{@task status=${{1:todo}} due=${{2:{}}}}}$0", chrono::Local::now().format("%Y-%m-%d")),  // T%H:%M:%S
-                                range: Range{start: Position{line: position.line, character: utf16_from_byte_idx(line.as_str()?, line.char_to_byte(maybecommand)) as u32},
-                                             end: Position{line: position.line, character: position.character}}
-                                })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    },
-                    &_ => {},
-                }
-            }
-            None
         }();
         //log::debug!("completions: {:?}", completions);
         Ok(completions.map(CompletionResponse::Array))
@@ -803,13 +751,21 @@ impl LanguageServer for Backend {
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
         self.client
-            .log_message(MessageType::INFO, format!("command executed!: {:?}", params))
+            .log_message(
+                MessageType::INFO,
+                format!("command executed!: {:?}", params),
+            )
             .await;
- 
+
         match params.command.as_str() {
             "experimental/aggregate_tasks" => {
                 let mut tasks: Vec<(Url, AstNode, Deadline)> = vec![];
-                self.ast_map.iter().for_each(|entry| {
+
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
+                    return Ok(None);
+                };
+                repo.ast_map.iter().for_each(|entry| {
                     let mut tasklines = vec![];
                     gather_tasks(entry.value(), &mut tasklines);
                     tasklines.into_iter().for_each(|(line, due)| {
@@ -817,42 +773,61 @@ impl LanguageServer for Backend {
                     });
                 });
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
-                let ret = json!(tasks.iter().map(|(uri, line, _due)| {
-                    //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
-                    TaskInformation::new(Location::new(uri.clone(), get_node_range(line)),
-                                         line.extract_str().trim_start().to_string(),
-                                         "".to_string())
-                                         //due.clone())
-                    //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
-                }).collect::<Vec<_>>());
+                let ret = json!(tasks
+                    .iter()
+                    .map(|(uri, line, _due)| {
+                        //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
+                        TaskInformation::new(
+                            Location::new(uri.clone(), get_node_range(line)),
+                            line.extract_str().trim_start().to_string(),
+                            "".to_string(),
+                        )
+                        //due.clone())
+                        //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
+                    })
+                    .collect::<Vec<_>>());
                 //self.client
                 //    .log_message(MessageType::INFO, format!("response: {:?}", ret))
                 //    .await;
                 return Ok(Some(ret));
-            },
+            }
             "experimental/retrieve_two_hop_notes" => {
-                let Ok(graph) = self.document_graph.lock() else {
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
                     return Ok(None);
                 };
-                let Some(url) = params.arguments.first().and_then(|a| a.as_str()).and_then(|url| Url::parse(url).ok()) else {
+                let Ok(graph) = repo.document_graph.lock() else {
+                    return Ok(None);
+                };
+                let Some(url) = params
+                    .arguments
+                    .first()
+                    .and_then(|a| a.as_str())
+                    .and_then(|url| Url::parse(url).ok())
+                else {
                     return Ok(None);
                 };
                 let Some(node) = graph.get(&url) else {
                     return Ok(None);
                 };
-                let mut twohop_urls = node.iter_out().map(|edge| {
-                    let target = edge.target();
-                    let connected_urls = target.iter_in().map(|edge| edge.source().key().clone())
-                        .filter(|n| n != target.key() && n != &url).collect::<Vec<Url>>();
-                    (target.key().clone(), connected_urls)
-                })
-                .filter(|x| !x.1.is_empty())
-                .collect::<Vec<(Url, Vec<_>)>>();
-                twohop_urls.sort_by_key(|x| - (x.1.len() as i16));
+                let mut twohop_urls = node
+                    .iter_out()
+                    .map(|edge| {
+                        let target = edge.target();
+                        let connected_urls = target
+                            .iter_in()
+                            .map(|edge| edge.source().key().clone())
+                            .filter(|n| n != target.key() && n != &url)
+                            .collect::<Vec<Url>>();
+                        (target.key().clone(), connected_urls)
+                    })
+                    .filter(|x| !x.1.is_empty())
+                    .collect::<Vec<(Url, Vec<_>)>>();
+                twohop_urls.sort_by_key(|x| -(x.1.len() as i16));
                 twohop_urls.dedup();
                 log::debug!("urls: {:?}", twohop_urls);
                 return Ok(Some(json!(twohop_urls)));
-            },
+            }
             c => {
                 log::info!("unknown command: {}", c);
             }
@@ -866,9 +841,15 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let definition = async {
-            let uri = normalize_url_percent_encoding(&params.text_document_position_params.text_document.uri);
-            let ast = self.ast_map.get(&uri)?;
-            let rope = self.document_map.get(&uri)?;
+            let uri = Repository::normalize_url_percent_encoding(
+                &params.text_document_position_params.text_document.uri,
+            );
+            let repo_lock = self.repository.lock().unwrap();
+            let Some(repo) = repo_lock.as_ref() else {
+                return None;
+            };
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
 
             let position = params.text_document_position_params.position;
             // let char = rope.try_line_to_char(position.line as usize).ok()?;
@@ -885,7 +866,7 @@ impl LanguageServer for Backend {
             //    return None;
             // }
             let Some((link, anchor)) = node_route.iter().find_map(|n| {
-                if let AstNodeKind::WikiLink{link, anchor} = &n.kind() {
+                if let AstNodeKind::WikiLink { link, anchor } = &n.kind() {
                     Some((link, anchor))
                 } else {
                     None
@@ -898,19 +879,24 @@ impl LanguageServer for Backend {
                 log::debug!("root_uri is not set");
                 return None;
             };
-            let linkuri = link_to_uri(link, &root_uri).unwrap_or(uri);
+            let linkuri = repo.link_to_uri(link, &root_uri).unwrap_or(uri);
             let start = Range::new(Position::new(0, 0), Position::new(0, 1));
             if let Some(anchor) = anchor {
-                let range = self.ast_map.get(&linkuri).and_then(|r| {
-                    let linkast = r.value();
-                    find_anchor(linkast, anchor)
-                }).map_or(start,
-                    |anchored_line| {
-                        get_node_range(&anchored_line)
-                    });
-                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, range)))
+                let range = repo
+                    .ast_map
+                    .get(&linkuri)
+                    .and_then(|r| {
+                        let linkast = r.value();
+                        find_anchor(linkast, anchor)
+                    })
+                    .map_or(start, |anchored_line| get_node_range(&anchored_line));
+                Some(GotoDefinitionResponse::Scalar(Location::new(
+                    linkuri, range,
+                )))
             } else {
-                Some(GotoDefinitionResponse::Scalar(Location::new(linkuri, start)))
+                Some(GotoDefinitionResponse::Scalar(Location::new(
+                    linkuri, start,
+                )))
             }
         }
         .await;
@@ -919,28 +905,38 @@ impl LanguageServer for Backend {
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let references = async {
-            let uri = normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
-            if let Ok(graph) = self.document_graph.lock() {
-                let Some(node) = graph.get(&uri) else {
-                    log::debug!("node not found in the graph");
-                    return None;
-                };
-                //TODO record and use range
-                let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-                log::debug!("references retrieved from graph");
-                return Some(node.iter_in().map(|e| Location::new(e.source().key().clone(), start)).collect::<_>());
-            }
-            log::debug!("failed to lock graph");
-            None
+            let uri = Repository::normalize_url_percent_encoding(
+                &params.text_document_position.text_document.uri,
+            );
+
+            let repo_lock = self.repository.lock().unwrap();
+            let Some(repo) = repo_lock.as_ref() else {
+                return None;
+            };
+            let Ok(graph) = repo.document_graph.lock() else {
+                log::debug!("failed to lock graph");
+                return None;
+            };
+            let Some(node) = graph.get(&uri) else {
+                log::debug!("node not found in the graph");
+                return None;
+            };
+            //TODO record and use range
+            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
+            log::debug!("references retrieved from graph");
+            return Some(
+                node.iter_in()
+                    .map(|e| Location::new(e.source().key().clone(), start))
+                    .collect::<_>(),
+            );
         }
         .await;
         Ok(references)
     }
-
 }
 
 use clap::Parser as ClapParser;
-use clap_verbosity_flag::{Verbosity, InfoLevel};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 #[derive(ClapParser)]
 #[command(version, about, long_about=None)]
@@ -956,12 +952,11 @@ struct Cli {
 fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
     let mut loggers = Vec::new();
     if let Some(filename) = logfile {
-        loggers.push(
-            simplelog::WriteLogger::new(
-                filter_level,
-                simplelog::Config::default(),
-                File::create(filename).unwrap(),
-            ) as Box<dyn simplelog::SharedLogger>)
+        loggers.push(simplelog::WriteLogger::new(
+            filter_level,
+            simplelog::Config::default(),
+            File::create(filename).unwrap(),
+        ) as Box<dyn simplelog::SharedLogger>)
     }
     simplelog::CombinedLogger::init(loggers).unwrap();
 }
@@ -973,13 +968,13 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend {
-        client,
-        ast_map: Arc::new(DashMap::new()),
-        document_map: Arc::new(DashMap::new()),
-        document_graph: Arc::new(Mutex::new(Graph::new())),
-        root_uri: Arc::new(Mutex::new(None)),
-        //semantic_token_map: DashMap::new(),
+    let (service, socket) = LspService::new(|client| {
+        let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
+        Backend {
+            client,
+            repository,
+            root_uri: Arc::new(Mutex::new(None)),
+        }
     });
     log::info!("Patto Language Server Protocol started");
     Server::new(stdin, stdout, socket).serve(service).await;

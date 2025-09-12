@@ -29,28 +29,30 @@ use patto::parser;
 use patto::renderer;
 use patto::renderer::Renderer;
 
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use log;
 use std::fs::File;
-use clap_verbosity_flag::{Verbosity, InfoLevel};
 
 fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
     let mut loggers = Vec::new();
     if let Some(filename) = logfile {
-        loggers.push(
-            simplelog::WriteLogger::new(
-                filter_level,
-                simplelog::Config::default(),
-                File::create(filename).unwrap(),
-            ) as Box<dyn simplelog::SharedLogger>)
+        loggers.push(simplelog::WriteLogger::new(
+            filter_level,
+            simplelog::Config::default(),
+            File::create(filename).unwrap(),
+        ) as Box<dyn simplelog::SharedLogger>)
     }
     simplelog::CombinedLogger::init(loggers).unwrap();
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>>{
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     // TODO memory inefficient
     let text = fs::read_to_string(&args.file).expect("cannot read {filename}");
-    let parser::ParserResult { ast: rootnode, parse_errors: _ } = parser::parse_text(&text);
+    let parser::ParserResult {
+        ast: rootnode,
+        parse_errors: _,
+    } = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
     let options = renderer::HtmlRendererOptions {
@@ -60,7 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     init_logger(args.verbose.log_level_filter(), args.debuglogfile);
     let renderer = renderer::HtmlRenderer::new(options);
 
-    let str_s = format!(r#"
+    let str_s = format!(
+        r#"
 <html>
 <head>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css" type="text/css" media="screen">
@@ -76,7 +79,10 @@ import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.mi
 mermaid.initialize({{ startOnLoad: true, theme: 'forest' }});
 </script>
 <section style="width: 1920px; max-width: 100%;">
-<article>"#, args.theme, if args.theme == "dark" {"-dark"} else {""});
+<article>"#,
+        args.theme,
+        if args.theme == "dark" { "-dark" } else { "" }
+    );
     write!(writer, "{}", str_s)?;
     renderer.format(&rootnode, &mut writer)?;
     write!(writer, "</article>\n")?;

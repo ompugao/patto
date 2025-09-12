@@ -45,7 +45,8 @@ local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")+ ~ (ASCII_ALPHA
 
 expr_wiki_link = ${"[" ~ (wiki_link_anchored | wiki_link | self_link_anchored) ~ "]"}
 wiki_link_anchored = ${ wiki_link ~ expr_anchor}
-wiki_link = @{ (!("[" | "]" | "://" | "#") ~ ANY)+ }  // should we exclude "." and ":" ??
+//wiki_link = @{ !"@" ~ (!("[" | "]" | "://" | "#" ) ~ ANY)+ }
+wiki_link = @{ (!("[" | "]" | "://" | "#" ) ~ ANY)+ }
 self_link_anchored = { expr_anchor }
 
 expr_url_link = ${"[" ~ (expr_title_url | expr_url_title | expr_url_url | expr_url_only )  ~ "]"}
@@ -78,13 +79,13 @@ MAIL = @{ "mailto:" ~ MAIL_CHAR+ ~ "@" ~ (MAIL_CHAR+ ~ ".")+ ~ MAIL_CHAR+}
 MAIL_CHAR = _{ ASCII_ALPHANUMERIC | "-" | "_" | "+" }
 
 expr_command_line = ${ expr_command ~ trailing_properties? }
-expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}
-builtin_commands = { command_code | command_math | command_quote } //todo table
+expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~ parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}
+builtin_commands = { command_code | command_math | command_quote | command_table }
 command_code = @{"code"}
 command_math = @{"math"}
 command_quote = @{"quote"}
 command_table = @{"table"}
-parameter = @{ (LETTER|CJK)+ }
+parameter = ${ (ASCII_ALPHANUMERIC+ ~ "=" ~ escaped_string) | escaped_string | (ASCII_ALPHANUMERIC|LETTER|CJK|"="|"-"|"/"|":"|"_")+ }
 
 expr_code_inline = ${ "[`" ~ WHITE_SPACE_INLINE* ~ code_inline ~ "`]" }
 code_inline = @{ code_inline_char* }
