@@ -1,6 +1,3 @@
-local util = require 'lspconfig.util'
-local async = require 'lspconfig.async'
-
 local active_previewers = {}
 
 local function is_wsl()
@@ -169,117 +166,125 @@ end
 -- Add a key mapping to show two-hop links
 -- vim.api.nvim_set_keymap('n', '<leader>th', '<cmd>lua PattoShowTwoHopLinks()<CR>', { noremap = true, silent = true })
 
-patto_lsp_config = {
-  default_config = {
-    cmd = { 'patto-lsp' },
-    filetypes = { 'patto' },
-    single_file_support = true,
-    root_dir = function(fname)
-      return util.find_git_ancestor(fname)
-    end,
-    capabilities = {
-    },
-    on_attach = function(client, bufnr)
-      -- Determine the file path for the current buffer
-      local filepath = vim.api.nvim_buf_get_name(bufnr)
-      if filepath == nil or filepath == "" then
+---@type vim.lsp.Config
+return {
+  --cmd = { 'patto-lsp', '-v', '--debuglogfile=/tmp/patto-lsp.log'},
+  cmd = { 'patto-lsp'},
+  filetypes = { 'patto' },
+  single_file_support = true,
+  root_markers = {'.git'},
+  capabilities = {
+    offsetEncoding = { 'utf-8' },
+  },
+  on_attach = function(client, bufnr)
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasks', function()
+      vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
+        command = 'experimental/aggregate_tasks',
+        arguments = {},
+      }, function(results, _ctx, _config)
+        local alllocs = {}
+        for _, vres in pairs(results) do
+          if vres.result == nil then
+            goto continue
+          end
+          local locs = vim.tbl_map(function(item)
+            local location_item = {}
+            location_item.filename = vim.uri_to_fname(item.location.uri)
+            location_item.lnum = item.location.range.start.line + 1
+            location_item.col = item.location.range.start.character + 1
+            location_item.text = item.text
+            return location_item
+          end, vres.result)
+
+          for k,v in ipairs(locs) do
+            alllocs[k] = v
+          end
+
+          ::continue::
+        end
+        vim.fn.setloclist(0, alllocs)
+        vim.cmd("botright lopen 8")
+      end)
+    end, {
+      desc  = 'Aggregate tasks in a workspace',
+    })
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTwoHopLinks', function()
+      PattoShowTwoHopLinks()
+    end, {
+      desc = 'Show two-hop links for the current buffer',
+    })
+
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoScanWorkspace', function()
+      vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
+        command = 'experimental/scan_workspace',
+        arguments = {},
+      }, function(results, _ctx, _config)
+      end)
+    end, {
+      desc = 'Scan the workspace',
+    })
+
+    -- Determine the file path for the current buffer
+    local filepath = vim.api.nvim_buf_get_name(bufnr)
+    if filepath == nil or filepath == "" then
+      return
+    end
+
+    -- Get the root directory from the LSP client configuration, or fallback to current working directory
+    local root_dir = client.config.root_dir or vim.loop.cwd()
+
+    -- Determine filetype to launch appropriate previewer
+    local filetype = vim.bo[bufnr].filetype
+
+    -- --- Previewer Launch Logic ---
+    if filetype == "patto" then
+      if active_previewers[root_dir] then
+        return
+      end
+      local available_port = find_available_port(3000) -- Start looking from port 3000
+      if not available_port then
+        vim.notify("Could not find an available port for the previewer.", vim.log.levels.ERROR)
         return
       end
 
-      -- Get the root directory from the LSP client configuration, or fallback to current working directory
-      local root_dir = client.config.root_dir or vim.loop.cwd()
+      local previewer_cmd = { "patto-preview", "--port", tostring(available_port)}
 
-      -- Determine filetype to launch appropriate previewer
-      local filetype = vim.bo[bufnr].filetype
+      local job_id = vim.fn.jobstart(previewer_cmd, {
+        cwd = root_dir,
+      })
+      vim.notify("Launched previewer for '" .. filetype .. "' on port " .. available_port .. ": " .. root_dir, vim.log.levels.INFO)
+      active_previewers[root_dir] = {
+          job_id = job_id,
+          port = available_port,
+      }
 
-      -- --- Previewer Launch Logic ---
-      if filetype == "patto" then
-
-        if active_previewers[root_dir] then
-          return
-        end
-        local available_port = find_available_port(3000) -- Start looking from port 3000
-        if not available_port then
-          vim.notify("Could not find an available port for the previewer.", vim.log.levels.ERROR)
-          return
-        end
-
-        local previewer_cmd = { "patto-preview", "--port", tostring(available_port)}
-
-        local job_id = vim.fn.jobstart(previewer_cmd, {
-          cwd = root_dir,
-        })
-        vim.notify("Launched previewer for '" .. filetype .. "' on port " .. available_port .. ": " .. root_dir, vim.log.levels.INFO)
-        active_previewers[root_dir] = {
-            job_id = job_id,
-            port = available_port,
-        }
-
-        local relative_filepath = vim.fs.relpath(root_dir, filepath)
-        local url_param = ''
-        if relative_filepath then
-          url_param = '?note=' .. relative_filepath
-        end
-        -- Optional: Open the preview in your default web browser
-        -- This part depends on your OS and preference.
-        local browser_open_cmd
-        local os_name = vim.loop.os_uname().sysname
-        if is_wsl() or os_name == "Windows_NT" then
-            browser_open_cmd = { "cmd.exe", "/c", "start", "http://localhost:" .. available_port .. url_param}
-        elseif os_name == "Linux" then
-            browser_open_cmd = { "xdg-open", "http://localhost:" .. available_port  .. url_param}
-        elseif os_name == "Darwin" then -- macOS
-            browser_open_cmd = { "open", "http://localhost:" .. available_port  .. url_param}
-        else
-            vim.notify("Unsupported OS for default browser launch", vim.log.levels.WARN)
-        end
-
-        if browser_open_cmd then
-            vim.defer_fn(function()
-                vim.fn.jobstart(browser_open_cmd, { detach = true })
-            end, 500)
-        end
+      local relative_filepath = vim.fs.relpath(root_dir, filepath)
+      local url_param = ''
+      if relative_filepath then
+        url_param = '?note=' .. relative_filepath
       end
-    end,
-  },
-  commands = {
-    LspPattoTasks = {
-      function()
-        vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
-          command = 'experimental/aggregate_tasks',
-          arguments = {},
-        }, function(results, _ctx, _config)
-          local alllocs = {}
-          for _, vres in pairs(results) do
-            if vres.result == nil then
-              goto continue
-            end
-            local locs = vim.tbl_map(function(item)
-              local location_item = {}
-              location_item.filename = vim.uri_to_fname(item.location.uri)
-              location_item.lnum = item.location.range.start.line + 1
-              location_item.col = item.location.range.start.character + 1
-              location_item.text = item.text
-              return location_item
-            end, vres.result)
+      -- Optional: Open the preview in your default web browser
+      -- This part depends on your OS and preference.
+      local browser_open_cmd
+      local os_name = vim.loop.os_uname().sysname
+      if is_wsl() or os_name == "Windows_NT" then
+          browser_open_cmd = { "cmd.exe", "/c", "start", "http://localhost:" .. available_port .. url_param}
+      elseif os_name == "Linux" then
+          browser_open_cmd = { "xdg-open", "http://localhost:" .. available_port  .. url_param}
+      elseif os_name == "Darwin" then -- macOS
+          browser_open_cmd = { "open", "http://localhost:" .. available_port  .. url_param}
+      else
+          vim.notify("Unsupported OS for default browser launch", vim.log.levels.WARN)
+      end
 
-            for k,v in ipairs(locs) do
-              alllocs[k] = v
-            end
+      if browser_open_cmd then
+          vim.defer_fn(function()
+              vim.fn.jobstart(browser_open_cmd, { detach = true })
+          end, 500)
+      end
+    end
+  end,
 
-            ::continue::
-          end
-          vim.fn.setloclist(0, alllocs)
-          vim.cmd("botright lopen 8")
-        end)
-      end,
-      description = 'Aggregate tasks in a workspace',
-    },
-    LspPattoTwoHopLinks = {
-      PattoShowTwoHopLinks,
-      description = 'Show two-hop links for the current buffer'
-    }
-  },
   docs = {
     description = [[
 https://github.com/ompugao/patto
@@ -287,8 +292,3 @@ patto-lsp, a language server for Patto Note
     ]],
   },
 }
-
-local configs = require('lspconfig.configs')
-if not configs.patto_lsp then
-  configs.patto_lsp = patto_lsp_config
-end
