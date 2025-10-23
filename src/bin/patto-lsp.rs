@@ -146,6 +146,7 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
         }
     }
 
+    #[allow(clippy::map_clone)]
     return parent
         .value()
         .children
@@ -180,7 +181,7 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
             }
         }
     } else if parentrow == row {
-        if parent.value().contents.lock().unwrap().len() == 0 {
+        if parent.value().contents.lock().unwrap().is_empty() {
             log::debug!("{:?} must be leaf", parent.extract_str());
             return Some(vec![parent.clone()]);
         }
@@ -845,9 +846,7 @@ impl LanguageServer for Backend {
                 &params.text_document_position_params.text_document.uri,
             );
             let repo_lock = self.repository.lock().unwrap();
-            let Some(repo) = repo_lock.as_ref() else {
-                return None;
-            };
+            let repo = repo_lock.as_ref()?;
             let ast = repo.ast_map.get(&uri)?;
             let rope = repo.document_map.get(&uri)?;
 
@@ -910,9 +909,7 @@ impl LanguageServer for Backend {
             );
 
             let repo_lock = self.repository.lock().unwrap();
-            let Some(repo) = repo_lock.as_ref() else {
-                return None;
-            };
+            let repo = repo_lock.as_ref()?;
             let Ok(graph) = repo.document_graph.lock() else {
                 log::debug!("failed to lock graph");
                 return None;
@@ -924,11 +921,11 @@ impl LanguageServer for Backend {
             //TODO record and use range
             let start = Range::new(Position::new(0, 0), Position::new(0, 1));
             log::debug!("references retrieved from graph");
-            return Some(
+            Some(
                 node.iter_in()
                     .map(|e| Location::new(e.source().key().clone(), start))
                     .collect::<_>(),
-            );
+            )
         }
         .await;
         Ok(references)

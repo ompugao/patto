@@ -30,7 +30,6 @@ use patto::renderer;
 use patto::renderer::Renderer;
 
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use log;
 use std::fs::File;
 
 fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
@@ -56,7 +55,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
     let options = renderer::HtmlRendererOptions {
-        ..renderer::HtmlRendererOptions::default()
     };
 
     init_logger(args.verbose.log_level_filter(), args.debuglogfile);
@@ -85,9 +83,9 @@ mermaid.initialize({{ startOnLoad: true, theme: 'forest' }});
     );
     write!(writer, "{}", str_s)?;
     renderer.format(&rootnode, &mut writer)?;
-    write!(writer, "</article>\n")?;
-    write!(writer, "</section>\n")?;
-    write!(writer, "</body>\n")?;
-    write!(writer, "</html>\n")?;
+    writeln!(writer, "</article>")?;
+    writeln!(writer, "</section>")?;
+    writeln!(writer, "</body>")?;
+    writeln!(writer, "</html>")?;
     Ok(())
 }

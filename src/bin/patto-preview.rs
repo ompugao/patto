@@ -679,9 +679,7 @@ async fn render_patto_to_html(
         let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
         let mut html_output = Vec::with_capacity(estimated_size);
 
-        let renderer = HtmlRenderer::new(HtmlRendererOptions {
-            ..HtmlRendererOptions::default()
-        });
+        let renderer = HtmlRenderer::new(HtmlRendererOptions {});
 
         let _ = renderer.format(&result.ast, &mut html_output);
         html_output
@@ -691,6 +689,6 @@ async fn render_patto_to_html(
     match html_output {
         Ok(output) => Ok(String::from_utf8(output)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
-        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+        Err(e) => Err(std::io::Error::other(e)),
     }
 }
