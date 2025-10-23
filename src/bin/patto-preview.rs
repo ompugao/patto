@@ -571,7 +571,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     },
                     Err(e) => {
                         eprintln!("Error receiving broadcast: {e}");
-                        break;
+                        continue;
                     }
                 }
             },
