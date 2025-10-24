@@ -31,6 +31,9 @@ pub enum RepositoryMessage {
     FileRemoved(PathBuf),
     BackLinksChanged(PathBuf, Vec<String>),
     TwoHopLinksChanged(PathBuf, Vec<(String, Vec<String>)>),
+    ScanStarted { total_files: usize },
+    ScanProgress { scanned: usize, total: usize },
+    ScanCompleted { total_files: usize },
 }
 
 /// Repository manages the collection of notes and their relationships
@@ -69,8 +72,11 @@ impl Repository {
             document_map: Arc::new(DashMap::new()),
         };
 
-        // Build initial document graph
-        repo.build_initial_graph();
+        // Spawn background task for initial scanning to avoid blocking
+        let repo_clone = repo.clone();
+        tokio::spawn(async move {
+            repo_clone.build_initial_graph();
+        });
 
         repo
     }
@@ -356,20 +362,52 @@ impl Repository {
 
     /// Build initial document graph by scanning all files
     fn build_initial_graph(&self) {
-        self.scan_and_build_graph(&self.root_dir.clone());
+        // Collect all files first to know total count
+        let files = self.collect_pn_files(&self.root_dir);
+        let total = files.len();
+        
+        // Send start message
+        let _ = self.tx.send(RepositoryMessage::ScanStarted { 
+            total_files: total 
+        });
+        
+        // Process files with progress updates
+        for (idx, file_path) in files.iter().enumerate() {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                self.add_file_to_graph(&file_path, &content);
+            }
+            
+            // Report progress every 10 files or on last file
+            if (idx + 1) % 10 == 0 || idx == total - 1 {
+                let _ = self.tx.send(RepositoryMessage::ScanProgress { 
+                    scanned: idx + 1, 
+                    total 
+                });
+            }
+        }
+        
+        // Send completion message
+        let _ = self.tx.send(RepositoryMessage::ScanCompleted { 
+            total_files: total 
+        });
     }
 
-    /// Scan directory and build document graph
-    fn scan_and_build_graph(&self, dir: &Path) {
+    /// Collect all .pn files in directory tree
+    fn collect_pn_files(&self, dir: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        self.collect_pn_files_recursive(dir, &mut files);
+        files
+    }
+
+    /// Helper to recursively collect .pn files
+    fn collect_pn_files_recursive(&self, dir: &Path, files: &mut Vec<PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    self.scan_and_build_graph(&path);
+                    self.collect_pn_files_recursive(&path, files);
                 } else if path.extension().and_then(|s| s.to_str()) == Some("pn") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        self.add_file_to_graph(&path, &content);
-                    }
+                    files.push(path);
                 }
             }
         }

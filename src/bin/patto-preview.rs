@@ -560,6 +560,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     two_hop_links,
                                 }
                             }
+                            // Ignore scan progress messages in preview
+                            RepositoryMessage::ScanStarted { .. } |
+                            RepositoryMessage::ScanProgress { .. } |
+                            RepositoryMessage::ScanCompleted { .. } => {
+                                continue;
+                            }
                         };
 
                         if let Ok(json) = serde_json::to_string(&ws_msg) {
