@@ -12,7 +12,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
-use patto::repository::Repository;
+use patto::repository::{Repository, RepositoryMessage};
 use patto::semantic_token::LEGEND_TYPE;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -222,6 +222,93 @@ impl Backend {
             .publish_diagnostics(params.uri, diagnostics, Some(params.version))
             .await;
     }
+
+    async fn start_repository_listener(&self) {
+        let repo_guard = self.repository.lock().unwrap();
+        if let Some(repo) = repo_guard.as_ref() {
+            let mut rx = repo.subscribe();
+            drop(repo_guard); // Release lock before async loop
+            
+            let client = self.client.clone();
+            
+            tokio::spawn(async move {
+                let token = NumberOrString::String("patto-scan".to_string());
+                let mut progress_active = false;
+                
+                while let Ok(msg) = rx.recv().await {
+                    match msg {
+                        RepositoryMessage::ScanStarted { total_files } => {
+                            let _ = client.send_notification::<notification::Progress>(
+                                ProgressParams {
+                                    token: token.clone(),
+                                    value: ProgressParamsValue::WorkDone(
+                                        WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                                            title: "Scanning patto files".to_string(),
+                                            message: Some(format!("0/{} files", total_files)),
+                                            percentage: Some(0),
+                                            cancellable: Some(false),
+                                        })
+                                    ),
+                                }
+                            ).await;
+                            progress_active = true;
+                            
+                            client.log_message(
+                                MessageType::INFO,
+                                format!("Starting to scan {} patto files", total_files)
+                            ).await;
+                        }
+                        
+                        RepositoryMessage::ScanProgress { scanned, total } => {
+                            if progress_active {
+                                let percentage = if total > 0 {
+                                    ((scanned * 100) / total) as u32
+                                } else {
+                                    0
+                                };
+                                
+                                let _ = client.send_notification::<notification::Progress>(
+                                    ProgressParams {
+                                        token: token.clone(),
+                                        value: ProgressParamsValue::WorkDone(
+                                            WorkDoneProgress::Report(WorkDoneProgressReport {
+                                                message: Some(format!("{}/{} files", scanned, total)),
+                                                percentage: Some(percentage),
+                                                cancellable: Some(false),
+                                            })
+                                        ),
+                                    }
+                                ).await;
+                            }
+                        }
+                        
+                        RepositoryMessage::ScanCompleted { total_files } => {
+                            if progress_active {
+                                let _ = client.send_notification::<notification::Progress>(
+                                    ProgressParams {
+                                        token: token.clone(),
+                                        value: ProgressParamsValue::WorkDone(
+                                            WorkDoneProgress::End(WorkDoneProgressEnd {
+                                                message: Some("Complete".to_string()),
+                                            })
+                                        ),
+                                    }
+                                ).await;
+                                progress_active = false;
+                            }
+                            
+                            client.log_message(
+                                MessageType::INFO,
+                                format!("Scan completed: {} files indexed", total_files)
+                            ).await;
+                        }
+                        
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -231,7 +318,8 @@ impl LanguageServer for Backend {
             {
                 let mut backend_root_uri = self.root_uri.lock().unwrap();
                 *backend_root_uri = Some(root_uri.clone());
-            }
+            } // Drop backend_root_uri here
+            
             if let Ok(path) = root_uri.to_file_path() {
                 self.client
                     .log_message(
@@ -240,14 +328,14 @@ impl LanguageServer for Backend {
                     )
                     .await;
 
-                // TODO
-                // The repository will be populated as files are opened via did_open events
-                // Since we can't easily replace the repository reference, we'll rely on
-                // on_change events to populate the document graph when files are opened
-                let mut repo = self.repository.lock().unwrap();
-                *repo = Some(Repository::new(path));
-
-                //self.client.log_message(MessageType::INFO, "Repository will be populated as files are opened.").await;
+                // Create repository (scanning happens in background)
+                {
+                    let mut repo = self.repository.lock().unwrap();
+                    *repo = Some(Repository::new(path));
+                } // Drop repo here
+                
+                // Start listening to repository messages (including scan progress)
+                self.start_repository_listener().await;
             }
         }
 
