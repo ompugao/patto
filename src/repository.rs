@@ -75,7 +75,7 @@ impl Repository {
         // Spawn background task for initial scanning to avoid blocking
         let repo_clone = repo.clone();
         tokio::spawn(async move {
-            repo_clone.build_initial_graph();
+            repo_clone.build_initial_graph().await;
         });
 
         repo
@@ -361,7 +361,7 @@ impl Repository {
     }
 
     /// Build initial document graph by scanning all files
-    fn build_initial_graph(&self) {
+    async fn build_initial_graph(&self) {
         // Collect all files first to know total count
         let files = self.collect_pn_files(&self.root_dir);
         let total = files.len();
@@ -377,8 +377,9 @@ impl Repository {
                 self.add_file_to_graph(&file_path, &content);
             }
             
+            tokio::task::yield_now().await;
             // Report progress every 10 files or on last file
-            if (idx + 1) % 10 == 0 || idx == total - 1 {
+            if (idx + 1) % 5 == 0 || idx == total - 1 {
                 let _ = self.tx.send(RepositoryMessage::ScanProgress { 
                     scanned: idx + 1, 
                     total 

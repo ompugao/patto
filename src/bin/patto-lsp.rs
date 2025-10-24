@@ -243,7 +243,7 @@ impl Backend {
                                     token: token.clone(),
                                     value: ProgressParamsValue::WorkDone(
                                         WorkDoneProgress::Begin(WorkDoneProgressBegin {
-                                            title: "Scanning patto files".to_string(),
+                                            title: "Scanning notes".to_string(),
                                             message: Some(format!("0/{} files", total_files)),
                                             percentage: Some(0),
                                             cancellable: Some(false),
