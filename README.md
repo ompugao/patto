@@ -76,7 +76,7 @@ Math with MathJax
 ```
 
 which is rendered as follows:  
-<img src="https://github.com/user-attachments/assets/0831c133-839d-4ea9-871a-24881431b179" height="640px" />
+<img width="906" height="2042" alt="screencapture-localhost-3031-2025-10-24-09_37_40" src="https://github.com/user-attachments/assets/60e18d5f-f92d-4a50-9a3e-f0c60fc0ba2b" />
 
 ### Line property
 A text in the form of `{@XXX YYY=ZZZ}` is named as `line property` and adds an property to the line (not the whole text).
