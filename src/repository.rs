@@ -221,30 +221,6 @@ impl Repository {
         })
     }
 
-    /// Build the link graph for the repository (deprecated - use document graph)
-    pub fn build_link_graph(&self) -> HashMap<PathBuf, HashSet<PathBuf>> {
-        let mut graph = HashMap::new();
-
-        // Build from document graph instead of scanning files
-        if let Ok(doc_graph) = self.document_graph.lock() {
-            // Iterate over all URIs in the AST map since we can't directly iterate over graph nodes
-            for entry in self.ast_map.iter() {
-                let uri = entry.key();
-                if let Some(node) = doc_graph.get(uri) {
-                    if let Ok(path) = uri.to_file_path() {
-                        let linked_paths: HashSet<PathBuf> = node
-                            .iter_out()
-                            .filter_map(|edge| edge.target().key().to_file_path().ok())
-                            .collect();
-                        graph.insert(path, linked_paths);
-                    }
-                }
-            }
-        }
-
-        graph
-    }
-
     /// Update only the specific file's links in the graph (deprecated - use add_file_to_graph)
     pub fn update_links_in_graph(&self, file_path: &Path, content: &str) {
         // This method is now handled by add_file_to_graph which updates the document graph
@@ -373,8 +349,8 @@ impl Repository {
         
         // Process files with progress updates
         for (idx, file_path) in files.iter().enumerate() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                self.add_file_to_graph(&file_path, &content);
+            if let Ok(content) = std::fs::read_to_string(file_path) {
+                self.add_file_to_graph(file_path, &content);
             }
             
             tokio::task::yield_now().await;
@@ -401,6 +377,7 @@ impl Repository {
     }
 
     /// Helper to recursively collect .pn files
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_pn_files_recursive(&self, dir: &Path, files: &mut Vec<PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -558,136 +535,135 @@ impl Repository {
         // Process events from the channel
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
-                if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
-                    for path in event.paths {
-                        let is_pn_file = path.extension().and_then(|s| s.to_str()) == Some("pn");
+                if !(event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove()) {
+                    continue;
+                }
+                for path in event.paths {
+                    if !(path.extension().and_then(|s| s.to_str()) == Some("pn")) {
+                        continue;
+                    }
 
-                        if is_pn_file {
-                            if event.kind.is_create() {
-                                if let Ok(rel_path) = path.strip_prefix(&root_dir) {
-                                    // Read file content and add to graph
-                                    if let Ok(content) = std::fs::read_to_string(&path) {
-                                        repository.add_file_to_graph(&path, &content);
-                                    }
+                    if event.kind.is_create() {
+                        let Ok(rel_path) = path.strip_prefix(&root_dir) else {
+                            continue;
+                        };
+                        // Read file content and add to graph
+                        let Ok(content) = std::fs::read_to_string(&path) else {
+                            continue;
+                        };
+                        repository.add_file_to_graph(&path, &content);
 
-                                    if let Ok(file_metadata) = std::fs::metadata(&path) {
-                                        let modified = file_metadata
-                                            .modified()
-                                            .unwrap_or(SystemTime::UNIX_EPOCH)
-                                            .duration_since(UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_secs();
+                        let Ok(file_metadata) = std::fs::metadata(&path) else {
+                            continue;
+                        };
+                        let modified = file_metadata
+                            .modified()
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
 
-                                        let created = file_metadata
-                                            .created()
-                                            .unwrap_or(SystemTime::UNIX_EPOCH)
-                                            .duration_since(UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_secs();
+                        let created = file_metadata
+                            .created()
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
 
-                                        //let link_count = repository.count_links_in_file(&path).unwrap_or(0);
-                                        let link_count = repository.calculate_back_links(&path).len();
+                        //let link_count = repository.count_links_in_file(&path).unwrap_or(0);
+                        let link_count = repository.calculate_back_links(&path).len();
 
-                                        let metadata = FileMetadata {
-                                            modified,
-                                            created,
-                                            link_count: link_count.try_into().unwrap(),
-                                        };
+                        let metadata = FileMetadata {
+                            modified,
+                            created,
+                            link_count: link_count.try_into().unwrap(),
+                        };
 
-                                        let _ = repo_tx.send(RepositoryMessage::FileAdded(
-                                            rel_path.to_path_buf(),
-                                            metadata,
-                                        ));
-                                    }
-                                }
-                            }
-
-                            if event.kind.is_remove() {
-                                if let Ok(rel_path) = path.strip_prefix(&root_dir) {
-                                    // Remove from graph
-                                    repository.remove_file_from_graph(&path);
-                                    let _ = repo_tx
-                                        .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
-                                }
-                            }
-
-                            if event.kind.is_modify() && path.is_file() {
-                                {
-                                    let mut changes = pending_changes.lock().unwrap();
-                                    changes.insert(path.clone(), Instant::now());
-                                }
-
-                                let path_clone = path.clone();
-                                let pending_changes_clone = Arc::clone(&pending_changes);
-                                let repo_tx_clone = repo_tx.clone();
-                                let repository_clone = repository.clone();
-
-                                tokio::spawn(async move {
-                                    sleep(debounce_duration).await;
-
-                                    let should_process = {
-                                        let mut changes = pending_changes_clone.lock().unwrap();
-                                        if let Some(&last_change) = changes.get(&path_clone) {
-                                            let is_latest = Instant::now().duration_since(last_change)
-                                                >= debounce_duration;
-                                            if is_latest {
-                                                changes.remove(&path_clone);
-                                                true
-                                            } else {
-                                                false
-                                            }
-                                        } else {
-                                            false
-                                        }
-                                    };
-
-                                    if should_process {
-                                        if let Ok(content) =
-                                            tokio::fs::read_to_string(&path_clone).await
-                                        {
-                                            // Update the document graph with new content
-                                            repository_clone.add_file_to_graph(&path_clone, &content);
-                                            let metadata = repository_clone.collect_file_metadata(&path_clone).unwrap();
-
-                                            // TODO update and broadcast backlinks and two-hop links when other files are created/modified/removed
-                                            let start = Instant::now();
-                                            if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir) {
-                                                // Update the repository's link graph
-                                                repository_clone.update_links_in_graph(&path, &content);
-
-                                                let back_links = repository_clone.calculate_back_links(&path);
-                                                // Calculate and send back-links and two-hop links for affected files
-                                                let _ = repository_clone
-                                                    .tx
-                                                    .send(RepositoryMessage::BackLinksChanged(
-                                                        path.clone(),
-                                                        back_links,
-                                                    ));
-
-                                                let two_hop_links = repository_clone.calculate_two_hop_links(&path).await;
-                                                let _ = repository_clone
-                                                    .tx
-                                                    .send(RepositoryMessage::TwoHopLinksChanged(
-                                                        path.clone(),
-                                                        two_hop_links,
-                                                    ));
-
-                                                println!(
-                                                    "File {} processed in {} ms",
-                                                    rel_path.display(),
-                                                    start.elapsed().as_millis()
-                                                );
-                                            }
-
-                                            let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
-                                                path_clone, metadata, content,
-                                            ));
-
-                                        }
-                                    }
-                                });
-                            }
+                        let _ = repo_tx.send(RepositoryMessage::FileAdded(
+                            rel_path.to_path_buf(),
+                            metadata,
+                        ));
+                    } else if event.kind.is_remove() {
+                        let Ok(rel_path) = path.strip_prefix(&root_dir) else {
+                            continue;
+                        };
+                        // Remove from graph
+                        repository.remove_file_from_graph(&path);
+                        let _ = repo_tx
+                            .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+                    } else if event.kind.is_modify() && path.is_file() {
+                        {
+                            let mut changes = pending_changes.lock().unwrap();
+                            changes.insert(path.clone(), Instant::now());
                         }
+
+                        let path_clone = path.clone();
+                        let pending_changes_clone = Arc::clone(&pending_changes);
+                        let repo_tx_clone = repo_tx.clone();
+                        let repository_clone = repository.clone();
+
+                        tokio::spawn(async move {
+                            sleep(debounce_duration).await;
+
+                            let should_process = {
+                                let mut changes = pending_changes_clone.lock().unwrap();
+                                if let Some(&last_change) = changes.get(&path_clone) {
+                                    let is_latest = Instant::now().duration_since(last_change)
+                                        >= debounce_duration;
+                                    if is_latest {
+                                        changes.remove(&path_clone);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            };
+
+                            if should_process {
+                                let Ok(content) = tokio::fs::read_to_string(&path_clone).await else {
+                                    return;
+                                };
+                                // Update the document graph with new content
+                                repository_clone.update_links_in_graph(&path_clone, &content);
+                                let metadata = repository_clone.collect_file_metadata(&path_clone).unwrap();
+
+                                // TODO update and broadcast backlinks and two-hop links when other files are created/modified/removed
+                                let start = Instant::now();
+                                if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir) {
+                                    // Update the repository's link graph
+                                    repository_clone.update_links_in_graph(&path, &content);
+
+                                    let back_links = repository_clone.calculate_back_links(&path);
+                                    // Calculate and send back-links and two-hop links for affected files
+                                    let _ = repository_clone
+                                        .tx
+                                        .send(RepositoryMessage::BackLinksChanged(
+                                            path.clone(),
+                                            back_links,
+                                        ));
+
+                                    let two_hop_links = repository_clone.calculate_two_hop_links(&path).await;
+                                    let _ = repository_clone
+                                        .tx
+                                        .send(RepositoryMessage::TwoHopLinksChanged(
+                                            path.clone(),
+                                            two_hop_links,
+                                        ));
+
+                                    println!(
+                                        "File {} processed in {} ms",
+                                        rel_path.display(),
+                                        start.elapsed().as_millis()
+                                    );
+                                }
+
+                                let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
+                                    path_clone, metadata, content,
+                                ));
+                            }
+                        });
                     }
                 }
             }
