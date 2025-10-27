@@ -539,7 +539,7 @@ impl Repository {
                     continue;
                 }
                 for path in event.paths {
-                    if !(path.extension().and_then(|s| s.to_str()) == Some("pn")) {
+                    if path.extension().and_then(|s| s.to_str()) != Some("pn") {
                         continue;
                     }
 
