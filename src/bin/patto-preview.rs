@@ -12,7 +12,7 @@ use patto::{
     line_tracker::LineTracker,
     parser,
     renderer::{HtmlRenderer, HtmlRendererOptions, Renderer},
-    repository::{FileMetadata, Repository, RepositoryMessage},
+    repository::{BackLinkData, FileMetadata, Repository, RepositoryMessage},
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -80,7 +80,7 @@ enum WsMessage {
     },
     BackLinksData {
         path: String,
-        back_links: Vec<String>,
+        back_links: Vec<BackLinkData>,
     },
     TwoHopLinksData {
         path: String,
