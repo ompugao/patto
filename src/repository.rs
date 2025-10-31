@@ -12,7 +12,48 @@ use tokio::time::sleep;
 use tower_lsp::lsp_types::Url;
 use urlencoding::encode;
 
-use crate::parser::{self, AstNode};
+use crate::parser::{self, AstNode, Location};
+
+/// Location information for a WikiLink
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkLocation {
+    /// Source line number (0-indexed)
+    pub source_line: usize,
+    /// Source column range (byte offsets within the line)
+    pub source_col_range: (usize, usize),
+    /// Target anchor name (if linking to specific anchor)
+    pub target_anchor: Option<String>,
+}
+
+/// Edge data for document graph connections
+#[derive(Debug, Clone)]
+pub struct LinkEdge {
+    /// All link locations from source to target document
+    pub locations: Vec<LinkLocation>,
+}
+
+/// Link location data for preview (serializable)
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LinkLocationData {
+    /// Line number (0-indexed)
+    pub line: usize,
+    /// Column range within the line
+    pub col_range: (usize, usize),
+    /// Optional: text context around the link
+    pub context: Option<String>,
+    /// Target anchor (if linking to specific anchor)
+    pub target_anchor: Option<String>,
+}
+
+/// Backlink data with locations for preview
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BackLinkData {
+    /// Source file name (link name, not full path)
+    pub source_file: String,
+    /// All locations in source file that link here
+    pub locations: Vec<LinkLocationData>,
+}
+
 
 /// File metadata for sorting and display
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -29,7 +70,7 @@ pub enum RepositoryMessage {
     FileChanged(PathBuf, FileMetadata, String),
     FileAdded(PathBuf, FileMetadata),
     FileRemoved(PathBuf),
-    BackLinksChanged(PathBuf, Vec<String>),
+    BackLinksChanged(PathBuf, Vec<BackLinkData>),
     TwoHopLinksChanged(PathBuf, Vec<(String, Vec<String>)>),
     ScanStarted { total_files: usize },
     ScanProgress { scanned: usize, total: usize },
@@ -46,7 +87,7 @@ pub struct Repository {
     pub tx: broadcast::Sender<RepositoryMessage>,
 
     /// Graph structure for note relationships (used by LSP)
-    pub document_graph: Arc<Mutex<Graph<Url, AstNode, ()>>>,
+    pub document_graph: Arc<Mutex<Graph<Url, AstNode, LinkEdge>>>,
 
     /// Simple link graph for web preview (PathBuf -> linked PathBufs)
     pub link_graph: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
@@ -86,10 +127,13 @@ impl Repository {
         self.tx.subscribe()
     }
 
-    /// Gather wikilinks from an AST node
-    pub fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<String>)>) {
+    /// Gather wikilinks with their source locations
+    pub fn gather_wikilinks(
+        parent: &AstNode,
+        wikilinks: &mut Vec<(String, Option<String>, Location)>,
+    ) {
         if let parser::AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
-            wikilinks.push((link.clone(), anchor.clone()));
+            wikilinks.push((link.clone(), anchor.clone(), parent.location().clone()));
         }
 
         for content in parent.value().contents.lock().unwrap().iter() {
@@ -212,7 +256,7 @@ impl Repository {
             .unwrap_or_default()
             .as_secs();
 
-        let link_count = self.calculate_back_links(file_path).len();
+        let link_count = self.count_back_links(file_path);
 
         Ok(FileMetadata {
             modified,
@@ -227,8 +271,45 @@ impl Repository {
         self.add_file_to_graph(file_path, content);
     }
 
+    /// Extract context around a link location
+    fn extract_context(
+        rope: &ropey::Rope,
+        line: usize,
+        col_range: (usize, usize),
+    ) -> Option<String> {
+        if line >= rope.len_lines() {
+            return None;
+        }
+
+        let line_start = rope.line_to_char(line);
+        let line_end = if line + 1 < rope.len_lines() {
+            rope.line_to_char(line + 1)
+        } else {
+            rope.len_chars()
+        };
+
+        let line_slice = rope.slice(line_start..line_end);
+        let line_str = line_slice.to_string();
+
+        // Get surrounding context (e.g., full line or trimmed)
+        const MAX_CONTEXT_LEN: usize = 80;
+
+        let start = col_range.0.saturating_sub(20).max(0);
+        let end = (col_range.1 + 20).min(line_str.len());
+
+        let mut context = line_str[start..end].to_string();
+
+        // Truncate if too long
+        if context.len() > MAX_CONTEXT_LEN {
+            context.truncate(MAX_CONTEXT_LEN - 3);
+            context.push_str("...");
+        }
+
+        Some(context)
+    }
+
     /// Calculate back-links for a specific file using document graph
-    pub fn calculate_back_links(&self, file_path: &Path) -> Vec<String> {
+    pub fn calculate_back_links(&self, file_path: &Path) -> Vec<BackLinkData> {
         // Security check
         let canonical_base = match std::fs::canonicalize(&self.root_dir) {
             Ok(base) => base,
@@ -250,25 +331,61 @@ impl Repository {
         };
         let uri = Self::normalize_url_percent_encoding(&uri);
 
-        // Get back-links from document graph
-        let mut back_links: Vec<String> = Vec::new();
+        // Get back-links from document graph with locations
+        let mut result = Vec::new();
 
         if let Ok(graph) = self.document_graph.lock() {
             if let Some(node) = graph.get(&uri) {
                 for edge in node.iter_in() {
                     let source_uri = edge.source().key();
-                    // Convert URI back to file path, then to link name
+                    let edge_data = edge.value();
+
                     if let Ok(source_path) = source_uri.to_file_path() {
-                        if let Some(link_name) = self.path_to_link(&source_path) {
-                            back_links.push(link_name);
+                        if let Some(source_file) = self.path_to_link(&source_path) {
+                            // Get content for context extraction
+                            let context_rope = self.document_map.get(source_uri);
+
+                            let locations: Vec<LinkLocationData> = edge_data
+                                .locations
+                                .iter()
+                                .map(|loc| {
+                                    // Extract text context
+                                    let context = context_rope.as_ref().and_then(|rope| {
+                                        Self::extract_context(
+                                            rope.value(),
+                                            loc.source_line,
+                                            loc.source_col_range,
+                                        )
+                                    });
+
+                                    LinkLocationData {
+                                        line: loc.source_line,
+                                        col_range: loc.source_col_range,
+                                        context,
+                                        target_anchor: loc.target_anchor.clone(),
+                                    }
+                                })
+                                .collect();
+
+                            result.push(BackLinkData {
+                                source_file,
+                                locations,
+                            });
                         }
                     }
                 }
             }
         }
 
-        back_links.sort();
-        back_links
+        // Sort by file name
+        result.sort_by(|a, b| a.source_file.cmp(&b.source_file));
+        result
+    }
+
+    /// Helper method to get backlink count (for metadata)
+    pub fn count_back_links(&self, file_path: &Path) -> usize {
+        let back_links = self.calculate_back_links(file_path);
+        back_links.iter().map(|bl| bl.locations.len()).sum()
     }
 
     /// Calculate two-hop links for a specific file using document graph
@@ -407,16 +524,28 @@ impl Repository {
             self.document_map.insert(uri.clone(), rope);
             self.ast_map.insert(uri.clone(), result.ast.clone());
 
-            // Extract wikilinks
+            // Extract wikilinks WITH locations
             let mut wikilinks = vec![];
             Self::gather_wikilinks(&result.ast, &mut wikilinks);
 
             // Get root URI for link resolution
             if let Ok(root_uri) = Url::from_directory_path(&self.root_dir) {
-                let link_uris: Vec<Url> = wikilinks
-                    .iter()
-                    .filter_map(|(link, _)| self.link_to_uri(link, &root_uri))
-                    .collect();
+                // Group links by target URI
+                let mut links_by_target: HashMap<Url, Vec<LinkLocation>> = HashMap::new();
+
+                for (link, anchor, location) in &wikilinks {
+                    if let Some(link_uri) = self.link_to_uri(link, &root_uri) {
+                        let link_loc = LinkLocation {
+                            source_line: location.row,
+                            source_col_range: (location.span.0, location.span.1),
+                            target_anchor: anchor.clone(),
+                        };
+                        links_by_target
+                            .entry(link_uri)
+                            .or_default()
+                            .push(link_loc);
+                    }
+                }
 
                 // Update document graph
                 if let Ok(mut graph) = self.document_graph.lock() {
@@ -427,33 +556,39 @@ impl Repository {
                         n
                     });
 
-                    // Connect to linked files
-                    for link_uri in &link_uris {
-                        if !node.iter_out().any(|x| x.target().key() == link_uri) {
-                            // Create target node if it doesn't exist
-                            let target_node = graph.get(link_uri).unwrap_or_else(|| {
-                                // Try to get AST from cache, or create placeholder
-                                let target_ast = self
-                                    .ast_map
-                                    .get(link_uri)
-                                    .map(|entry| entry.value().clone())
-                                    .unwrap_or_else(|| {
-                                        // Create a placeholder AST
-                                        parser::parse_text("").ast
-                                    });
-                                let n = GraphNode::new(link_uri.clone(), target_ast);
-                                graph.insert(n.clone());
-                                n
-                            });
+                    // Update edges with location data
+                    for (link_uri, locations) in &links_by_target {
+                        // Create or get target node
+                        let target_node = graph.get(link_uri).unwrap_or_else(|| {
+                            // Try to get AST from cache, or create placeholder
+                            let target_ast = self
+                                .ast_map
+                                .get(link_uri)
+                                .map(|entry| entry.value().clone())
+                                .unwrap_or_else(|| {
+                                    // Create a placeholder AST
+                                    parser::parse_text("").ast
+                                });
+                            let n = GraphNode::new(link_uri.clone(), target_ast);
+                            graph.insert(n.clone());
+                            n
+                        });
 
-                            node.connect(&target_node, ());
-                        }
+                        // Disconnect old edge and create new one with updated data
+                        let _ = node.disconnect(link_uri);
+                        node.connect(
+                            &target_node,
+                            LinkEdge {
+                                locations: locations.clone(),
+                            },
+                        );
                     }
 
                     // Remove connections that no longer exist
+                    let current_targets: HashSet<_> = links_by_target.keys().collect();
                     let edges_to_remove: Vec<_> = node
                         .iter_out()
-                        .filter(|edge| !link_uris.contains(edge.target().key()))
+                        .filter(|edge| !current_targets.contains(&edge.target().key()))
                         .map(|edge| edge.target().key().clone())
                         .collect();
 
