@@ -264,24 +264,28 @@ return {
       if relative_filepath then
         url_param = '?note=' .. relative_filepath
       end
-      -- Optional: Open the preview in your default web browser
-      -- This part depends on your OS and preference.
-      local browser_open_cmd
-      local os_name = vim.loop.os_uname().sysname
-      if is_wsl() or os_name == "Windows_NT" then
-          browser_open_cmd = { "cmd.exe", "/c", "start", "http://localhost:" .. available_port .. url_param}
-      elseif os_name == "Linux" then
-          browser_open_cmd = { "xdg-open", "http://localhost:" .. available_port  .. url_param}
-      elseif os_name == "Darwin" then -- macOS
-          browser_open_cmd = { "open", "http://localhost:" .. available_port  .. url_param}
-      else
-          vim.notify("Unsupported OS for default browser launch", vim.log.levels.WARN)
-      end
 
-      if browser_open_cmd then
-          vim.defer_fn(function()
-              vim.fn.jobstart(browser_open_cmd, { detach = true })
-          end, 500)
+
+      if vim.g.patto_enable_open_browser ~= nil and vim.g.patto_enable_open_browser then
+        -- Optional: Open the preview in your default web browser
+        -- This part depends on your OS and preference.
+        local browser_open_cmd
+        local os_name = vim.loop.os_uname().sysname
+        if is_wsl() or os_name == "Windows_NT" then
+            browser_open_cmd = { "cmd.exe", "/c", "start", "http://localhost:" .. available_port .. url_param}
+        elseif os_name == "Linux" then
+            browser_open_cmd = { "xdg-open", "http://localhost:" .. available_port  .. url_param}
+        elseif os_name == "Darwin" then -- macOS
+            browser_open_cmd = { "open", "http://localhost:" .. available_port  .. url_param}
+        else
+            vim.notify("Unsupported OS for default browser launch", vim.log.levels.WARN)
+        end
+
+        if browser_open_cmd then
+            vim.defer_fn(function()
+                vim.fn.jobstart(browser_open_cmd, { detach = true })
+            end, 500)
+        end
       end
     end
   end,
