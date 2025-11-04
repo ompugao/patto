@@ -6,6 +6,7 @@
     * [x] rendering inline math
     * [x] handle [XXX](mailto:XXX@example.com)  
     * [x] support abbrev task, like `!2024-09-24T13:00 `
+      * [ ] better abbrev, add `pending` status
     * [x] better anchor handling `name#anchor`. some note contains `#` in its name.
       * we do not support `#` for the name of notes.
     * eliminate the logic that self-link if link is empty
@@ -28,13 +29,14 @@
       * [x] nvim-lspconfig version
       * [x] vscode version
       * auto refresh
-    * note renaming
+    * [ ] note renaming
       * vim-lsp does not support CreateFile/RenameFile/DeleteFile
         * [https://github.com/prabirshrestha/vim-lsp/issues/1371](https://github.com/prabirshrestha/vim-lsp/issues/1371)
       * yegappan/lsp supports these
-    * anchor renaming
-    * make error.variant.message() user-friendly
-    * fix indentation error at a line after a block with trailing empty lines
+    * [ ] anchor renaming
+    * [ ] make error.variant.message() user-friendly
+    * [ ] fix indentation error at a line after a block with trailing empty lines
+    * [ ] lsp server hangs sometimes
   * Previewer
     * [x] realtime preview
     * [x] bugfix: id jump (including self-link)
