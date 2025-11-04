@@ -204,6 +204,7 @@ return {
         end
         vim.fn.setloclist(0, alllocs)
         vim.cmd("botright lopen 8")
+        vim.cmd("setlocal nowrap")
       end)
     end, {
       desc  = 'Aggregate tasks in a workspace',
