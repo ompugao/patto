@@ -1,6 +1,8 @@
 # 🐙 Patto Note
 A simple plain-text format for quick note-taking, outlining, and task management, powered by language server.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ompugao/patto)
+
 ## Description
 Patto Note is a text format inspired by [Cosense (formerly Scrapbox)](https://scrapbox.io), designed for quick note-taking, task management, and outlining.
 It works with your favorite editor, powered by the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/).
