@@ -980,8 +980,8 @@ fn transform_wiki_link<'a>(
     row: usize,
     indent: usize,
 ) -> Option<AstNode> {
-    let inner = pair.into_inner().next().unwrap(); // wiki_link or wiki_link_anchored
-    let span = Into::<Span>::into(inner.as_span()) + indent;
+    let span = Into::<Span>::into(pair.as_span()) + indent;
+    let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::wiki_link_anchored => {
             let mut inner2 = inner.into_inner();
