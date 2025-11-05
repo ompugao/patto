@@ -12,7 +12,7 @@ use tokio::time::sleep;
 use tower_lsp::lsp_types::Url;
 use urlencoding::encode;
 
-use crate::parser::{self, AstNode};
+use crate::parser::{self, AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 
 /// File metadata for sorting and display
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -21,6 +21,17 @@ pub struct FileMetadata {
     pub created: u64,  // Unix timestamp
     #[serde(rename = "linkCount")]
     pub link_count: u32,
+}
+
+/// Task information for task aggregation
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TaskInfo {
+    pub file_path: String,
+    pub line_text: String,
+    pub status: String,
+    pub deadline: Option<String>,
+    pub row: usize,
+    pub stable_id: Option<i64>,
 }
 
 /// Messages for repository change notifications
@@ -34,6 +45,7 @@ pub enum RepositoryMessage {
     ScanStarted { total_files: usize },
     ScanProgress { scanned: usize, total: usize },
     ScanCompleted { total_files: usize },
+    TasksUpdated { tasks: Vec<TaskInfo> },
 }
 
 /// Repository manages the collection of notes and their relationships
@@ -583,6 +595,10 @@ impl Repository {
                             rel_path.to_path_buf(),
                             metadata,
                         ));
+                        
+                        // Broadcast updated tasks
+                        let tasks = repository.aggregate_tasks();
+                        let _ = repo_tx.send(RepositoryMessage::TasksUpdated { tasks });
                     } else if event.kind.is_remove() {
                         let Ok(rel_path) = path.strip_prefix(&root_dir) else {
                             continue;
@@ -591,6 +607,10 @@ impl Repository {
                         repository.remove_file_from_graph(&path);
                         let _ = repo_tx
                             .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+                        
+                        // Broadcast updated tasks
+                        let tasks = repository.aggregate_tasks();
+                        let _ = repo_tx.send(RepositoryMessage::TasksUpdated { tasks });
                     } else if event.kind.is_modify() && path.is_file() {
                         {
                             let mut changes = pending_changes.lock().unwrap();
@@ -662,6 +682,10 @@ impl Repository {
                                 let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
                                     path_clone, metadata, content,
                                 ));
+                                
+                                // Broadcast updated tasks
+                                let tasks = repository_clone.aggregate_tasks();
+                                let _ = repo_tx_clone.send(RepositoryMessage::TasksUpdated { tasks });
                             }
                         });
                     }
@@ -670,5 +694,88 @@ impl Repository {
         });
 
         Ok(())
+    }
+
+    /// Gather tasks from an AST node recursively
+    fn gather_tasks_from_ast(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
+        if let AstNodeKind::Line { ref properties } = &parent.kind() {
+            for prop in properties {
+                if let Property::Task { status, due } = prop {
+                    if !matches!(status, TaskStatus::Done) {
+                        tasklines.push((parent.clone(), due.clone()));
+                        break;
+                    }
+                }
+            }
+        }
+
+        for child in parent.value().children.lock().unwrap().iter() {
+            Self::gather_tasks_from_ast(child, tasklines);
+        }
+    }
+
+    /// Aggregate all tasks from the workspace
+    pub fn aggregate_tasks(&self) -> Vec<TaskInfo> {
+        let mut tasks: Vec<TaskInfo> = Vec::new();
+
+        self.ast_map.iter().for_each(|entry| {
+            let mut tasklines = vec![];
+            Self::gather_tasks_from_ast(entry.value(), &mut tasklines);
+
+            for (line, due) in tasklines {
+                let file_path = entry.key().to_file_path().ok()
+                    .and_then(|p| p.strip_prefix(&self.root_dir).ok().map(|p| p.to_path_buf()))
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                let line_text = line.extract_str().trim_start().to_string();
+                
+                let status = if let AstNodeKind::Line { ref properties } = &line.kind() {
+                    properties.iter().find_map(|prop| {
+                        if let Property::Task { status, .. } = prop {
+                            Some(match status {
+                                TaskStatus::Todo => "Todo",
+                                TaskStatus::Doing => "Doing",
+                                TaskStatus::Done => "Done",
+                            }.to_string())
+                        } else {
+                            None
+                        }
+                    }).unwrap_or_else(|| "Todo".to_string())
+                } else {
+                    "Todo".to_string()
+                };
+
+                let deadline = match due {
+                    Deadline::Date(d) => Some(d.format("%Y-%m-%d").to_string()),
+                    Deadline::DateTime(dt) => Some(dt.format("%Y-%m-%d %H:%M").to_string()),
+                    Deadline::Uninterpretable(_) => None,
+                };
+
+                let row = line.location().row;
+                let stable_id = *line.value().stable_id.lock().unwrap();
+
+                tasks.push(TaskInfo {
+                    file_path,
+                    line_text,
+                    status,
+                    deadline,
+                    row,
+                    stable_id,
+                });
+            }
+        });
+
+        // Sort by deadline
+        tasks.sort_by(|a, b| {
+            match (&a.deadline, &b.deadline) {
+                (Some(d1), Some(d2)) => d1.cmp(d2),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.file_path.cmp(&b.file_path),
+            }
+        });
+
+        tasks
     }
 }

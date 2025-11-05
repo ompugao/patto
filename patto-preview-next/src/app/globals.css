@@ -181,6 +181,21 @@ code {
   }
 }
 
+/* Highlight animation for clicked task lines */
+:global(.highlighted) {
+  animation: highlight-flash 2s ease-in-out;
+  border-radius: 4px;
+}
+
+@keyframes highlight-flash {
+  0%, 100% { 
+    background-color: transparent;
+  }
+  10%, 90% { 
+    background-color: #fff3cd;
+  }
+}
+
 /*
 :root {
   --background: #ffffff;

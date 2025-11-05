@@ -12,7 +12,7 @@ use patto::{
     line_tracker::LineTracker,
     parser,
     renderer::{HtmlRenderer, HtmlRendererOptions, Renderer},
-    repository::{FileMetadata, Repository, RepositoryMessage},
+    repository::{FileMetadata, Repository, RepositoryMessage, TaskInfo},
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -85,6 +85,9 @@ enum WsMessage {
     TwoHopLinksData {
         path: String,
         two_hop_links: Vec<(String, Vec<String>)>,
+    },
+    TasksUpdated {
+        tasks: Vec<TaskInfo>,
     },
 }
 
@@ -495,6 +498,17 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             return;
         }
     }
+
+    // Send initial task list
+    let tasks = state.repository.aggregate_tasks();
+    let tasks_message = WsMessage::TasksUpdated { tasks };
+    
+    if let Ok(json) = serde_json::to_string(&tasks_message) {
+        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+            eprintln!("Error sending initial tasks: {}", e);
+        }
+    }
+
     //let root_dir = state.repository.root_dir.clone();
     // Main loop - handle both broadcast messages and websocket messages
     loop {
@@ -559,6 +573,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     path: rel_path.to_string_lossy().to_string(),
                                     two_hop_links,
                                 }
+                            }
+                            RepositoryMessage::TasksUpdated { tasks } => {
+                                WsMessage::TasksUpdated { tasks }
                             }
                             // Ignore scan progress messages in preview
                             RepositoryMessage::ScanStarted { .. } |
