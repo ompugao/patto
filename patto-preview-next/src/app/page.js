@@ -174,7 +174,7 @@ export default function PattoApp() {
         if (element) {
           element.scrollIntoView({ 
             behavior: 'smooth', 
-            block: 'center' 
+            block: 'start' 
           });
           element.classList.add('highlighted');
           setTimeout(() => element.classList.remove('highlighted'), 2000);
@@ -248,7 +248,7 @@ export default function PattoApp() {
       if (element) {
         element.scrollIntoView({ 
           behavior: 'smooth', 
-          block: 'center' 
+          block: 'start' 
         });
         element.classList.add('highlighted');
         setTimeout(() => element.classList.remove('highlighted'), 2000);
@@ -266,9 +266,9 @@ export default function PattoApp() {
   }, [navigate, currentNote]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div className="patto-app" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* Header */}
-      <div style={{ 
+      <div className="patto-header" style={{ 
         backgroundColor: '#333', 
         color: 'white', 
         padding: '10px 15px',
@@ -292,7 +292,7 @@ export default function PattoApp() {
       </div>
 
       {/* Main content */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="patto-main" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar
           files={files}
           fileMetadata={fileMetadata}
@@ -304,8 +304,8 @@ export default function PattoApp() {
           onToggle={handleToggleSidebar}
         />
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-          <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
+        <div className="patto-preview-area" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+          <div className="patto-preview-scroll" style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
             <Preview 
               html={previewHtml} 
               anchor={anchor} 
