@@ -35,8 +35,9 @@
       * yegappan/lsp supports these
     * [ ] anchor renaming
     * [ ] make error.variant.message() user-friendly
-    * [ ] fix indentation error at a line after a block with trailing empty lines
+    * [x] fix indentation error at a line after a block with trailing empty lines
     * [ ] lsp server hangs sometimes
+    * [ ] link with location and fix lsp_references
   * Previewer
     * [x] realtime preview
     * [x] bugfix: id jump (including self-link)
@@ -47,3 +48,4 @@
     * [x] feature: support printing
     * [x] bugfix: Fix twitter embedding css
     * [x] back links & show two hop links
+    * [ ] task list view
