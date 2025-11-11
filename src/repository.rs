@@ -282,8 +282,8 @@ impl Repository {
         }
 
         let line_start = rope.line_to_char(line);
-        let line_end = if line + 1 < rope.len_lines() {
-            rope.line_to_char(line + 1)
+        let line_end = if line + 10 < rope.len_lines() {
+            rope.line_to_char(line + 10)
         } else {
             rope.len_chars()
         };
@@ -294,10 +294,10 @@ impl Repository {
         // Get surrounding context (e.g., full line or trimmed)
         const MAX_CONTEXT_LEN: usize = 80;
 
-        let start = col_range.0.saturating_sub(20).max(0);
-        let end = (col_range.1 + 20).min(line_str.len());
+        // let start = col_range.0.saturating_sub(20).max(0);
+        // let end = (col_range.1 + 20).min(line_str.len());
 
-        let mut context = line_str[start..end].to_string();
+        let mut context = line_str;
 
         // Truncate if too long
         if context.len() > MAX_CONTEXT_LEN {
