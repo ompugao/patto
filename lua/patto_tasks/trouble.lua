@@ -32,30 +32,6 @@ function M.toggle()
   trouble.toggle({ mode = "patto_tasks" })
 end
 
---- Open the Patto tasks with deadline-based grouping in trouble.nvim
---- @return nil
-function M.open_deadline()
-  local ok, trouble = pcall(require, "trouble")
-  if not ok then
-    vim.notify("trouble.nvim is not installed", vim.log.levels.ERROR)
-    return
-  end
-
-  trouble.open({ mode = "patto_tasks_deadline", focus = true })
-end
-
---- Toggle the Patto tasks with deadline-based grouping in trouble.nvim
---- @return nil
-function M.toggle_deadline()
-  local ok, trouble = pcall(require, "trouble")
-  if not ok then
-    vim.notify("trouble.nvim is not installed", vim.log.levels.ERROR)
-    return
-  end
-
-  trouble.toggle({ mode = "patto_tasks_deadline" })
-end
-
 --- Close the Patto tasks window in trouble.nvim
 --- @return nil
 function M.close()
@@ -77,9 +53,6 @@ function M.refresh()
 
   if trouble.is_open({ mode = "patto_tasks" }) then
     trouble.refresh({ mode = "patto_tasks" })
-  end
-  if trouble.is_open({ mode = "patto_tasks_deadline" }) then
-    trouble.refresh({ mode = "patto_tasks_deadline" })
   end
 end
 

@@ -101,20 +101,6 @@ M.config = {
       mode = "patto_tasks",
       events = { "BufEnter", "BufWritePost" },
       source = "patto_tasks",
-      groups = {
-        { "filename", format = "{file_icon} {filename} {count}" },
-      },
-      sort = { "filename", "pos" },
-      format = "{text} {pos}",
-      win = {
-        position = "bottom",
-        size = 0.3,
-      },
-    },
-    patto_tasks_deadline = {
-      mode = "patto_tasks_deadline",
-      events = { "BufEnter", "BufWritePost" },
-      source = "patto_tasks",
       desc = "Tasks grouped by deadline",
       groups = {
         { "deadline_group", format = "{deadline_group}" },
