@@ -14,7 +14,7 @@ use crate::line_tracker::LineTracker;
 use pest;
 use pest::iterators::Pair;
 
-//use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[grammar = "patto.pest"]
@@ -136,7 +136,7 @@ pub struct AstNodeInternal {
 //     }
 // }
 
-#[derive(PartialEq, Eq, Debug, Clone)] //, Deserialize, Serialize)]
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub enum Deadline {
     DateTime(chrono::NaiveDateTime),
     Date(chrono::NaiveDate),

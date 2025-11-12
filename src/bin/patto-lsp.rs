@@ -122,15 +122,18 @@ pub struct TaskInformation {
     pub text: String,
 
     pub message: String,
-    //pub due: Deadline,
+    
+    /// The deadline of this task
+    pub due: Deadline,
 }
 
 impl TaskInformation {
-    pub fn new(location: Location, text: String, message: String) -> Self {
+    pub fn new(location: Location, text: String, message: String, due: Deadline) -> Self {
         Self {
             location,
             text,
             message,
+            due,
         }
     }
 }
@@ -864,15 +867,13 @@ impl LanguageServer for Backend {
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
                 let ret = json!(tasks
                     .iter()
-                    .map(|(uri, line, _due)| {
-                        //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
+                    .map(|(uri, line, due)| {
                         TaskInformation::new(
                             Location::new(uri.clone(), get_node_range(line)),
                             line.extract_str().trim_start().to_string(),
                             "".to_string(),
+                            due.clone(),
                         )
-                        //due.clone())
-                        //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
                     })
                     .collect::<Vec<_>>());
                 //self.client
