@@ -35,7 +35,7 @@ local function parse_deadline(task)
     return "Invalid Deadline", 9999999997
   end
   
-  local due_time = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0, min = 0, sec = 0})
+  local due_time = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 23, min = 59, sec = 59})
   local now = os.time()
   local today_start = os.time(os.date("*t", now))
   
