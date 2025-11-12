@@ -18,7 +18,7 @@ eula = false
 
 [dependencies]
 axum = { version = "0.7.4", features = ["ws"] }
-chrono = "0.4.38"
+chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.17", features = ["derive"] }
 clap-verbosity-flag = "3.0.0"
 dashmap = "6.1.0"
