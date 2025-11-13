@@ -275,7 +275,7 @@ impl Repository {
     fn extract_context(
         rope: &ropey::Rope,
         line: usize,
-        col_range: (usize, usize),
+        _col_range: (usize, usize),
     ) -> Option<String> {
         if line >= rope.len_lines() {
             return None;
@@ -294,14 +294,16 @@ impl Repository {
         // Get surrounding context (e.g., full line or trimmed)
         const MAX_CONTEXT_LEN: usize = 80;
 
-        // let start = col_range.0.saturating_sub(20).max(0);
-        // let end = (col_range.1 + 20).min(line_str.len());
-
         let mut context = line_str;
 
-        // Truncate if too long
+        // Truncate if too long, but ensure we don't split UTF-8 characters
         if context.len() > MAX_CONTEXT_LEN {
-            context.truncate(MAX_CONTEXT_LEN - 3);
+            // Find a valid UTF-8 boundary at or before MAX_CONTEXT_LEN - 3
+            let mut truncate_at = MAX_CONTEXT_LEN - 3;
+            while truncate_at > 0 && !context.is_char_boundary(truncate_at) {
+                truncate_at -= 1;
+            }
+            context.truncate(truncate_at);
             context.push_str("...");
         }
 
@@ -335,42 +337,45 @@ impl Repository {
         let mut result = Vec::new();
 
         if let Ok(graph) = self.document_graph.lock() {
-            if let Some(node) = graph.get(&uri) {
-                for edge in node.iter_in() {
-                    let source_uri = edge.source().key();
-                    let edge_data = edge.value();
+            // Iterate through all nodes to find ones that link to our target
+            for (source_uri, source_node) in graph.iter() {
+                // Find edges from this source to our target
+                for edge in source_node.iter_out() {
+                    if edge.target().key() == &uri {
+                        let edge_data = edge.value();
 
-                    if let Ok(source_path) = source_uri.to_file_path() {
-                        if let Some(source_file) = self.path_to_link(&source_path) {
-                            // Get content for context extraction
-                            let context_rope = self.document_map.get(source_uri);
+                        if let Ok(source_path) = source_uri.to_file_path() {
+                            if let Some(source_file) = self.path_to_link(&source_path) {
+                                // Get content for context extraction
+                                let context_rope = self.document_map.get(source_uri);
 
-                            let locations: Vec<LinkLocationData> = edge_data
-                                .locations
-                                .iter()
-                                .map(|loc| {
-                                    // Extract text context
-                                    let context = context_rope.as_ref().and_then(|rope| {
-                                        Self::extract_context(
-                                            rope.value(),
-                                            loc.source_line,
-                                            loc.source_col_range,
-                                        )
-                                    });
+                                let locations: Vec<LinkLocationData> = edge_data
+                                    .locations
+                                    .iter()
+                                    .map(|loc| {
+                                        // Extract text context
+                                        let context = context_rope.as_ref().and_then(|rope| {
+                                            Self::extract_context(
+                                                rope.value(),
+                                                loc.source_line,
+                                                loc.source_col_range,
+                                            )
+                                        });
 
-                                    LinkLocationData {
-                                        line: loc.source_line,
-                                        col_range: loc.source_col_range,
-                                        context,
-                                        target_anchor: loc.target_anchor.clone(),
-                                    }
-                                })
-                                .collect();
+                                        LinkLocationData {
+                                            line: loc.source_line,
+                                            col_range: loc.source_col_range,
+                                            context,
+                                            target_anchor: loc.target_anchor.clone(),
+                                        }
+                                    })
+                                    .collect();
 
-                            result.push(BackLinkData {
-                                source_file,
-                                locations,
-                            });
+                                result.push(BackLinkData {
+                                    source_file,
+                                    locations,
+                                });
+                            }
                         }
                     }
                 }
