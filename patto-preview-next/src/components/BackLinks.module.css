@@ -46,13 +46,12 @@
 
 .backLinksList {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .backLinkItem {
-  display: flex;
-  flex-direction: column;
+  display: inline-block;
 }
 
 .backLinkHeader {
@@ -62,7 +61,7 @@
 }
 
 .backLink {
-  flex: 1;
+  display: inline-block;
   background-color: #ede7f6;
   border: 1px solid #b39ddb;
   color: #5e35b1;
