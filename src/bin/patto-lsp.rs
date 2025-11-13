@@ -96,6 +96,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
     }
 }
 
+
 fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
@@ -1007,14 +1008,44 @@ impl LanguageServer for Backend {
                 log::debug!("node not found in the graph");
                 return None;
             };
-            //TODO record and use range
-            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-            log::debug!("references retrieved from graph");
-            Some(
-                node.iter_in()
-                    .map(|e| Location::new(e.source().key().clone(), start))
-                    .collect::<_>(),
-            )
+
+            let mut references = Vec::new();
+
+            // Iterate through all incoming edges
+            for edge in node.iter_in() {
+                let source_uri = edge.source().key();
+                let edge_data = edge.value();
+
+                // Get the rope for UTF-16 conversion
+                let source_rope = repo.document_map.get(source_uri);
+
+                // Create a Location for each link location
+                for link_loc in &edge_data.locations {
+                    // Get line content for UTF-16 conversion
+                    if let Some(rope) = source_rope.as_ref() {
+                        if let Some(line) = rope.value().get_line(link_loc.source_line) {
+                            if let Some(line_str) = line.as_str() {
+                                // Convert byte offsets to UTF-16 positions for LSP
+                                let start_char =
+                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
+                                        as u32;
+                                let end_char =
+                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
+                                        as u32;
+
+                                let range = Range::new(
+                                    Position::new(link_loc.source_line as u32, start_char),
+                                    Position::new(link_loc.source_line as u32, end_char),
+                                );
+                                references.push(Location::new(source_uri.clone(), range));
+                            }
+                        }
+                    }
+                }
+            }
+
+            log::debug!("references retrieved from graph: {} locations", references.len());
+            Some(references)
         }
         .await;
         Ok(references)

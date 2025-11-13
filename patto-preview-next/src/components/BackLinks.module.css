@@ -21,22 +21,6 @@
   font-style: italic;
 }
 
-.loading {
-  padding: 1rem;
-  text-align: center;
-  color: #666;
-  font-style: italic;
-}
-
-.error {
-  padding: 1rem;
-  color: #d32f2f;
-  background-color: #ffebee;
-  border: 1px solid #f8bbd9;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-
 .empty {
   padding: 1rem;
   text-align: center;
@@ -50,7 +34,12 @@
   gap: 0.5rem;
 }
 
+.backLinkItem {
+  display: inline-block;
+}
+
 .backLink {
+  display: inline-block;
   background-color: #ede7f6;
   border: 1px solid #b39ddb;
   color: #5e35b1;
@@ -61,6 +50,7 @@
   text-decoration: none;
   transition: all 0.2s ease;
   font-weight: 500;
+  text-align: left;
 }
 
 .backLink:hover {
