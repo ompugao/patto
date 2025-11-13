@@ -17,6 +17,9 @@ export default function BackLinks({ currentNote, onSelectFile, backLinks = [] })
   return (
     <div className={styles.container}>
       <h3 className={styles.title}>Back-Links</h3>
+      <div className={styles.description}>
+        Notes that reference this page ({backLinks.length})
+      </div>
       
       <div className={styles.backLinksList}>
         {backLinks.map((backLink, index) => (

@@ -21,22 +21,6 @@
   font-style: italic;
 }
 
-.loading {
-  padding: 1rem;
-  text-align: center;
-  color: #666;
-  font-style: italic;
-}
-
-.error {
-  padding: 1rem;
-  color: #d32f2f;
-  background-color: #ffebee;
-  border: 1px solid #f8bbd9;
-  border-radius: 4px;
-  font-size: 0.9rem;
-}
-
 .empty {
   padding: 1rem;
   text-align: center;
@@ -52,12 +36,6 @@
 
 .backLinkItem {
   display: inline-block;
-}
-
-.backLinkHeader {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .backLink {
@@ -88,88 +66,11 @@
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-.linkCount {
-  font-size: 0.85em;
-  color: #666;
-  margin-left: 0.25rem;
-}
-
-.expandButton {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid #ddd;
-  background: white;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #666;
-  transition: all 0.2s ease;
-}
-
-.expandButton:hover {
-  background: #f0f0f0;
-  border-color: #999;
-}
-
-.locationsList {
-  margin-left: 1.5rem;
-  margin-top: 0.5rem;
-  font-size: 0.85em;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.locationItem {
-  padding: 0.25rem 0.5rem;
-  border-left: 2px solid #e0e0e0;
-  background: #fafafa;
-  border-radius: 0 4px 4px 0;
-}
-
-.lineNumber {
-  font-family: 'Courier New', monospace;
-  color: #666;
-  font-weight: 600;
-  margin-right: 0.5rem;
-}
-
-.anchor {
-  color: #0066cc;
-  font-weight: 500;
-  margin-left: 0.5rem;
-}
-
-.context {
-  margin-top: 0.25rem;
-  color: #444;
-  font-size: 0.9em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'Courier New', monospace;
-  background: #fff;
-  padding: 0.2rem 0.4rem;
-  border-radius: 2px;
-}
-
 /* Print styles */
 @media print {
   .container {
     border: none;
     background: none;
     box-shadow: none;
-  }
-  
-  .expandButton {
-    display: none;
-  }
-  
-  .locationsList {
-    display: block !important;
   }
 }
