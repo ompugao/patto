@@ -129,38 +129,66 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                 token_type: TOKEN_TYPE_PROPERTY,
             });
         }
-        AstNodeKind::Decoration { .. } => {
-            // Highlight decoration markers as OPERATOR
+        AstNodeKind::Decoration { fontsize: _, italic: _, underline: _, deleted } => {
+            // Highlight decoration based on type
+            // Deleted text should be highlighted as COMMENT (indicates removed/deprecated)
+            // Other decorations (bold, italic, underline) as OPERATOR
+            let start = utf16_from_byte_idx(line_text, span.0) as u32;
+            let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+            let token_type = if *deleted {
+                TOKEN_TYPE_COMMENT
+            } else {
+                TOKEN_TYPE_OPERATOR
+            };
+            tokens.push(ImCompleteSemanticToken {
+                line: row,
+                start,
+                length,
+                token_type,
+            });
+        }
+        AstNodeKind::HorizontalLine => {
+            // Highlight horizontal line as COMMENT (visual separator)
             let start = utf16_from_byte_idx(line_text, span.0) as u32;
             let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
             tokens.push(ImCompleteSemanticToken {
                 line: row,
                 start,
                 length,
-                token_type: TOKEN_TYPE_OPERATOR,
+                token_type: TOKEN_TYPE_COMMENT,
             });
         }
         AstNodeKind::Line { properties } => {
-            // Handle properties (tasks, anchors)
+            // Handle properties (tasks, anchors) using their own locations
             for prop in properties {
                 match prop {
-                    Property::Task { .. } => {
-                        // Highlight @task as PROPERTY
-                        let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                        let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                    Property::Task { location, .. } => {
+                        // Highlight @task as COMMENT
+                        let prop_row = location.row as u32;
+                        if prop_row as usize >= lines.len() {
+                            continue;
+                        }
+                        let prop_line_text = lines[prop_row as usize];
+                        let start = utf16_from_byte_idx(prop_line_text, location.span.0) as u32;
+                        let length = (utf16_from_byte_idx(prop_line_text, location.span.1) - utf16_from_byte_idx(prop_line_text, location.span.0)) as u32;
                         tokens.push(ImCompleteSemanticToken {
-                            line: row,
+                            line: prop_row,
                             start,
                             length,
                             token_type: TOKEN_TYPE_COMMENT,
                         });
                     }
-                    Property::Anchor { .. } => {
-                        // Highlight anchor as STRING
-                        let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                        let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                    Property::Anchor { location, .. } => {
+                        // Highlight anchor as KEYWORD
+                        let prop_row = location.row as u32;
+                        if prop_row as usize >= lines.len() {
+                            continue;
+                        }
+                        let prop_line_text = lines[prop_row as usize];
+                        let start = utf16_from_byte_idx(prop_line_text, location.span.0) as u32;
+                        let length = (utf16_from_byte_idx(prop_line_text, location.span.1) - utf16_from_byte_idx(prop_line_text, location.span.0)) as u32;
                         tokens.push(ImCompleteSemanticToken {
-                            line: row,
+                            line: prop_row,
                             start,
                             length,
                             token_type: TOKEN_TYPE_KEYWORD,

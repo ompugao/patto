@@ -85,14 +85,14 @@ impl HtmlRenderer {
                     )?;
                     for property in properties {
                         match property {
-                            Property::Anchor { name } => {
+                            Property::Anchor { name, .. } => {
                                 write!(
                                     output,
                                     "<span id=\"{}\" class=\"anchor\">{}</span>",
                                     name, name
                                 )?;
                             }
-                            Property::Task { status, due } => match status {
+                            Property::Task { status, due, .. } => match status {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }
@@ -387,10 +387,10 @@ impl MarkdownRenderer {
                     write!(output, " ")?;
                     for property in properties {
                         match property {
-                            Property::Anchor { name } => {
+                            Property::Anchor { name, .. } => {
                                 write!(output, "#{}", name)?;
                             }
-                            Property::Task { status, due } => match status {
+                            Property::Task { status, due, .. } => match status {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }

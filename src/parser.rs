@@ -196,8 +196,8 @@ pub enum TaskStatus {
 
 #[derive(Debug)]
 pub enum Property {
-    Task { status: TaskStatus, due: Deadline },
-    Anchor { name: String },
+    Task { status: TaskStatus, due: Deadline, location: Location },
+    Anchor { name: String, location: Location },
 }
 
 #[derive(Debug, Default)]
@@ -810,7 +810,7 @@ fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>
 
     if let Some(parsed_props) = pairs.next() {
         for pair in parsed_props.into_inner() {
-            if let Some(prop) = transform_property(pair) {
+            if let Some(prop) = transform_property(pair, line, row, indent) {
                 properties.push(prop);
             }
         }
@@ -1187,11 +1187,19 @@ fn transform_mail_link<'a>(
     }
 }
 
-fn transform_property(pair: Pair<Rule>) -> Option<Property> {
+fn transform_property(pair: Pair<Rule>, input: &str, row: usize, offset: usize) -> Option<Property> {
+    let span = Span::from(pair.as_span()) + offset;
+    let location = Location {
+        row,
+        input: Arc::from(input),
+        span: span.clone(),
+    };
+    
     match pair.as_rule() {
         Rule::expr_anchor => {
             let anchor = Property::Anchor {
                 name: pair.into_inner().next().unwrap().as_str().to_string(),
+                location,
             };
             Some(anchor)
         }
@@ -1247,7 +1255,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
                     }
                 }
             }
-            Some(Property::Task { status, due })
+            Some(Property::Task { status, due, location })
         }
         Rule::expr_task => {
             let mut inner = pair.into_inner();
@@ -1268,7 +1276,7 @@ fn transform_property(pair: Pair<Rule>) -> Option<Property> {
             } else {
                 Deadline::Uninterpretable(due_str.to_string())
             };
-            Some(Property::Task { status, due })
+            Some(Property::Task { status, due, location })
         }
         _ => {
             panic!("Unhandled token: {:?}", pair.as_rule());
@@ -1380,19 +1388,19 @@ fn transform_statement<'a>(
                 nodes.push(math);
             }
             Rule::expr_property => {
-                if let Some(prop) = transform_property(inner) {
+                if let Some(prop) = transform_property(inner, line, row, indent) {
                     props.push(prop);
                 }
             }
             Rule::expr_anchor => {
                 //println!("non-trailing anchor will be treated as a text");
                 //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
-                if let Some(prop) = transform_property(inner) {
+                if let Some(prop) = transform_property(inner, line, row, indent) {
                     props.push(prop);
                 }
             }
             Rule::expr_task => {
-                if let Some(prop) = transform_property(inner) {
+                if let Some(prop) = transform_property(inner, line, row, indent) {
                     props.push(prop);
                 }
             }
@@ -1411,7 +1419,7 @@ fn transform_statement<'a>(
                 ));
             }
             Rule::trailing_properties => {
-                props.extend(inner.into_inner().filter_map(|e| transform_property(e)));
+                props.extend(inner.into_inner().filter_map(|e| transform_property(e, line, row, indent)));
             }
             Rule::EOI => {
                 continue;
@@ -1502,7 +1510,7 @@ mod tests {
         }
         for prop in props {
             match prop {
-                Property::Task { status, due } => {
+                Property::Task { status, due, .. } => {
                     let TaskStatus::Todo = status else {
                         panic!("task is not in todo state!");
                     };
@@ -1512,7 +1520,7 @@ mod tests {
                         panic!("date is not correctly parsed");
                     }
                 }
-                Property::Anchor { name } => {
+                Property::Anchor { name, .. } => {
                     assert_eq!(name, "anchor1");
                 }
             }
@@ -1524,14 +1532,14 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
-        if let Property::Anchor { name } = anchor1 {
+        if let Property::Anchor { name, .. } = anchor1 {
             assert_eq!(name, "anchor1");
         } else {
             panic!("anchor1 is not extracted properly");
         };
 
         let task = &props[1];
-        if let Property::Task { status, due } = task {
+        if let Property::Task { status, due, .. } = task {
             let TaskStatus::Todo = status else {
                 panic!("task is not in todo state!");
             };
@@ -1544,7 +1552,7 @@ mod tests {
         };
 
         let anchor2 = &props[2];
-        if let Property::Anchor { name } = anchor2 {
+        if let Property::Anchor { name, .. } = anchor2 {
             assert_eq!(name, "anchor2");
         } else {
             panic!("anchor2 is not extracted properly");
@@ -1680,7 +1688,7 @@ mod tests {
         }
 
         assert_eq!(props.len(), 1);
-        if let Property::Anchor { ref name } = props[0] {
+        if let Property::Anchor { ref name, .. } = props[0] {
             assert_eq!(name, "anchor");
         } else {
             panic!("anchor is not extracted properly");
@@ -1941,18 +1949,20 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let task = &props[0];
-        if let Property::Task { status, due } = task {
+        if let Property::Task { status, due, location } = task {
             assert_eq!(*status, TaskStatus::Todo);
             assert_eq!(
                 *due,
                 Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap())
             );
+            assert_eq!(location.span.0, 0);
+            assert_eq!(location.span.1, 11);
         } else {
             panic!("task could not be parsed");
         };
 
         let task = &props[2];
-        if let Property::Task { status, due } = task {
+        if let Property::Task { status, due, location } = task {
             assert_eq!(*status, TaskStatus::Done);
             assert_eq!(
                 *due,
@@ -1961,6 +1971,8 @@ mod tests {
                         .unwrap()
                 )
             );
+            assert_eq!(location.span.0, 21);
+            assert_eq!(location.span.1, 38);
         } else {
             panic!("task could not be parsed");
         };

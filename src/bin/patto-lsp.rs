@@ -85,7 +85,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Anchor { name } = prop {
+            if let Property::Anchor { name, .. } = prop {
                 anchors.push(name.to_string());
             }
         }
@@ -100,7 +100,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
 fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Task { status, due } = prop {
+            if let Property::Task { status, due, .. } = prop {
                 if !matches!(status, TaskStatus::Done) {
                     tasklines.push((parent.clone(), due.clone()));
                     break;
@@ -142,7 +142,7 @@ impl TaskInformation {
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Anchor { name } = prop {
+            if let Property::Anchor { name, .. } = prop {
                 if name == anchor {
                     return Some(parent.clone());
                 }
