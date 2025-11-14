@@ -13,7 +13,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
 use patto::repository::{Repository, RepositoryMessage};
-use patto::semantic_token::LEGEND_TYPE;
+use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -1049,6 +1049,61 @@ impl LanguageServer for Backend {
         }
         .await;
         Ok(references)
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+        
+        let result = || -> Option<SemanticTokensResult> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+            let text = rope.to_string();
+            
+            let data = get_semantic_tokens(ast.value(), &text);
+            
+            Some(SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: None,
+                data,
+            }))
+        }();
+        
+        Ok(result)
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+        
+        let result = || -> Option<SemanticTokensRangeResult> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+            let text = rope.to_string();
+            
+            let data = get_semantic_tokens_range(
+                ast.value(),
+                &text,
+                params.range.start.line,
+                params.range.end.line,
+            );
+            
+            Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
+                result_id: None,
+                data,
+            }))
+        }();
+        
+        Ok(result)
     }
 }
 
