@@ -18,12 +18,15 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 * Task management with `line property` (please refer to the syntax section below)
 * Integrated vim plugin
 * Primary Language Server Protocol support
-    * asynchronous workspace scanning
+    * asynchronous workspace scanning with progress notifications
     * diagnostics
     * jumping between notes by go-to definition
-    * backlinks by find-references
+    * backlinks by find-references with precise location tracking
     * 2-hop links
     * note/anchor completion
+* Advanced task aggregation
+    * deadline-based sorting (Overdue, Today, This Week, etc.)
+    * [trouble.nvim](https://github.com/folke/trouble.nvim) integration for enhanced task viewing
 
 ## Syntax
 ```txt
@@ -102,6 +105,9 @@ Currently, `anchor` and `task` properties are implemented:
 
 * You will see 2-hop links of the current buffer with `:LspPattoTwoHopLinks` command (only in neovim, currently).
 
+### Neovim Configuration Options
+* `g:patto_enable_open_browser`: Set to `0` to disable automatic browser opening for the preview server (default: enabled)
+
 ## Installation
 ### Install lsp server
 Please download binaries from [GitHub release](https://github.com/ompugao/patto/releases)
@@ -142,24 +148,49 @@ EOF
 ```
 Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
 
+#### Optional: Integration with trouble.nvim
+For enhanced task viewing with deadline sorting and categorization:
+```vim
+Plug 'folke/trouble.nvim'
+```
+
+After installing trouble.nvim, you can use:
+```vim
+:Trouble patto_tasks
+```
+This will display tasks organized by deadline categories (Overdue, Today, This Week, etc.) with automatic sorting.
+
 ### Setup vscode extension
 To be released.
+
+## Recent Updates (v0.2.0)
+* **Repository System**: New centralized repository management for improved performance and scalability
+* **Link Location Tracking**: Backlinks now include precise line and column locations
+* **Workspace Scanning**: Asynchronous scanning with progress notifications via LSP
+* **Task Management**: Advanced deadline-based sorting with trouble.nvim integration
+* **Table Support**: New `[@table]` block element for structured data
+* **Preview Enhancements**: WebSocket-based updates for backlinks and 2-hop links, file search in sidebar
+* **Rendering Improvements**: Better image and PDF support in preview, configurable hard line breaks in Markdown export
 
 ## Upcoming features:
 ### parser
 * [x] link to local files
+* [x] table support
 
 ### lsp
 * [x] document backlinks using find references
+    * [x] precise link location tracking
     * [ ] file renaming keeping note connections
     * [ ] anchor renaming
 * [x] 2-hop links
+* [x] workspace scanning progress notifications
 * [ ] semantic tokens
 
 ### renderer
 * [x] markdown export
 * [x] math expression rendering
 * [x] replace highlight.js with syntect
+* [x] table rendering
 
 ### other todos
 please refer to [todo](./todo.md)
