@@ -2,7 +2,7 @@
   "name": "patto-language-server",
   "description": "patto language server",
   "license": "MIT",
-  "version": "0.1.21",
+  "version": "0.2.0",
   "categories": [],
   "keywords": [
     "language-server",
