@@ -16,7 +16,7 @@
     * [x] return all errors as diagnostics
     * [x] goto definition for hopping between notes
       * [x] support both [[note]] and [[note#anchor]]
-    * semantic tokens
+    * [x] semantic tokens
       * `overlappingTokenSupport` seems not supported broadly (only neovim and vscode, AFAIK)
     * [x] support note and anchor completion
     * [x] document references and anchor references
