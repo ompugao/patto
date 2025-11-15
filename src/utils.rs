@@ -61,7 +61,7 @@ pub(crate) fn get_gyazo_img_src(url: &str) -> Option<String> {
     match parsed_url.host_str()? {
         "gyazo.com" => Some(format!(
             "https://i.gyazo.com/{}.png",
-            parsed_url.path()[1..].to_string()
+            &parsed_url.path()[1..]
         )),
         _ => None,
     }

@@ -53,19 +53,16 @@ impl HtmlRenderer {
                 }
                 write!(output, "</ul>")?;
             }
-            AstNodeKind::Line { properties } => {
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 let mut isdone = false;
                 for property in properties {
-                    match property {
-                        Property::Task { status, .. } => match status {
-                            TaskStatus::Done => {
-                                isdone = true;
-                                write!(output, "<input type=\"checkbox\" checked disabled/>")?
-                            }
-                            _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
-                        },
-                        _ => {}
-                    }
+                    if let Property::Task { status, .. } = property { match status {
+                        TaskStatus::Done => {
+                            isdone = true;
+                            write!(output, "<input type=\"checkbox\" checked disabled/>")?
+                        }
+                        _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
+                    } }
                 }
 
                 if isdone {
@@ -85,14 +82,14 @@ impl HtmlRenderer {
                     )?;
                     for property in properties {
                         match property {
-                            Property::Anchor { name } => {
+                            Property::Anchor { name, .. } => {
                                 write!(
                                     output,
                                     "<span id=\"{}\" class=\"anchor\">{}</span>",
                                     name, name
                                 )?;
                             }
-                            Property::Task { status, due } => match status {
+                            Property::Task { status, due, .. } => match status {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }
@@ -286,7 +283,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "</span>")?;
             }
-            AstNodeKind::Text => {
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
@@ -362,7 +359,7 @@ impl MarkdownRenderer {
                     self._format_impl(child, output, depth)?;
                 }
             }
-            AstNodeKind::Line { properties } => {
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 for _ in 0..depth {
                     write!(output, "  ")?;
                 }
@@ -387,10 +384,10 @@ impl MarkdownRenderer {
                     write!(output, " ")?;
                     for property in properties {
                         match property {
-                            Property::Anchor { name } => {
+                            Property::Anchor { name, .. } => {
                                 write!(output, "#{}", name)?;
                             }
-                            Property::Task { status, due } => match status {
+                            Property::Task { status, due, .. } => match status {
                                 TaskStatus::Done => {
                                     // do nothing
                                 }
@@ -533,7 +530,7 @@ impl MarkdownRenderer {
                     write!(output, "***")?;
                 }
             }
-            AstNodeKind::Text => {
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {

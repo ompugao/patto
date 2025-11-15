@@ -184,7 +184,7 @@ To be released.
     * [ ] anchor renaming
 * [x] 2-hop links
 * [x] workspace scanning progress notifications
-* [ ] semantic tokens
+* [x] semantic tokens
 
 ### renderer
 * [x] markdown export
