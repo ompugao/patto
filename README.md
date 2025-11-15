@@ -163,6 +163,9 @@ This will display tasks organized by deadline categories (Overdue, Today, This W
 ### Setup vscode extension
 To be released.
 
+## Recent Updates (v0.2.1)
+* **Semantic Tokens**: patto-lsp now offers semantic highlighting.
+
 ## Recent Updates (v0.2.0)
 * **Repository System**: New centralized repository management for improved performance and scalability
 * **Link Location Tracking**: Backlinks now include precise line and column locations
