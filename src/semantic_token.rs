@@ -38,16 +38,19 @@ struct ImCompleteSemanticToken {
     token_type: u32,
 }
 
-fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticToken>, text: &str) {
+fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticToken>, line_range: Option<(u32, u32)>) {
     let location = node.location();
     let row = location.row as u32;
     let span = &location.span;
     
-    // Get the line text for UTF-16 conversion
-    let lines: Vec<&str> = text.lines().collect();
-    if (row as usize) < lines.len() {
-        let line_text = lines[row as usize];
-        
+    let mut b_process: bool = true;
+    if let Some((start_line, end_line)) = line_range {
+        if start_line > row || row > end_line {
+            b_process = false;
+        }
+    }
+    if b_process {
+        let line_text: &str = location.input.as_ref();
         match node.kind() {
             AstNodeKind::WikiLink { .. } => {
                 // Highlight the entire wikilink as OPERATOR
@@ -169,15 +172,10 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     match prop {
                         Property::Task { location, .. } => {
                             // Highlight @task as COMMENT
-                            let prop_row = location.row as u32;
-                            if prop_row as usize >= lines.len() {
-                                continue;
-                            }
-                            let prop_line_text = lines[prop_row as usize];
-                            let start = utf16_from_byte_idx(prop_line_text, location.span.0) as u32;
-                            let length = (utf16_from_byte_idx(prop_line_text, location.span.1) - utf16_from_byte_idx(prop_line_text, location.span.0)) as u32;
+                            let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                            let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
                             tokens.push(ImCompleteSemanticToken {
-                                line: prop_row,
+                                line: row,
                                 start,
                                 length,
                                 token_type: TOKEN_TYPE_COMMENT,
@@ -185,15 +183,10 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                         }
                         Property::Anchor { location, .. } => {
                             // Highlight anchor as KEYWORD
-                            let prop_row = location.row as u32;
-                            if prop_row as usize >= lines.len() {
-                                continue;
-                            }
-                            let prop_line_text = lines[prop_row as usize];
-                            let start = utf16_from_byte_idx(prop_line_text, location.span.0) as u32;
-                            let length = (utf16_from_byte_idx(prop_line_text, location.span.1) - utf16_from_byte_idx(prop_line_text, location.span.0)) as u32;
+                            let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                            let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
                             tokens.push(ImCompleteSemanticToken {
-                                line: prop_row,
+                                line: row,
                                 start,
                                 length,
                                 token_type: TOKEN_TYPE_KEYWORD,
@@ -208,16 +201,15 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
 
     // Recursively process children and contents
     for child in node.value().children.lock().unwrap().iter() {
-        collect_semantic_tokens(child, tokens, text);
+        collect_semantic_tokens(child, tokens, line_range);
     }
     for content in node.value().contents.lock().unwrap().iter() {
-        collect_semantic_tokens(content, tokens, text);
+        collect_semantic_tokens(content, tokens, line_range);
     }
 }
 
 fn build_semantic_tokens(tokens: Vec<ImCompleteSemanticToken>) -> Vec<SemanticToken> {
     let mut sorted_tokens = tokens;
-    // it must be already sorted.
     sorted_tokens.sort_by(|a, b| {
         if a.line != b.line {
             a.line.cmp(&b.line)
@@ -253,21 +245,21 @@ fn build_semantic_tokens(tokens: Vec<ImCompleteSemanticToken>) -> Vec<SemanticTo
     result
 }
 
-pub fn get_semantic_tokens(ast: &AstNode, text: &str) -> Vec<SemanticToken> {
+pub fn get_semantic_tokens(ast: &AstNode) -> Vec<SemanticToken> {
     let mut incomplete_tokens = Vec::new();
-    collect_semantic_tokens(ast, &mut incomplete_tokens, text);
+    collect_semantic_tokens(ast, &mut incomplete_tokens, None);
     build_semantic_tokens(incomplete_tokens)
 }
 
-pub fn get_semantic_tokens_range(ast: &AstNode, text: &str, start_line: u32, end_line: u32) -> Vec<SemanticToken> {
+pub fn get_semantic_tokens_range(ast: &AstNode, start_line: u32, end_line: u32) -> Vec<SemanticToken> {
     let mut incomplete_tokens = Vec::new();
-    collect_semantic_tokens(ast, &mut incomplete_tokens, text);
-    
+    collect_semantic_tokens(ast, &mut incomplete_tokens, Some((start_line, end_line)));
+
     // Filter tokens within the requested range
     let filtered_tokens: Vec<ImCompleteSemanticToken> = incomplete_tokens
         .into_iter()
         .filter(|token| token.line >= start_line && token.line <= end_line)
         .collect();
-    
+
     build_semantic_tokens(filtered_tokens)
 }

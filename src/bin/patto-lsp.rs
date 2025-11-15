@@ -1062,10 +1062,7 @@ impl LanguageServer for Backend {
             let repo = repo_lock.as_ref()?;
             
             let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-            let text = rope.to_string();
-            
-            let data = get_semantic_tokens(ast.value(), &text);
+            let data = get_semantic_tokens(ast.value());
             
             Some(SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: None,
@@ -1087,12 +1084,8 @@ impl LanguageServer for Backend {
             let repo = repo_lock.as_ref()?;
             
             let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-            let text = rope.to_string();
-            
             let data = get_semantic_tokens_range(
                 ast.value(),
-                &text,
                 params.range.start.line,
                 params.range.end.line,
             );
