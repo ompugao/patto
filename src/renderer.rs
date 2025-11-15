@@ -56,16 +56,13 @@ impl HtmlRenderer {
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 let mut isdone = false;
                 for property in properties {
-                    match property {
-                        Property::Task { status, .. } => match status {
-                            TaskStatus::Done => {
-                                isdone = true;
-                                write!(output, "<input type=\"checkbox\" checked disabled/>")?
-                            }
-                            _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
-                        },
-                        _ => {}
-                    }
+                    if let Property::Task { status, .. } = property { match status {
+                        TaskStatus::Done => {
+                            isdone = true;
+                            write!(output, "<input type=\"checkbox\" checked disabled/>")?
+                        }
+                        _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
+                    } }
                 }
 
                 if isdone {
