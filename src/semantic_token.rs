@@ -15,6 +15,7 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::TYPE,
     SemanticTokenType::METHOD,
     SemanticTokenType::ENUM,
+    SemanticTokenType::MODIFIER,
 ];
 
 // Token type indices (must match LEGEND_TYPE order)
@@ -29,6 +30,7 @@ const TOKEN_TYPE_PROPERTY: u32 = 7;
 const TOKEN_TYPE_TYPE: u32 = 8;
 const TOKEN_TYPE_METHOD: u32 = 9;
 const TOKEN_TYPE_ENUM: u32 = 10;
+const TOKEN_TYPE_MODIFIER: u32 = 11;
 
 #[derive(Debug, Clone)]
 struct ImCompleteSemanticToken {
@@ -53,7 +55,6 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
         let line_text: &str = location.input.as_ref();
         match node.kind() {
             AstNodeKind::WikiLink { .. } => {
-                // Highlight the entire wikilink as OPERATOR
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
                 let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
@@ -64,14 +65,13 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                 });
             }
             AstNodeKind::Link { .. } => {
-                // Highlight link URL as METHOD
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
                 let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
                     length,
-                    token_type: TOKEN_TYPE_METHOD,
+                    token_type: TOKEN_TYPE_FUNCTION,
                 });
             }
             AstNodeKind::Code { lang: _lang, inline } => {
@@ -105,7 +105,6 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                 });
             }
             AstNodeKind::Image { .. } => {
-                // Highlight @img command as TYPE
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
                 let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
@@ -116,7 +115,6 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                 });
             }
             AstNodeKind::Quote => {
-                // Highlight quote as COMMENT
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
                 let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
@@ -140,13 +138,13 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             AstNodeKind::Decoration { fontsize: _, italic: _, underline: _, deleted } => {
                 // Highlight decoration based on type
                 // Deleted text should be highlighted as COMMENT (indicates removed/deprecated)
-                // Other decorations (bold, italic, underline) as OPERATOR
+                // Other decorations (bold, italic, underline) as MODIFIER
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
                 let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
                 let token_type = if *deleted {
                     TOKEN_TYPE_COMMENT
                 } else {
-                    TOKEN_TYPE_OPERATOR
+                    TOKEN_TYPE_MODIFIER
                 };
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
