@@ -207,13 +207,18 @@ pub enum AstNodeKind {
         properties: Vec<Property>,
     },
     Quote,
+    QuoteContent {
+        properties: Vec<Property>,
+    },
     Math {
         inline: bool,
     },
+    MathContent,
     Code {
         lang: String,
         inline: bool,
     },
+    CodeContent,
     Table {
         caption: Option<String>,
     },
@@ -309,11 +314,39 @@ impl AstNode {
             }),
         )
     }
+    pub fn codecontent(input: &str, row: usize, span: Option<Span>) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::CodeContent {
+            }),
+        )
+    }
     pub fn math(input: &str, row: usize, span: Option<Span>, inline: bool) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Math { inline }))
     }
+    pub fn mathcontent(input: &str, row: usize, span: Option<Span>) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::MathContent {
+            }),
+        )
+    }
     pub fn quote(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
+    }
+    pub fn quotecontent(input: &str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::QuoteContent {
+                properties: props.unwrap_or_default(),
+            }),
+        )
     }
     pub fn wikilink(
         input: &str,
@@ -584,15 +617,14 @@ pub fn parse_text(text: &str) -> ParserResult {
                     Ok(mut parsed) => {
                         let (nodes, props) =
                             transform_statement(parsed.next().unwrap(), linetext, iline, depth);
-                        // TODO should be text rather than line?
-                        let newline = AstNode::line(
+                        let quotecontent = AstNode::quotecontent(
                             linetext,
                             iline,
                             Some(Span(linestart, linetext.len())),
                             Some(props),
                         );
-                        newline.add_contents(nodes);
-                        quote.add_child(newline);
+                        quotecontent.add_contents(nodes);
+                        quote.add_child(quotecontent);
                     }
                     Err(e) => {
                         errors.push(ParserError::ParseError(
@@ -603,26 +635,38 @@ pub fn parse_text(text: &str) -> ParserResult {
                             },
                             e.variant.message().to_string(),
                         ));
-                        let newline = AstNode::line(linetext, iline, None, None);
-                        newline.add_content(AstNode::text(
+                        let quotecontent = AstNode::quotecontent(linetext, iline, None, None);
+                        quotecontent.add_content(AstNode::text(
                             linetext,
                             iline,
                             Some(Span(linestart, linetext.len())),
                         ));
-                        quote.add_child(newline);
+                        quote.add_child(quotecontent);
                     }
                 }
                 continue;
-            } else if parsing_state == ParsingState::Code || parsing_state == ParsingState::Math {
+            } else if parsing_state == ParsingState::Code {
                 let block = parent
                     .value()
                     .contents
                     .lock()
                     .unwrap()
                     .last()
-                    .expect("no way! should be code or math block")
+                    .expect("no way! should be code block")
                     .clone();
-                let text = AstNode::text(linetext, iline, Some(Span(linestart, linetext.len())));
+                let text = AstNode::codecontent(linetext, iline, Some(Span(linestart, linetext.len())));
+                block.add_child(text);
+                continue;
+            } else if parsing_state == ParsingState::Math {
+                let block = parent
+                    .value()
+                    .contents
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .expect("no way! should be math block")
+                    .clone();
+                let text = AstNode::mathcontent(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
             } else if parsing_state == ParsingState::Table {

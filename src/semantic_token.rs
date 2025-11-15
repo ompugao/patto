@@ -40,6 +40,37 @@ struct ImCompleteSemanticToken {
     token_type: u32,
 }
 
+fn properties_to_tokens(properties: &Vec<Property>, tokens: &mut Vec<ImCompleteSemanticToken>) {
+    for prop in properties {
+        match prop {
+            Property::Task { location, .. } => {
+                // Highlight @task as COMMENT
+                let line_text: &str = location.input.as_ref();
+                let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
+                tokens.push(ImCompleteSemanticToken {
+                    line: location.row as u32,
+                    start,
+                    length,
+                    token_type: TOKEN_TYPE_COMMENT,
+                });
+            }
+            Property::Anchor { location, .. } => {
+                // Highlight anchor as KEYWORD
+                let line_text: &str = location.input.as_ref();
+                let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
+                tokens.push(ImCompleteSemanticToken {
+                    line: location.row as u32,
+                    start,
+                    length,
+                    token_type: TOKEN_TYPE_KEYWORD,
+                });
+            }
+        }
+    }
+}
+
 fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticToken>, line_range: Option<(u32, u32)>) {
     let location = node.location();
     let row = location.row as u32;
@@ -111,7 +142,7 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     line: row,
                     start,
                     length,
-                    token_type: TOKEN_TYPE_TYPE,
+                    token_type: TOKEN_TYPE_VARIABLE,
                 });
             }
             AstNodeKind::Quote => {
@@ -122,6 +153,26 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     start,
                     length,
                     token_type: TOKEN_TYPE_COMMENT,
+                });
+            }
+            AstNodeKind::MathContent => {
+                let start = utf16_from_byte_idx(line_text, span.0) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                tokens.push(ImCompleteSemanticToken {
+                    line: row,
+                    start,
+                    length,
+                    token_type: TOKEN_TYPE_ENUM,
+                });
+            }
+            AstNodeKind::CodeContent => {
+                let start = utf16_from_byte_idx(line_text, span.0) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                tokens.push(ImCompleteSemanticToken {
+                    line: row,
+                    start,
+                    length,
+                    token_type: TOKEN_TYPE_STRING,
                 });
             }
             AstNodeKind::Table { .. } => {
@@ -165,33 +216,18 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                 });
             }
             AstNodeKind::Line { properties } => {
-                // Handle properties (tasks, anchors) using their own locations
-                for prop in properties {
-                    match prop {
-                        Property::Task { location, .. } => {
-                            // Highlight @task as COMMENT
-                            let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
-                            let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
-                            tokens.push(ImCompleteSemanticToken {
-                                line: row,
-                                start,
-                                length,
-                                token_type: TOKEN_TYPE_COMMENT,
-                            });
-                        }
-                        Property::Anchor { location, .. } => {
-                            // Highlight anchor as KEYWORD
-                            let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
-                            let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
-                            tokens.push(ImCompleteSemanticToken {
-                                line: row,
-                                start,
-                                length,
-                                token_type: TOKEN_TYPE_KEYWORD,
-                            });
-                        }
-                    }
-                }
+                properties_to_tokens(properties, tokens);
+            }
+            AstNodeKind::QuoteContent { properties } => {
+                let start = utf16_from_byte_idx(line_text, span.0) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                tokens.push(ImCompleteSemanticToken {
+                    line: row,
+                    start,
+                    length,
+                    token_type: TOKEN_TYPE_COMMENT,
+                });
+                properties_to_tokens(properties, tokens);
             }
             _ => {}
         }

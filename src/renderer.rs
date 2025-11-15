@@ -53,7 +53,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "</ul>")?;
             }
-            AstNodeKind::Line { properties } => {
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 let mut isdone = false;
                 for property in properties {
                     match property {
@@ -286,7 +286,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "</span>")?;
             }
-            AstNodeKind::Text => {
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
@@ -362,7 +362,7 @@ impl MarkdownRenderer {
                     self._format_impl(child, output, depth)?;
                 }
             }
-            AstNodeKind::Line { properties } => {
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 for _ in 0..depth {
                     write!(output, "  ")?;
                 }
@@ -533,7 +533,7 @@ impl MarkdownRenderer {
                     write!(output, "***")?;
                 }
             }
-            AstNodeKind::Text => {
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
