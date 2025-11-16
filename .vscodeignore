@@ -1,0 +1,57 @@
+# Build outputs we don't need
+target/
+node_modules/
+patto-preview-next/
+client/node_modules/
+.vscode-test/
+
+# Source files (we only need dist/)
+client/src/
+client/tsconfig.json
+src/
+lsp/
+tree-sitter-patto/
+
+# Development files
+.git/
+.github/
+.gitignore
+*.md
+!README.md
+tsconfig.json
+webpack.config.js
+build.rs
+Cargo.toml
+Cargo.lock
+dist-workspace.toml
+pnpm-lock.yaml
+
+# Test and documentation
+vhs/
+todo.md
+*PLAN.md
+*SUMMARY.md
+*INTEGRATION.md
+*REFACTOR.md
+*SORTING.md
+*APPLIED.md
+*COMPLETE.md
+*VIEW.md
+AGENTS.md
+QUICK_START.md
+
+# Vim files
+after/
+autoload/
+ftdetect/
+lua/
+plugin/
+syntax/
+settings/
+
+# Keep only what we need
+!dist/
+!package.json
+!README.md
+!language-configuration.json
+!syntaxes/
