@@ -424,7 +424,10 @@ impl LanguageServer for Backend {
                 // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(false)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -1098,6 +1101,218 @@ impl LanguageServer for Backend {
         }();
         
         Ok(result)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+        let position = params.position;
+
+        let prepare_result = || -> Option<PrepareRenameResponse> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
+
+            // Try to find WikiLink at cursor
+            if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
+                for node in &node_route {
+                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
+                        // Return range of the link name (excluding anchor and brackets)
+                        // The node range includes brackets, we need to extract just the link text
+                        let loc = node.location();
+                        let link_start = loc.span.0 + 1; // Skip '['
+                        let link_end = link_start + link.len();
+                        
+                        let start_char = utf16_from_byte_idx(line_str, link_start) as u32;
+                        let end_char = utf16_from_byte_idx(line_str, link_end) as u32;
+                        
+                        let range = Range::new(
+                            Position::new(position.line, start_char),
+                            Position::new(position.line, end_char),
+                        );
+
+                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range,
+                            placeholder: link.to_string(),
+                        });
+                    }
+                }
+            }
+
+            None
+        }();
+
+        Ok(prepare_result)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
+        let position = params.text_document_position.position;
+        let new_name = params.new_name.trim();
+
+        // Validate new name
+        if new_name.is_empty() {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name cannot be empty".into(),
+                data: None,
+            });
+        }
+
+        if new_name.contains('/') || new_name.contains('\\') {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name cannot contain path separators".into(),
+                data: None,
+            });
+        }
+
+        if new_name.ends_with(".pn") {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name should not include .pn extension".into(),
+                data: None,
+            });
+        }
+
+        let rename_result = || -> Option<WorkspaceEdit> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+
+            // Find what's being renamed
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
+
+            let old_name = if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
+                // Find WikiLink in the route
+                node_route.iter().find_map(|node| {
+                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
+                        Some(link.clone())
+                    } else {
+                        None
+                    }
+                })?
+            } else {
+                return None;
+            };
+
+            log::info!("Renaming note '{}' to '{}'", old_name, new_name);
+
+            // Check if new name conflicts
+            let root_uri = self.root_uri.lock().unwrap().as_ref().cloned()?;
+            if let Some(new_uri) = repo.link_to_uri(new_name, &root_uri) {
+                if let Ok(new_path) = new_uri.to_file_path() {
+                    if new_path.exists() {
+                        log::warn!("Target file already exists: {:?}", new_path);
+                        return None;
+                    }
+                }
+            }
+
+            // Find all references to the old note
+            let old_uri = repo.link_to_uri(&old_name, &root_uri)?;
+            
+            // Check if the target file actually exists
+            if let Ok(old_path) = old_uri.to_file_path() {
+                if !old_path.exists() {
+                    log::warn!("Target file does not exist: {:?}", old_path);
+                    return None;
+                }
+            }
+            
+            let mut document_changes = Vec::new();
+            
+            // Collect all references and build text edits
+            if let Ok(graph) = repo.document_graph.lock() {
+                if let Some(target_node) = graph.get(&old_uri) {
+                    // Iterate through all incoming edges
+                    for edge in target_node.iter_in() {
+                        let source_uri = edge.source().key();
+                        let edge_data = edge.value();
+                        
+                        // Get source document rope for line access
+                        let source_rope = repo.document_map.get(source_uri)?;
+                        
+                        let mut edits = Vec::new();
+                        
+                        // Create TextEdit for each link location
+                        for link_loc in &edge_data.locations {
+                            if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
+                                if let Some(line_str) = line.as_str() {
+                                    // Build new link text preserving anchor
+                                    let new_link_text = if let Some(ref anchor_name) = link_loc.target_anchor {
+                                        format!("[{}#{}]", new_name, anchor_name)
+                                    } else {
+                                        format!("[{}]", new_name)
+                                    };
+                                    
+                                    // Convert byte offsets to UTF-16
+                                    let start_char = utf16_from_byte_idx(line_str, link_loc.source_col_range.0) as u32;
+                                    let end_char = utf16_from_byte_idx(line_str, link_loc.source_col_range.1) as u32;
+                                    
+                                    let range = Range::new(
+                                        Position::new(link_loc.source_line as u32, start_char),
+                                        Position::new(link_loc.source_line as u32, end_char),
+                                    );
+                                    
+                                    edits.push(OneOf::Left(TextEdit {
+                                        range,
+                                        new_text: new_link_text,
+                                    }));
+                                }
+                            }
+                        }
+                        
+                        if !edits.is_empty() {
+                            document_changes.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+                                text_document: OptionalVersionedTextDocumentIdentifier {
+                                    uri: source_uri.clone(),
+                                    version: None,
+                                },
+                                edits,
+                            }));
+                        }
+                    }
+                }
+            }
+            
+            // Add file rename operation
+            let new_uri = repo.link_to_uri(new_name, &root_uri)?;
+            document_changes.push(DocumentChangeOperation::Op(ResourceOp::Rename(RenameFile {
+                old_uri: old_uri.clone(),
+                new_uri: new_uri.clone(),
+                options: Some(RenameFileOptions {
+                    overwrite: Some(false),
+                    ignore_if_exists: Some(false),
+                }),
+                annotation_id: None,
+            })));
+            
+            Some(WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(document_changes)),
+                ..Default::default()
+            })
+        }();
+
+        if rename_result.is_none() {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InternalError,
+                message: "Failed to prepare rename operation".into(),
+                data: None,
+            });
+        }
+
+        Ok(rename_result)
     }
 }
 
