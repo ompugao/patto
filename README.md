@@ -161,7 +161,7 @@ After installing trouble.nvim, you can use:
 This will display tasks organized by deadline categories (Overdue, Today, This Week, etc.) with automatic sorting.
 
 ### Setup vscode extension
-To be released.
+Released from v0.2.2. You can install from [HERE](https://marketplace.visualstudio.com/items?itemName=ompugao.patto-language-server).
 
 ## Recent Updates (v0.2.1)
 * **Semantic Tokens**: patto-lsp now offers semantic highlighting.
