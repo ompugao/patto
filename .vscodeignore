@@ -18,6 +18,7 @@ tree-sitter-patto/
 .gitignore
 *.md
 !README.md
+copilot_output/
 tsconfig.json
 webpack.config.js
 build.rs
