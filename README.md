@@ -178,26 +178,6 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 * **Rendering Improvements**: Better image and PDF support in preview, configurable hard line breaks in Markdown export
 
 ## Upcoming features:
-### parser
-* [x] link to local files
-* [x] table support
-
-### lsp
-* [x] document backlinks using find references
-    * [x] precise link location tracking
-    * [ ] file renaming keeping note connections
-    * [ ] anchor renaming
-* [x] 2-hop links
-* [x] workspace scanning progress notifications
-* [x] semantic tokens
-
-### renderer
-* [x] markdown export
-* [x] math expression rendering
-* [x] replace highlight.js with syntect
-* [x] table rendering
-
-### other todos
 please refer to [todo](./todo.md)
 
 ## FAQ
