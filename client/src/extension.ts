@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
 import { ChildProcess, spawn } from 'child_process';
+import { BinaryManager } from './binaryManager';
 
 let client: LanguageClient;
 let previewServer: ChildProcess | null = null;
@@ -50,20 +51,27 @@ function checkPortAvailable(port: number): Promise<boolean> {
 }
 
 // Launch preview server
-async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel): Promise<number | null> {
+async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel, command: string): Promise<number | null> {
 	const port = await findAvailablePort(3000);
 	if (!port) {
 		vscode.window.showErrorMessage('Could not find an available port for preview server');
 		return null;
 	}
-
-	const command = process.env.PREVIEW_SERVER_PATH || 'patto-preview';
-	outputChannel.appendLine(`[patto] Launching preview server on port ${port}`);
 	
-	previewServer = spawn(command, ['--port', port.toString()], {
-		cwd: rootPath,
-		stdio: ['ignore', 'pipe', 'pipe']
-	});
+	outputChannel.appendLine(`[patto] Launching preview server on port ${port} with command: ${command}`);
+	
+	try {
+		previewServer = spawn(command, ['--port', port.toString()], {
+			cwd: rootPath,
+			stdio: ['ignore', 'pipe', 'pipe']
+		});
+	} catch (error) {
+		vscode.window.showErrorMessage(
+			`Failed to launch patto-preview: ${error}\n\n` +
+			`Please try downloading it again or install manually.`
+		);
+		return null;
+	}
 
 	if (previewServer.stdout) {
 		previewServer.stdout.on('data', (data) => {
@@ -163,10 +171,32 @@ class Task extends vscode.TreeItem {
 
 
 export function activate(context: ExtensionContext): void {
-	const command = process.env.SERVER_PATH || "patto-lsp";
-
 	const traceOutputChannel: OutputChannel = window.createOutputChannel("Patto Language Server");
-	traceOutputChannel.appendLine("[patto-lsp] Starting " + command);
+	const binaryManager = new BinaryManager(context, traceOutputChannel);
+	
+	// Get binary path from configuration
+	const config = vscode.workspace.getConfiguration('patto');
+	const configuredLspPath = config.get<string>('lspPath');
+	
+	// Ensure LSP binary is available
+	binaryManager.ensureBinary('patto-lsp', configuredLspPath !== 'patto-lsp' ? configuredLspPath : undefined)
+		.then((command) => {
+			if (!command) {
+				traceOutputChannel.appendLine("[patto-lsp] Binary not available, extension will not activate");
+				return;
+			}
+
+			traceOutputChannel.appendLine(`[patto-lsp] Using binary: ${command}`);
+			startLanguageClient(context, command, traceOutputChannel, binaryManager);
+		});
+}
+
+function startLanguageClient(
+	context: ExtensionContext, 
+	command: string, 
+	traceOutputChannel: OutputChannel,
+	binaryManager: BinaryManager
+): void {
 
 	const run: Executable = {
 		command,
@@ -376,9 +406,22 @@ export function activate(context: ExtensionContext): void {
 
 			const rootPath = workspaceFolders[0].uri.fsPath;
 
+			// Ensure preview binary is available
+			const config = vscode.workspace.getConfiguration('patto');
+			const configuredPreviewPath = config.get<string>('previewPath');
+			const previewCommand = await binaryManager.ensureBinary(
+				'patto-preview', 
+				configuredPreviewPath !== 'patto-preview' ? configuredPreviewPath : undefined
+			);
+
+			if (!previewCommand) {
+				vscode.window.showErrorMessage('patto-preview binary not available');
+				return;
+			}
+
 			// Launch preview server if not running
 			if (!previewPort) {
-				const port = await launchPreviewServer(rootPath, traceOutputChannel);
+				const port = await launchPreviewServer(rootPath, traceOutputChannel, previewCommand);
 				if (!port) {
 					return;
 				}

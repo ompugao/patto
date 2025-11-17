@@ -93,6 +93,16 @@
           "default": false,
           "description": "Automatically open preview when opening a .pn file"
         },
+        "patto.lspPath": {
+          "type": "string",
+          "default": "patto-lsp",
+          "description": "Path to patto-lsp binary. If not in PATH, specify full path here."
+        },
+        "patto.previewPath": {
+          "type": "string",
+          "default": "patto-preview",
+          "description": "Path to patto-preview binary. If not in PATH, specify full path here."
+        },
         "editor.semanticHighlighting.enabled": {
           "type": "boolean",
           "default": true,
