@@ -37,6 +37,7 @@
     * [ ] make error.variant.message() user-friendly
     * [x] fix indentation error at a line after a block with trailing empty lines
     * [ ] lsp server hangs sometimes
+        * table parsing logic seems wrong?
     * [ ] link with location and fix lsp_references
   * Previewer
     * [x] realtime preview
