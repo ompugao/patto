@@ -5,7 +5,7 @@ import * as https from 'https';
 import { execSync } from 'child_process';
 
 const GITHUB_REPO = 'ompugao/patto';
-const BINARY_VERSION = '0.2.1'; // Should match Cargo.toml version
+const BINARY_VERSION = '0.2.2'; // Should match Cargo.toml version
 
 interface BinaryInfo {
     name: string;
