@@ -6,11 +6,18 @@ import { execSync } from 'child_process';
 
 const GITHUB_REPO = 'ompugao/patto';
 const BINARY_VERSION = '0.2.2'; // Should match Cargo.toml version
+const VERSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface BinaryInfo {
     name: string;
     downloadUrl: string;
     localPath: string;
+}
+
+interface VersionMetadata {
+    version: string;
+    downloadedAt: number;
+    lastCheckedAt: number;
 }
 
 export class BinaryManager {
@@ -24,6 +31,50 @@ export class BinaryManager {
 
     private getBinaryDir(): string {
         return path.join(this.context.globalStorageUri.fsPath, 'bin');
+    }
+
+    private getVersionMetadataPath(): string {
+        return path.join(this.context.globalStorageUri.fsPath, 'version.json');
+    }
+
+    private readVersionMetadata(): VersionMetadata | null {
+        const metadataPath = this.getVersionMetadataPath();
+        if (fs.existsSync(metadataPath)) {
+            try {
+                const content = fs.readFileSync(metadataPath, 'utf-8');
+                return JSON.parse(content);
+            } catch (error) {
+                this.outputChannel.appendLine(`[BinaryManager] Failed to read version metadata: ${error}`);
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private writeVersionMetadata(metadata: VersionMetadata): void {
+        const metadataPath = this.getVersionMetadataPath();
+        const dir = path.dirname(metadataPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+    }
+
+    private isVersionOutdated(metadata: VersionMetadata): boolean {
+        // Check if version is different
+        if (metadata.version !== BINARY_VERSION) {
+            this.outputChannel.appendLine(`[BinaryManager] Version mismatch: ${metadata.version} != ${BINARY_VERSION}`);
+            return true;
+        }
+
+        // Check if last check was more than 24 hours ago
+        const now = Date.now();
+        if (now - metadata.lastCheckedAt > VERSION_CHECK_INTERVAL_MS) {
+            this.outputChannel.appendLine(`[BinaryManager] Version check interval expired`);
+            return true;
+        }
+
+        return false;
     }
 
     private getPlatformInfo(): { platform: string; arch: string; ext: string } | null {
@@ -170,6 +221,16 @@ export class BinaryManager {
             }
 
             this.outputChannel.appendLine(`[BinaryManager] Successfully extracted to ${extractedBinaryPath}`);
+            
+            // Write version metadata
+            const metadata: VersionMetadata = {
+                version: BINARY_VERSION,
+                downloadedAt: Date.now(),
+                lastCheckedAt: Date.now()
+            };
+            this.writeVersionMetadata(metadata);
+            this.outputChannel.appendLine(`[BinaryManager] Saved version metadata: ${BINARY_VERSION}`);
+            
             return extractedBinaryPath;
 
         } catch (error) {
@@ -224,7 +285,39 @@ export class BinaryManager {
         // 3. Check if already downloaded/extracted
         const localPath = path.join(this.getBinaryDir(), binaryName + (process.platform === 'win32' ? '.exe' : ''));
         if (fs.existsSync(localPath)) {
-            this.outputChannel.appendLine(`[BinaryManager] Using cached binary: ${localPath}`);
+            this.outputChannel.appendLine(`[BinaryManager] Found cached binary: ${localPath}`);
+            
+            // Check if version is outdated
+            const metadata = this.readVersionMetadata();
+            if (metadata && this.isVersionOutdated(metadata)) {
+                // Offer to update
+                const choice = await vscode.window.showInformationMessage(
+                    `A newer version of Patto binaries is available (${BINARY_VERSION}). Update now?`,
+                    'Update',
+                    'Skip',
+                    'Always Skip'
+                );
+
+                if (choice === 'Update') {
+                    // Delete old binaries
+                    this.cleanupBinaries();
+                    // Download new version
+                    const downloaded = await this.downloadBinary(binaryName);
+                    if (downloaded) {
+                        vscode.window.showInformationMessage(`Patto binaries updated to ${BINARY_VERSION}!`);
+                        return downloaded;
+                    }
+                } else if (choice === 'Always Skip') {
+                    // Update lastCheckedAt to skip for next 24 hours
+                    metadata.lastCheckedAt = Date.now();
+                    this.writeVersionMetadata(metadata);
+                } else {
+                    // Skip this time
+                    metadata.lastCheckedAt = Date.now();
+                    this.writeVersionMetadata(metadata);
+                }
+            }
+            
             return localPath;
         }
 
@@ -259,6 +352,20 @@ export class BinaryManager {
                 }
             });
             return null;
+        }
+    }
+
+    private cleanupBinaries(): void {
+        const binDir = this.getBinaryDir();
+        if (fs.existsSync(binDir)) {
+            const files = fs.readdirSync(binDir);
+            for (const file of files) {
+                const filePath = path.join(binDir, file);
+                if (fs.statSync(filePath).isFile()) {
+                    fs.unlinkSync(filePath);
+                    this.outputChannel.appendLine(`[BinaryManager] Deleted old binary: ${filePath}`);
+                }
+            }
         }
     }
 }
