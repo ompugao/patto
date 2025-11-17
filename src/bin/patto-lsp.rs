@@ -1146,6 +1146,25 @@ impl LanguageServer for Backend {
                 }
             }
 
+            // If not on a WikiLink, allow renaming the current file
+            // Get the file name from the URI
+            if let Ok(path) = uri.to_file_path() {
+                if let Some(file_stem) = path.file_stem() {
+                    if let Some(name) = file_stem.to_str() {
+                        // Return a synthetic range at the beginning of the file
+                        let range = Range::new(
+                            Position::new(0, 0),
+                            Position::new(0, 0),
+                        );
+                        
+                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range,
+                            placeholder: name.to_string(),
+                        });
+                    }
+                }
+            }
+
             None
         }();
 
@@ -1201,9 +1220,29 @@ impl LanguageServer for Backend {
                     } else {
                         None
                     }
-                })?
+                })
             } else {
-                return None;
+                None
+            };
+
+            // If no WikiLink found at cursor, rename the current file
+            let old_name = if let Some(name) = old_name {
+                name
+            } else {
+                // Get the current file name
+                if let Ok(path) = uri.to_file_path() {
+                    if let Some(file_stem) = path.file_stem() {
+                        if let Some(name) = file_stem.to_str() {
+                            name.to_string()
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
             };
 
             log::info!("Renaming note '{}' to '{}'", old_name, new_name);
