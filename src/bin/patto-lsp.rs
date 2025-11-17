@@ -385,6 +385,7 @@ impl LanguageServer for Backend {
                     commands: vec![
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
+                        "experimental/scan_workspace".to_string(),
                     ],
                     work_done_progress_options: Default::default(),
                 }),
@@ -401,7 +402,7 @@ impl LanguageServer for Backend {
                             text_document_registration_options: {
                                 TextDocumentRegistrationOptions {
                                     document_selector: Some(vec![DocumentFilter {
-                                        language: Some("pn".to_string()),
+                                        language: Some("patto".to_string()),
                                         scheme: Some("file".to_string()),
                                         pattern: None,
                                     }]),

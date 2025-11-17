@@ -1,12 +1,18 @@
 {
   "name": "patto-language-server",
-  "description": "patto language server",
+  "description": "Patto Note language server with preview support",
   "license": "MIT",
-  "version": "0.2.1",
-  "categories": [],
+  "version": "0.2.2",
+  "publisher": "ompugao",
+  "displayName": "Patto Language Server",
+  "categories": [
+    "Programming Languages"
+  ],
   "keywords": [
-    "language-server",
-    "tower-lsp"
+    "patto",
+    "note-taking",
+    "wiki",
+    "language-server"
   ],
   "repository": {
     "url": "https://github.com/ompugao/patto"
@@ -25,13 +31,33 @@
         "id": "patto",
         "extensions": [
           ".pn"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "patto",
+        "scopeName": "source.patto",
+        "path": "./syntaxes/patto.tmLanguage.json"
       }
     ],
     "commands": [
       {
         "command": "patto.tasks",
-        "title": "Patto: Aggreate tasks in the workspace in vscode"
+        "title": "Patto: Aggregate tasks in the workspace"
+      },
+      {
+        "command": "patto.scanWorkspace",
+        "title": "Patto: Scan workspace for notes"
+      },
+      {
+        "command": "patto.twoHopLinks",
+        "title": "Patto: Show two-hop links"
+      },
+      {
+        "command": "patto.openPreview",
+        "title": "Patto: Open preview"
       }
     ],
     "views": {
@@ -61,9 +87,45 @@
           ],
           "default": "off",
           "description": "Traces the communication between VS Code and the language server."
+        },
+        "patto.autoOpenPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open preview when opening a .pn file"
+        },
+        "patto.lspPath": {
+          "type": "string",
+          "default": "patto-lsp",
+          "description": "Path to patto-lsp binary. If not in PATH, specify full path here."
+        },
+        "patto.previewPath": {
+          "type": "string",
+          "default": "patto-preview",
+          "description": "Path to patto-preview binary. If not in PATH, specify full path here."
+        },
+        "editor.semanticHighlighting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic highlighting for Patto files"
         }
       }
-    }
+    },
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "function": ["entity.name.function"],
+          "variable": ["variable.other"],
+          "string": ["string.quoted"],
+          "comment": ["comment.line"],
+          "keyword": ["keyword.control"],
+          "operator": ["keyword.operator"],
+          "property": ["variable.other.property"],
+          "type": ["entity.name.type"],
+          "enum": ["constant.language"],
+          "modifier": ["storage.modifier"]
+        }
+      }
+    ]
   },
   "scripts": {
     "postinstall": "cd client && pnpm i",
@@ -88,6 +150,7 @@
     "eslint": "^7.32.0",
     "glob": "^7.2.3",
     "mocha": "^8.4.0",
+    "ts-loader": "^9.5.4",
     "typescript": "5.4.5",
     "vscode-test": "^1.6.1",
     "vscode-uri": "^3.1.0",
