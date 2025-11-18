@@ -96,7 +96,6 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
     }
 }
 
-
 fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
@@ -123,7 +122,7 @@ pub struct TaskInformation {
     pub text: String,
 
     pub message: String,
-    
+
     /// The deadline of this task
     pub due: Deadline,
 }
@@ -232,37 +231,39 @@ impl Backend {
         if let Some(repo) = repo_guard.as_ref() {
             let mut rx = repo.subscribe();
             drop(repo_guard); // Release lock before async loop
-            
+
             let client = self.client.clone();
-            
+
             tokio::spawn(async move {
                 let token = NumberOrString::String("patto-scan".to_string());
                 let mut progress_active = false;
-                
+
                 while let Ok(msg) = rx.recv().await {
                     match msg {
                         RepositoryMessage::ScanStarted { total_files } => {
-                            let _ = client.send_notification::<notification::Progress>(
-                                ProgressParams {
+                            let _ = client
+                                .send_notification::<notification::Progress>(ProgressParams {
                                     token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(
-                                        WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                                        WorkDoneProgressBegin {
                                             title: "Scanning notes".to_string(),
                                             message: Some(format!("0/{} files", total_files)),
                                             percentage: Some(0),
                                             cancellable: Some(false),
-                                        })
-                                    ),
-                                }
-                            ).await;
+                                        },
+                                    )),
+                                })
+                                .await;
                             progress_active = true;
-                            
-                            client.log_message(
-                                MessageType::INFO,
-                                format!("Starting to scan {} patto files", total_files)
-                            ).await;
+
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("Starting to scan {} patto files", total_files),
+                                )
+                                .await;
                         }
-                        
+
                         RepositoryMessage::ScanProgress { scanned, total } => {
                             if progress_active {
                                 let percentage = if total > 0 {
@@ -270,43 +271,48 @@ impl Backend {
                                 } else {
                                     0
                                 };
-                                
-                                let _ = client.send_notification::<notification::Progress>(
-                                    ProgressParams {
+
+                                let _ = client
+                                    .send_notification::<notification::Progress>(ProgressParams {
                                         token: token.clone(),
                                         value: ProgressParamsValue::WorkDone(
                                             WorkDoneProgress::Report(WorkDoneProgressReport {
-                                                message: Some(format!("{}/{} files", scanned, total)),
+                                                message: Some(format!(
+                                                    "{}/{} files",
+                                                    scanned, total
+                                                )),
                                                 percentage: Some(percentage),
                                                 cancellable: Some(false),
-                                            })
+                                            }),
                                         ),
-                                    }
-                                ).await;
+                                    })
+                                    .await;
                             }
                         }
-                        
+
                         RepositoryMessage::ScanCompleted { total_files } => {
                             if progress_active {
-                                let _ = client.send_notification::<notification::Progress>(
-                                    ProgressParams {
+                                let _ = client
+                                    .send_notification::<notification::Progress>(ProgressParams {
                                         token: token.clone(),
                                         value: ProgressParamsValue::WorkDone(
                                             WorkDoneProgress::End(WorkDoneProgressEnd {
                                                 message: Some("Complete".to_string()),
-                                            })
+                                            }),
                                         ),
-                                    }
-                                ).await;
+                                    })
+                                    .await;
                                 progress_active = false;
                             }
-                            
-                            client.log_message(
-                                MessageType::INFO,
-                                format!("Scan completed: {} files indexed", total_files)
-                            ).await;
+
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("Scan completed: {} files indexed", total_files),
+                                )
+                                .await;
                         }
-                        
+
                         _ => {}
                     }
                 }
@@ -323,7 +329,7 @@ impl LanguageServer for Backend {
                 let mut backend_root_uri = self.root_uri.lock().unwrap();
                 *backend_root_uri = Some(root_uri.clone());
             } // Drop backend_root_uri here
-            
+
             if let Ok(path) = root_uri.to_file_path() {
                 self.client
                     .log_message(
@@ -337,7 +343,7 @@ impl LanguageServer for Backend {
                     let mut repo = self.repository.lock().unwrap();
                     *repo = Some(Repository::new(path));
                 } // Drop repo here
-                
+
                 // Start listening to repository messages (including scan progress)
                 self.start_repository_listener().await;
             }
@@ -1048,7 +1054,10 @@ impl LanguageServer for Backend {
                 }
             }
 
-            log::debug!("references retrieved from graph: {} locations", references.len());
+            log::debug!(
+                "references retrieved from graph: {} locations",
+                references.len()
+            );
             Some(references)
         }
         .await;
@@ -1060,20 +1069,20 @@ impl LanguageServer for Backend {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-        
+
         let result = || -> Option<SemanticTokensResult> {
             let repo_lock = self.repository.lock().unwrap();
             let repo = repo_lock.as_ref()?;
-            
+
             let ast = repo.ast_map.get(&uri)?;
             let data = get_semantic_tokens(ast.value());
-            
+
             Some(SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: None,
                 data,
             }))
         }();
-        
+
         Ok(result)
     }
 
@@ -1082,24 +1091,24 @@ impl LanguageServer for Backend {
         params: SemanticTokensRangeParams,
     ) -> Result<Option<SemanticTokensRangeResult>> {
         let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-        
+
         let result = || -> Option<SemanticTokensRangeResult> {
             let repo_lock = self.repository.lock().unwrap();
             let repo = repo_lock.as_ref()?;
-            
+
             let ast = repo.ast_map.get(&uri)?;
             let data = get_semantic_tokens_range(
                 ast.value(),
                 params.range.start.line,
                 params.range.end.line,
             );
-            
+
             Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
                 result_id: None,
                 data,
             }))
         }();
-        
+
         Ok(result)
     }
 
@@ -1129,10 +1138,10 @@ impl LanguageServer for Backend {
                         let loc = node.location();
                         let link_start = loc.span.0 + 1; // Skip '['
                         let link_end = link_start + link.len();
-                        
+
                         let start_char = utf16_from_byte_idx(line_str, link_start) as u32;
                         let end_char = utf16_from_byte_idx(line_str, link_end) as u32;
-                        
+
                         let range = Range::new(
                             Position::new(position.line, start_char),
                             Position::new(position.line, end_char),
@@ -1152,11 +1161,8 @@ impl LanguageServer for Backend {
                 if let Some(file_stem) = path.file_stem() {
                     if let Some(name) = file_stem.to_str() {
                         // Return a synthetic range at the beginning of the file
-                        let range = Range::new(
-                            Position::new(0, 0),
-                            Position::new(0, 0),
-                        );
-                        
+                        let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+
                         return Some(PrepareRenameResponse::RangeWithPlaceholder {
                             range,
                             placeholder: name.to_string(),
@@ -1172,7 +1178,9 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = Repository::normalize_url_percent_encoding(&params.text_document_position.text_document.uri);
+        let uri = Repository::normalize_url_percent_encoding(
+            &params.text_document_position.text_document.uri,
+        );
         let position = params.text_document_position.position;
         let new_name = params.new_name.trim();
 
@@ -1212,7 +1220,9 @@ impl LanguageServer for Backend {
             let line_str = line.as_str()?;
             let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
 
-            let old_name = if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
+            let old_name = if let Some(node_route) =
+                locate_node_route(&ast, position.line as usize, posbyte)
+            {
                 // Find WikiLink in the route
                 node_route.iter().find_map(|node| {
                     if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
@@ -1260,7 +1270,7 @@ impl LanguageServer for Backend {
 
             // Find all references to the old note
             let old_uri = repo.link_to_uri(&old_name, &root_uri)?;
-            
+
             // Check if the target file actually exists
             if let Ok(old_path) = old_uri.to_file_path() {
                 if !old_path.exists() {
@@ -1268,9 +1278,9 @@ impl LanguageServer for Backend {
                     return None;
                 }
             }
-            
+
             let mut document_changes = Vec::new();
-            
+
             // Collect all references and build text edits
             if let Ok(graph) = repo.document_graph.lock() {
                 if let Some(target_node) = graph.get(&old_uri) {
@@ -1278,32 +1288,37 @@ impl LanguageServer for Backend {
                     for edge in target_node.iter_in() {
                         let source_uri = edge.source().key();
                         let edge_data = edge.value();
-                        
+
                         // Get source document rope for line access
                         let source_rope = repo.document_map.get(source_uri)?;
-                        
+
                         let mut edits = Vec::new();
-                        
+
                         // Create TextEdit for each link location
                         for link_loc in &edge_data.locations {
                             if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
                                 if let Some(line_str) = line.as_str() {
                                     // Build new link text preserving anchor
-                                    let new_link_text = if let Some(ref anchor_name) = link_loc.target_anchor {
-                                        format!("[{}#{}]", new_name, anchor_name)
-                                    } else {
-                                        format!("[{}]", new_name)
-                                    };
-                                    
+                                    let new_link_text =
+                                        if let Some(ref anchor_name) = link_loc.target_anchor {
+                                            format!("[{}#{}]", new_name, anchor_name)
+                                        } else {
+                                            format!("[{}]", new_name)
+                                        };
+
                                     // Convert byte offsets to UTF-16
-                                    let start_char = utf16_from_byte_idx(line_str, link_loc.source_col_range.0) as u32;
-                                    let end_char = utf16_from_byte_idx(line_str, link_loc.source_col_range.1) as u32;
-                                    
+                                    let start_char =
+                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
+                                            as u32;
+                                    let end_char =
+                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
+                                            as u32;
+
                                     let range = Range::new(
                                         Position::new(link_loc.source_line as u32, start_char),
                                         Position::new(link_loc.source_line as u32, end_char),
                                     );
-                                    
+
                                     edits.push(OneOf::Left(TextEdit {
                                         range,
                                         new_text: new_link_text,
@@ -1311,32 +1326,36 @@ impl LanguageServer for Backend {
                                 }
                             }
                         }
-                        
+
                         if !edits.is_empty() {
-                            document_changes.push(DocumentChangeOperation::Edit(TextDocumentEdit {
-                                text_document: OptionalVersionedTextDocumentIdentifier {
-                                    uri: source_uri.clone(),
-                                    version: None,
+                            document_changes.push(DocumentChangeOperation::Edit(
+                                TextDocumentEdit {
+                                    text_document: OptionalVersionedTextDocumentIdentifier {
+                                        uri: source_uri.clone(),
+                                        version: None,
+                                    },
+                                    edits,
                                 },
-                                edits,
-                            }));
+                            ));
                         }
                     }
                 }
             }
-            
+
             // Add file rename operation
             let new_uri = repo.link_to_uri(new_name, &root_uri)?;
-            document_changes.push(DocumentChangeOperation::Op(ResourceOp::Rename(RenameFile {
-                old_uri: old_uri.clone(),
-                new_uri: new_uri.clone(),
-                options: Some(RenameFileOptions {
-                    overwrite: Some(false),
-                    ignore_if_exists: Some(false),
-                }),
-                annotation_id: None,
-            })));
-            
+            document_changes.push(DocumentChangeOperation::Op(ResourceOp::Rename(
+                RenameFile {
+                    old_uri: old_uri.clone(),
+                    new_uri: new_uri.clone(),
+                    options: Some(RenameFileOptions {
+                        overwrite: Some(false),
+                        ignore_if_exists: Some(false),
+                    }),
+                    annotation_id: None,
+                },
+            )));
+
             Some(WorkspaceEdit {
                 document_changes: Some(DocumentChanges::Operations(document_changes)),
                 ..Default::default()

@@ -196,8 +196,15 @@ pub enum TaskStatus {
 
 #[derive(Debug)]
 pub enum Property {
-    Task { status: TaskStatus, due: Deadline, location: Location },
-    Anchor { name: String, location: Location },
+    Task {
+        status: TaskStatus,
+        due: Deadline,
+        location: Location,
+    },
+    Anchor {
+        name: String,
+        location: Location,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -315,30 +322,23 @@ impl AstNode {
         )
     }
     pub fn codecontent(input: &str, row: usize, span: Option<Span>) -> Self {
-        Self::new(
-            input,
-            row,
-            span,
-            Some(AstNodeKind::CodeContent {
-            }),
-        )
+        Self::new(input, row, span, Some(AstNodeKind::CodeContent {}))
     }
     pub fn math(input: &str, row: usize, span: Option<Span>, inline: bool) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Math { inline }))
     }
     pub fn mathcontent(input: &str, row: usize, span: Option<Span>) -> Self {
-        Self::new(
-            input,
-            row,
-            span,
-            Some(AstNodeKind::MathContent {
-            }),
-        )
+        Self::new(input, row, span, Some(AstNodeKind::MathContent {}))
     }
     pub fn quote(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::Quote))
     }
-    pub fn quotecontent(input: &str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
+    pub fn quotecontent(
+        input: &str,
+        row: usize,
+        span: Option<Span>,
+        props: Option<Vec<Property>>,
+    ) -> Self {
         Self::new(
             input,
             row,
@@ -432,7 +432,7 @@ impl AstNode {
             row,
             span,
             Some(AstNodeKind::Table {
-                caption: caption.map(ToOwned::to_owned)
+                caption: caption.map(ToOwned::to_owned),
             }),
         )
     }
@@ -654,7 +654,8 @@ pub fn parse_text(text: &str) -> ParserResult {
                     .last()
                     .expect("no way! should be code block")
                     .clone();
-                let text = AstNode::codecontent(linetext, iline, Some(Span(linestart, linetext.len())));
+                let text =
+                    AstNode::codecontent(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
             } else if parsing_state == ParsingState::Math {
@@ -666,7 +667,8 @@ pub fn parse_text(text: &str) -> ParserResult {
                     .last()
                     .expect("no way! should be math block")
                     .clone();
-                let text = AstNode::mathcontent(linetext, iline, Some(Span(linestart, linetext.len())));
+                let text =
+                    AstNode::mathcontent(linetext, iline, Some(Span(linestart, linetext.len())));
                 block.add_child(text);
                 continue;
             } else if parsing_state == ParsingState::Table {
@@ -690,7 +692,8 @@ pub fn parse_text(text: &str) -> ParserResult {
                     match PattoLineParser::parse(Rule::statement_nestable, column_text) {
                         Ok(mut parsed) => {
                             let inner = parsed.next().unwrap();
-                            let (nodes, _) = transform_statement(inner, linetext, iline, span_start);
+                            let (nodes, _) =
+                                transform_statement(inner, linetext, iline, span_start);
                             let column = AstNode::tablecolumn(linetext, iline, Some(span));
                             column.add_contents(nodes);
                             columns.push(column);
@@ -894,20 +897,20 @@ fn transform_command<'a>(
                 Rule::command_table => {
                     // Parse parameters for table command
                     let mut caption: Option<String> = None;
-                    
+
                     for param in inner {
                         if param.as_rule() == Rule::parameter {
                             let param_str = param.as_str();
-                            
+
                             // Check if this is a key=value parameter
                             if let Some(eq_pos) = param_str.find('=') {
                                 let key = &param_str[..eq_pos];
                                 let value = &param_str[eq_pos + 1..];
-                                
+
                                 if key == "caption" {
                                     // Handle quoted strings by removing quotes
                                     if value.starts_with('"') && value.ends_with('"') {
-                                        caption = Some(value[1..value.len()-1].to_string());
+                                        caption = Some(value[1..value.len() - 1].to_string());
                                     } else {
                                         caption = Some(value.to_string());
                                     }
@@ -915,14 +918,14 @@ fn transform_command<'a>(
                             } else {
                                 // Handle quoted parameter as caption (for backward compatibility)
                                 if param_str.starts_with('"') && param_str.ends_with('"') {
-                                    caption = Some(param_str[1..param_str.len()-1].to_string());
+                                    caption = Some(param_str[1..param_str.len() - 1].to_string());
                                 } else {
                                     caption = Some(param_str.to_string());
                                 }
                             }
                         }
                     }
-                    
+
                     return Some(AstNode::table(line, row, Some(span), caption.as_deref()));
                 }
                 Rule::parameter => {
@@ -1231,14 +1234,19 @@ fn transform_mail_link<'a>(
     }
 }
 
-fn transform_property(pair: Pair<Rule>, input: &str, row: usize, offset: usize) -> Option<Property> {
+fn transform_property(
+    pair: Pair<Rule>,
+    input: &str,
+    row: usize,
+    offset: usize,
+) -> Option<Property> {
     let span = Span::from(pair.as_span()) + offset;
     let location = Location {
         row,
         input: Arc::from(input),
         span: span.clone(),
     };
-    
+
     match pair.as_rule() {
         Rule::expr_anchor => {
             let anchor = Property::Anchor {
@@ -1299,7 +1307,11 @@ fn transform_property(pair: Pair<Rule>, input: &str, row: usize, offset: usize) 
                     }
                 }
             }
-            Some(Property::Task { status, due, location })
+            Some(Property::Task {
+                status,
+                due,
+                location,
+            })
         }
         Rule::expr_task => {
             let mut inner = pair.into_inner();
@@ -1320,7 +1332,11 @@ fn transform_property(pair: Pair<Rule>, input: &str, row: usize, offset: usize) 
             } else {
                 Deadline::Uninterpretable(due_str.to_string())
             };
-            Some(Property::Task { status, due, location })
+            Some(Property::Task {
+                status,
+                due,
+                location,
+            })
         }
         _ => {
             panic!("Unhandled token: {:?}", pair.as_rule());
@@ -1463,7 +1479,11 @@ fn transform_statement<'a>(
                 ));
             }
             Rule::trailing_properties => {
-                props.extend(inner.into_inner().filter_map(|e| transform_property(e, line, row, indent)));
+                props.extend(
+                    inner
+                        .into_inner()
+                        .filter_map(|e| transform_property(e, line, row, indent)),
+                );
             }
             Rule::EOI => {
                 continue;
@@ -1573,6 +1593,7 @@ mod tests {
     #[test]
     fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>> {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
+        //let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2 {@anchor anchor3}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
@@ -1601,6 +1622,13 @@ mod tests {
         } else {
             panic!("anchor2 is not extracted properly");
         };
+
+        // let anchor3 = &props[3];
+        // if let Property::Anchor { name, .. } = anchor3 {
+        //     assert_eq!(name, "anchor3");
+        // } else {
+        //     panic!("anchor3 is not extracted properly");
+        // };
         Ok(())
     }
 
@@ -1860,36 +1888,65 @@ mod tests {
     #[test]
     fn test_parse_urls() -> Result<(), Box<dyn std::error::Error>> {
         for (input, g_url, g_title) in vec![
-            ("[https://username@example.com google]", "https://username@example.com", Some("google".to_string())),
-            ("[google https://username@example.com]", "https://username@example.com", Some("google".to_string())),
+            (
+                "[https://username@example.com google]",
+                "https://username@example.com",
+                Some("google".to_string()),
+            ),
+            (
+                "[google https://username@example.com]",
+                "https://username@example.com",
+                Some("google".to_string()),
+            ),
             ("[https://google.com]", "https://google.com", None),
-            ("[日本語の タイトル https://username@example.com]", "https://username@example.com", Some("日本語の タイトル".to_string())),
-            ("[https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf pdfへのリンク]", "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf", Some("pdfへのリンク".to_string())),
-            ("[pdfへのリンク https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf]", "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf", Some("pdfへのリンク".to_string())),
-            ("[https://username@example.com/path/to/url?param=1&newparam=2]", "https://username@example.com/path/to/url?param=1&newparam=2", None),
-            ("[https://google.com https://google.com]", "https://google.com", Some("https://google.com".to_string()))] {
-                println!("parsing {input}");
-                match PattoLineParser::parse(Rule::expr_url_link, input) {
-                    Ok(mut parsed) => {
-                        if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
-                            match &link.kind() {
-                                AstNodeKind::Link { link, title } => {
-                                    assert_eq!(link, g_url);
-                                    //assert!(title.is_some());
-                                    assert_eq!(*title, g_title);
-                                }
-                                _ => {
-                                    panic! {"link is not correctly parse {:?}", link};
-                                }
+            (
+                "[日本語の タイトル https://username@example.com]",
+                "https://username@example.com",
+                Some("日本語の タイトル".to_string()),
+            ),
+            (
+                "[https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf pdfへのリンク]",
+                "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf",
+                Some("pdfへのリンク".to_string()),
+            ),
+            (
+                "[pdfへのリンク https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf]",
+                "https://lutpub.lut.fi/bitstream/handle/10024/167844/masterthesis_khaire_shubham.pdf",
+                Some("pdfへのリンク".to_string()),
+            ),
+            (
+                "[https://username@example.com/path/to/url?param=1&newparam=2]",
+                "https://username@example.com/path/to/url?param=1&newparam=2",
+                None,
+            ),
+            (
+                "[https://google.com https://google.com]",
+                "https://google.com",
+                Some("https://google.com".to_string()),
+            ),
+        ] {
+            println!("parsing {input}");
+            match PattoLineParser::parse(Rule::expr_url_link, input) {
+                Ok(mut parsed) => {
+                    if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
+                        match &link.kind() {
+                            AstNodeKind::Link { link, title } => {
+                                assert_eq!(link, g_url);
+                                //assert!(title.is_some());
+                                assert_eq!(*title, g_title);
+                            }
+                            _ => {
+                                panic! {"link is not correctly parse {:?}", link};
                             }
                         }
                     }
-                    Err(e) => {
-                        println!("{e}");
-                        return Err(Box::new(e));
-                    }
+                }
+                Err(e) => {
+                    println!("{e}");
+                    return Err(Box::new(e));
                 }
             }
+        }
         Ok(())
     }
     #[test]
@@ -1993,7 +2050,12 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let task = &props[0];
-        if let Property::Task { status, due, location } = task {
+        if let Property::Task {
+            status,
+            due,
+            location,
+        } = task
+        {
             assert_eq!(*status, TaskStatus::Todo);
             assert_eq!(
                 *due,
@@ -2006,7 +2068,12 @@ mod tests {
         };
 
         let task = &props[2];
-        if let Property::Task { status, due, location } = task {
+        if let Property::Task {
+            status,
+            due,
+            location,
+        } = task
+        {
             assert_eq!(*status, TaskStatus::Done);
             assert_eq!(
                 *due,

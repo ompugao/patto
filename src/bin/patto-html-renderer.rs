@@ -54,8 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } = parser::parse_text(&text);
 
     let mut writer = BufWriter::new(fs::File::create(args.output).unwrap());
-    let options = renderer::HtmlRendererOptions {
-    };
+    let options = renderer::HtmlRendererOptions {};
 
     init_logger(args.verbose.log_level_filter(), args.debuglogfile);
     let renderer = renderer::HtmlRenderer::new(options);
