@@ -60,7 +60,7 @@ impl LspTestClient {
     }
 
     /// Send a request and wait for response
-    async fn request(&mut self, method: &str, params: Value) -> Value {
+    pub async fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id();
         let request = json!({
             "jsonrpc": "2.0",
@@ -84,7 +84,7 @@ impl LspTestClient {
     }
 
     /// Send a notification (no response expected)
-    async fn notify(&mut self, method: &str, params: Value) {
+    pub async fn notify(&mut self, method: &str, params: Value) {
         let notification = json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -281,9 +281,7 @@ impl LspTestClient {
     pub async fn two_hop_links(&mut self, uri: Url) -> Value {
         self.execute_command(
             "experimental/retrieve_two_hop_notes",
-            json!([{
-                "uri": uri.to_string()
-            }]),
+            json!([uri.to_string()]),
         )
         .await
     }
