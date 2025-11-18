@@ -29,7 +29,7 @@
       * [x] nvim-lspconfig version
       * [x] vscode version
       * auto refresh
-    * [ ] note renaming
+    * [x] note renaming
       * vim-lsp does not support CreateFile/RenameFile/DeleteFile
         * [https://github.com/prabirshrestha/vim-lsp/issues/1371](https://github.com/prabirshrestha/vim-lsp/issues/1371)
       * yegappan/lsp supports these
@@ -38,7 +38,7 @@
     * [x] fix indentation error at a line after a block with trailing empty lines
     * [ ] lsp server hangs sometimes
         * table parsing logic seems wrong?
-    * [ ] link with location and fix lsp_references
+    * [x] link with location and fix lsp_references
   * Previewer
     * [x] realtime preview
     * [x] bugfix: id jump (including self-link)
