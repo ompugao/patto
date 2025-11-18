@@ -47,6 +47,10 @@ sha2 = "0.10.8"
 anyhow = "1.0.88"
 rand = "0.8.5"
 
+[dev-dependencies]
+tempfile = "3.8"
+tokio-util = { version = "0.7", features = ["codec"] }
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
