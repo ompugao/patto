@@ -165,10 +165,18 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 
 <img width="752" height="524" alt="image" src="https://github.com/user-attachments/assets/320d8f00-dd03-45e9-b58b-c5a900c25a3a" />
 
-## Recent Updates (v0.2.1)
+## Recent Updates
+### v0.2.4
+* **Lsp Renaming**: Add support for renaming notes
+* Add tests for LSP server
+
+### v0.2.3
+* Minor fix of vscode extension
+
+### v0.2.2
 * **Semantic Tokens**: patto-lsp now offers semantic highlighting.
 
-## Recent Updates (v0.2.0)
+### v0.2.0
 * **Repository System**: New centralized repository management for improved performance and scalability
 * **Link Location Tracking**: Backlinks now include precise line and column locations
 * **Workspace Scanning**: Asynchronous scanning with progress notifications via LSP
