@@ -51,13 +51,6 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-      - name: Run LSP tests
-        run: |
-          cargo test --test infrastructure --verbose
-          cargo test --test lsp_rename_basic --verbose
-          cargo test --test lsp_rename_current_file --verbose
-          cargo test --test lsp_rename_anchors --verbose
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
