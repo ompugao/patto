@@ -3,7 +3,6 @@ target/
 node_modules/
 patto-preview-next/
 client/node_modules/
-.vscode-test/
 
 # Source files (we only need dist/)
 client/src/
@@ -11,6 +10,7 @@ client/tsconfig.json
 src/
 lsp/
 tree-sitter-patto/
+tests/
 
 # Development files
 .git/
@@ -29,6 +29,7 @@ pnpm-lock.yaml
 
 # Test and documentation
 vhs/
+wix/
 todo.md
 *PLAN.md
 *SUMMARY.md

@@ -136,7 +136,7 @@
     "pretest": "npm run compile && npm run lint",
     "test": "node ./dist/test/runTest.js",
     "build": "webpack --config webpack.config.js",
-    "package": "vsce package --no-dependencies",
+    "package": "npm run build && vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies"
   },
   "devDependencies": {
