@@ -99,18 +99,19 @@ M.config = {
   modes = {
     patto_tasks = {
       mode = "patto_tasks",
-      events = { "BufEnter", "BufWritePost" },
+      events = { "BufEnter", "BufWritePost", "InsertLeave"},
       source = "patto_tasks",
       desc = "Tasks grouped by deadline",
       groups = {
         { "deadline_group", format = "{deadline_group}" },
-        { "filename", format = "{file_icon} {filename} {count}" },
+        --{ "filename", format = "{file_icon} {filename}" },
       },
       sort = { "deadline", "filename", "pos" },
-      format = "{deadline_date} {text}",
+      --format = "{deadline_date} {text}",
+      format = "{deadline_date} {text} {filename}",
       win = {
         position = "bottom",
-        size = 0.4,
+        size = 0.35,
       },
     },
   },
