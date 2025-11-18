@@ -42,7 +42,7 @@ impl LspTestClient {
 
         let stdin = process.stdin.take().expect("Failed to open stdin");
         let stdout = process.stdout.take().expect("Failed to open stdout");
-        
+
         let stdout_reader = FramedRead::new(BufReader::new(stdout), LspCodec::default());
 
         Self {
@@ -71,7 +71,7 @@ impl LspTestClient {
 
         let message = serde_json::to_string(&request).unwrap();
         let header = format!("Content-Length: {}\r\n\r\n{}", message.len(), message);
-        
+
         self.stdin
             .write_all(header.as_bytes())
             .await
@@ -93,7 +93,7 @@ impl LspTestClient {
 
         let message = serde_json::to_string(&notification).unwrap();
         let header = format!("Content-Length: {}\r\n\r\n{}", message.len(), message);
-        
+
         self.stdin
             .write_all(header.as_bytes())
             .await
@@ -273,7 +273,8 @@ impl LspTestClient {
 
     /// Aggregate tasks (Patto-specific)
     pub async fn aggregate_tasks(&mut self) -> Value {
-        self.execute_command("experimental/aggregate_tasks", json!([])).await
+        self.execute_command("experimental/aggregate_tasks", json!([]))
+            .await
     }
 
     /// Get two-hop links (Patto-specific)

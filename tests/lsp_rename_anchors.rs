@@ -9,10 +9,7 @@ async fn test_anchor_preservation_simple() {
         "note_a.pn",
         "Simple link [note_b]\nWith anchor [note_b#section1]\n",
     );
-    workspace.create_file(
-        "note_b.pn",
-        "Content\n{@anchor section1}\n",
-    );
+    workspace.create_file("note_b.pn", "Content\n{@anchor section1}\n");
 
     let mut client = LspTestClient::new(&workspace).await;
     client.initialize().await;
@@ -56,7 +53,8 @@ async fn test_anchor_preservation_simple() {
                                 if new_text.contains("#section1") {
                                     assert!(
                                         assert_anchor_preserved(new_text, "section1"),
-                                        "Anchor format incorrect: {}", new_text
+                                        "Anchor format incorrect: {}",
+                                        new_text
                                     );
                                 }
                             }
@@ -73,10 +71,7 @@ async fn test_anchor_preservation_simple() {
 #[tokio::test]
 async fn test_anchor_preservation_multiple_anchors() {
     let mut workspace = TestWorkspace::new();
-    workspace.create_file(
-        "note_a.pn",
-        "Link 1 [note_b]\nLink 2 [note_b#section1]\n",
-    );
+    workspace.create_file("note_a.pn", "Link 1 [note_b]\nLink 2 [note_b#section1]\n");
     workspace.create_file(
         "note_c.pn",
         "Link A [note_b]\nLink B [note_b]\nLink C [note_b#section1]\nLink D [note_b#section2]\nLink E [note_b]\n",
@@ -135,11 +130,7 @@ async fn test_anchor_preservation_multiple_anchors() {
             if let Some(uri_str) = text_doc.get("uri").and_then(|v| v.as_str()) {
                 if uri_str.contains("note_c.pn") {
                     if let Some(edits) = change.get("edits").and_then(|v| v.as_array()) {
-                        assert_eq!(
-                            edits.len(),
-                            5,
-                            "note_c.pn should have exactly 5 edits"
-                        );
+                        assert_eq!(edits.len(), 5, "note_c.pn should have exactly 5 edits");
                     }
                 }
             }
@@ -181,12 +172,10 @@ async fn test_no_anchor_modification_in_simple_links() {
                             if let Some(new_text) = edit.get("newText").and_then(|v| v.as_str()) {
                                 assert!(
                                     !new_text.contains("#"),
-                                    "Simple link should not have anchor: {}", new_text
+                                    "Simple link should not have anchor: {}",
+                                    new_text
                                 );
-                                assert_eq!(
-                                    new_text, "[new_name]",
-                                    "Simple link format incorrect"
-                                );
+                                assert_eq!(new_text, "[new_name]", "Simple link format incorrect");
                             }
                         }
                     }

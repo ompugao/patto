@@ -82,8 +82,14 @@ async fn test_rename_current_file() {
     let old_uri = rename_op["oldUri"].as_str().unwrap();
     let new_uri = rename_op["newUri"].as_str().unwrap();
 
-    assert!(old_uri.ends_with("note_b.pn"), "Old URI doesn't end with note_b.pn");
-    assert!(new_uri.ends_with("renamed_note.pn"), "New URI doesn't end with renamed_note.pn");
+    assert!(
+        old_uri.ends_with("note_b.pn"),
+        "Old URI doesn't end with note_b.pn"
+    );
+    assert!(
+        new_uri.ends_with("renamed_note.pn"),
+        "New URI doesn't end with renamed_note.pn"
+    );
 
     println!("✅ Rename current file test passed");
 }
@@ -92,7 +98,10 @@ async fn test_rename_current_file() {
 async fn test_rename_current_file_with_anchors() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("note_a.pn", "Reference to [note_b#section1]\n");
-    workspace.create_file("note_b.pn", "Content of note B\n{@anchor section1}\n{@anchor section2}\n");
+    workspace.create_file(
+        "note_b.pn",
+        "Content of note B\n{@anchor section1}\n{@anchor section2}\n",
+    );
     workspace.create_file("note_c.pn", "Also [note_b#section2]\n");
 
     let mut client = LspTestClient::new(&workspace).await;
@@ -101,7 +110,10 @@ async fn test_rename_current_file_with_anchors() {
 
     let uri_b = workspace.get_uri("note_b.pn");
     client
-        .did_open(uri_b.clone(), "Content of note B\n{@anchor section1}\n{@anchor section2}\n".to_string())
+        .did_open(
+            uri_b.clone(),
+            "Content of note B\n{@anchor section1}\n{@anchor section2}\n".to_string(),
+        )
         .await;
 
     // Rename current file

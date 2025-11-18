@@ -54,7 +54,6 @@ pub struct BackLinkData {
     pub locations: Vec<LinkLocationData>,
 }
 
-
 /// File metadata for sorting and display
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileMetadata {
@@ -310,13 +309,11 @@ impl Repository {
                                 let locations: Vec<LinkLocationData> = edge_data
                                     .locations
                                     .iter()
-                                    .map(|loc| {
-                                        LinkLocationData {
-                                            line: loc.source_line,
-                                            col_range: loc.source_col_range,
-                                            context: None,
-                                            target_anchor: loc.target_anchor.clone(),
-                                        }
+                                    .map(|loc| LinkLocationData {
+                                        line: loc.source_line,
+                                        col_range: loc.source_col_range,
+                                        context: None,
+                                        target_anchor: loc.target_anchor.clone(),
                                     })
                                     .collect();
 
@@ -412,32 +409,32 @@ impl Repository {
         // Collect all files first to know total count
         let files = self.collect_pn_files(&self.root_dir);
         let total = files.len();
-        
+
         // Send start message
-        let _ = self.tx.send(RepositoryMessage::ScanStarted { 
-            total_files: total 
-        });
-        
+        let _ = self
+            .tx
+            .send(RepositoryMessage::ScanStarted { total_files: total });
+
         // Process files with progress updates
         for (idx, file_path) in files.iter().enumerate() {
             if let Ok(content) = std::fs::read_to_string(file_path) {
                 self.add_file_to_graph(file_path, &content);
             }
-            
+
             tokio::task::yield_now().await;
             // Report progress every 10 files or on last file
             if (idx + 1) % 5 == 0 || idx == total - 1 {
-                let _ = self.tx.send(RepositoryMessage::ScanProgress { 
-                    scanned: idx + 1, 
-                    total 
+                let _ = self.tx.send(RepositoryMessage::ScanProgress {
+                    scanned: idx + 1,
+                    total,
                 });
             }
         }
-        
+
         // Send completion message
-        let _ = self.tx.send(RepositoryMessage::ScanCompleted { 
-            total_files: total 
-        });
+        let _ = self
+            .tx
+            .send(RepositoryMessage::ScanCompleted { total_files: total });
     }
 
     /// Collect all .pn files in directory tree
@@ -494,10 +491,7 @@ impl Repository {
                             source_col_range: (location.span.0, location.span.1),
                             target_anchor: anchor.clone(),
                         };
-                        links_by_target
-                            .entry(link_uri)
-                            .or_default()
-                            .push(link_loc);
+                        links_by_target.entry(link_uri).or_default().push(link_loc);
                     }
                 }
 
@@ -678,8 +672,8 @@ impl Repository {
                         };
                         // Remove from graph
                         repository.remove_file_from_graph(&path);
-                        let _ = repo_tx
-                            .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+                        let _ =
+                            repo_tx.send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
                     } else if event.kind.is_modify() && path.is_file() {
                         {
                             let mut changes = pending_changes.lock().unwrap();
@@ -711,35 +705,39 @@ impl Repository {
                             };
 
                             if should_process {
-                                let Ok(content) = tokio::fs::read_to_string(&path_clone).await else {
+                                let Ok(content) = tokio::fs::read_to_string(&path_clone).await
+                                else {
                                     return;
                                 };
                                 // Update the document graph with new content
                                 repository_clone.update_links_in_graph(&path_clone, &content);
-                                let metadata = repository_clone.collect_file_metadata(&path_clone).unwrap();
+                                let metadata =
+                                    repository_clone.collect_file_metadata(&path_clone).unwrap();
 
                                 // TODO update and broadcast backlinks and two-hop links when other files are created/modified/removed
                                 let start = Instant::now();
-                                if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir) {
+                                if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir)
+                                {
                                     // Update the repository's link graph
                                     repository_clone.update_links_in_graph(&path, &content);
 
                                     let back_links = repository_clone.calculate_back_links(&path);
                                     // Calculate and send back-links and two-hop links for affected files
-                                    let _ = repository_clone
-                                        .tx
-                                        .send(RepositoryMessage::BackLinksChanged(
+                                    let _ = repository_clone.tx.send(
+                                        RepositoryMessage::BackLinksChanged(
                                             path.clone(),
                                             back_links,
-                                        ));
+                                        ),
+                                    );
 
-                                    let two_hop_links = repository_clone.calculate_two_hop_links(&path).await;
-                                    let _ = repository_clone
-                                        .tx
-                                        .send(RepositoryMessage::TwoHopLinksChanged(
+                                    let two_hop_links =
+                                        repository_clone.calculate_two_hop_links(&path).await;
+                                    let _ = repository_clone.tx.send(
+                                        RepositoryMessage::TwoHopLinksChanged(
                                             path.clone(),
                                             two_hop_links,
-                                        ));
+                                        ),
+                                    );
 
                                     println!(
                                         "File {} processed in {} ms",

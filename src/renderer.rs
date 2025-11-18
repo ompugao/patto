@@ -47,7 +47,11 @@ impl HtmlRenderer {
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
-                    write!(output, "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\"{}>", id_attr)?;
+                    write!(
+                        output,
+                        "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\"{}>",
+                        id_attr
+                    )?;
                     self._format_impl(child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -56,13 +60,15 @@ impl HtmlRenderer {
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 let mut isdone = false;
                 for property in properties {
-                    if let Property::Task { status, .. } = property { match status {
-                        TaskStatus::Done => {
-                            isdone = true;
-                            write!(output, "<input type=\"checkbox\" checked disabled/>")?
+                    if let Property::Task { status, .. } = property {
+                        match status {
+                            TaskStatus::Done => {
+                                isdone = true;
+                                write!(output, "<input type=\"checkbox\" checked disabled/>")?
+                            }
+                            _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
                         }
-                        _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
-                    } }
+                    }
                 }
 
                 if isdone {
@@ -222,14 +228,18 @@ impl HtmlRenderer {
                     write!(
                         output,
                         "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
-                        link, link, title.as_deref().unwrap_or(link)
+                        link,
+                        link,
+                        title.as_deref().unwrap_or(link)
                     )?;
                 } else if link.contains("speakerdeck.com") {
                     // Render as placeholder that can be enhanced client-side
                     write!(
                         output,
                         "<div class=\"speakerdeck-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
-                        link, link, title.as_deref().unwrap_or(link)
+                        link,
+                        link,
+                        title.as_deref().unwrap_or(link)
                     )?;
                 } else if let Some(title) = title {
                     write!(output, "<a href=\"{}\">{}</a>", link, title)?;

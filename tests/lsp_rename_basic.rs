@@ -17,18 +17,18 @@ async fn test_initialize_lsp() {
     );
 
     // Check rename capability
-    assert_has_capability(
-        &response,
-        &["renameProvider"],
-    );
-    
+    assert_has_capability(&response, &["renameProvider"]);
+
     println!("✅ Initialize test passed");
 }
 
 #[tokio::test]
 async fn test_prepare_rename_on_wikilink() {
     let mut workspace = TestWorkspace::new();
-    workspace.create_file("note_a.pn", "First line\nSecond line\nThird line\nSee [note_b]\n");
+    workspace.create_file(
+        "note_a.pn",
+        "First line\nSecond line\nThird line\nSee [note_b]\n",
+    );
     workspace.create_file("note_b.pn", "Content of note B\n");
 
     let mut client = LspTestClient::new(&workspace).await;
@@ -37,7 +37,10 @@ async fn test_prepare_rename_on_wikilink() {
 
     let uri = workspace.get_uri("note_a.pn");
     client
-        .did_open(uri.clone(), "First line\nSecond line\nThird line\nSee [note_b]\n".to_string())
+        .did_open(
+            uri.clone(),
+            "First line\nSecond line\nThird line\nSee [note_b]\n".to_string(),
+        )
         .await;
 
     // Position: line 3, char 11 (inside [note_b])
@@ -61,9 +64,18 @@ async fn test_prepare_rename_on_wikilink() {
 #[tokio::test]
 async fn test_rename_note_with_references() {
     let mut workspace = TestWorkspace::new();
-    workspace.create_file("note_a.pn", "First line\nSecond line\nThird line\nSee [note_b]\nAlso [note_b#section1]\n");
-    workspace.create_file("note_b.pn", "Content of note B\n{@anchor section1}\n{@anchor section2}\n");
-    workspace.create_file("note_c.pn", "Reference to [note_b]\nAnother [note_b]\nWith anchor [note_b#section2]\nMore [note_b]\nLast [note_b]\n");
+    workspace.create_file(
+        "note_a.pn",
+        "First line\nSecond line\nThird line\nSee [note_b]\nAlso [note_b#section1]\n",
+    );
+    workspace.create_file(
+        "note_b.pn",
+        "Content of note B\n{@anchor section1}\n{@anchor section2}\n",
+    );
+    workspace.create_file(
+        "note_c.pn",
+        "Reference to [note_b]\nAnother [note_b]\nWith anchor [note_b#section2]\nMore [note_b]\nLast [note_b]\n",
+    );
 
     let mut client = LspTestClient::new(&workspace).await;
     client.initialize().await;
@@ -73,7 +85,8 @@ async fn test_rename_note_with_references() {
     client
         .did_open(
             uri_a.clone(),
-            "First line\nSecond line\nThird line\nSee [note_b]\nAlso [note_b#section1]\n".to_string(),
+            "First line\nSecond line\nThird line\nSee [note_b]\nAlso [note_b#section1]\n"
+                .to_string(),
         )
         .await;
 
@@ -122,7 +135,9 @@ async fn test_rename_rejects_empty_name() {
     client.initialized().await;
 
     let uri = workspace.get_uri("note_a.pn");
-    client.did_open(uri.clone(), "See [note_b]\n".to_string()).await;
+    client
+        .did_open(uri.clone(), "See [note_b]\n".to_string())
+        .await;
 
     // Try to rename to empty string
     let response = client.rename(uri, 0, 6, "").await;
@@ -147,7 +162,9 @@ async fn test_rename_rejects_path_separator() {
     client.initialized().await;
 
     let uri = workspace.get_uri("note_a.pn");
-    client.did_open(uri.clone(), "See [note_b]\n".to_string()).await;
+    client
+        .did_open(uri.clone(), "See [note_b]\n".to_string())
+        .await;
 
     // Try to rename with path separator
     let response = client.rename(uri, 0, 6, "path/to/note").await;
@@ -172,7 +189,9 @@ async fn test_rename_rejects_pn_extension() {
     client.initialized().await;
 
     let uri = workspace.get_uri("note_a.pn");
-    client.did_open(uri.clone(), "See [note_b]\n".to_string()).await;
+    client
+        .did_open(uri.clone(), "See [note_b]\n".to_string())
+        .await;
 
     // Try to rename with .pn extension
     let response = client.rename(uri, 0, 6, "new_note.pn").await;

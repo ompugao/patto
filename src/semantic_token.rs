@@ -1,5 +1,5 @@
-use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType};
 use str_indices::utf16::from_byte_idx as utf16_from_byte_idx;
+use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType};
 
 use crate::parser::{AstNode, AstNodeKind, Property};
 
@@ -47,7 +47,9 @@ fn properties_to_tokens(properties: &Vec<Property>, tokens: &mut Vec<ImCompleteS
                 // Highlight @task as COMMENT
                 let line_text: &str = location.input.as_ref();
                 let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, location.span.1)
+                    - utf16_from_byte_idx(line_text, location.span.0))
+                    as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: location.row as u32,
                     start,
@@ -59,7 +61,9 @@ fn properties_to_tokens(properties: &Vec<Property>, tokens: &mut Vec<ImCompleteS
                 // Highlight anchor as KEYWORD
                 let line_text: &str = location.input.as_ref();
                 let start = utf16_from_byte_idx(line_text, location.span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, location.span.1) - utf16_from_byte_idx(line_text, location.span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, location.span.1)
+                    - utf16_from_byte_idx(line_text, location.span.0))
+                    as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: location.row as u32,
                     start,
@@ -71,11 +75,15 @@ fn properties_to_tokens(properties: &Vec<Property>, tokens: &mut Vec<ImCompleteS
     }
 }
 
-fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticToken>, line_range: Option<(u32, u32)>) {
+fn collect_semantic_tokens(
+    node: &AstNode,
+    tokens: &mut Vec<ImCompleteSemanticToken>,
+    line_range: Option<(u32, u32)>,
+) {
     let location = node.location();
     let row = location.row as u32;
     let span = &location.span;
-    
+
     let mut b_process: bool = true;
     if let Some((start_line, end_line)) = line_range {
         if start_line > row || row > end_line {
@@ -87,7 +95,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
         match node.kind() {
             AstNodeKind::WikiLink { .. } => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -97,7 +106,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             }
             AstNodeKind::Link { .. } => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -105,14 +115,18 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     token_type: TOKEN_TYPE_FUNCTION,
                 });
             }
-            AstNodeKind::Code { lang: _lang, inline } => {
+            AstNodeKind::Code {
+                lang: _lang,
+                inline,
+            } => {
                 let token_type = if *inline {
                     TOKEN_TYPE_STRING
                 } else {
                     TOKEN_TYPE_COMMENT
                 };
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -127,7 +141,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     TOKEN_TYPE_COMMENT
                 };
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -137,7 +152,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             }
             AstNodeKind::Image { .. } => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -147,7 +163,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             }
             AstNodeKind::Quote => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -168,7 +185,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             }
             AstNodeKind::CodeContent => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -179,7 +197,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             AstNodeKind::Table { .. } => {
                 // Highlight @table command as PROPERTY
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -187,12 +206,18 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
                     token_type: TOKEN_TYPE_PROPERTY,
                 });
             }
-            AstNodeKind::Decoration { fontsize: _, italic: _, underline: _, deleted } => {
+            AstNodeKind::Decoration {
+                fontsize: _,
+                italic: _,
+                underline: _,
+                deleted,
+            } => {
                 // Highlight decoration based on type
                 // Deleted text should be highlighted as COMMENT (indicates removed/deprecated)
                 // Other decorations (bold, italic, underline) as MODIFIER
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 let token_type = if *deleted {
                     TOKEN_TYPE_COMMENT
                 } else {
@@ -208,7 +233,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             AstNodeKind::HorizontalLine => {
                 // Highlight horizontal line as COMMENT (visual separator)
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -221,7 +247,8 @@ fn collect_semantic_tokens(node: &AstNode, tokens: &mut Vec<ImCompleteSemanticTo
             }
             AstNodeKind::QuoteContent { properties } => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
+                let length = (utf16_from_byte_idx(line_text, span.1)
+                    - utf16_from_byte_idx(line_text, span.0)) as u32;
                 tokens.push(ImCompleteSemanticToken {
                     line: row,
                     start,
@@ -252,11 +279,11 @@ fn build_semantic_tokens(tokens: Vec<ImCompleteSemanticToken>) -> Vec<SemanticTo
             a.start.cmp(&b.start)
         }
     });
-    
+
     let mut result = Vec::new();
     let mut prev_line = 0;
     let mut prev_start = 0;
-    
+
     for token in sorted_tokens {
         let delta_line = token.line - prev_line;
         let delta_start = if delta_line == 0 {
@@ -264,7 +291,7 @@ fn build_semantic_tokens(tokens: Vec<ImCompleteSemanticToken>) -> Vec<SemanticTo
         } else {
             token.start
         };
-        
+
         result.push(SemanticToken {
             delta_line,
             delta_start,
@@ -272,11 +299,11 @@ fn build_semantic_tokens(tokens: Vec<ImCompleteSemanticToken>) -> Vec<SemanticTo
             token_type: token.token_type,
             token_modifiers_bitset: 0,
         });
-        
+
         prev_line = token.line;
         prev_start = token.start;
     }
-    
+
     result
 }
 
@@ -286,7 +313,11 @@ pub fn get_semantic_tokens(ast: &AstNode) -> Vec<SemanticToken> {
     build_semantic_tokens(incomplete_tokens)
 }
 
-pub fn get_semantic_tokens_range(ast: &AstNode, start_line: u32, end_line: u32) -> Vec<SemanticToken> {
+pub fn get_semantic_tokens_range(
+    ast: &AstNode,
+    start_line: u32,
+    end_line: u32,
+) -> Vec<SemanticToken> {
     let mut incomplete_tokens = Vec::new();
     collect_semantic_tokens(ast, &mut incomplete_tokens, Some((start_line, end_line)));
 
