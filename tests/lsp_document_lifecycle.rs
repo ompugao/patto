@@ -12,7 +12,7 @@ async fn test_did_open_and_close() {
     client.initialized().await;
 
     let uri = workspace.get_uri("test.pn");
-    
+
     // Open document
     client
         .did_open(uri.clone(), "Initial content\n".to_string())
@@ -39,9 +39,7 @@ async fn test_did_change() {
     client.initialized().await;
 
     let uri = workspace.get_uri("test.pn");
-    client
-        .did_open(uri.clone(), "Initial\n".to_string())
-        .await;
+    client.did_open(uri.clone(), "Initial\n".to_string()).await;
 
     // Send change notification
     client
@@ -63,7 +61,7 @@ async fn test_did_change() {
 
     // Try to find the new link
     let response = client.definition(uri.clone(), 0, 18).await;
-    
+
     // Should be able to find definition for the new link
     assert!(response.get("result").is_some());
 
@@ -80,9 +78,7 @@ async fn test_did_save() {
     client.initialized().await;
 
     let uri = workspace.get_uri("test.pn");
-    client
-        .did_open(uri.clone(), "Content\n".to_string())
-        .await;
+    client.did_open(uri.clone(), "Content\n".to_string()).await;
 
     // Send save notification
     client

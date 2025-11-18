@@ -33,9 +33,15 @@ async fn test_semantic_tokens_full() {
         )
         .await;
 
-    assert!(response.get("result").is_some(), "No result in semantic tokens");
+    assert!(
+        response.get("result").is_some(),
+        "No result in semantic tokens"
+    );
     let result = &response["result"];
-    assert!(result["data"].is_array(), "No data array in semantic tokens");
+    assert!(
+        result["data"].is_array(),
+        "No data array in semantic tokens"
+    );
 
     let data = result["data"].as_array().unwrap();
     // Should have tokens for wikilink, anchor, task, etc.
@@ -78,12 +84,21 @@ async fn test_semantic_tokens_range() {
         )
         .await;
 
-    assert!(response.get("result").is_some(), "No result in semantic tokens range");
+    assert!(
+        response.get("result").is_some(),
+        "No result in semantic tokens range"
+    );
     let result = &response["result"];
-    assert!(result["data"].is_array(), "No data array in semantic tokens range");
+    assert!(
+        result["data"].is_array(),
+        "No data array in semantic tokens range"
+    );
 
     let data = result["data"].as_array().unwrap();
-    assert!(!data.is_empty(), "Should have tokens for the specified range");
+    assert!(
+        !data.is_empty(),
+        "Should have tokens for the specified range"
+    );
 
     println!("✅ Semantic tokens range test passed");
 }
@@ -111,7 +126,7 @@ async fn test_semantic_tokens_empty_file() {
 
     assert!(response.get("result").is_some(), "No result");
     let result = &response["result"];
-    
+
     if result.is_object() && result["data"].is_array() {
         let data = result["data"].as_array().unwrap();
         // Empty file should have empty or minimal tokens

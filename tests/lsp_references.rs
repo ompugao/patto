@@ -26,7 +26,7 @@ async fn test_find_references_single_file() {
     assert!(response.get("result").is_some(), "No result in references");
     let result = &response["result"];
     assert!(result.is_array(), "Result is not an array");
-    
+
     let refs = result.as_array().unwrap();
     // Should find 3 references
     assert_eq!(refs.len(), 3, "Expected 3 references");
@@ -59,9 +59,13 @@ async fn test_find_references_multiple_files() {
     assert!(response.get("result").is_some(), "No result in references");
     let result = &response["result"];
     let refs = result.as_array().unwrap();
-    
+
     // Should find 4 references total (1 in a, 1 in b, 2 in c)
-    assert!(refs.len() >= 4, "Expected at least 4 references, got {}", refs.len());
+    assert!(
+        refs.len() >= 4,
+        "Expected at least 4 references, got {}",
+        refs.len()
+    );
 
     println!("✅ Find references multiple files test passed");
 }
@@ -69,11 +73,11 @@ async fn test_find_references_multiple_files() {
 #[tokio::test]
 async fn test_find_references_with_anchors() {
     let mut workspace = TestWorkspace::new();
-    workspace.create_file("source.pn", "Link [target#section1]\nAlso [target#section2]\nJust [target]\n");
     workspace.create_file(
-        "target.pn",
-        "{@anchor section1}\n{@anchor section2}\n",
+        "source.pn",
+        "Link [target#section1]\nAlso [target#section2]\nJust [target]\n",
     );
+    workspace.create_file("target.pn", "{@anchor section1}\n{@anchor section2}\n");
 
     let mut client = LspTestClient::new(&workspace).await;
     client.initialize().await;
@@ -81,7 +85,10 @@ async fn test_find_references_with_anchors() {
 
     let target_uri = workspace.get_uri("target.pn");
     client
-        .did_open(target_uri.clone(), "{@anchor section1}\n{@anchor section2}\n".to_string())
+        .did_open(
+            target_uri.clone(),
+            "{@anchor section1}\n{@anchor section2}\n".to_string(),
+        )
         .await;
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -90,7 +97,7 @@ async fn test_find_references_with_anchors() {
 
     assert!(response.get("result").is_some(), "No result in references");
     let refs = response["result"].as_array().unwrap();
-    
+
     // All 3 links point to target.pn
     assert!(refs.len() >= 3, "Expected at least 3 references");
 

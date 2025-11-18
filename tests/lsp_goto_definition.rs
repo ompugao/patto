@@ -24,7 +24,7 @@ async fn test_goto_definition_basic_wikilink() {
     let result = &response["result"];
     assert!(result["uri"].is_string(), "No uri in definition");
     assert!(result["uri"].as_str().unwrap().contains("target.pn"));
-    
+
     println!("✅ Basic goto definition test passed");
 }
 
@@ -55,7 +55,7 @@ async fn test_goto_definition_with_anchor() {
     assert!(response.get("result").is_some(), "No result in definition");
     let result = &response["result"];
     assert!(result["uri"].as_str().unwrap().contains("target.pn"));
-    
+
     // Should point to the line with section2 anchor
     // Line 0: Line 1
     // Line 1: #section1
