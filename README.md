@@ -1,5 +1,6 @@
-# 🐙 Patto Note
+# Patto Note 🪽
 A simple plain-text format for quick note-taking, outlining, and task management, powered by language server.
+<img width="400" height="400" alt="patto_logo" src="https://github.com/user-attachments/assets/4dd09466-97af-46e9-badf-2fd793096de0" />
 
 <!-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ompugao/patto) -->
 
