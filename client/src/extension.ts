@@ -146,7 +146,7 @@ class Task extends vscode.TreeItem {
   ) {
     super(label, collapsibleState);
     this.tooltip = `${this.label}`;
-    this.description = this.label;
+    //this.description = this.label;
     
     // Make tasks clickable
     if (location && location.uri) {
