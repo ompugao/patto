@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 #[grammar = "patto.pest"]
 struct PattoLineParser;
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Span(pub usize, pub usize);
 
