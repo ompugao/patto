@@ -34,7 +34,7 @@
         * [https://github.com/prabirshrestha/vim-lsp/issues/1371](https://github.com/prabirshrestha/vim-lsp/issues/1371)
       * yegappan/lsp supports these
     * [ ] anchor renaming
-    * [ ] make error.variant.message() user-friendly
+    * [x] make error.variant.message() user-friendly
     * [x] fix indentation error at a line after a block with trailing empty lines
     * [x] lsp server hangs sometimes
         * table parsing logic seems wrong?
