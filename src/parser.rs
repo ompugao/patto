@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use crate::line_tracker::LineTracker;
 use pest;
+use pest::error::{ErrorVariant, InputLocation, LineColLocation};
 use pest::iterators::Pair;
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Parser)]
 #[grammar = "patto.pest"]
 struct PattoLineParser;
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Span(pub usize, pub usize);
@@ -517,16 +519,74 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
     find_parent_line(last_child_line, depth - 1)
 }
 
+#[derive(Debug)]
+pub struct PestErrorInfo {
+    pub message: String,
+    pub variant: PestErrorVariantInfo,
+    pub location: InputLocation,
+    pub line_col: LineColLocation,
+}
+
+#[derive(Debug)]
+pub enum PestErrorVariantInfo {
+    ParsingError {
+        positives: Vec<Rule>,
+        negatives: Vec<Rule>,
+    },
+    CustomError {
+        message: String,
+    },
+}
+
+impl fmt::Display for PestErrorInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl From<pest::error::Error<Rule>> for PestErrorInfo {
+    fn from(error: pest::error::Error<Rule>) -> Self {
+        let message = error.to_string();
+        let line_col = error.line_col;
+        let location = error.location;
+        let variant = match error.variant {
+            ErrorVariant::ParsingError {
+                positives,
+                negatives,
+            } => PestErrorVariantInfo::ParsingError {
+                positives,
+                negatives,
+            },
+            ErrorVariant::CustomError { message } => PestErrorVariantInfo::CustomError { message },
+        };
+        Self {
+            message,
+            variant,
+            location,
+            line_col,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ParserError {
     #[error("Invalid indentation:\n{0}")]
     InvalidIndentation(Location),
     #[error("Failed to parse:\n{1}")]
-    ParseError(Location, String),
+    ParseError(Location, PestErrorInfo),
     // #[error("Invalid command parameter: {0}")]
     // InvalidCommandParameter(String),
     // #[error("Unexpected token: {0}")]
     // UnexpectedToken(String),
+}
+
+impl ParserError {
+    pub fn location(&self) -> &Location {
+        match self {
+            ParserError::InvalidIndentation(loc) => loc,
+            ParserError::ParseError(loc, _) => loc,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -633,7 +693,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                                 row: iline,
                                 span: Span(linestart, linetext.len()),
                             },
-                            e.variant.message().to_string(),
+                            e.into(),
                         ));
                         let quotecontent = AstNode::quotecontent(linetext, iline, None, None);
                         quotecontent.add_content(AstNode::text(
@@ -776,7 +836,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                             row: iline,
                             span: Span(linestart, linetext.len()),
                         },
-                        e.to_string(),
+                        e.into(),
                     ));
                     let newline = AstNode::line(linetext, iline, None, None);
                     newline.add_content(AstNode::text(linetext, iline, None));
