@@ -681,7 +681,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     .expect("no way! should be table block")
                     .clone();
 
-                let columntexts: Vec<&str> = linetext[depth..].split('\t').collect();
+                let columntexts: Vec<&str> = linetext[linestart..].split('\t').collect();
                 let mut span_start = depth;
                 let mut columns = Vec::new();
 
@@ -708,7 +708,7 @@ pub fn parse_text(text: &str) -> ParserResult {
                     span_start = span_end + 1;
                 }
 
-                let row = AstNode::tablerow(linetext, iline, Some(Span(depth, linetext.len())));
+                let row = AstNode::tablerow(linetext, iline, Some(Span(linestart, linetext.len())));
                 row.add_contents(columns);
                 table.add_child(row);
                 continue;
