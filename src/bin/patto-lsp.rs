@@ -11,6 +11,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use patto::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
 use patto::repository::{Repository, RepositoryMessage};
 use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
@@ -54,29 +55,34 @@ fn get_node_range(from: &AstNode) -> Range {
 
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
+    let translator = DiagnosticTranslator::default();
     let diagnostics: Vec<Diagnostic> = parse_errors
         .into_iter()
-        .map(|item| {
-            let (message, loc) = match item {
-                parser::ParserError::InvalidIndentation(loc) => {
-                    (format!("Invalid indentation:\n{}", loc), loc.clone())
-                }
-                parser::ParserError::ParseError(loc, mes) => {
-                    (format!("Failed to parse: {}", mes), loc.clone())
-                }
-            };
-
-            let start_position = Position::new(loc.row as u32, loc.span.0 as u32);
-            let end_position = Position::new(loc.row as u32, loc.span.1 as u32);
-            Diagnostic::new(
-                Range::new(start_position, end_position),
-                Some(DiagnosticSeverity::ERROR),
-                None,
-                None,
+        .map(|error| {
+            let location = error.location().clone();
+            let FriendlyDiagnostic {
                 message,
-                None,
-                None,
-            )
+                code,
+                code_description_uri,
+            } = translator.translate(&error);
+
+            let code_value = code.map(NumberOrString::String);
+            let code_description = code_description_uri
+                .and_then(|href| Url::parse(&href).ok())
+                .map(|href| CodeDescription { href });
+
+            Diagnostic {
+                range: Range::new(
+                    Position::new(location.row as u32, location.span.0 as u32),
+                    Position::new(location.row as u32, location.span.1 as u32),
+                ),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: code_value,
+                code_description,
+                source: Some("patto".into()),
+                message,
+                ..Diagnostic::default()
+            }
         })
         .collect();
     (ast, diagnostics)
