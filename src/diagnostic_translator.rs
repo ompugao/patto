@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::parser::{ParserError, PestErrorInfo, PestErrorVariantInfo, Rule};
 
-const DEFAULT_DOCS_BASE_URL: &str = "https://patto.dev/docs/errors";
+const DEFAULT_DOCS_BASE_URL: &str = "https://github.com/ompugao/patto/wiki/Diagnostic-Errors";
 
 #[derive(Debug, Clone)]
 pub struct FriendlyDiagnostic {
