@@ -16,6 +16,8 @@ tests/
 .git/
 .github/
 .gitignore
+.vscode/
+.serena/
 *.md
 !README.md
 copilot_output/
