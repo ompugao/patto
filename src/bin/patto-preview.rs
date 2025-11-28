@@ -24,7 +24,7 @@ use tokio::sync::oneshot;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-    InitializedParams, MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    InitializedParams, MessageType, ServerCapabilities, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextDocumentSyncOptions, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -74,11 +74,20 @@ struct AppState {
 struct PreviewLspBackend {
     client: Client,
     repository: Arc<Repository>,
+    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 impl PreviewLspBackend {
-    fn new(client: Client, repository: Arc<Repository>) -> Self {
-        Self { client, repository }
+    fn new(
+        client: Client,
+        repository: Arc<Repository>,
+        shutdown_tx: Option<oneshot::Sender<()>>,
+    ) -> Self {
+        Self {
+            client,
+            repository,
+            shutdown_tx: Mutex::new(shutdown_tx),
+        }
     }
 
     async fn handle_text_change(&self, uri: Url, text: String) {
@@ -118,10 +127,7 @@ impl PreviewLspBackend {
 impl LanguageServer for PreviewLspBackend {
     async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
         Ok(InitializeResult {
-            server_info: Some(ServerInfo {
-                name: "patto-preview-lsp".to_string(),
-                version: None,
-            }),
+            server_info: None,
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
@@ -143,6 +149,9 @@ impl LanguageServer for PreviewLspBackend {
     }
 
     async fn shutdown(&self) -> LspResult<()> {
+        if let Some(tx) = self.shutdown_tx.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
         Ok(())
     }
 
@@ -170,8 +179,9 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
                     let repo = repository.clone();
                     tokio::spawn(async move {
                         let (reader, writer) = tokio::io::split(stream);
-                        let (service, socket) =
-                            LspService::new(|client| PreviewLspBackend::new(client, repo.clone()));
+                        let (service, socket) = LspService::new(|client| {
+                            PreviewLspBackend::new(client, repo.clone(), None)
+                        });
                         Server::new(reader, writer, socket).serve(service).await;
                         eprintln!("Preview LSP connection {} closed", addr);
                     });
@@ -190,12 +200,24 @@ fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()>
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     let (tx, rx) = oneshot::channel();
+    // PreviewLspBackend needs its own copy of the sender so it can fire it exactly once when Neovim calls the LSP shutdown() method; the stdio server
+    // task also needs the same sender so it can notify the main process if the LSP loop exits on its own. If we stored Option<Arc<Mutex<_>>>, every
+    // backend clone would hold the same Arc, so calling take() inside one backend wouldn’t remove the sender for others—they’d still see Some. By
+    // storing the Option inside each backend (and cloning the Arc<Mutex<Option<_>>> wrapper instead), the sender itself lives only once in the shared
+    // mutex and take() truly consumes it, preventing double-send/panic and ensuring whichever context notices shutdown first owns the signal.
+    let shutdown_tx = Arc::new(Mutex::new(Some(tx)));
+
+    let shutdown_tx_server = shutdown_tx.clone();
 
     tokio::spawn(async move {
-        let (service, socket) =
-            LspService::new(|client| PreviewLspBackend::new(client, repository.clone()));
+        let (service, socket) = LspService::new(move |client| {
+            let sender = shutdown_tx.lock().unwrap().take();
+            PreviewLspBackend::new(client, repository, sender)
+        });
         Server::new(stdin, stdout, socket).serve(service).await;
-        let _ = tx.send(());
+        if let Some(tx) = shutdown_tx_server.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
     });
 
     rx
@@ -368,16 +390,21 @@ async fn main() {
         .unwrap();
 
     let server = axum::serve(listener, app);
-    if let Some(rx) = shutdown_signal {
-        server
-            .with_graceful_shutdown(async move {
-                let _ = rx.await;
-                println!("Preview LSP connection closed; shutting down server");
-            })
-            .await
-            .unwrap();
-    } else {
-        server.await.unwrap();
+    if let Some(mut rx) = shutdown_signal {
+        tokio::select! {
+            result = server => {
+                if let Err(err) = result {
+                    eprintln!("Preview server error: {err}");
+                }
+            }
+            _ = &mut rx => {
+                eprintln!("Preview LSP connection closed; terminating preview server");
+            }
+        }
+
+        std::process::exit(0);
+    } else if let Err(err) = server.await {
+        eprintln!("Preview server error: {err}");
     }
 }
 
