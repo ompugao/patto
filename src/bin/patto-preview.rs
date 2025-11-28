@@ -16,11 +16,12 @@ use patto::{
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tokio::fs;
-use tokio::sync::oneshot;
+use std::time::Duration;
+use tokio::{fs, sync::oneshot, task::JoinHandle};
+use tokio::time::{sleep, Instant};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
@@ -71,10 +72,20 @@ struct AppState {
     line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
 }
 
+const CONTENT_UPDATE_DEBOUNCE_MS: u64 = 50;
+const CONTENT_UPDATE_MAX_WAIT_MS: u64 = 300;
+
+struct PendingContentUpdate {
+    latest_text: String,
+    first_pending_at: Instant,
+    scheduled_flush: Option<JoinHandle<()>>,
+}
+
 struct PreviewLspBackend {
     client: Client,
     repository: Arc<Repository>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    pending_updates: Arc<Mutex<HashMap<PathBuf, PendingContentUpdate>>>,
 }
 
 impl PreviewLspBackend {
@@ -87,6 +98,7 @@ impl PreviewLspBackend {
             client,
             repository,
             shutdown_tx: Mutex::new(shutdown_tx),
+            pending_updates: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -119,8 +131,85 @@ impl PreviewLspBackend {
             return;
         }
 
-        self.repository.handle_live_file_change(path, text).await;
+        self.queue_live_content_update(path, text).await;
     }
+
+    async fn queue_live_content_update(&self, path: PathBuf, text: String) {
+        let pending_updates = self.pending_updates.clone();
+        let repository = self.repository.clone();
+        let flush_text = {
+            let mut pending = pending_updates.lock().unwrap();
+            match pending.entry(path.clone()) {
+                Entry::Vacant(entry) => {
+                    let mut pending_entry = PendingContentUpdate {
+                        latest_text: text.clone(),
+                        first_pending_at: Instant::now(),
+                        scheduled_flush: None,
+                    };
+                    pending_entry.scheduled_flush = Some(spawn_flush_task(
+                        pending_updates.clone(),
+                        repository.clone(),
+                        path.clone(),
+                    ));
+                    entry.insert(pending_entry);
+                    None
+                }
+                Entry::Occupied(mut occupied) => {
+                    let mut flush_now = false;
+                    {
+                        let pending_entry = occupied.get_mut();
+                        pending_entry.latest_text = text;
+
+                        if pending_entry.first_pending_at.elapsed()
+                            >= Duration::from_millis(CONTENT_UPDATE_MAX_WAIT_MS)
+                        {
+                            flush_now = true;
+                            if let Some(handle) = pending_entry.scheduled_flush.take() {
+                                handle.abort();
+                            }
+                        } else {
+                            if let Some(handle) = pending_entry.scheduled_flush.take() {
+                                handle.abort();
+                            }
+                            pending_entry.scheduled_flush = Some(spawn_flush_task(
+                                pending_updates.clone(),
+                                repository.clone(),
+                                path.clone(),
+                            ));
+                        }
+                    }
+
+                    if flush_now {
+                        Some(occupied.remove().latest_text)
+                    } else {
+                        None
+                    }
+                }
+            }
+        };
+
+        if let Some(text) = flush_text {
+            self.repository.handle_live_file_change(path, text).await;
+        }
+    }
+}
+
+fn spawn_flush_task(
+    pending_updates: Arc<Mutex<HashMap<PathBuf, PendingContentUpdate>>>,
+    repository: Arc<Repository>,
+    path: PathBuf,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        sleep(Duration::from_millis(CONTENT_UPDATE_DEBOUNCE_MS)).await;
+        let text = {
+            let mut guard = pending_updates.lock().unwrap();
+            guard.remove(&path).map(|entry| entry.latest_text)
+        };
+
+        if let Some(text) = text {
+            repository.handle_live_file_change(path, text).await;
+        }
+    })
 }
 
 #[tower_lsp::async_trait]
