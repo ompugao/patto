@@ -12,19 +12,19 @@ import {
 	LanguageClientOptions,
 	ServerOptions,
 	ExecuteCommandRequest,
+	State,
 } from 'vscode-languageclient/node';
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
-import { ChildProcess, spawn } from 'child_process';
 import { BinaryManager } from './binaryManager';
 
 let client: LanguageClient;
-let previewServer: ChildProcess | null = null;
 let previewPort: number | null = null;
 let previewPanel: vscode.WebviewPanel | null = null;
 let taskRefreshTimeout: NodeJS.Timeout | null = null;
+let previewLspClient: LanguageClient | null = null;
 
 // Helper function to find available port
 async function findAvailablePort(startPort: number = 3000, maxAttempts: number = 100): Promise<number | null> {
@@ -50,6 +50,7 @@ function checkPortAvailable(port: number): Promise<boolean> {
 	});
 }
 
+
 // Launch preview server
 async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel, command: string): Promise<number | null> {
 	const port = await findAvailablePort(3000);
@@ -57,39 +58,46 @@ async function launchPreviewServer(rootPath: string, outputChannel: OutputChanne
 		vscode.window.showErrorMessage('Could not find an available port for preview server');
 		return null;
 	}
-	
-	outputChannel.appendLine(`[patto] Launching preview server on port ${port} with command: ${command}`);
-	
-	try {
-		previewServer = spawn(command, ['--port', port.toString()], {
+
+	if (previewLspClient) {
+		await previewLspClient.stop().catch(() => undefined);
+		previewLspClient = null;
+	}
+
+	const serverExecutable: Executable = {
+		command,
+		args: ['--port', port.toString(), '--preview-lsp-stdio'],
+		options: {
 			cwd: rootPath,
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
+		},
+	};
+
+	const serverOptions: ServerOptions = serverExecutable;
+	const clientOptions: LanguageClientOptions = {
+		documentSelector: [{ language: 'patto' }],
+	};
+
+	previewLspClient = new LanguageClient('pattoPreview', 'Patto Preview', serverOptions, clientOptions);
+
+	const clientRef = previewLspClient;
+	clientRef.onDidChangeState((event) => {
+		if (event.newState === State.Stopped && previewLspClient === clientRef) {
+			previewLspClient = null;
+			previewPort = null;
+			outputChannel.appendLine('[patto] Preview server stopped');
+		}
+	});
+
+	try {
+		await previewLspClient.start();
+		outputChannel.appendLine(`[patto] Launching preview server on port ${port} with command: ${command}`);
 	} catch (error) {
-		vscode.window.showErrorMessage(
-			`Failed to launch patto-preview: ${error}\n\n` +
-			`Please try downloading it again or install manually.`
-		);
+		previewLspClient = null;
+		const message = `Failed to launch patto-preview: ${error}`;
+		outputChannel.appendLine(`[patto] ${message}`);
+		vscode.window.showErrorMessage(message);
 		return null;
 	}
-
-	if (previewServer.stdout) {
-		previewServer.stdout.on('data', (data) => {
-			outputChannel.appendLine(`[preview-server] ${data.toString()}`);
-		});
-	}
-
-	if (previewServer.stderr) {
-		previewServer.stderr.on('data', (data) => {
-			outputChannel.appendLine(`[preview-server] ${data.toString()}`);
-		});
-	}
-
-	previewServer.on('close', (code) => {
-		outputChannel.appendLine(`[preview-server] exited with code ${code}`);
-		previewServer = null;
-		previewPort = null;
-	});
 
 	previewPort = port;
 	return port;
@@ -97,11 +105,11 @@ async function launchPreviewServer(rootPath: string, outputChannel: OutputChanne
 
 // Stop preview server
 function stopPreviewServer() {
-	if (previewServer) {
-		previewServer.kill();
-		previewServer = null;
-		previewPort = null;
+	if (previewLspClient) {
+		previewLspClient.stop().catch(() => undefined);
+		previewLspClient = null;
 	}
+	previewPort = null;
 }
 
 export class TasksProvider implements vscode.TreeDataProvider<Task> {

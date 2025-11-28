@@ -106,9 +106,6 @@ Currently, `anchor` and `task` properties are implemented:
 
 * You will see 2-hop links of the current buffer with `:LspPattoTwoHopLinks` command (only in neovim, currently).
 
-### Neovim Configuration Options
-* `g:patto_enable_open_browser`: Set to `0` to disable automatic browser opening for the preview server (default: enabled)
-
 ## Installation
 ### Install lsp server
 Please download binaries from [GitHub release](https://github.com/ompugao/patto/releases)
@@ -144,10 +141,17 @@ call plug#end()
 
 lua << EOF
   require('patto')
-  require('lspconfig.configs').patto_lsp.setup({})
+  vim.lsp.config('patto_lsp', {}) -- for note management
+  vim.lsp.config('patto_preview', {}) -- for preview server
+  vim.lsp.enable({'patto_lsp', 'patto_preview'})
 EOF
 ```
+
 Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
+
+### Customization
+
+* `g:patto_enable_open_browser`: Set to `1` to enable automatic browser opening for the preview server (default: disabled)
 
 #### Optional: Integration with trouble.nvim
 For enhanced task viewing with deadline sorting and categorization:
@@ -167,6 +171,9 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 <img width="752" height="524" alt="image" src="https://github.com/user-attachments/assets/320d8f00-dd03-45e9-b58b-c5a900c25a3a" />
 
 ## Recent Updates
+### v0.2.7
+- **Improved Realtime Preview**: No need to save file for preview by sending content from editor to previewer via lsp.
+
 ### v0.2.6
 - **Enhanced diagnostic messages**: Human-readable error messages including examples and helpful hints for common parsing
     errors
