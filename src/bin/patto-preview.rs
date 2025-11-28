@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::fs;
+use tokio::sync::oneshot;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
@@ -57,6 +58,10 @@ struct Args {
     /// Optional TCP port for the preview LSP bridge
     #[arg(long)]
     preview_lsp_port: Option<u16>,
+
+    /// Serve the preview LSP bridge over stdio (overrides preview_lsp_port)
+    #[arg(long, default_value_t = false)]
+    preview_lsp_stdio: bool,
 }
 
 // App state
@@ -179,6 +184,21 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
     });
 
     Ok(())
+}
+
+fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()> {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+    let (tx, rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let (service, socket) =
+            LspService::new(|client| PreviewLspBackend::new(client, repository.clone()));
+        Server::new(stdin, stdout, socket).serve(service).await;
+        let _ = tx.send(());
+    });
+
+    rx
 }
 
 // WebSocket messages
@@ -319,7 +339,10 @@ async fn main() {
         }
     });
 
-    if let Some(lsp_port) = args.preview_lsp_port {
+    let mut shutdown_signal = None;
+    if args.preview_lsp_stdio {
+        shutdown_signal = Some(start_preview_lsp_stdio(repository.clone()));
+    } else if let Some(lsp_port) = args.preview_lsp_port {
         if let Err(e) = start_preview_lsp_server(repository.clone(), lsp_port).await {
             eprintln!("Failed to start preview LSP server: {}", e);
         }
@@ -343,7 +366,19 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", args.port))
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+
+    let server = axum::serve(listener, app);
+    if let Some(rx) = shutdown_signal {
+        server
+            .with_graceful_shutdown(async move {
+                let _ = rx.await;
+                println!("Preview LSP connection closed; shutting down server");
+            })
+            .await
+            .unwrap();
+    } else {
+        server.await.unwrap();
+    }
 }
 
 // Handler for the index page (Next.js app)
