@@ -124,6 +124,9 @@ This will install the following utilities:
 * `patto-markdown-renderer`: a format converter from patto note to markdown
 * `patto-html-renderer`: a format converter from patto note to html
 
+### Live preview without saving
+Launch `patto-preview` with the `--preview-lsp-port <PORT>` flag to expose an embedded LSP endpoint that accepts in-memory edits from your editor. The official VSCode extension now wires this up automatically, so your preview refreshes as you type; other editors can connect any LSP client to the specified TCP port to stream unsaved changes.
+
 ### Setup vim with vim-lsp (using vim-plug)
 ```vim
 call plug#begin()

@@ -25,6 +25,10 @@ let previewServer: ChildProcess | null = null;
 let previewPort: number | null = null;
 let previewPanel: vscode.WebviewPanel | null = null;
 let taskRefreshTimeout: NodeJS.Timeout | null = null;
+let previewBridgeClient: LanguageClient | null = null;
+let previewLspPort: number | null = null;
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // Helper function to find available port
 async function findAvailablePort(startPort: number = 3000, maxAttempts: number = 100): Promise<number | null> {
@@ -50,6 +54,48 @@ function checkPortAvailable(port: number): Promise<boolean> {
 	});
 }
 
+async function startPreviewBridge(port: number, outputChannel: OutputChannel): Promise<void> {
+	if (previewBridgeClient) {
+		await previewBridgeClient.stop();
+		previewBridgeClient = null;
+	}
+
+	const serverOptions: ServerOptions = () =>
+		new Promise((resolve, reject) => {
+			const socket = net.connect(port, '127.0.0.1', () => {
+				resolve({ reader: socket, writer: socket });
+			});
+			socket.on('error', reject);
+		});
+
+	const clientOptions: LanguageClientOptions = {
+		documentSelector: [{ language: 'patto' }],
+	};
+
+	previewBridgeClient = new LanguageClient(
+		'pattoPreviewBridge',
+		'Patto Preview Bridge',
+		serverOptions,
+		clientOptions
+	);
+
+	try {
+		await previewBridgeClient.start();
+		outputChannel.appendLine(`[patto] Connected preview bridge on port ${port}`);
+	} catch (error) {
+		previewBridgeClient = null;
+		throw error;
+	}
+}
+
+function stopPreviewBridge() {
+	if (previewBridgeClient) {
+		previewBridgeClient.stop().catch(() => undefined);
+		previewBridgeClient = null;
+	}
+	previewLspPort = null;
+}
+
 // Launch preview server
 async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel, command: string): Promise<number | null> {
 	const port = await findAvailablePort(3000);
@@ -57,11 +103,26 @@ async function launchPreviewServer(rootPath: string, outputChannel: OutputChanne
 		vscode.window.showErrorMessage('Could not find an available port for preview server');
 		return null;
 	}
-	
-	outputChannel.appendLine(`[patto] Launching preview server on port ${port} with command: ${command}`);
-	
+
+	let lspPort = await findAvailablePort(9250);
+	if (!lspPort) {
+		vscode.window.showErrorMessage('Could not find an available port for preview bridge');
+		return null;
+	}
+
+	if (lspPort === port) {
+		const nextPort = await findAvailablePort(lspPort + 1);
+		if (!nextPort) {
+			vscode.window.showErrorMessage('Could not find a distinct port for preview bridge');
+			return null;
+		}
+		lspPort = nextPort;
+	}
+
+	outputChannel.appendLine(`[patto] Launching preview server on port ${port} with bridge ${lspPort} using command: ${command}`);
+
 	try {
-		previewServer = spawn(command, ['--port', port.toString()], {
+		previewServer = spawn(command, ['--port', port.toString(), '--preview-lsp-port', lspPort.toString()], {
 			cwd: rootPath,
 			stdio: ['ignore', 'pipe', 'pipe']
 		});
@@ -89,9 +150,20 @@ async function launchPreviewServer(rootPath: string, outputChannel: OutputChanne
 		outputChannel.appendLine(`[preview-server] exited with code ${code}`);
 		previewServer = null;
 		previewPort = null;
+		stopPreviewBridge();
 	});
 
 	previewPort = port;
+	previewLspPort = lspPort;
+
+	await delay(500);
+	try {
+		await startPreviewBridge(lspPort, outputChannel);
+	} catch (error) {
+		outputChannel.appendLine(`[patto] Failed to connect preview bridge: ${error}`);
+		vscode.window.showWarningMessage('Patto preview live updates unavailable. Falling back to save events.');
+	}
+
 	return port;
 }
 
@@ -102,6 +174,7 @@ function stopPreviewServer() {
 		previewServer = null;
 		previewPort = null;
 	}
+	stopPreviewBridge();
 }
 
 export class TasksProvider implements vscode.TreeDataProvider<Task> {

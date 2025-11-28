@@ -582,6 +582,51 @@ impl Repository {
         }
     }
 
+    /// Broadcast a file change with provided content without relying on the filesystem watcher
+    pub async fn handle_live_file_change(&self, path: PathBuf, content: String) {
+        if !path.starts_with(&self.root_dir) {
+            return;
+        }
+
+        self.update_links_in_graph(&path, &content);
+
+        let back_links = self.calculate_back_links(&path);
+        let link_count = back_links
+            .iter()
+            .map(|back_link| back_link.locations.len() as u32)
+            .sum::<u32>();
+
+        let metadata = self
+            .collect_file_metadata(&path.clone())
+            .unwrap_or_else(|_| {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                FileMetadata {
+                    modified: now,
+                    created: now,
+                    link_count,
+                }
+            });
+
+        let two_hop_links = self.calculate_two_hop_links(&path).await;
+
+        let _ = self.tx.send(RepositoryMessage::FileChanged(
+            path.clone(),
+            metadata,
+            content,
+        ));
+        let _ = self.tx.send(RepositoryMessage::BackLinksChanged(
+            path.clone(),
+            back_links,
+        ));
+        let _ = self
+            .tx
+            .send(RepositoryMessage::TwoHopLinksChanged(path, two_hop_links));
+    }
+
     /// Start filesystem watcher for the repository
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
@@ -682,7 +727,6 @@ impl Repository {
 
                         let path_clone = path.clone();
                         let pending_changes_clone = Arc::clone(&pending_changes);
-                        let repo_tx_clone = repo_tx.clone();
                         let repository_clone = repository.clone();
 
                         tokio::spawn(async move {
@@ -709,46 +753,21 @@ impl Repository {
                                 else {
                                     return;
                                 };
-                                // Update the document graph with new content
-                                repository_clone.update_links_in_graph(&path_clone, &content);
-                                let metadata =
-                                    repository_clone.collect_file_metadata(&path_clone).unwrap();
 
-                                // TODO update and broadcast backlinks and two-hop links when other files are created/modified/removed
                                 let start = Instant::now();
-                                if let Ok(rel_path) = path.strip_prefix(&repository_clone.root_dir)
+                                repository_clone
+                                    .handle_live_file_change(path_clone.clone(), content)
+                                    .await;
+
+                                if let Ok(rel_path) =
+                                    path_clone.strip_prefix(&repository_clone.root_dir)
                                 {
-                                    // Update the repository's link graph
-                                    repository_clone.update_links_in_graph(&path, &content);
-
-                                    let back_links = repository_clone.calculate_back_links(&path);
-                                    // Calculate and send back-links and two-hop links for affected files
-                                    let _ = repository_clone.tx.send(
-                                        RepositoryMessage::BackLinksChanged(
-                                            path.clone(),
-                                            back_links,
-                                        ),
-                                    );
-
-                                    let two_hop_links =
-                                        repository_clone.calculate_two_hop_links(&path).await;
-                                    let _ = repository_clone.tx.send(
-                                        RepositoryMessage::TwoHopLinksChanged(
-                                            path.clone(),
-                                            two_hop_links,
-                                        ),
-                                    );
-
                                     println!(
                                         "File {} processed in {} ms",
                                         rel_path.display(),
                                         start.elapsed().as_millis()
                                     );
                                 }
-
-                                let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
-                                    path_clone, metadata, content,
-                                ));
                             }
                         });
                     }
