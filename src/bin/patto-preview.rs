@@ -170,7 +170,7 @@ impl LanguageServer for PreviewLspBackend {
 
 async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    println!("Preview LSP server listening on 127.0.0.1:{}", port);
+    eprintln!("Preview LSP server listening on 127.0.0.1:{}", port);
 
     tokio::spawn(async move {
         loop {
@@ -384,7 +384,7 @@ async fn main() {
         .with_state(state);
 
     // Start server
-    println!("Starting server at http://localhost:{}", args.port);
+    eprintln!("Starting server at http://localhost:{}", args.port);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", args.port))
         .await
         .unwrap();
@@ -659,7 +659,7 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl
 
 // Handle WebSocket connection
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    println!("WebSocket client connected");
+    eprintln!("WebSocket client connected");
 
     // Subscribe to broadcast channel
     let mut rx = state.repository.subscribe();
@@ -781,7 +781,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 match msg {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
                         if let Ok(WsMessage::SelectFile { path }) = serde_json::from_str(&text) {
-                            println!("Client selected file: {}", path);
+                            eprintln!("Client selected file: {}", path);
 
                             // Load and render the selected file
                             let file_path = state.repository.root_dir.join(&path);
@@ -842,7 +842,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         break;
                     },
                     None => {
-                        println!("WebSocket client disconnected");
+                        eprintln!("WebSocket client disconnected");
                         break;
                     }
                 }

@@ -650,7 +650,7 @@ impl Repository {
             std::thread::park();
         });
 
-        println!("Repository watching directory: {}", dir_display);
+        eprintln!("Repository watching directory: {}", dir_display);
 
         let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -762,7 +762,7 @@ impl Repository {
                                 if let Ok(rel_path) =
                                     path_clone.strip_prefix(&repository_clone.root_dir)
                                 {
-                                    println!(
+                                    eprintln!(
                                         "File {} processed in {} ms",
                                         rel_path.display(),
                                         start.elapsed().as_millis()
