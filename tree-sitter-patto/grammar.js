@@ -84,7 +84,7 @@ module.exports = grammar({
       $.identifier
     ),
 
-    identifier: _ => token(/[A-Za-z0-9\p{L}\-/:_=]+/u),
+    identifier: _ => token(/[A-Za-z0-9\p{L}\-/:_]+/u),
 
     quoted_string: _ => token(/"([^"\\]|\\.)*"/),
 
@@ -118,7 +118,7 @@ module.exports = grammar({
 
     expr_wiki_link: $ => seq('[', choice($.wiki_link_anchored, $.wiki_link, $.self_link_anchored), ']'),
     wiki_link_anchored: $ => seq($.wiki_link, $.expr_anchor),
-    wiki_link: _ => token(/[^@\[#\]\n][^\[#\]\n]*/),
+    wiki_link: _ => token(/[^@`$\[#\]\n][^\[#\]\n]*/),
     self_link_anchored: $ => $.expr_anchor,
 
     expr_url_link: $ => seq('[', choice($.expr_title_url, $.expr_url_title, $.expr_url_only, $.expr_url_url), ']'),
@@ -127,7 +127,7 @@ module.exports = grammar({
     expr_url_only: $ => $.URL,
     expr_url_url: $ => seq($.URL, repeat1($._WHITE_SPACE_INLINE), $.URL),
 
-    url_title: _ => token(/[^@\[\]\s#]+(?:\s+[^\[\]\s#]+)*/),
+    url_title: _ => token(/[^@`$#\[\]\s]+(?:\s+[^\[\]\s#`$]+)*/),
     URL: _ => token(/[A-Za-z]+:\/\/[A-Za-z0-9\p{L}:/#%$&?@!()~.=+*_\-]+/u),
 
     expr_local_file_link: $ => seq('[', choice($.expr_local_file_title, $.expr_title_local_file, $.expr_local_file_only), ']'),

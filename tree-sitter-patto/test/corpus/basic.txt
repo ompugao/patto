@@ -59,6 +59,160 @@ line
         (raw_sentence))))
 )
 
+========================
+Code command
+========================
+[@code rust]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command
+          (builtin_commands)
+          (parameter (identifier)))))))
+
+========================
+Code command without language
+========================
+[@code   ]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command
+          (builtin_commands))))))
+
+========================
+Indented code command with anchor and task
+========================
+		[@code なでしこ]   #anchor1 {@task status=todo due=2024-09-24}
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (raw_sentence)
+        (expr_command
+          (builtin_commands)
+          (parameter (identifier)))
+        (trailing_properties
+          (expr_anchor (anchor))
+          (expr_property
+            (property_name)
+            (property_assignment
+              (property_keyword_arg)
+              (property_keyword_value))
+            (property_assignment
+              (property_keyword_arg)
+              (property_keyword_value))))))))
+
+========================
+Math command
+========================
+[@math  ]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command
+          (builtin_commands))))))
+
+========================
+Table command with caption parameter
+========================
+[@table caption="test caption"]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command
+          (builtin_commands)
+          (parameter
+            (identifier)
+            (quoted_string)))))))
+
+========================
+Table command with quoted caption
+========================
+[@table "test caption"]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command
+          (builtin_commands)
+          (parameter
+            (quoted_string)))))))
+
+========================
+Anchored wiki link
+========================
+[test wiki_page#anchored]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_wiki_link
+          (wiki_link_anchored
+            (wiki_link)
+            (expr_anchor (anchor))))))))
+
+========================
+Self anchored link
+========================
+[#anchored]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_wiki_link
+          (self_link_anchored
+            (expr_anchor (anchor))))))))
+
+========================
+Image with URL
+========================
+[@img "img alt title" https://gyazo.com/path/to/icon.png]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_img
+          (img_body
+            (quoted_string)
+            (img_path (URL))))))))
+
+========================
+Image with local file path
+========================
+[@img ./path/to/image.png]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_img
+          (img_body
+            (img_path (local_file))))))))
+
 ========================================================================
 Test that expects an error, and will fail fast if there's no parse error
 :fail-fast
