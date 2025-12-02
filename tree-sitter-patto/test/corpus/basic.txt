@@ -1,0 +1,67 @@
+========================
+Basic wiki link
+========================
+[test note#anchor]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_wiki_link
+          (wiki_link_anchored
+            (wiki_link)
+            (expr_anchor (anchor))))))))
+========================
+Command with property
+========================
+[@code rust] #anchor {@task status=todo due=2024-12-31}
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command (builtin_commands) (parameter (identifier)))
+        (trailing_properties
+          (expr_anchor (anchor))
+          (expr_property (property_name)
+            (property_assignment (property_keyword_arg) (property_keyword_value))
+            (property_assignment (property_keyword_arg) (property_keyword_value))))))))
+========================
+Block command
+========================
+[@quote]
+	child
+
+	another child
+line
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_command (builtin_commands))))
+    (block_body
+      (line_with_newline
+        (line
+          (statement
+            (raw_sentence))))
+      (blank_line)
+      (line_with_newline
+        (line
+          (statement
+            (raw_sentence))))))
+  (line_with_newline
+    (line
+      (statement
+        (raw_sentence))))
+)
+
+========================================================================
+Test that expects an error, and will fail fast if there's no parse error
+:fail-fast
+:error
+========================================================================
+[@code
