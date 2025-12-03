@@ -1,0 +1,5 @@
+src/grammar.json
+src/node-types.json
+src/tree_sitter/
+src/parser.c
+patto.so
