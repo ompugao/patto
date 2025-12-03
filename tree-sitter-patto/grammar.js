@@ -76,7 +76,11 @@ module.exports = grammar({
       ']'
     )),
 
-    builtin_commands: $ => choice('code', 'math', 'quote', 'table'),
+    builtin_commands: $ => choice($.code_command, $.math_command, $.quote_command, $.table_command),
+    code_command: $ => 'code',
+    math_command: $ => 'math',
+    quote_command: $ => 'quote',
+    table_command: $ => 'table',
 
     parameter: $ => choice(
       seq($.identifier, '=', $.quoted_string),

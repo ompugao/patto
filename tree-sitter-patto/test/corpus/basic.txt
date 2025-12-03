@@ -13,6 +13,34 @@ Basic wiki link
             (wiki_link)
             (expr_anchor (anchor))))))))
 ========================
+Basic decorations
+========================
+[* strong]
+[/ italic]
+[_ underscore]
+
+---
+(document
+  (line_with_newline
+    (line
+      (statement
+        (expr_builtin_symbols
+          (builtin_symbol_list
+            (raw_sentence))))))
+  (line_with_newline
+    (line
+      (statement
+        (expr_builtin_symbols
+          (builtin_symbol_list
+            (raw_sentence))))))
+  (line_with_newline
+    (line
+      (statement
+        (expr_builtin_symbols
+          (builtin_symbol_list
+            (raw_sentence))))))
+)
+========================
 Command with property
 ========================
 [@code rust] #anchor {@task status=todo due=2024-12-31}
@@ -22,7 +50,7 @@ Command with property
   (line_with_newline
     (line
       (statement
-        (expr_command (builtin_commands) (parameter (identifier)))
+        (expr_command (builtin_commands (code_command)) (parameter (identifier)))
         (trailing_properties
           (expr_anchor (anchor))
           (expr_property (property_name)
@@ -42,7 +70,7 @@ line
   (line_with_newline
     (line
       (statement
-        (expr_command (builtin_commands))))
+        (expr_command (builtin_commands (quote_command)))))
     (block_body
       (line_with_newline
         (line
@@ -70,7 +98,7 @@ Code command
     (line
       (statement
         (expr_command
-          (builtin_commands)
+          (builtin_commands (code_command))
           (parameter (identifier)))))))
 
 ========================
@@ -84,7 +112,7 @@ Code command without language
     (line
       (statement
         (expr_command
-          (builtin_commands))))))
+          (builtin_commands (code_command)))))))
 
 ========================
 Indented code command with anchor and task
@@ -98,7 +126,7 @@ Indented code command with anchor and task
       (statement
         (raw_sentence)
         (expr_command
-          (builtin_commands)
+          (builtin_commands (code_command))
           (parameter (identifier)))
         (trailing_properties
           (expr_anchor (anchor))
@@ -122,7 +150,7 @@ Math command
     (line
       (statement
         (expr_command
-          (builtin_commands))))))
+          (builtin_commands (math_command)))))))
 
 ========================
 Table command with caption parameter
@@ -135,7 +163,7 @@ Table command with caption parameter
     (line
       (statement
         (expr_command
-          (builtin_commands)
+          (builtin_commands (table_command))
           (parameter
             (identifier)
             (quoted_string)))))))
@@ -151,7 +179,7 @@ Table command with quoted caption
     (line
       (statement
         (expr_command
-          (builtin_commands)
+          (builtin_commands (table_command))
           (parameter
             (quoted_string)))))))
 
