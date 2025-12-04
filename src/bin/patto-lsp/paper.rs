@@ -130,7 +130,10 @@ impl PaperCache {
         if let Some(parent) = self.cache_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let payload = PaperCacheFile { fetched_at, entries };
+        let payload = PaperCacheFile {
+            fetched_at,
+            entries,
+        };
         let json = serde_json::to_string_pretty(&payload)?;
         fs::write(&self.cache_path, json)
     }
