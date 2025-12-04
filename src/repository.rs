@@ -789,7 +789,8 @@ impl Repository {
                                         start.elapsed().as_millis()
                                     );
                                 }
-                                let link_count = repository_clone.calculate_back_links(&path_clone).len();
+                                let link_count =
+                                    repository_clone.calculate_back_links(&path_clone).len();
 
                                 let metadata = repository_clone
                                     .collect_file_metadata(&path_clone)
@@ -828,7 +829,12 @@ impl Repository {
     fn gather_tasks_from_ast(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
         if let AstNodeKind::Line { ref properties } = &parent.kind() {
             for prop in properties {
-                if let Property::Task { status, due, location: _location } = prop {
+                if let Property::Task {
+                    status,
+                    due,
+                    location: _location,
+                } = prop
+                {
                     if !matches!(status, TaskStatus::Done) {
                         tasklines.push((parent.clone(), due.clone()));
                         break;
