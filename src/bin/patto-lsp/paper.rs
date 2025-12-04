@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "zotero")]
 use log::debug;
 use serde::{Deserialize, Serialize};
-use serde_json;
 #[cfg(feature = "zotero")]
 use serde_json::Value;
 use std::env;
@@ -117,11 +116,18 @@ impl PaperCache {
     fn update_entries(&self, entries: Vec<PaperReference>, fetched_at: DateTime<Utc>) {
         *self.entries.write().unwrap() = entries.clone();
         *self.fetched_at.write().unwrap() = Some(fetched_at);
+        let num_entries = entries.len();
         if let Err(err) = self.persist(entries, fetched_at) {
             log::warn!(
                 "failed to persist paper cache file {}: {}",
                 self.cache_path.display(),
                 err
+            );
+        } else {
+            log::info!(
+                "Succeeded to persist {} paper cache file {}",
+                num_entries,
+                self.cache_path.display()
             );
         }
     }
