@@ -11,9 +11,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use patto::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
 use patto::repository::{Repository, RepositoryMessage};
-use patto::semantic_token::LEGEND_TYPE;
+use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -54,29 +55,34 @@ fn get_node_range(from: &AstNode) -> Range {
 
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
+    let translator = DiagnosticTranslator::default();
     let diagnostics: Vec<Diagnostic> = parse_errors
         .into_iter()
-        .map(|item| {
-            let (message, loc) = match item {
-                parser::ParserError::InvalidIndentation(loc) => {
-                    (format!("Invalid indentation:\n{}", loc), loc.clone())
-                }
-                parser::ParserError::ParseError(loc, mes) => {
-                    (format!("Failed to parse: {}", mes), loc.clone())
-                }
-            };
-
-            let start_position = Position::new(loc.row as u32, loc.span.0 as u32);
-            let end_position = Position::new(loc.row as u32, loc.span.1 as u32);
-            Diagnostic::new(
-                Range::new(start_position, end_position),
-                Some(DiagnosticSeverity::ERROR),
-                None,
-                None,
+        .map(|error| {
+            let location = error.location().clone();
+            let FriendlyDiagnostic {
                 message,
-                None,
-                None,
-            )
+                code,
+                code_description_uri,
+            } = translator.translate(&error);
+
+            let code_value = code.map(NumberOrString::String);
+            let code_description = code_description_uri
+                .and_then(|href| Url::parse(&href).ok())
+                .map(|href| CodeDescription { href });
+
+            Diagnostic {
+                range: Range::new(
+                    Position::new(location.row as u32, location.span.0 as u32),
+                    Position::new(location.row as u32, location.span.1 as u32),
+                ),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: code_value,
+                code_description,
+                source: Some("patto".into()),
+                message,
+                ..Diagnostic::default()
+            }
         })
         .collect();
     (ast, diagnostics)
@@ -85,7 +91,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Anchor { name } = prop {
+            if let Property::Anchor { name, .. } = prop {
                 anchors.push(name.to_string());
             }
         }
@@ -99,7 +105,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
 fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Task { status, due } = prop {
+            if let Property::Task { status, due, .. } = prop {
                 if !matches!(status, TaskStatus::Done) {
                     tasklines.push((parent.clone(), due.clone()));
                     break;
@@ -122,15 +128,18 @@ pub struct TaskInformation {
     pub text: String,
 
     pub message: String,
-    //pub due: Deadline,
+
+    /// The deadline of this task
+    pub due: Deadline,
 }
 
 impl TaskInformation {
-    pub fn new(location: Location, text: String, message: String) -> Self {
+    pub fn new(location: Location, text: String, message: String, due: Deadline) -> Self {
         Self {
             location,
             text,
             message,
+            due,
         }
     }
 }
@@ -138,7 +147,7 @@ impl TaskInformation {
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Anchor { name } = prop {
+            if let Property::Anchor { name, .. } = prop {
                 if name == anchor {
                     return Some(parent.clone());
                 }
@@ -228,37 +237,39 @@ impl Backend {
         if let Some(repo) = repo_guard.as_ref() {
             let mut rx = repo.subscribe();
             drop(repo_guard); // Release lock before async loop
-            
+
             let client = self.client.clone();
-            
+
             tokio::spawn(async move {
                 let token = NumberOrString::String("patto-scan".to_string());
                 let mut progress_active = false;
-                
+
                 while let Ok(msg) = rx.recv().await {
                     match msg {
                         RepositoryMessage::ScanStarted { total_files } => {
-                            let _ = client.send_notification::<notification::Progress>(
-                                ProgressParams {
+                            let _ = client
+                                .send_notification::<notification::Progress>(ProgressParams {
                                     token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(
-                                        WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                                        WorkDoneProgressBegin {
                                             title: "Scanning notes".to_string(),
                                             message: Some(format!("0/{} files", total_files)),
                                             percentage: Some(0),
                                             cancellable: Some(false),
-                                        })
-                                    ),
-                                }
-                            ).await;
+                                        },
+                                    )),
+                                })
+                                .await;
                             progress_active = true;
-                            
-                            client.log_message(
-                                MessageType::INFO,
-                                format!("Starting to scan {} patto files", total_files)
-                            ).await;
+
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("Starting to scan {} patto files", total_files),
+                                )
+                                .await;
                         }
-                        
+
                         RepositoryMessage::ScanProgress { scanned, total } => {
                             if progress_active {
                                 let percentage = if total > 0 {
@@ -266,43 +277,48 @@ impl Backend {
                                 } else {
                                     0
                                 };
-                                
-                                let _ = client.send_notification::<notification::Progress>(
-                                    ProgressParams {
+
+                                let _ = client
+                                    .send_notification::<notification::Progress>(ProgressParams {
                                         token: token.clone(),
                                         value: ProgressParamsValue::WorkDone(
                                             WorkDoneProgress::Report(WorkDoneProgressReport {
-                                                message: Some(format!("{}/{} files", scanned, total)),
+                                                message: Some(format!(
+                                                    "{}/{} files",
+                                                    scanned, total
+                                                )),
                                                 percentage: Some(percentage),
                                                 cancellable: Some(false),
-                                            })
+                                            }),
                                         ),
-                                    }
-                                ).await;
+                                    })
+                                    .await;
                             }
                         }
-                        
+
                         RepositoryMessage::ScanCompleted { total_files } => {
                             if progress_active {
-                                let _ = client.send_notification::<notification::Progress>(
-                                    ProgressParams {
+                                let _ = client
+                                    .send_notification::<notification::Progress>(ProgressParams {
                                         token: token.clone(),
                                         value: ProgressParamsValue::WorkDone(
                                             WorkDoneProgress::End(WorkDoneProgressEnd {
                                                 message: Some("Complete".to_string()),
-                                            })
+                                            }),
                                         ),
-                                    }
-                                ).await;
+                                    })
+                                    .await;
                                 progress_active = false;
                             }
-                            
-                            client.log_message(
-                                MessageType::INFO,
-                                format!("Scan completed: {} files indexed", total_files)
-                            ).await;
+
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("Scan completed: {} files indexed", total_files),
+                                )
+                                .await;
                         }
-                        
+
                         _ => {}
                     }
                 }
@@ -319,7 +335,7 @@ impl LanguageServer for Backend {
                 let mut backend_root_uri = self.root_uri.lock().unwrap();
                 *backend_root_uri = Some(root_uri.clone());
             } // Drop backend_root_uri here
-            
+
             if let Ok(path) = root_uri.to_file_path() {
                 self.client
                     .log_message(
@@ -333,7 +349,7 @@ impl LanguageServer for Backend {
                     let mut repo = self.repository.lock().unwrap();
                     *repo = Some(Repository::new(path));
                 } // Drop repo here
-                
+
                 // Start listening to repository messages (including scan progress)
                 self.start_repository_listener().await;
             }
@@ -381,6 +397,7 @@ impl LanguageServer for Backend {
                     commands: vec![
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
+                        "experimental/scan_workspace".to_string(),
                     ],
                     work_done_progress_options: Default::default(),
                 }),
@@ -397,7 +414,7 @@ impl LanguageServer for Backend {
                             text_document_registration_options: {
                                 TextDocumentRegistrationOptions {
                                     document_selector: Some(vec![DocumentFilter {
-                                        language: Some("pn".to_string()),
+                                        language: Some("patto".to_string()),
                                         scheme: Some("file".to_string()),
                                         pattern: None,
                                     }]),
@@ -419,7 +436,10 @@ impl LanguageServer for Backend {
                 // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(false)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -864,15 +884,13 @@ impl LanguageServer for Backend {
                 tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
                 let ret = json!(tasks
                     .iter()
-                    .map(|(uri, line, _due)| {
-                        //self.client.log_message(MessageType::INFO, format!("Task due on {}: {:?}", due, line)).await;
+                    .map(|(uri, line, due)| {
                         TaskInformation::new(
                             Location::new(uri.clone(), get_node_range(line)),
                             line.extract_str().trim_start().to_string(),
                             "".to_string(),
+                            due.clone(),
                         )
-                        //due.clone())
-                        //Location::new(Url::parse(uri).unwrap(), get_node_range(&line))
                     })
                     .collect::<Vec<_>>());
                 //self.client
@@ -1006,17 +1024,359 @@ impl LanguageServer for Backend {
                 log::debug!("node not found in the graph");
                 return None;
             };
-            //TODO record and use range
-            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-            log::debug!("references retrieved from graph");
-            Some(
-                node.iter_in()
-                    .map(|e| Location::new(e.source().key().clone(), start))
-                    .collect::<_>(),
-            )
+
+            let mut references = Vec::new();
+
+            // Iterate through all incoming edges
+            for edge in node.iter_in() {
+                let source_uri = edge.source().key();
+                let edge_data = edge.value();
+
+                // Get the rope for UTF-16 conversion
+                let source_rope = repo.document_map.get(source_uri);
+
+                // Create a Location for each link location
+                for link_loc in &edge_data.locations {
+                    // Get line content for UTF-16 conversion
+                    if let Some(rope) = source_rope.as_ref() {
+                        if let Some(line) = rope.value().get_line(link_loc.source_line) {
+                            if let Some(line_str) = line.as_str() {
+                                // Convert byte offsets to UTF-16 positions for LSP
+                                let start_char =
+                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
+                                        as u32;
+                                let end_char =
+                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
+                                        as u32;
+
+                                let range = Range::new(
+                                    Position::new(link_loc.source_line as u32, start_char),
+                                    Position::new(link_loc.source_line as u32, end_char),
+                                );
+                                references.push(Location::new(source_uri.clone(), range));
+                            }
+                        }
+                    }
+                }
+            }
+
+            log::debug!(
+                "references retrieved from graph: {} locations",
+                references.len()
+            );
+            Some(references)
         }
         .await;
         Ok(references)
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+
+        let result = || -> Option<SemanticTokensResult> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+
+            let ast = repo.ast_map.get(&uri)?;
+            let data = get_semantic_tokens(ast.value());
+
+            Some(SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: None,
+                data,
+            }))
+        }();
+
+        Ok(result)
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+
+        let result = || -> Option<SemanticTokensRangeResult> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+
+            let ast = repo.ast_map.get(&uri)?;
+            let data = get_semantic_tokens_range(
+                ast.value(),
+                params.range.start.line,
+                params.range.end.line,
+            );
+
+            Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
+                result_id: None,
+                data,
+            }))
+        }();
+
+        Ok(result)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+        let position = params.position;
+
+        let prepare_result = || -> Option<PrepareRenameResponse> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
+
+            // Try to find WikiLink at cursor
+            if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
+                for node in &node_route {
+                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
+                        // Return range of the link name (excluding anchor and brackets)
+                        // The node range includes brackets, we need to extract just the link text
+                        let loc = node.location();
+                        let link_start = loc.span.0 + 1; // Skip '['
+                        let link_end = link_start + link.len();
+
+                        let start_char = utf16_from_byte_idx(line_str, link_start) as u32;
+                        let end_char = utf16_from_byte_idx(line_str, link_end) as u32;
+
+                        let range = Range::new(
+                            Position::new(position.line, start_char),
+                            Position::new(position.line, end_char),
+                        );
+
+                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range,
+                            placeholder: link.to_string(),
+                        });
+                    }
+                }
+            }
+
+            // If not on a WikiLink, allow renaming the current file
+            // Get the file name from the URI
+            if let Ok(path) = uri.to_file_path() {
+                if let Some(file_stem) = path.file_stem() {
+                    if let Some(name) = file_stem.to_str() {
+                        // Return a synthetic range at the beginning of the file
+                        let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+
+                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range,
+                            placeholder: name.to_string(),
+                        });
+                    }
+                }
+            }
+
+            None
+        }();
+
+        Ok(prepare_result)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = Repository::normalize_url_percent_encoding(
+            &params.text_document_position.text_document.uri,
+        );
+        let position = params.text_document_position.position;
+        let new_name = params.new_name.trim();
+
+        // Validate new name
+        if new_name.is_empty() {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name cannot be empty".into(),
+                data: None,
+            });
+        }
+
+        if new_name.contains('/') || new_name.contains('\\') {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name cannot contain path separators".into(),
+                data: None,
+            });
+        }
+
+        if new_name.ends_with(".pn") {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
+                message: "Note name should not include .pn extension".into(),
+                data: None,
+            });
+        }
+
+        let rename_result = || -> Option<WorkspaceEdit> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+
+            // Find what's being renamed
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
+
+            let old_name = if let Some(node_route) =
+                locate_node_route(&ast, position.line as usize, posbyte)
+            {
+                // Find WikiLink in the route
+                node_route.iter().find_map(|node| {
+                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
+                        Some(link.clone())
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            // If no WikiLink found at cursor, rename the current file
+            let old_name = if let Some(name) = old_name {
+                name
+            } else {
+                // Get the current file name
+                if let Ok(path) = uri.to_file_path() {
+                    if let Some(file_stem) = path.file_stem() {
+                        if let Some(name) = file_stem.to_str() {
+                            name.to_string()
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            };
+
+            log::info!("Renaming note '{}' to '{}'", old_name, new_name);
+
+            // Check if new name conflicts
+            let root_uri = self.root_uri.lock().unwrap().as_ref().cloned()?;
+            if let Some(new_uri) = repo.link_to_uri(new_name, &root_uri) {
+                if let Ok(new_path) = new_uri.to_file_path() {
+                    if new_path.exists() {
+                        log::warn!("Target file already exists: {:?}", new_path);
+                        return None;
+                    }
+                }
+            }
+
+            // Find all references to the old note
+            let old_uri = repo.link_to_uri(&old_name, &root_uri)?;
+
+            // Check if the target file actually exists
+            if let Ok(old_path) = old_uri.to_file_path() {
+                if !old_path.exists() {
+                    log::warn!("Target file does not exist: {:?}", old_path);
+                    return None;
+                }
+            }
+
+            let mut document_changes = Vec::new();
+
+            // Collect all references and build text edits
+            if let Ok(graph) = repo.document_graph.lock() {
+                if let Some(target_node) = graph.get(&old_uri) {
+                    // Iterate through all incoming edges
+                    for edge in target_node.iter_in() {
+                        let source_uri = edge.source().key();
+                        let edge_data = edge.value();
+
+                        // Get source document rope for line access
+                        let source_rope = repo.document_map.get(source_uri)?;
+
+                        let mut edits = Vec::new();
+
+                        // Create TextEdit for each link location
+                        for link_loc in &edge_data.locations {
+                            if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
+                                if let Some(line_str) = line.as_str() {
+                                    // Build new link text preserving anchor
+                                    let new_link_text =
+                                        if let Some(ref anchor_name) = link_loc.target_anchor {
+                                            format!("[{}#{}]", new_name, anchor_name)
+                                        } else {
+                                            format!("[{}]", new_name)
+                                        };
+
+                                    // Convert byte offsets to UTF-16
+                                    let start_char =
+                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
+                                            as u32;
+                                    let end_char =
+                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
+                                            as u32;
+
+                                    let range = Range::new(
+                                        Position::new(link_loc.source_line as u32, start_char),
+                                        Position::new(link_loc.source_line as u32, end_char),
+                                    );
+
+                                    edits.push(OneOf::Left(TextEdit {
+                                        range,
+                                        new_text: new_link_text,
+                                    }));
+                                }
+                            }
+                        }
+
+                        if !edits.is_empty() {
+                            document_changes.push(DocumentChangeOperation::Edit(
+                                TextDocumentEdit {
+                                    text_document: OptionalVersionedTextDocumentIdentifier {
+                                        uri: source_uri.clone(),
+                                        version: None,
+                                    },
+                                    edits,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Add file rename operation
+            let new_uri = repo.link_to_uri(new_name, &root_uri)?;
+            document_changes.push(DocumentChangeOperation::Op(ResourceOp::Rename(
+                RenameFile {
+                    old_uri: old_uri.clone(),
+                    new_uri: new_uri.clone(),
+                    options: Some(RenameFileOptions {
+                        overwrite: Some(false),
+                        ignore_if_exists: Some(false),
+                    }),
+                    annotation_id: None,
+                },
+            )));
+
+            Some(WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(document_changes)),
+                ..Default::default()
+            })
+        }();
+
+        if rename_result.is_none() {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::InternalError,
+                message: "Failed to prepare rename operation".into(),
+                data: None,
+            });
+        }
+
+        Ok(rename_result)
     }
 }
 

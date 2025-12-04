@@ -5,9 +5,14 @@ augroup patto-language-server
 augroup END
 
 function! s:setup_server() abort
-    let s:msls_client_id = lsp#register_server({
+    let s:patto_client_id = lsp#register_server({
                 \ 'name': 'patto-lsp',
                 \ 'cmd': ['patto-lsp' ],
+                \ 'allowlist': ['patto'],
+                \ })
+    let s:patto_preview_client_id = lsp#register_server({
+                \ 'name': 'patto-preview',
+                \ 'cmd': ['patto-preview', '--preview-lsp-stdio'],
                 \ 'allowlist': ['patto'],
                 \ })
 endfunction

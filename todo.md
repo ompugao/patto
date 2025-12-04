@@ -16,7 +16,7 @@
     * [x] return all errors as diagnostics
     * [x] goto definition for hopping between notes
       * [x] support both [[note]] and [[note#anchor]]
-    * semantic tokens
+    * [x] semantic tokens
       * `overlappingTokenSupport` seems not supported broadly (only neovim and vscode, AFAIK)
     * [x] support note and anchor completion
     * [x] document references and anchor references
@@ -29,15 +29,16 @@
       * [x] nvim-lspconfig version
       * [x] vscode version
       * auto refresh
-    * [ ] note renaming
+    * [x] note renaming
       * vim-lsp does not support CreateFile/RenameFile/DeleteFile
         * [https://github.com/prabirshrestha/vim-lsp/issues/1371](https://github.com/prabirshrestha/vim-lsp/issues/1371)
       * yegappan/lsp supports these
     * [ ] anchor renaming
-    * [ ] make error.variant.message() user-friendly
+    * [x] make error.variant.message() user-friendly
     * [x] fix indentation error at a line after a block with trailing empty lines
-    * [ ] lsp server hangs sometimes
-    * [ ] link with location and fix lsp_references
+    * [x] lsp server hangs sometimes
+        * table parsing logic seems wrong?
+    * [x] link with location and fix lsp_references
   * Previewer
     * [x] realtime preview
     * [x] bugfix: id jump (including self-link)

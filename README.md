@@ -1,7 +1,9 @@
-# 🐙 Patto Note
+# Patto Note 🪽
 A simple plain-text format for quick note-taking, outlining, and task management, powered by language server.
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ompugao/patto)
+<img width="400" height="400" alt="patto_logo" src="https://github.com/user-attachments/assets/4dd09466-97af-46e9-badf-2fd793096de0" />
+
+<!-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ompugao/patto) -->
 
 ## Description
 Patto Note is a text format inspired by [Cosense (formerly Scrapbox)](https://scrapbox.io), designed for quick note-taking, task management, and outlining.
@@ -18,12 +20,15 @@ This simple, line-oriented structure makes it easy to outline ideas, organize ta
 * Task management with `line property` (please refer to the syntax section below)
 * Integrated vim plugin
 * Primary Language Server Protocol support
-    * asynchronous workspace scanning
+    * asynchronous workspace scanning with progress notifications
     * diagnostics
     * jumping between notes by go-to definition
-    * backlinks by find-references
+    * backlinks by find-references with precise location tracking
     * 2-hop links
     * note/anchor completion
+* Advanced task aggregation
+    * deadline-based sorting (Overdue, Today, This Week, etc.)
+    * [trouble.nvim](https://github.com/folke/trouble.nvim) integration for enhanced task viewing
 
 ## Syntax
 ```txt
@@ -137,31 +142,68 @@ call plug#end()
 
 lua << EOF
   require('patto')
-  require('lspconfig.configs').patto_lsp.setup({})
+  vim.lsp.config('patto_lsp', {}) -- for note management
+  vim.lsp.config('patto_preview', {}) -- for preview server
+  vim.lsp.enable({'patto_lsp', 'patto_preview'})
 EOF
 ```
+
 Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF-16 support has a bug in the current neovim stable v0.10.3. see https://github.com/neovim/neovim/issues/32105.
 
+### Customization
+
+* `g:patto_enable_open_browser`: Set to `1` to enable automatic browser opening for the preview server (default: disabled)
+
+#### Optional: Integration with trouble.nvim
+For enhanced task viewing with deadline sorting and categorization:
+```vim
+Plug 'folke/trouble.nvim'
+```
+
+After installing trouble.nvim, you can use:
+```vim
+:Trouble patto_tasks
+```
+This will display tasks organized by deadline categories (Overdue, Today, This Week, etc.) with automatic sorting.
+
 ### Setup vscode extension
-To be released.
+Released from v0.2.2. You can install from [HERE](https://marketplace.visualstudio.com/items?itemName=ompugao.patto-language-server), supporting content preview and task management.
+
+<img width="752" height="524" alt="image" src="https://github.com/user-attachments/assets/320d8f00-dd03-45e9-b58b-c5a900c25a3a" />
+
+## Recent Updates
+### v0.2.7
+- **Improved Realtime Preview**: No need to save file for preview by sending content from editor to previewer via lsp.
+
+### v0.2.6
+- **Enhanced diagnostic messages**: Human-readable error messages including examples and helpful hints for common parsing
+    errors
+- **Improved Neovim integration**: Enhanced trouble.nvim support with better task view formatting
+- Bugfix: the parser hangs when insufficiently indented lines exist after table command
+
+### v0.2.5
+* **Test Lsp features**: Add comprehensive tests for lsp server.
+
+### v0.2.4
+* **Lsp Renaming**: Add support for renaming notes
+* Add tests for LSP server
+
+### v0.2.3
+* Minor fix of vscode extension
+
+### v0.2.2
+* **Semantic Tokens**: patto-lsp now offers semantic highlighting.
+
+### v0.2.0
+* **Repository System**: New centralized repository management for improved performance and scalability
+* **Link Location Tracking**: Backlinks now include precise line and column locations
+* **Workspace Scanning**: Asynchronous scanning with progress notifications via LSP
+* **Task Management**: Advanced deadline-based sorting with trouble.nvim integration
+* **Table Support**: New `[@table]` block element for structured data
+* **Preview Enhancements**: WebSocket-based updates for backlinks and 2-hop links, file search in sidebar
+* **Rendering Improvements**: Better image and PDF support in preview, configurable hard line breaks in Markdown export
 
 ## Upcoming features:
-### parser
-* [x] link to local files
-
-### lsp
-* [x] document backlinks using find references
-    * [ ] file renaming keeping note connections
-    * [ ] anchor renaming
-* [x] 2-hop links
-* [ ] semantic tokens
-
-### renderer
-* [x] markdown export
-* [x] math expression rendering
-* [x] replace highlight.js with syntect
-
-### other todos
 please refer to [todo](./todo.md)
 
 ## FAQ
