@@ -164,14 +164,14 @@ Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF
 [zotero]
 user_id = "1234567"
 api_key = "zotero_api_key"
-endpoint = "http://127.0.0.1:23119/zotero/api" # optional: talk to local Zotero desktop
+endpoint = "http://127.0.0.1:23119/api" # optional: talk to local Zotero desktop
 ```
 
 (Uppercase keys such as `ZOTERO_USER_ID`/`ZOTERO_API_KEY`/`ZOTERO_ENDPOINT` are also accepted.)
 
 When configured, patto-lsp will log the Zotero connection status on startup and include matching papers as completion candidates in the form `paper title zotero://select/library/items/<ITEM_ID>`. Use the `endpoint` setting to target the Zotero desktop application's local API (default remains the public `https://api.zotero.org`).
 
-To keep completions fast even when the Zotero API is slow, patto-lsp periodically refreshes and stores the full paper list at `$XDG_CACHE_HOME/patto/zotero-papers.json` (or the platform-specific equivalent) and serves completion items from that cache.
+To keep completions fast even when the Zotero API is slow, patto-lsp periodically refreshes and stores the full paper list at `$XDG_CACHE_HOME/patto/paper-catalog.json` (or the platform-specific equivalent) and serves completion items from that cache.
 
 #### Optional: Integration with trouble.nvim
 For enhanced task viewing with deadline sorting and categorization:

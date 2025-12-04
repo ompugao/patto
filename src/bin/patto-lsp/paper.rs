@@ -1,5 +1,3 @@
-#[cfg(feature = "zotero")]
-use crate::lsp_config::ZoteroCredentials;
 use crate::lsp_config::{resolve_cache_file, PattoLspConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,26 +11,15 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-#[cfg(feature = "zotero")]
-use std::sync::Mutex;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
-#[cfg(feature = "zotero")]
 use tokio::time::{self, Duration};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-
 const DEFAULT_LIMIT: usize = 100000;
-#[cfg(feature = "zotero")]
-const HEALTHCHECK_LIMIT: usize = 1;
-#[cfg(feature = "zotero")]
-const ZOTERO_URL_PREFIX: &str = "zotero://select/library/items/";
-#[cfg(feature = "zotero")]
-const CACHE_REFRESH_INTERVAL_SECS: u64 = 60;
-const CACHE_FILE_NAME: &str = "zotero-papers.json";
-
-type DynPaperClient = dyn PaperClient + Send + Sync;
+const CACHE_REFRESH_INTERVAL_SECS: u64 = 600;
+const CACHE_FILE_NAME: &str = "paper-catalog.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperReference {
@@ -42,8 +29,8 @@ pub struct PaperReference {
 }
 
 #[derive(Debug, Error)]
-pub enum PaperClientError {
-    #[error("paper client is not configured")]
+pub enum PaperProviderError {
+    #[error("paper provider is not configured")]
     NotConfigured,
     #[cfg(not(feature = "zotero"))]
     #[error("paper integration feature \"{0}\" is disabled at compile time")]
@@ -53,30 +40,36 @@ pub enum PaperClientError {
     Zotero(#[from] zotero_rs::errors::ZoteroError),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct PaperCacheFile {
-    fetched_at: DateTime<Utc>,
-    entries: Vec<PaperReference>,
+#[async_trait]
+pub trait PaperProvider: Send + Sync {
+    fn name(&self) -> &'static str;
+    async fn health_check(&self) -> Result<(), PaperProviderError>;
+    async fn full_snapshot(&self) -> Result<Vec<PaperReference>, PaperProviderError>;
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PaperReference>, PaperProviderError>;
 }
 
+type DynPaperProvider = dyn PaperProvider + Send + Sync;
+
 #[derive(Debug)]
-struct PaperCacheState {
+struct PaperCache {
     entries: RwLock<Vec<PaperReference>>,
     fetched_at: RwLock<Option<DateTime<Utc>>>,
     cache_path: PathBuf,
-    #[cfg(feature = "zotero")]
     refresh_started: Mutex<bool>,
 }
 
-impl PaperCacheState {
-    fn new(cache_path: PathBuf) -> Self {
-        Self {
+impl PaperCache {
+    fn new(cache_path: PathBuf) -> Arc<Self> {
+        Arc::new(Self {
             entries: RwLock::new(Vec::new()),
             fetched_at: RwLock::new(None),
             cache_path,
-            #[cfg(feature = "zotero")]
             refresh_started: Mutex::new(false),
-        }
+        })
     }
 
     fn load_from_disk(&self) {
@@ -88,7 +81,7 @@ impl PaperCacheState {
                 }
                 Err(err) => {
                     log::warn!(
-                        "failed to parse Zotero cache file {}: {}",
+                        "failed to parse paper cache file {}: {}",
                         self.cache_path.display(),
                         err
                     );
@@ -97,7 +90,7 @@ impl PaperCacheState {
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => {
                 log::warn!(
-                    "failed to read Zotero cache file {}: {}",
+                    "failed to read paper cache file {}: {}",
                     self.cache_path.display(),
                     err
                 );
@@ -121,47 +114,37 @@ impl PaperCacheState {
             .collect()
     }
 
-    #[cfg(feature = "zotero")]
     fn update_entries(&self, entries: Vec<PaperReference>, fetched_at: DateTime<Utc>) {
         *self.entries.write().unwrap() = entries.clone();
         *self.fetched_at.write().unwrap() = Some(fetched_at);
-        if let Err(err) = self.persist_owned(entries, fetched_at) {
+        if let Err(err) = self.persist(entries, fetched_at) {
             log::warn!(
-                "failed to persist Zotero cache file {}: {}",
+                "failed to persist paper cache file {}: {}",
                 self.cache_path.display(),
                 err
             );
         }
     }
 
-    #[cfg(feature = "zotero")]
-    fn persist_owned(
-        &self,
-        entries: Vec<PaperReference>,
-        fetched_at: DateTime<Utc>,
-    ) -> io::Result<()> {
+    fn persist(&self, entries: Vec<PaperReference>, fetched_at: DateTime<Utc>) -> io::Result<()> {
         if let Some(parent) = self.cache_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let payload = PaperCacheFile {
-            fetched_at,
-            entries,
-        };
+        let payload = PaperCacheFile { fetched_at, entries };
         let json = serde_json::to_string_pretty(&payload)?;
         fs::write(&self.cache_path, json)
     }
 
-    #[cfg(feature = "zotero")]
-    fn spawn_refresh_loop(self: &Arc<Self>, client: Arc<DynPaperClient>) {
+    fn spawn_refresh_loop(self: &Arc<Self>, provider: Arc<DynPaperProvider>) {
         let mut started = self.refresh_started.lock().unwrap();
         if *started {
             return;
         }
         *started = true;
-        let state = Arc::clone(self);
+        let cache = Arc::clone(self);
         tokio::spawn(async move {
             loop {
-                if let Err(err) = state.refresh_once(client.clone()).await {
+                if let Err(err) = cache.refresh_once(provider.clone()).await {
                     log::warn!("paper cache refresh failed: {}", err);
                 }
                 time::sleep(Duration::from_secs(CACHE_REFRESH_INTERVAL_SECS)).await;
@@ -169,133 +152,113 @@ impl PaperCacheState {
         });
     }
 
-    #[cfg(feature = "zotero")]
-    async fn refresh_once(&self, client: Arc<DynPaperClient>) -> Result<(), PaperClientError> {
-        let entries = client.fetch_all_items().await?;
-        let now = Utc::now();
-        self.update_entries(entries, now);
+    async fn refresh_once(
+        &self,
+        provider: Arc<DynPaperProvider>,
+    ) -> Result<(), PaperProviderError> {
+        let snapshot = provider.full_snapshot().await?;
+        self.update_entries(snapshot, Utc::now());
         Ok(())
     }
 }
 
-#[async_trait]
-pub trait PaperClient: Send + Sync {
-    async fn health_check(&self) -> Result<(), PaperClientError>;
-    async fn search(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<PaperReference>, PaperClientError>;
-    #[cfg(feature = "zotero")]
-    async fn fetch_all_items(&self) -> Result<Vec<PaperReference>, PaperClientError>;
-    fn provider_name(&self) -> &'static str;
+#[derive(Debug, Serialize, Deserialize)]
+struct PaperCacheFile {
+    fetched_at: DateTime<Utc>,
+    entries: Vec<PaperReference>,
 }
 
 #[derive(Clone)]
-pub struct PaperClientManager {
-    client: Option<Arc<DynPaperClient>>,
-    cache: Arc<PaperCacheState>,
+pub struct PaperCatalog {
+    provider: Option<Arc<DynPaperProvider>>,
+    cache: Arc<PaperCache>,
 }
 
-impl Default for PaperClientManager {
+impl Default for PaperCatalog {
     fn default() -> Self {
-        let cache = Self::build_cache_state();
-        Self {
-            client: None,
-            cache,
-        }
+        PaperCatalog::from_config(None)
+            .expect("paper catalog default initialization should not fail")
     }
 }
 
-impl PaperClientManager {
-    fn build_cache_state() -> Arc<PaperCacheState> {
+impl PaperCatalog {
+    pub fn from_config(config: Option<&PattoLspConfig>) -> Result<Self, PaperProviderError> {
         let cache_path = resolve_cache_file(CACHE_FILE_NAME).unwrap_or_else(|err| {
             log::warn!(
-                "failed to resolve Zotero cache directory via XDG: {}, falling back to temp dir",
+                "failed to resolve paper cache directory via XDG: {}, using temp dir",
                 err
             );
             env::temp_dir().join(CACHE_FILE_NAME)
         });
-        let state = Arc::new(PaperCacheState::new(cache_path));
-        state.load_from_disk();
-        state
-    }
+        let cache = PaperCache::new(cache_path);
+        cache.load_from_disk();
 
-    pub fn from_config(config: Option<&PattoLspConfig>) -> Result<Self, PaperClientError> {
-        let cache = Self::build_cache_state();
-        let Some(cfg) = config else {
-            return Ok(Self {
-                client: None,
-                cache,
-            });
-        };
-        let Some(credentials) = cfg.zotero_credentials() else {
-            return Ok(Self {
-                client: None,
-                cache,
-            });
-        };
+        #[allow(unused_mut)]
+        let mut provider: Option<Arc<DynPaperProvider>> = None;
 
-        #[cfg(feature = "zotero")]
-        {
-            let client: Arc<DynPaperClient> = Arc::new(ZoteroPaperClient::new(credentials)?);
-            cache.spawn_refresh_loop(client.clone());
-            return Ok(Self {
-                client: Some(client),
-                cache,
-            });
+        if let Some(cfg) = config {
+            #[cfg(feature = "zotero")]
+            {
+                if let Some(credentials) = cfg.zotero_credentials() {
+                    provider = Some(Arc::new(ZoteroPaperProvider::new(credentials)?));
+                }
+            }
+
+            #[cfg(not(feature = "zotero"))]
+            {
+                if cfg.zotero_credentials().is_some() {
+                    return Err(PaperProviderError::FeatureDisabled("zotero"));
+                }
+            }
         }
 
-        #[cfg(not(feature = "zotero"))]
-        {
-            let _ = credentials;
-            return Err(PaperClientError::FeatureDisabled("zotero"));
+        if let Some(provider) = &provider {
+            cache.spawn_refresh_loop(provider.clone());
         }
+
+        Ok(Self { provider, cache })
     }
 
     pub fn is_configured(&self) -> bool {
-        self.client.is_some()
+        self.provider.is_some()
     }
 
     pub fn provider_name(&self) -> Option<&'static str> {
-        self.client.as_ref().map(|client| client.provider_name())
+        self.provider.as_ref().map(|provider| provider.name())
     }
 
-    pub async fn health_check(&self) -> Result<(), PaperClientError> {
-        if let Some(client) = &self.client {
-            client.health_check().await
+    pub async fn health_check(&self) -> Result<(), PaperProviderError> {
+        if let Some(provider) = &self.provider {
+            provider.health_check().await
         } else {
-            Err(PaperClientError::NotConfigured)
+            Err(PaperProviderError::NotConfigured)
         }
     }
 
-    pub async fn search(&self, query: &str) -> Result<Vec<PaperReference>, PaperClientError> {
+    pub async fn search(&self, query: &str) -> Result<Vec<PaperReference>, PaperProviderError> {
         let trimmed = query.trim();
-        let cached = self.filter_cached(trimmed);
+
+        let cached = self.cache.search(trimmed, DEFAULT_LIMIT);
         if !cached.is_empty() || self.cache.last_updated().is_some() {
             return Ok(cached);
         }
 
-        if let Some(client) = &self.client {
-            client.search(trimmed, DEFAULT_LIMIT).await
+        if let Some(provider) = &self.provider {
+            provider.search(trimmed, DEFAULT_LIMIT).await
         } else {
-            Err(PaperClientError::NotConfigured)
+            Err(PaperProviderError::NotConfigured)
         }
-    }
-
-    fn filter_cached(&self, query: &str) -> Vec<PaperReference> {
-        self.cache.search(query, DEFAULT_LIMIT)
     }
 }
 
 #[cfg(feature = "zotero")]
-struct ZoteroPaperClient {
+struct ZoteroPaperProvider {
     inner: zotero_rs::ZoteroAsync,
 }
 
 #[cfg(feature = "zotero")]
-impl ZoteroPaperClient {
-    fn new(credentials: ZoteroCredentials) -> Result<Self, PaperClientError> {
+impl ZoteroPaperProvider {
+    fn new(credentials: crate::lsp_config::ZoteroCredentials) -> Result<Self, PaperProviderError> {
         let mut client =
             zotero_rs::ZoteroAsync::user_lib(&credentials.user_id, &credentials.api_key)?;
         if let Some(endpoint) = credentials.endpoint.as_deref() {
@@ -308,15 +271,15 @@ impl ZoteroPaperClient {
         &self,
         query: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<PaperReference>, PaperClientError> {
+    ) -> Result<Vec<PaperReference>, PaperProviderError> {
         let mut owned_params = vec![
-            ("limit".to_string(), limit.to_string()),
             ("sort".to_string(), "dateAdded".to_string()),
             ("direction".to_string(), "desc".to_string()),
         ];
 
         if let Some(q) = query.filter(|q| !q.trim().is_empty()) {
             owned_params.push(("q".to_string(), q.to_string()));
+            owned_params.push(("limit".to_string(), limit.to_string()));
         }
 
         let borrowed_params: Vec<(&str, &str)> = owned_params
@@ -336,39 +299,35 @@ impl ZoteroPaperClient {
 
 #[cfg(feature = "zotero")]
 #[async_trait]
-impl PaperClient for ZoteroPaperClient {
-    async fn health_check(&self) -> Result<(), PaperClientError> {
-        let _ = self.fetch_items(None, HEALTHCHECK_LIMIT).await?;
+impl PaperProvider for ZoteroPaperProvider {
+    fn name(&self) -> &'static str {
+        "zotero"
+    }
+
+    async fn health_check(&self) -> Result<(), PaperProviderError> {
+        let _ = self.fetch_items(None, 1).await?;
         Ok(())
+    }
+
+    async fn full_snapshot(&self) -> Result<Vec<PaperReference>, PaperProviderError> {
+        let raw_items = self.inner.get_items(None).await?;
+        Ok(extract_references(&raw_items))
     }
 
     async fn search(
         &self,
         query: &str,
         limit: usize,
-    ) -> Result<Vec<PaperReference>, PaperClientError> {
+    ) -> Result<Vec<PaperReference>, PaperProviderError> {
         let items = self.fetch_items(Some(query), limit).await?;
-        debug!("fetched {} papers from Zotero", items.len());
+        debug!("fetched {} papers from {}", items.len(), self.name());
         Ok(items)
-    }
-
-    async fn fetch_all_items(&self) -> Result<Vec<PaperReference>, PaperClientError> {
-        let raw_items = self.inner.get_items(None).await?;
-        let entries = extract_references(&raw_items);
-        debug!(
-            "cached {} Zotero papers via background refresh",
-            entries.len()
-        );
-        Ok(entries)
-    }
-
-    fn provider_name(&self) -> &'static str {
-        "zotero"
     }
 }
 
 #[cfg(feature = "zotero")]
 fn extract_references(value: &Value) -> Vec<PaperReference> {
+    const ZOTERO_URL_PREFIX: &str = "zotero://select/library/items/";
     value
         .as_array()
         .map(|items| {
@@ -393,4 +352,10 @@ fn extract_references(value: &Value) -> Vec<PaperReference> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(not(feature = "zotero"))]
+#[allow(dead_code)]
+fn extract_references(_: &serde_json::Value) -> Vec<PaperReference> {
+    vec![]
 }

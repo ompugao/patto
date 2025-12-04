@@ -11,7 +11,7 @@ use urlencoding::decode;
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
 use lsp_config::load_config;
-use paper::{PaperClientError, PaperClientManager};
+use paper::{PaperCatalog, PaperProviderError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_lsp::jsonrpc::Result;
@@ -31,7 +31,7 @@ struct Backend {
     client: Client,
     repository: Arc<Mutex<Option<Repository>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
-    paper_manager: PaperClientManager,
+    paper_catalog: PaperCatalog,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
@@ -596,7 +596,7 @@ impl Backend {
     }
 
     async fn paper_completion_items(&self, query: &str, range: &Range) -> Vec<CompletionItem> {
-        match self.paper_manager.search(query).await {
+        match self.paper_catalog.search(query).await {
             Ok(papers) => papers
                 .into_iter()
                 .map(|paper| CompletionItem {
@@ -611,7 +611,7 @@ impl Backend {
                     ..Default::default()
                 })
                 .collect(),
-            Err(PaperClientError::NotConfigured) => Vec::new(),
+            Err(PaperProviderError::NotConfigured) => Vec::new(),
             Err(err) => {
                 log::warn!("paper completion failed: {}", err);
                 Vec::new()
@@ -744,9 +744,9 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "patto-lsp server initialized!")
             .await;
 
-        if self.paper_manager.is_configured() {
+        if self.paper_catalog.is_configured() {
             let client = self.client.clone();
-            let manager = self.paper_manager.clone();
+            let manager = self.paper_catalog.clone();
             let provider_label = manager
                 .provider_name()
                 .unwrap_or("paper client")
@@ -1391,24 +1391,25 @@ async fn main() {
         }
     };
 
-    let paper_manager = match PaperClientManager::from_config(config.as_ref()) {
+    let paper_catalog = match PaperCatalog::from_config(config.as_ref()) {
         Ok(manager) => manager,
         Err(err) => {
-            log::warn!("Paper client configuration error: {}", err);
-            PaperClientManager::default()
+            log::warn!("Paper provider configuration error: {}", err);
+            PaperCatalog::default()
         }
     };
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
+    let shared_catalog = paper_catalog.clone();
     let (service, socket) = LspService::new(move |client| {
         let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
         Backend {
             client,
             repository,
             root_uri: Arc::new(Mutex::new(None)),
-            paper_manager,
+            paper_catalog: shared_catalog.clone(),
         }
     });
     log::info!("Patto Language Server Protocol started");
