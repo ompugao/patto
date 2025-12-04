@@ -111,16 +111,19 @@ pub fn load_config() -> Result<Option<ConfigLoadResult>, ConfigError> {
         path: path.clone(),
     })?;
 
-    let config: PattoLspConfig = toml::from_str(&config_text).map_err(|source| ConfigError::Parse {
-        source,
-        path: path.clone(),
-    })?;
+    let config: PattoLspConfig =
+        toml::from_str(&config_text).map_err(|source| ConfigError::Parse {
+            source,
+            path: path.clone(),
+        })?;
 
     Ok(Some(ConfigLoadResult { config, path }))
 }
 
 pub fn resolve_config_path() -> Result<PathBuf, ConfigError> {
-    Ok(config_home_dir()?.join(CONFIG_NAMESPACE).join(CONFIG_FILENAME))
+    Ok(config_home_dir()?
+        .join(CONFIG_NAMESPACE)
+        .join(CONFIG_FILENAME))
 }
 
 fn config_home_dir() -> Result<PathBuf, ConfigError> {

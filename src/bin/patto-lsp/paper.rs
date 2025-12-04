@@ -40,7 +40,11 @@ pub enum PaperClientError {
 #[async_trait]
 pub trait PaperClient: Send + Sync {
     async fn health_check(&self) -> Result<(), PaperClientError>;
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<PaperReference>, PaperClientError>;
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PaperReference>, PaperClientError>;
     fn provider_name(&self) -> &'static str;
 }
 
@@ -156,7 +160,11 @@ impl PaperClient for ZoteroPaperClient {
         Ok(())
     }
 
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<PaperReference>, PaperClientError> {
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PaperReference>, PaperClientError> {
         let items = self.fetch_items(Some(query), limit).await?;
         debug!("fetched {} papers from Zotero", items.len());
         Ok(items)

@@ -348,12 +348,14 @@ impl Backend {
             let line = rope.value().get_line(position.line as usize)?;
             let line_str = line.as_str()?;
 
-            let cur_col = line.byte_to_char(utf16_to_byte_idx(line_str, position.character as usize));
+            let cur_col =
+                line.byte_to_char(utf16_to_byte_idx(line_str, position.character as usize));
             let prev_col = cur_col.saturating_sub(1);
             let c = line.char(prev_col);
             if c == '#' {
                 let slice = line.slice(..cur_col);
-                if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[')
+                if let Some(foundbracket) =
+                    slice.chars_at(cur_col).reversed().position(|c| c == '[')
                 {
                     let maybelink = slice.len_chars().saturating_sub(foundbracket);
                     let s = line.slice(maybelink..prev_col).as_str()?;
@@ -388,7 +390,12 @@ impl Backend {
             if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
                 let maybelink = slicelen.saturating_sub(foundbracket);
                 let s = line.slice(maybelink..cur_col).as_str()?;
-                log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
+                log::debug!(
+                    "matching {}, from {}, found at {}",
+                    s,
+                    maybelink,
+                    foundbracket
+                );
 
                 if let Some(root_uri_str) = self
                     .root_uri
@@ -399,7 +406,8 @@ impl Backend {
                 {
                     let baselen = root_uri_str.to_string_lossy().len();
                     let matcher = SkimMatcherV2::default();
-                    let start_char = utf16_from_byte_idx(line_str, line.char_to_byte(maybelink)) as u32;
+                    let start_char =
+                        utf16_from_byte_idx(line_str, line.char_to_byte(maybelink)) as u32;
                     let replacement_range = Range {
                         start: Position {
                             line: position.line,
@@ -577,8 +585,10 @@ impl Backend {
         }
 
         if let Some((mut files, replacement_range, query)) = deferred {
-            let mut papers = self.paper_completion_items(&query, &replacement_range).await;
-            log::info!("{} papers found",papers.len());
+            let mut papers = self
+                .paper_completion_items(&query, &replacement_range)
+                .await;
+            log::info!("{} papers found", papers.len());
             files.append(&mut papers);
             return Some(files);
         }
@@ -597,7 +607,7 @@ impl Backend {
                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         new_text: format!("{} {}", paper.title, paper.link),
-                        range
+                        range,
                     })),
                     ..Default::default()
                 })
