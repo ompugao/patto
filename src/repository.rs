@@ -723,7 +723,7 @@ impl Repository {
                             rel_path.to_path_buf(),
                             metadata,
                         ));
-                        
+
                         // Broadcast updated tasks
                         let tasks = repository.aggregate_tasks();
                         let _ = repo_tx.send(RepositoryMessage::TasksUpdated { tasks });
@@ -733,9 +733,9 @@ impl Repository {
                         };
                         // Remove from graph
                         repository.remove_file_from_graph(&path);
-                        let _ = repo_tx
-                            .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
-                        
+                        let _ =
+                            repo_tx.send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+
                         // Broadcast updated tasks
                         let tasks = repository.aggregate_tasks();
                         let _ = repo_tx.send(RepositoryMessage::TasksUpdated { tasks });
@@ -792,10 +792,11 @@ impl Repository {
                                 let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
                                     path_clone, metadata, content,
                                 ));
-                                
+
                                 // Broadcast updated tasks
                                 let tasks = repository_clone.aggregate_tasks();
-                                let _ = repo_tx_clone.send(RepositoryMessage::TasksUpdated { tasks });
+                                let _ =
+                                    repo_tx_clone.send(RepositoryMessage::TasksUpdated { tasks });
                             }
                         });
                     }
@@ -833,25 +834,34 @@ impl Repository {
             Self::gather_tasks_from_ast(entry.value(), &mut tasklines);
 
             for (line, due) in tasklines {
-                let file_path = entry.key().to_file_path().ok()
+                let file_path = entry
+                    .key()
+                    .to_file_path()
+                    .ok()
                     .and_then(|p| p.strip_prefix(&self.root_dir).ok().map(|p| p.to_path_buf()))
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
 
                 let line_text = line.extract_str().trim_start().to_string();
-                
+
                 let status = if let AstNodeKind::Line { ref properties } = &line.kind() {
-                    properties.iter().find_map(|prop| {
-                        if let Property::Task { status, .. } = prop {
-                            Some(match status {
-                                TaskStatus::Todo => "Todo",
-                                TaskStatus::Doing => "Doing",
-                                TaskStatus::Done => "Done",
-                            }.to_string())
-                        } else {
-                            None
-                        }
-                    }).unwrap_or_else(|| "Todo".to_string())
+                    properties
+                        .iter()
+                        .find_map(|prop| {
+                            if let Property::Task { status, .. } = prop {
+                                Some(
+                                    match status {
+                                        TaskStatus::Todo => "Todo",
+                                        TaskStatus::Doing => "Doing",
+                                        TaskStatus::Done => "Done",
+                                    }
+                                    .to_string(),
+                                )
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| "Todo".to_string())
                 } else {
                     "Todo".to_string()
                 };
@@ -877,13 +887,11 @@ impl Repository {
         });
 
         // Sort by deadline
-        tasks.sort_by(|a, b| {
-            match (&a.deadline, &b.deadline) {
-                (Some(d1), Some(d2)) => d1.cmp(d2),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.file_path.cmp(&b.file_path),
-            }
+        tasks.sort_by(|a, b| match (&a.deadline, &b.deadline) {
+            (Some(d1), Some(d2)) => d1.cmp(d2),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.file_path.cmp(&b.file_path),
         });
 
         tasks

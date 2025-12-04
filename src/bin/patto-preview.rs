@@ -696,7 +696,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Send initial task list
     let tasks = state.repository.aggregate_tasks();
     let tasks_message = WsMessage::TasksUpdated { tasks };
-    
+
     if let Ok(json) = serde_json::to_string(&tasks_message) {
         if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
             eprintln!("Error sending initial tasks: {}", e);
