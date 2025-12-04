@@ -749,6 +749,7 @@ impl Repository {
                         let pending_changes_clone = Arc::clone(&pending_changes);
                         let repository_clone = repository.clone();
 
+                        let repo_tx_clone = repo_tx.clone();
                         tokio::spawn(async move {
                             sleep(debounce_duration).await;
 
@@ -776,7 +777,7 @@ impl Repository {
 
                                 let start = Instant::now();
                                 repository_clone
-                                    .handle_live_file_change(path_clone.clone(), content)
+                                    .handle_live_file_change(path_clone.clone(), content.clone())
                                     .await;
 
                                 if let Ok(rel_path) =
@@ -788,6 +789,22 @@ impl Repository {
                                         start.elapsed().as_millis()
                                     );
                                 }
+                                let link_count = repository_clone.calculate_back_links(&path_clone).len();
+
+                                let metadata = repository_clone
+                                    .collect_file_metadata(&path_clone)
+                                    .unwrap_or_else(|_| {
+                                        let now = SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+
+                                        FileMetadata {
+                                            modified: now,
+                                            created: now,
+                                            link_count: link_count.try_into().unwrap(),
+                                        }
+                                    });
 
                                 let _ = repo_tx_clone.send(RepositoryMessage::FileChanged(
                                     path_clone, metadata, content,
@@ -811,7 +828,7 @@ impl Repository {
     fn gather_tasks_from_ast(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
         if let AstNodeKind::Line { ref properties } = &parent.kind() {
             for prop in properties {
-                if let Property::Task { status, due } = prop {
+                if let Property::Task { status, due, location: _location } = prop {
                     if !matches!(status, TaskStatus::Done) {
                         tasklines.push((parent.clone(), due.clone()));
                         break;
