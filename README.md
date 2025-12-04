@@ -154,6 +154,23 @@ Note: we recommend neovim@nightly for non-ascii notes since PositionEncoding UTF
 
 * `g:patto_enable_open_browser`: Set to `1` to enable automatic browser opening for the preview server (default: disabled)
 
+#### Zotero integration (experimental)
+`patto-lsp` can suggest entries from your Zotero library while completing `[` links when it is built with the `zotero` cargo feature (e.g. `cargo install patto --features zotero`).
+
+1. Create a config file at `$XDG_CONFIG_HOME/patto/patto-lsp.toml` (defaults to `~/.config/patto/patto-lsp.toml`).
+2. Provide your credentials:
+
+```toml
+[zotero]
+user_id = "1234567"
+api_key = "zotero_api_key"
+endpoint = "http://127.0.0.1:23119/zotero/api" # optional: talk to local Zotero desktop
+```
+
+(Uppercase keys such as `ZOTERO_USER_ID`/`ZOTERO_API_KEY`/`ZOTERO_ENDPOINT` are also accepted.)
+
+When configured, patto-lsp will log the Zotero connection status on startup and include matching papers as completion candidates in the form `paper title zotero://select/library/items/<ITEM_ID>`. Use the `endpoint` setting to target the Zotero desktop application's local API (default remains the public `https://api.zotero.org`).
+
 #### Optional: Integration with trouble.nvim
 For enhanced task viewing with deadline sorting and categorization:
 ```vim

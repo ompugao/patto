@@ -1,3 +1,8 @@
+#[path = "patto-lsp/lsp_config.rs"]
+mod lsp_config;
+#[path = "patto-lsp/paper.rs"]
+mod paper;
+
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -5,6 +10,8 @@ use urlencoding::decode;
 
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
+use lsp_config::load_config;
+use paper::{PaperClientError, PaperClientManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_lsp::jsonrpc::Result;
@@ -24,6 +31,7 @@ struct Backend {
     client: Client,
     repository: Arc<Mutex<Option<Repository>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
+    paper_manager: PaperClientManager,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
@@ -325,6 +333,282 @@ impl Backend {
             });
         }
     }
+
+    async fn gather_completion_items(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<Vec<CompletionItem>> {
+        let mut deferred: Option<(Vec<CompletionItem>, Range, String)> = None;
+
+        {
+            let repo_guard = self.repository.lock().unwrap();
+            let repo = repo_guard.as_ref()?;
+            let rope = repo.document_map.get(uri)?;
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+
+            let cur_col = line.byte_to_char(utf16_to_byte_idx(line_str, position.character as usize));
+            let prev_col = cur_col.saturating_sub(1);
+            let c = line.char(prev_col);
+            if c == '#' {
+                let slice = line.slice(..cur_col);
+                if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[')
+                {
+                    let maybelink = slice.len_chars().saturating_sub(foundbracket);
+                    let s = line.slice(maybelink..prev_col).as_str()?;
+                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
+                    let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
+                        log::debug!("root_uri is not set");
+                        return None;
+                    };
+                    let linkuri = repo.link_to_uri(s, &root_uri).unwrap_or(uri.clone());
+                    log::debug!("linkuri: {}", linkuri);
+                    if let Some(ast) = repo.ast_map.get(&linkuri) {
+                        let mut anchors = vec![];
+                        gather_anchors(ast.value(), &mut anchors);
+                        return Some(
+                            anchors
+                                .iter()
+                                .map(|anchor| CompletionItem {
+                                    label: format!("#{}", anchor),
+                                    kind: Some(CompletionItemKind::REFERENCE),
+                                    filter_text: Some(anchor.to_string()),
+                                    insert_text: Some(anchor.to_string()),
+                                    ..Default::default()
+                                })
+                                .collect(),
+                        );
+                    }
+                }
+            }
+
+            let slice = line.slice(..cur_col);
+            let slicelen = slice.len_chars();
+            if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
+                let maybelink = slicelen.saturating_sub(foundbracket);
+                let s = line.slice(maybelink..cur_col).as_str()?;
+                log::debug!("matching {}, from {}, found at {}", s, maybelink, foundbracket);
+
+                if let Some(root_uri_str) = self
+                    .root_uri
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|root_uri| root_uri.to_file_path().ok())
+                {
+                    let baselen = root_uri_str.to_string_lossy().len();
+                    let matcher = SkimMatcherV2::default();
+                    let start_char = utf16_from_byte_idx(line_str, line.char_to_byte(maybelink)) as u32;
+                    let replacement_range = Range {
+                        start: Position {
+                            line: position.line,
+                            character: start_char,
+                        },
+                        end: position,
+                    };
+
+                    let files: Vec<CompletionItem> = repo
+                        .document_map
+                        .iter()
+                        .filter_map(|e| {
+                            let mut path = decode(
+                                &e.key().to_file_path().unwrap().to_string_lossy()[baselen + 1..],
+                            )
+                            .unwrap()
+                            .to_string();
+                            if path.ends_with(".pn") {
+                                path = path.strip_suffix(".pn").unwrap().to_string();
+                            }
+                            if matcher.fuzzy_match(&path, s).is_some() {
+                                return Some(CompletionItem {
+                                    label: path.clone(),
+                                    detail: Some(path.clone()),
+                                    kind: Some(CompletionItemKind::FILE),
+                                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                        new_text: path.clone(),
+                                        range: replacement_range,
+                                    })),
+                                    ..Default::default()
+                                });
+                            }
+                            None
+                        })
+                        .collect();
+
+                    deferred = Some((files, replacement_range, s.to_string()));
+                }
+            }
+
+            let slice = line.slice(..cur_col);
+            let slicelen = slice.len_chars();
+            if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
+                let maybecommand = slicelen.saturating_sub(foundat);
+                let s = line.slice(maybecommand..cur_col).as_str()?;
+                log::debug!(
+                    "command? {}, from {}, found at {}",
+                    s,
+                    maybecommand,
+                    foundat
+                );
+                match s {
+                    "@code" => {
+                        let item = CompletionItem {
+                            label: "@code".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("code command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                new_text: "[@code ${1:lang}]$0".to_string(),
+                                range: Range {
+                                    start: Position {
+                                        line: position.line,
+                                        character: utf16_from_byte_idx(
+                                            line_str,
+                                            line.char_to_byte(maybecommand),
+                                        ) as u32,
+                                    },
+                                    end: position,
+                                },
+                            })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    }
+                    "@math" => {
+                        let item = CompletionItem {
+                            label: "@math".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("math command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                new_text: "[@math]$0".to_string(),
+                                range: Range {
+                                    start: Position {
+                                        line: position.line,
+                                        character: utf16_from_byte_idx(
+                                            line_str,
+                                            line.char_to_byte(maybecommand),
+                                        ) as u32,
+                                    },
+                                    end: position,
+                                },
+                            })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    }
+                    "@quote" => {
+                        let item = CompletionItem {
+                            label: "@quote".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("quote command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                new_text: "[@quote]$0".to_string(),
+                                range: Range {
+                                    start: Position {
+                                        line: position.line,
+                                        character: utf16_from_byte_idx(
+                                            line_str,
+                                            line.char_to_byte(maybecommand),
+                                        ) as u32,
+                                    },
+                                    end: position,
+                                },
+                            })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    }
+                    "@img" => {
+                        let item = CompletionItem {
+                            label: "@img".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("img command".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
+                                range: Range {
+                                    start: Position {
+                                        line: position.line,
+                                        character: utf16_from_byte_idx(
+                                            line_str,
+                                            line.char_to_byte(maybecommand),
+                                        ) as u32,
+                                    },
+                                    end: position,
+                                },
+                            })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    }
+                    "@task" => {
+                        let item = CompletionItem {
+                            label: "@task".to_string(),
+                            kind: Some(CompletionItemKind::SNIPPET),
+                            detail: Some("task property".to_string()),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                                new_text: format!(
+                                    "{{@task status=${{1:todo}} due=${{2:{}}}}}$0",
+                                    chrono::Local::now().format("%Y-%m-%d")
+                                ),
+                                range: Range {
+                                    start: Position {
+                                        line: position.line,
+                                        character: utf16_from_byte_idx(
+                                            line_str,
+                                            line.char_to_byte(maybecommand),
+                                        ) as u32,
+                                    },
+                                    end: position,
+                                },
+                            })),
+                            ..Default::default()
+                        };
+                        return Some(vec![item]);
+                    }
+                    &_ => {}
+                }
+            }
+        }
+
+        if let Some((mut files, replacement_range, query)) = deferred {
+            let mut papers = self.paper_completion_items(&query, &replacement_range).await;
+            log::info!("{} papers found",papers.len());
+            files.append(&mut papers);
+            return Some(files);
+        }
+
+        None
+    }
+
+    async fn paper_completion_items(&self, query: &str, range: &Range) -> Vec<CompletionItem> {
+        match self.paper_manager.search(query).await {
+            Ok(papers) => papers
+                .into_iter()
+                .map(|paper| CompletionItem {
+                    label: paper.title.clone(),
+                    detail: Some(format!("Zotero · {}", paper.title)),
+                    kind: Some(CompletionItemKind::REFERENCE),
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        new_text: format!("{} {}", paper.title, paper.link),
+                        range
+                    })),
+                    ..Default::default()
+                })
+                .collect(),
+            Err(PaperClientError::NotConfigured) => Vec::new(),
+            Err(err) => {
+                log::warn!("paper completion failed: {}", err);
+                Vec::new()
+            }
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -450,6 +734,35 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "patto-lsp server initialized!")
             .await;
+
+        if self.paper_manager.is_configured() {
+            let client = self.client.clone();
+            let manager = self.paper_manager.clone();
+            let provider_label = manager
+                .provider_name()
+                .unwrap_or("paper client")
+                .to_string();
+            tokio::spawn(async move {
+                match manager.health_check().await {
+                    Ok(_) => {
+                        client
+                            .log_message(
+                                MessageType::INFO,
+                                format!("Connected to {}", provider_label),
+                            )
+                            .await;
+                    }
+                    Err(err) => {
+                        client
+                            .log_message(
+                                MessageType::WARNING,
+                                format!("{} connection error: {}", provider_label, err),
+                            )
+                            .await;
+                    }
+                }
+            });
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -500,361 +813,7 @@ impl LanguageServer for Backend {
             &params.text_document_position.text_document.uri,
         );
         let position = params.text_document_position.position;
-        let completions = || -> Option<Vec<CompletionItem>> {
-            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
-                let rope = repo.document_map.get(&uri)?;
-                // NOTE: trigger_character is not supported by vim-lsp.
-                // we manually consider the context.
-                // if let Some(context) = params.context {
-                //     match context.trigger_character.as_deref() {
-                //         Some("[") => {
-                //             if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                //                 let files = self.document_map.iter().map(|e| {
-                //                     let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-                //                     if path.ends_with(".pn") {
-                //                         path = path.strip_suffix(".pn").unwrap().to_string();
-                //                     }
-                //                     CompletionItem {
-                //                         label: path.clone(),
-                //                         kind: Some(CompletionItemKind::FILE),
-                //                         filter_text: Some(path.clone()),
-                //                         insert_text: Some(path),
-                //                         ..Default::default()
-                //                     }
-                //                 })
-                //                 .collect();
-                //                 return Some(files);
-                //             }
-                //         }
-                //         Some("@") => {
-                //             let commands = vec!["code", "math", "table", "quote", "img"];
-                //             let completions = commands
-                //                 .iter()
-                //                 .map(|x| {
-                //                     let command = x.to_string();
-                //                     CompletionItem {
-                //                         label: command.clone(),
-                //                         kind: Some(CompletionItemKind::FUNCTION),
-                //                         filter_text: Some(command.clone()),
-                //                         insert_text: Some(command),
-                //                         ..Default::default()
-                //                     }
-                //                 })
-                //                 .collect();
-                //             return Some(completions);
-                //         }
-                //         _ => {
-
-                //         }
-                //     }
-                // }
-
-                // match line.char((position.character as usize).saturating_sub(1)) {
-                //     '[' => {
-                //         if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref() {
-                //             let files = self.document_map.iter().map(|e| {
-                //                 let mut path = decode(&e.key()[root_uri.to_string().len()+1..]).unwrap().to_string();
-                //                 if path.ends_with(".pn") {
-                //                     path = path.strip_suffix(".pn").unwrap().to_string();
-                //                 }
-                //                 CompletionItem {
-                //                     label: path.clone(),
-                //                     kind: Some(CompletionItemKind::FILE),
-                //                     filter_text: Some(path.clone()),
-                //                     insert_text: Some(path),
-                //                     ..Default::default()
-                //                 }
-                //             })
-                //             .collect();
-                //             return Some(files);
-                //         }
-                //     },
-                //     c => {
-                //         //log::info!("{}", c);
-                //     }
-                // }
-
-                let line = rope.get_line(position.line as usize)?;
-                let cur_col = line.byte_to_char(utf16_to_byte_idx(
-                    line.as_str()?,
-                    position.character as usize,
-                ));
-                let prev_col = cur_col.saturating_sub(1);
-                //let prev_col_byte = line.char_to_byte(prev_col);
-                let c = line.char(prev_col);
-                if c == '#' {
-                    let slice = line.slice(..cur_col);
-                    if let Some(foundbracket) =
-                        slice.chars_at(cur_col).reversed().position(|c| c == '[')
-                    {
-                        let maybelink = slice.len_chars().saturating_sub(foundbracket); // -1 since the cursor at first points to the end of the line `\n`.
-                        let s = line.slice(maybelink..prev_col).as_str()?;
-                        log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-                        let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
-                            log::debug!("root_uri is not set");
-                            return None;
-                        };
-                        let linkuri = repo.link_to_uri(s, &root_uri).unwrap_or(uri);
-                        log::debug!("linkuri: {}", linkuri);
-                        if let Some(ast) = repo.ast_map.get(&linkuri) {
-                            let mut anchors = vec![];
-                            gather_anchors(ast.value(), &mut anchors);
-                            return Some(
-                                anchors
-                                    .iter()
-                                    .map(|anchor| CompletionItem {
-                                        label: format!("#{}", anchor),
-                                        kind: Some(CompletionItemKind::REFERENCE),
-                                        filter_text: Some(anchor.to_string()),
-                                        insert_text: Some(anchor.to_string()),
-                                        ..Default::default()
-                                    })
-                                    .collect(),
-                            );
-                        }
-                    }
-                }
-
-                let slice = line.slice(..cur_col);
-                let slicelen = slice.len_chars();
-                if let Some(foundbracket) =
-                    slice.chars_at(cur_col).reversed().position(|c| c == '[')
-                {
-                    let maybelink = slicelen.saturating_sub(foundbracket);
-                    let s = line.slice(maybelink..cur_col).as_str()?;
-                    log::debug!(
-                        "matching {}, from {}, found at {}",
-                        s,
-                        maybelink,
-                        foundbracket
-                    );
-
-                    //if let Some(root_uri) = self.root_uri.lock().unwrap().as_ref()
-                    if let Some(root_uri_str) = self
-                        .root_uri
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .and_then(|root_uri| root_uri.to_file_path().ok())
-                    {
-                        let baselen = root_uri_str.to_string_lossy().len();
-                        let matcher = SkimMatcherV2::default();
-                        let files = repo
-                            .document_map
-                            .iter()
-                            .filter_map(|e| {
-                                //// this is a bit slow
-                                //let Some(mut path) = uri_to_link(&e.key(), &root_uri) else {
-                                //    return None;
-                                //};
-                                let mut path = decode(
-                                    &e.key().to_file_path().unwrap().to_string_lossy()
-                                        [baselen + 1..],
-                                )
-                                .unwrap()
-                                .to_string();
-                                if path.ends_with(".pn") {
-                                    path = path.strip_suffix(".pn").unwrap().to_string();
-                                }
-                                if matcher.fuzzy_match(&path, s).is_some() {
-                                    return Some(CompletionItem {
-                                        label: path.clone(),
-                                        detail: Some(path.clone()),
-                                        kind: Some(CompletionItemKind::FILE),
-                                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                                        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                            new_text: path.clone(),
-                                            range: Range {
-                                                start: Position {
-                                                    line: position.line,
-                                                    character: utf16_from_byte_idx(
-                                                        line.as_str()?,
-                                                        line.char_to_byte(maybelink),
-                                                    )
-                                                        as u32,
-                                                },
-                                                end: Position {
-                                                    line: position.line,
-                                                    character: position.character,
-                                                },
-                                            },
-                                        })),
-                                        ..Default::default()
-                                    });
-                                }
-                                None
-                            })
-                            .collect();
-                        //log::info!("files: {:?}", files);
-                        return Some(files);
-                    }
-                }
-
-                // `line.slice(..position.character as usize).chars().reversed().position(|c| c == '@') { ...` does not work,
-                // because, in ropery, iterator is a cursor, and `reversed` just changes the moving direction and does not move its position at the end of the elements.
-                // see https://docs.rs/ropey/latest/ropey/iter/index.html#a-possible-point-of-confusion
-                //     https://github.com/cessen/ropey/issues/93
-                let slice = line.slice(..cur_col);
-                let slicelen = slice.len_chars();
-                if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
-                    // `chars_at` puts the cursor at the end of the line.
-                    let maybecommand = slicelen.saturating_sub(foundat); // -1 since the cursor at first points to the end of the line `\n`.
-                    let s = line.slice(maybecommand..cur_col).as_str()?;
-                    log::debug!(
-                        "command? {}, from {}, found at {}",
-                        s,
-                        maybecommand,
-                        foundat
-                    );
-                    match s {
-                        "@code" => {
-                            let item = CompletionItem {
-                                label: "@code".to_string(),
-                                kind: Some(CompletionItemKind::SNIPPET),
-                                detail: Some("code command".to_string()),
-                                //insert_text: Some("[@code ${1:lang}]$0".to_string()),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                    new_text: "[@code ${1:lang}]$0".to_string(),
-                                    range: Range {
-                                        start: Position {
-                                            line: position.line,
-                                            character: utf16_from_byte_idx(
-                                                line.as_str()?,
-                                                line.char_to_byte(maybecommand),
-                                            )
-                                                as u32,
-                                        },
-                                        end: Position {
-                                            line: position.line,
-                                            character: position.character,
-                                        },
-                                    },
-                                })),
-                                ..Default::default()
-                            };
-                            return Some(vec![item]);
-                        }
-                        "@math" => {
-                            let item = CompletionItem {
-                                label: "@math".to_string(),
-                                kind: Some(CompletionItemKind::SNIPPET),
-                                detail: Some("math command".to_string()),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                    new_text: "[@math]$0".to_string(),
-                                    range: Range {
-                                        start: Position {
-                                            line: position.line,
-                                            character: utf16_from_byte_idx(
-                                                line.as_str()?,
-                                                line.char_to_byte(maybecommand),
-                                            )
-                                                as u32,
-                                        },
-                                        end: Position {
-                                            line: position.line,
-                                            character: position.character,
-                                        },
-                                    },
-                                })),
-                                ..Default::default()
-                            };
-                            return Some(vec![item]);
-                        }
-                        "@quote" => {
-                            let item = CompletionItem {
-                                label: "@quote".to_string(),
-                                kind: Some(CompletionItemKind::SNIPPET),
-                                detail: Some("quote command".to_string()),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                    new_text: "[@quote]$0".to_string(),
-                                    range: Range {
-                                        start: Position {
-                                            line: position.line,
-                                            character: utf16_from_byte_idx(
-                                                line.as_str()?,
-                                                line.char_to_byte(maybecommand),
-                                            )
-                                                as u32,
-                                        },
-                                        end: Position {
-                                            line: position.line,
-                                            character: position.character,
-                                        },
-                                    },
-                                })),
-                                ..Default::default()
-                            };
-                            return Some(vec![item]);
-                        }
-                        "@img" => {
-                            let item = CompletionItem {
-                                label: "@img".to_string(),
-                                kind: Some(CompletionItemKind::SNIPPET),
-                                detail: Some("img command".to_string()),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                    new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
-                                    range: Range {
-                                        start: Position {
-                                            line: position.line,
-                                            character: utf16_from_byte_idx(
-                                                line.as_str()?,
-                                                line.char_to_byte(maybecommand),
-                                            )
-                                                as u32,
-                                        },
-                                        end: Position {
-                                            line: position.line,
-                                            character: position.character,
-                                        },
-                                    },
-                                })),
-                                ..Default::default()
-                            };
-                            return Some(vec![item]);
-                        }
-                        "@task" => {
-                            let item = CompletionItem {
-                                label: "@task".to_string(),
-                                kind: Some(CompletionItemKind::SNIPPET),
-                                detail: Some("task property".to_string()),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                    new_text: format!(
-                                        "{{@task status=${{1:todo}} due=${{2:{}}}}}$0",
-                                        chrono::Local::now().format("%Y-%m-%d")
-                                    ), // T%H:%M:%S
-                                    range: Range {
-                                        start: Position {
-                                            line: position.line,
-                                            character: utf16_from_byte_idx(
-                                                line.as_str()?,
-                                                line.char_to_byte(maybecommand),
-                                            )
-                                                as u32,
-                                        },
-                                        end: Position {
-                                            line: position.line,
-                                            character: position.character,
-                                        },
-                                    },
-                                })),
-                                ..Default::default()
-                            };
-                            return Some(vec![item]);
-                        }
-                        &_ => {}
-                    }
-                }
-                None
-            } else {
-                None
-            }
-        }();
-        //log::debug!("completions: {:?}", completions);
+        let completions = self.gather_completion_items(&uri, position).await;
         Ok(completions.map(CompletionResponse::Array))
     }
 
@@ -1410,15 +1369,37 @@ fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
 async fn main() {
     let args = Cli::parse();
     init_logger(args.verbose.log_level_filter(), args.debuglogfile);
+
+    let config = match load_config() {
+        Ok(Some(result)) => {
+            log::info!("Loaded patto-lsp config from {}", result.path.display());
+            Some(result.config)
+        }
+        Ok(None) => None,
+        Err(err) => {
+            log::warn!("Failed to load patto-lsp config: {}", err);
+            None
+        }
+    };
+
+    let paper_manager = match PaperClientManager::from_config(config.as_ref()) {
+        Ok(manager) => manager,
+        Err(err) => {
+            log::warn!("Paper client configuration error: {}", err);
+            PaperClientManager::default()
+        }
+    };
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| {
+    let (service, socket) = LspService::new(move |client| {
         let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
         Backend {
             client,
             repository,
             root_uri: Arc::new(Mutex::new(None)),
+            paper_manager,
         }
     });
     log::info!("Patto Language Server Protocol started");
