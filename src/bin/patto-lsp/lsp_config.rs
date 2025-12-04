@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, io, path::PathBuf};
 use thiserror::Error;
 
 const CONFIG_NAMESPACE: &str = "patto";
@@ -126,6 +126,10 @@ pub fn resolve_config_path() -> Result<PathBuf, ConfigError> {
         .join(CONFIG_FILENAME))
 }
 
+pub fn resolve_cache_file(filename: &str) -> io::Result<PathBuf> {
+    Ok(cache_home_dir()?.join(CONFIG_NAMESPACE).join(filename))
+}
+
 fn config_home_dir() -> Result<PathBuf, ConfigError> {
     if let Some(dir) = env::var_os("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(dir));
@@ -146,4 +150,29 @@ fn config_home_dir() -> Result<PathBuf, ConfigError> {
     }
 
     Err(ConfigError::MissingConfigDir)
+}
+
+fn cache_home_dir() -> io::Result<PathBuf> {
+    if let Some(dir) = env::var_os("XDG_CACHE_HOME") {
+        return Ok(PathBuf::from(dir));
+    }
+
+    #[cfg(windows)]
+    if let Some(dir) = env::var_os("LOCALAPPDATA") {
+        return Ok(PathBuf::from(dir));
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        return Ok(PathBuf::from(home).join(".cache"));
+    }
+
+    #[cfg(windows)]
+    if let Some(profile) = env::var_os("USERPROFILE") {
+        return Ok(PathBuf::from(profile).join("AppData").join("Local"));
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "unable to determine cache directory",
+    ))
 }

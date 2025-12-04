@@ -171,6 +171,8 @@ endpoint = "http://127.0.0.1:23119/zotero/api" # optional: talk to local Zotero 
 
 When configured, patto-lsp will log the Zotero connection status on startup and include matching papers as completion candidates in the form `paper title zotero://select/library/items/<ITEM_ID>`. Use the `endpoint` setting to target the Zotero desktop application's local API (default remains the public `https://api.zotero.org`).
 
+To keep completions fast even when the Zotero API is slow, patto-lsp periodically refreshes and stores the full paper list at `$XDG_CACHE_HOME/patto/zotero-papers.json` (or the platform-specific equivalent) and serves completion items from that cache.
+
 #### Optional: Integration with trouble.nvim
 For enhanced task viewing with deadline sorting and categorization:
 ```vim

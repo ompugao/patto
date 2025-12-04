@@ -588,7 +588,6 @@ impl Backend {
             let mut papers = self
                 .paper_completion_items(&query, &replacement_range)
                 .await;
-            log::info!("{} papers found", papers.len());
             files.append(&mut papers);
             return Some(files);
         }
@@ -607,7 +606,7 @@ impl Backend {
                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         new_text: format!("{} {}", paper.title, paper.link),
-                        range,
+                        range: range.clone(),
                     })),
                     ..Default::default()
                 })
