@@ -761,7 +761,7 @@ impl LanguageServer for Backend {
                 match manager.health_check().await {
                     Ok(_) => {
                         client
-                            .log_message(
+                            .show_message(
                                 MessageType::INFO,
                                 format!("Connected to {}", provider_label),
                             )
@@ -769,9 +769,9 @@ impl LanguageServer for Backend {
                     }
                     Err(err) => {
                         client
-                            .log_message(
+                            .show_message(
                                 MessageType::WARNING,
-                                format!("{} connection error: {}", provider_label, err),
+                                format!("Failed to connect to {}: {}", provider_label, err),
                             )
                             .await;
                     }
