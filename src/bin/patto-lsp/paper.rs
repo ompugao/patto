@@ -352,6 +352,11 @@ fn extract_references(value: &Value) -> Vec<PaperReference> {
                     if key.is_empty() {
                         return None;
                     }
+                    let item_type = data.get("itemType")?.as_str()?.trim();
+                    if item_type == "attachment" {
+                        // filter raw attachment files
+                        return None;
+                    }
                     Some(PaperReference {
                         title: title.to_string(),
                         key: key.to_string(),
