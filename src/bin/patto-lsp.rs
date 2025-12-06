@@ -614,6 +614,12 @@ impl Backend {
             Err(PaperProviderError::NotConfigured) => Vec::new(),
             Err(err) => {
                 log::warn!("paper completion failed: {}", err);
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        &format!("paper completion failed: {}", err),
+                    )
+                    .await;
                 Vec::new()
             }
         }
