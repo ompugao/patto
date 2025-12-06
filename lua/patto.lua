@@ -182,6 +182,16 @@ return {
     end, {
       desc = 'Scan the workspace',
     })
+
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoSnapshotPapers', function()
+      vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
+        command = 'patto/snapshotPapers',
+        arguments = {},
+      }, function(results, _ctx, _config)
+      end)
+    end, {
+      desc = 'Take a snapshot of papers',
+    })
   end,
 
   docs = {

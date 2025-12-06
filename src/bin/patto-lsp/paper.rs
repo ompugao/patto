@@ -161,7 +161,7 @@ impl PaperCache {
         });
     }
 
-    async fn refresh_once(
+    pub(crate) async fn refresh_once(
         &self,
         provider: Arc<DynPaperProvider>,
     ) -> Result<(), PaperProviderError> {
@@ -254,6 +254,20 @@ impl PaperCatalog {
 
         if let Some(provider) = &self.provider {
             provider.search(trimmed, DEFAULT_LIMIT).await
+        } else {
+            Err(PaperProviderError::NotConfigured)
+        }
+    }
+
+    pub async fn refresh(&self) -> Result<(), PaperProviderError> {
+        if let Some(provider) = &self.provider {
+            match self.cache.refresh_once(provider.clone()).await {
+                Ok(_) => Ok(()),
+                Err(err) => {
+                    log::warn!("paper cache refresh failed: {}", err);
+                    Err(err)
+                }
+            }
         } else {
             Err(PaperProviderError::NotConfigured)
         }

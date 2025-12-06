@@ -697,6 +697,7 @@ impl LanguageServer for Backend {
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
+                        "patto/snapshotPapers".to_string(),
                     ],
                     work_done_progress_options: Default::default(),
                 }),
@@ -834,10 +835,7 @@ impl LanguageServer for Backend {
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
         self.client
-            .log_message(
-                MessageType::INFO,
-                format!("command executed!: {:?}", params),
-            )
+            .log_message(MessageType::LOG, format!("command executed!: {:?}", params))
             .await;
 
         match params.command.as_str() {
@@ -908,6 +906,28 @@ impl LanguageServer for Backend {
                 twohop_urls.dedup();
                 log::debug!("urls: {:?}", twohop_urls);
                 return Ok(Some(json!(twohop_urls)));
+            }
+            "patto/snapshotPapers" => {
+                self.client
+                    .log_message(MessageType::INFO, "Taking snapshot of papers...")
+                    .await;
+                match self.paper_catalog.refresh().await {
+                    Ok(_) => {
+                        self.client
+                            .show_message(
+                                MessageType::INFO,
+                                "Paper snapshot completed successfully.",
+                            )
+                            .await;
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        let msg = format!("Failed to take paper snapshot: {}", e);
+                        self.client.show_message(MessageType::ERROR, &msg).await;
+                        log::error!("{}", msg);
+                        return Ok(None);
+                    }
+                }
             }
             c => {
                 log::info!("unknown command: {}", c);

@@ -113,79 +113,79 @@ function stopPreviewServer() {
 }
 
 export class TasksProvider implements vscode.TreeDataProvider<Task> {
-  private tasks: Task[];
-  constructor() {
-	this.tasks = [];
-  }
+	private tasks: Task[];
+	constructor() {
+		this.tasks = [];
+	}
 
-  getTreeItem(element: Task): vscode.TreeItem {
-    return element;
-  }
+	getTreeItem(element: Task): vscode.TreeItem {
+		return element;
+	}
 
-  getChildren(element?: Task): Thenable<Task[]> {
-    if (element) {
-      return Promise.resolve([]);
-    } else {
-      return Promise.resolve(this.tasks);
-    }
-  }
+	getChildren(element?: Task): Thenable<Task[]> {
+		if (element) {
+			return Promise.resolve([]);
+		} else {
+			return Promise.resolve(this.tasks);
+		}
+	}
 
-  private _onDidChangeTreeData: vscode.EventEmitter<Task | undefined | null | void> = new vscode.EventEmitter<Task | undefined | null | void>();
-  readonly onDidChangeTreeData: vscode.Event<Task | undefined | null | void> = this._onDidChangeTreeData.event;
+	private _onDidChangeTreeData: vscode.EventEmitter<Task | undefined | null | void> = new vscode.EventEmitter<Task | undefined | null | void>();
+	readonly onDidChangeTreeData: vscode.Event<Task | undefined | null | void> = this._onDidChangeTreeData.event;
 
-  refresh(result: any[]): void {
-    this.tasks = [];
-    for (let i = 0; i < result.length; ++i) {
-      this.tasks.push(new Task(
-        result[i]['text'],
-        result[i]['location'],
-        vscode.TreeItemCollapsibleState.None
-      ));
-    }
-    this._onDidChangeTreeData.fire();
-  }
+	refresh(result: any[]): void {
+		this.tasks = [];
+		for (let i = 0; i < result.length; ++i) {
+			this.tasks.push(new Task(
+				result[i]['text'],
+				result[i]['location'],
+				vscode.TreeItemCollapsibleState.None
+			));
+		}
+		this._onDidChangeTreeData.fire();
+	}
 }
 
 class Task extends vscode.TreeItem {
-  constructor(
-    public readonly label: string,
-    public readonly location: any,
-    public readonly collapsibleState: vscode.TreeItemCollapsibleState
-  ) {
-    super(label, collapsibleState);
-    this.tooltip = `${this.label}`;
-    //this.description = this.label;
-    
-    // Make tasks clickable
-    if (location && location.uri) {
-      this.command = {
-        command: 'vscode.open',
-        title: 'Open Task',
-        arguments: [
-          Uri.parse(location.uri),
-          { 
-            selection: new vscode.Range(
-              location.range.start.line, 
-              location.range.start.character,
-              location.range.end.line, 
-              location.range.end.character
-            )
-          }
-        ]
-      };
-    }
-  }
+	constructor(
+		public readonly label: string,
+		public readonly location: any,
+		public readonly collapsibleState: vscode.TreeItemCollapsibleState
+	) {
+		super(label, collapsibleState);
+		this.tooltip = `${this.label}`;
+		//this.description = this.label;
+
+		// Make tasks clickable
+		if (location && location.uri) {
+			this.command = {
+				command: 'vscode.open',
+				title: 'Open Task',
+				arguments: [
+					Uri.parse(location.uri),
+					{
+						selection: new vscode.Range(
+							location.range.start.line,
+							location.range.start.character,
+							location.range.end.line,
+							location.range.end.character
+						)
+					}
+				]
+			};
+		}
+	}
 }
 
 
 export function activate(context: ExtensionContext): void {
 	const traceOutputChannel: OutputChannel = window.createOutputChannel("Patto Language Server");
 	const binaryManager = new BinaryManager(context, traceOutputChannel);
-	
+
 	// Get binary path from configuration
 	const config = vscode.workspace.getConfiguration('patto');
 	const configuredLspPath = config.get<string>('lspPath');
-	
+
 	// Ensure LSP binary is available
 	binaryManager.ensureBinary('patto-lsp', configuredLspPath !== 'patto-lsp' ? configuredLspPath : undefined)
 		.then((command) => {
@@ -200,8 +200,8 @@ export function activate(context: ExtensionContext): void {
 }
 
 function startLanguageClient(
-	context: ExtensionContext, 
-	command: string, 
+	context: ExtensionContext,
+	command: string,
 	traceOutputChannel: OutputChannel,
 	binaryManager: BinaryManager
 ): void {
@@ -247,11 +247,11 @@ function startLanguageClient(
 
 	// Start the LSP client
 	client.start();
-	
+
 	// Wait for client initialization, then auto-aggregate tasks
 	setTimeout(async () => {
 		traceOutputChannel.appendLine("[patto-lsp] Attempting to auto-load tasks");
-		
+
 		// Auto-aggregate tasks on startup
 		try {
 			const response = await client.sendRequest(ExecuteCommandRequest.type, {
@@ -266,7 +266,7 @@ function startLanguageClient(
 			traceOutputChannel.appendLine("[patto] Error auto-loading tasks: " + error);
 		}
 	}, 2000); // Wait 2 seconds for LSP to initialize
-	
+
 	// Also refresh tasks when files change
 	const refreshTasks = async () => {
 		try {
@@ -281,7 +281,7 @@ function startLanguageClient(
 			traceOutputChannel.appendLine("[patto] Error refreshing tasks: " + error);
 		}
 	};
-	
+
 	// Debounced refresh for typing events
 	const debouncedRefreshTasks = () => {
 		if (taskRefreshTimeout) {
@@ -289,7 +289,7 @@ function startLanguageClient(
 		}
 		taskRefreshTimeout = setTimeout(refreshTasks, 1000); // Wait 1 second after typing stops
 	};
-	
+
 	// Refresh tasks when .pn files are saved
 	context.subscriptions.push(
 		vscode.workspace.onDidSaveTextDocument(async (document) => {
@@ -298,7 +298,7 @@ function startLanguageClient(
 			}
 		})
 	);
-	
+
 	// Refresh tasks when .pn files are changed (debounced to avoid too many requests)
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeTextDocument((event) => {
@@ -307,7 +307,7 @@ function startLanguageClient(
 			}
 		})
 	);
-	
+
 	// Refresh tasks when switching between files
 	context.subscriptions.push(
 		vscode.window.onDidChangeActiveTextEditor(async (editor) => {
@@ -382,7 +382,7 @@ function startLanguageClient(
 					items.push({ label: `→ ${nodeName}`, kind: vscode.QuickPickItemKind.Separator });
 					for (const link of twoHopLinks) {
 						const linkName = Uri.parse(link).fsPath.split('/').pop() || link;
-						items.push({ 
+						items.push({
 							label: `  • ${linkName}`,
 							description: link,
 						});
@@ -403,6 +403,20 @@ function startLanguageClient(
 		})
 	);
 
+	context.subscriptions.push(
+		commands.registerCommand("patto.snapshotPapers", async () => {
+			try {
+				await client.sendRequest(ExecuteCommandRequest.type, {
+					command: "patto/snapshotPapers",
+					arguments: [],
+				});
+				vscode.window.showInformationMessage('Snapshot papers initiated');
+			} catch (error) {
+				traceOutputChannel.appendLine("[patto] Error snapshotting papers: " + error);
+			}
+		})
+	);
+
 	// Preview command
 	context.subscriptions.push(
 		commands.registerCommand("patto.openPreview", async () => {
@@ -418,7 +432,7 @@ function startLanguageClient(
 			const config = vscode.workspace.getConfiguration('patto');
 			const configuredPreviewPath = config.get<string>('previewPath');
 			const previewCommand = await binaryManager.ensureBinary(
-				'patto-preview', 
+				'patto-preview',
 				configuredPreviewPath !== 'patto-preview' ? configuredPreviewPath : undefined
 			);
 
@@ -535,6 +549,6 @@ export function deactivate(): Thenable<void> | undefined {
 	if (previewPanel) {
 		previewPanel.dispose();
 	}
-    return client ? client.stop() : Promise.resolve();
+	return client ? client.stop() : Promise.resolve();
 }
 
