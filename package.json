@@ -2,7 +2,7 @@
   "name": "patto-language-server",
   "description": "Patto Note language server with preview support",
   "license": "MIT",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "publisher": "ompugao",
   "displayName": "Patto Language Server",
   "categories": [
@@ -58,6 +58,10 @@
       {
         "command": "patto.openPreview",
         "title": "Patto: Open preview"
+      },
+      {
+        "command": "patto.snapshotPapers",
+        "title": "Patto: Snapshot Papers (refresh cache)"
       }
     ],
     "views": {
@@ -113,16 +117,36 @@
     "semanticTokenScopes": [
       {
         "scopes": {
-          "function": ["entity.name.function"],
-          "variable": ["variable.other"],
-          "string": ["string.quoted"],
-          "comment": ["comment.line"],
-          "keyword": ["keyword.control"],
-          "operator": ["keyword.operator"],
-          "property": ["variable.other.property"],
-          "type": ["entity.name.type"],
-          "enum": ["constant.language"],
-          "modifier": ["storage.modifier"]
+          "function": [
+            "entity.name.function"
+          ],
+          "variable": [
+            "variable.other"
+          ],
+          "string": [
+            "string.quoted"
+          ],
+          "comment": [
+            "comment.line"
+          ],
+          "keyword": [
+            "keyword.control"
+          ],
+          "operator": [
+            "keyword.operator"
+          ],
+          "property": [
+            "variable.other.property"
+          ],
+          "type": [
+            "entity.name.type"
+          ],
+          "enum": [
+            "constant.language"
+          ],
+          "modifier": [
+            "storage.modifier"
+          ]
         }
       }
     ]
