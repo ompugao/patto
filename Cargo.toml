@@ -1,9 +1,9 @@
 [package]
 name = "patto"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 license = "MIT"
-description = "🐙 Yet another plain text format for quick note taking and task management"
+description = "🪽 Yet another plain text format for quick note taking and task management"
 repository = "https://github.com/ompugao/patto"
 homepage = "https://github.com/ompugao/patto"
 authors = ["Shohei Fujii <fujii.shohei@gmail.com>"]
@@ -17,7 +17,7 @@ eula = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
+default = ["zotero"]
 zotero = ["dep:zotero-rs"]
 
 [dependencies]
