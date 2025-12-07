@@ -69,7 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
-            Description='🐙 Yet another plain text format for quick note taking and task management'
+            Description='🪽 Yet another plain text format for quick note taking and task management'
             Manufacturer='Shohei Fujii'
             InstallerVersion='450'
             Languages='1033'
