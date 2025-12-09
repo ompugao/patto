@@ -2968,7 +2968,8 @@ dependencies = [
 [[package]]
 name = "zotero-rs"
 version = "0.2.5"
-source = "git+https://github.com/mgao6767/zotero-rs#3195c0c9d33fdc3d3b5e59cff1b5eff421580850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bd8e99cf7498f6272037393046265acf87943a31e7805d2319401f544692154"
 dependencies = [
  "bytes",
  "reqwest",
