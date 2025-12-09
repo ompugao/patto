@@ -8,6 +8,9 @@ import 'purecss/build/tables.css';
 
 export const metadata = {
   description: "Preview and navigate Patto notes",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({ children }) {

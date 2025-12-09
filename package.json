@@ -25,6 +25,7 @@
     "onLanguage:patto"
   ],
   "main": "./dist/extension.js",
+  "icon": "assets/patto-icon_notext.png",
   "contributes": {
     "languages": [
       {
