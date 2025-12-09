@@ -5,6 +5,7 @@ import { useClientRouter } from '../lib/router';
 import { usePattoWebSocket } from '../lib/websocket';
 import Sidebar from '../components/Sidebar';
 import Preview from '../components/Preview';
+import TaskPanel from '../components/TaskPanel';
 import styles from './page.module.css';
 
 export default function PattoApp() {
@@ -18,6 +19,9 @@ export default function PattoApp() {
   const [twoHopLinks, setTwoHopLinks] = useState([]);
   const [sortBy, setSortBy] = useState('modified');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+  const [targetLineId, setTargetLineId] = useState(null);
 
   // Initialize from localStorage after mount
   useEffect(() => {
@@ -27,6 +31,9 @@ export default function PattoApp() {
       
       const savedCollapsed = localStorage.getItem('sidebar-collapsed');
       if (savedCollapsed === 'true') setSidebarCollapsed(true);
+      
+      const savedTaskPanelOpen = localStorage.getItem('task-panel-open');
+      if (savedTaskPanelOpen === 'true') setTaskPanelOpen(true);
     }
   }, []);
 
@@ -92,6 +99,10 @@ export default function PattoApp() {
           setTwoHopLinks(data.data.two_hop_links || []);
         }
         break;
+        
+      case 'TasksUpdated':
+        setTasks(data.data.tasks || []);
+        break;
     }
   });
 
@@ -131,6 +142,50 @@ export default function PattoApp() {
     }
   }, []); // Run only once on mount
 
+  // Scroll to target line after content loads
+  useEffect(() => {
+    if (previewHtml && targetLineId !== null) {
+      setTimeout(() => {
+        const { stableId, row } = typeof targetLineId === 'object' ? targetLineId : { stableId: targetLineId, row: null };
+        console.log('Attempting to scroll after navigation:', { stableId, row });
+        
+        let element = null;
+        
+        // Try stable ID first
+        if (stableId !== null && stableId !== undefined) {
+          element = document.querySelector(`[data-line-id="${stableId}"]`);
+          if (element) {
+            console.log('Found element by stable ID');
+          }
+        }
+        
+        // Fall back to row position
+        if (!element && row !== null && row !== undefined) {
+          const preview = document.querySelector('#preview-content');
+          if (preview) {
+            const lines = preview.querySelectorAll('li');
+            if (row < lines.length) {
+              element = lines[row];
+              console.log(`Found element by row position: ${row}`);
+            }
+          }
+        }
+        
+        if (element) {
+          element.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
+          element.classList.add('highlighted');
+          setTimeout(() => element.classList.remove('highlighted'), 2000);
+        } else {
+          console.warn('Element not found after navigation:', { stableId, row });
+        }
+        setTargetLineId(null);
+      }, 500);
+    }
+  }, [previewHtml, targetLineId]);
+
   // Handle sort preference changes
   const handleSortChange = useCallback((newSort) => {
     setSortBy(newSort);
@@ -150,10 +205,70 @@ export default function PattoApp() {
     });
   }, []);
 
+  // Handle task panel toggle
+  const handleToggleTaskPanel = useCallback(() => {
+    setTaskPanelOpen(prev => {
+      const newValue = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('task-panel-open', newValue.toString());
+      }
+      return newValue;
+    });
+  }, []);
+
+  // Handle task click - navigate to file and scroll to line
+  const handleTaskClick = useCallback((filePath, stableId, row) => {
+    console.log('Task clicked:', { filePath, stableId, row, currentNote });
+    
+    // If clicking the same file, just scroll
+    if (currentNote === filePath) {
+      let element = null;
+      
+      // Try stable ID first (if available from line-tracked rendering)
+      if (stableId !== null && stableId !== undefined) {
+        element = document.querySelector(`[data-line-id="${stableId}"]`);
+        if (element) {
+          console.log('Found element by stable ID');
+        }
+      }
+      
+      // Fall back to finding by position (nth li in preview)
+      if (!element && row !== null && row !== undefined) {
+        const preview = document.querySelector('#preview-content');
+        if (preview) {
+          const lines = preview.querySelectorAll('li');
+          // Row is 0-indexed in parser, find the matching line
+          if (row < lines.length) {
+            element = lines[row];
+            console.log(`Found element by row position: ${row}`);
+          }
+        }
+      }
+      
+      if (element) {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+        element.classList.add('highlighted');
+        setTimeout(() => element.classList.remove('highlighted'), 2000);
+      } else {
+        console.warn('Could not find element to scroll to', { stableId, row });
+      }
+    } else {
+      // Navigate to different file
+      navigate(filePath);
+      // Store both stableId and row for after navigation
+      if (stableId !== null || row !== null) {
+        setTargetLineId({ stableId, row });
+      }
+    }
+  }, [navigate, currentNote]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div className="patto-app" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* Header */}
-      <div style={{ 
+      <div className="patto-header" style={{ 
         backgroundColor: '#333', 
         color: 'white', 
         padding: '10px 15px',
@@ -177,7 +292,7 @@ export default function PattoApp() {
       </div>
 
       {/* Main content */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="patto-main" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar
           files={files}
           fileMetadata={fileMetadata}
@@ -189,14 +304,24 @@ export default function PattoApp() {
           onToggle={handleToggleSidebar}
         />
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
-          <Preview 
-            html={previewHtml} 
-            anchor={anchor} 
-            onSelectFile={navigate} 
-            currentNote={currentNote}
-            backLinks={backLinks}
-            twoHopLinks={twoHopLinks}
+        <div className="patto-preview-area" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+          <div className="patto-preview-scroll" style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
+            <Preview 
+              html={previewHtml} 
+              anchor={anchor} 
+              onSelectFile={navigate} 
+              currentNote={currentNote}
+              backLinks={backLinks}
+              twoHopLinks={twoHopLinks}
+            />
+          </div>
+          
+          {/* Task Panel */}
+          <TaskPanel
+            tasks={tasks}
+            isOpen={taskPanelOpen}
+            onToggle={handleToggleTaskPanel}
+            onTaskClick={handleTaskClick}
           />
         </div>
       </div>

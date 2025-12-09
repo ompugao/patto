@@ -1,0 +1,219 @@
+.taskPanel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 2px solid #ccc;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease-in-out, height 0.3s ease-in-out;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.taskPanel.collapsed {
+  height: 45px;
+  transform: translateY(0);
+}
+
+.taskPanel.expanded {
+  height: 40vh;
+  transform: translateY(0);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  cursor: pointer;
+  user-select: none;
+  min-height: 45px;
+}
+
+.header:hover {
+  background: #ebebeb;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerLeft h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.toggleIcon {
+  font-size: 14px;
+  color: #666;
+}
+
+.controls {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.controlGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.controlGroup label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.controlGroup select {
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+}
+
+.controlGroup select:hover {
+  border-color: #999;
+}
+
+.taskList {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.taskItem {
+  display: grid;
+  grid-template-columns: 2fr 4fr 1fr 1.5fr;
+  gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  align-items: center;
+}
+
+.taskItem:hover {
+  background-color: #f9f9f9;
+}
+
+.taskItem:active {
+  background-color: #f0f0f0;
+}
+
+.fileName {
+  font-size: 13px;
+  color: #0066cc;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskText {
+  font-size: 14px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.statusTodo {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.statusDoing {
+  background-color: #fff9c4;
+  color: #f57c00;
+}
+
+.statusPending {
+  background-color: #ffe0b2;
+  color: #e65100;
+}
+
+.deadline {
+  font-size: 13px;
+  color: #666;
+  text-align: right;
+}
+
+.overdue {
+  color: #d32f2f;
+  font-weight: 600;
+}
+
+.today {
+  color: #f57c00;
+  font-weight: 600;
+}
+
+.emptyState {
+  padding: 40px;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+}
+
+/* Scrollbar styling */
+.taskList::-webkit-scrollbar {
+  width: 8px;
+}
+
+.taskList::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.taskList::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.taskList::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .taskItem {
+    grid-template-columns: 1.5fr 3fr 0.8fr 1fr;
+    gap: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  
+  .controls {
+    gap: 10px;
+  }
+  
+  .controlGroup {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .taskPanel.expanded {
+    height: 50vh;
+  }
+}

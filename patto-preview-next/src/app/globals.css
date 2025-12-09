@@ -53,26 +53,45 @@ code {
   tab-size: 2;
 }
 
-/* Print styles - only show title and preview content */
+/* Print styles - only show preview content */
 @media print {
-  /* Hide everything by default */
-  * {
-    visibility: hidden;
+  /* Hide header, sidebar, and task panel */
+  .patto-header,
+  .patto-sidebar,
+  [class*="Sidebar"],
+  [class*="taskPanel"] {
+    display: none !important;
   }
   
-  /* Show only the preview content */
+  /* Make all containers allow overflow for printing full content */
+  .patto-app,
+  .patto-main,
+  .patto-preview-area,
+  .patto-preview-scroll {
+    display: block !important;
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Ensure preview content is fully visible */
+  #preview-content {
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  
   #preview-content,
   #preview-content * {
-    visibility: visible;
-  }
-  
-  #preview-content {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
+    overflow: visible !important;
   }
   
   /* Remove unnecessary spacing and ensure good print layout */
@@ -82,6 +101,9 @@ code {
     line-height: 1.4;
     color: black;
     background: white;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   
   /* Ensure images fit on the page */
@@ -178,6 +200,21 @@ code {
     text-shadow: none !important;
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* Highlight animation for clicked task lines */
+:global(.highlighted) {
+  animation: highlight-flash 2s ease-in-out;
+  border-radius: 4px;
+}
+
+@keyframes highlight-flash {
+  0%, 100% { 
+    background-color: transparent;
+  }
+  10%, 90% { 
+    background-color: #fff3cd;
   }
 }
 
