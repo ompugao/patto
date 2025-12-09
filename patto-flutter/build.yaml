@@ -1,0 +1,19 @@
+# This file configures the analyzer for the entire project.
+#
+# This file is used when running `flutter analyze` and `dart analyze`.
+#
+# See `analysis_options.yaml` for analyzer configuration.
+
+# See https://dart.dev/guides/language/analysis-options
+targets:
+  $default:
+    builders:
+      freezed:
+        generate_for:
+          - lib/**
+      json_serializable:
+        generate_for:
+          - lib/**
+      riverpod_generator:
+        generate_for:
+          - lib/**

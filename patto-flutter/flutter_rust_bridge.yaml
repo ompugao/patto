@@ -1,0 +1,21 @@
+# flutter_rust_bridge configuration
+# Run: flutter_rust_bridge_codegen generate
+
+rust_input: rust/src/api/*.rs
+dart_output: lib/src/rust_bridge/
+c_output: ios/Runner/bridge_generated.h
+
+# Enable all features
+full_dep: true
+
+# Dart code options
+dart3: true
+dart_format_line_length: 100
+
+# Enable sync mode for parser functions
+[rust_input.rust/src/api/parser_api.rs]
+default_sync = true
+
+# Don't generate for tests
+[rust_input.rust/src/api/git_api.rs]
+exclude_test_functions = true
