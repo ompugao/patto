@@ -1,4 +1,9 @@
 #!/bin/bash
+cwd=$(pwd)
+tmpdir=$(mktemp -d --suffix patto_demo)
+cd $tmpdir
+echo $tmpdir
+git init
 cat > another\ note.pn <<EOF
 Here is another note.
 jump back from here: [note].
@@ -65,18 +70,16 @@ Type "and has lsp-powered completion."
 Enter
 Tab@100ms 1
 Type "["
-Ctrl+x
-Ctrl+o
 Sleep 1s
 Type "ano"
 Sleep 0.5s
 Ctrl+n
+Enter
 Type "#"
-Ctrl+x
-Ctrl+o
 Sleep 1s
 Type "an"
 Ctrl+n
+Enter
 Sleep 1s
 Type "]"
 Sleep 1s
@@ -96,5 +99,6 @@ Sleep 500ms
 Ctrl+D
 EOF
 vhs demo.tape
-rm *.pn demo.tape
-
+cp out.gif $cwd/
+cd $cwd
+rm -rf $tmpdir

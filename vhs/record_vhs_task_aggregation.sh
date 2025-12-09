@@ -1,21 +1,26 @@
 #!/bin/bash
+cwd=$(pwd)
+tmpdir=$(mktemp -d --suffix patto_demo)
+cd $tmpdir
+echo $tmpdir
+git init
 cat > project1.pn <<EOF
 Project1
 You can record tasks whereever you want.
-	re-write design doc    {@task status=todo due=2025-04-01}
-	task2                  {@task status=todo due=2025-04-02}
+	task 1 of project 1        {@task status=todo due=2025-12-08}
+	task 2 of project 1        {@task status=todo due=2025-12-12}
 
 Due with time:
-	re-organize code       {@task status=todo due=2025-05-15T11:59}
-	done                   {@task status=done due=2025-06-15T10:00}
+	task 3 of project 1        {@task status=todo due=2025-12-20T11:59}
+	finished task of project 1 {@task status=done due=2025-12-01T10:00}
 EOF
 cat > project2.pn <<EOF
 Here is the note for project2.
 
 Some tasks:
-	abbrev todo  !2025-04-20
-	wip          *2025-05-01T12:00
-	done         -2025-02-01
+	abbrev task in project 2    !2025-12-09
+	wip task in project 2       *2025-12-11T12:00
+	finished task in project 2  -2025-12-09
 EOF
 rm -f ~/.nvimswap/project*.pn.*
 cat > demo.tape << EOF
@@ -31,17 +36,19 @@ Sleep 2s
 Type "clear"
 Sleep 1s
 Enter
-Type "cat project1.pn"
+Type "nvim project1.pn project2.pn"
 Sleep 0.5s
 Enter
 Sleep 5s
-Type "clear"
+Type ";bnext"
 Sleep 1s
 Enter
-Type "cat project2.pn"
 Sleep 0.5s
 Enter
 Sleep 5s
+Type ";qall"
+Enter
+Sleep 1s
 Type "nvim note.pn"
 Sleep 1s
 Enter
@@ -71,7 +78,7 @@ Type ";Another jump to task"
 Sleep 3s
 Escape
 Escape
-Type "f!"
+Type "f*"
 Sleep 2s
 Type "r-"
 Type ";w"
@@ -84,10 +91,20 @@ Type ";Completed tasks are not shown"
 Sleep 2s
 Escape
 Escape
+Type ";q"
+Enter
+Type ";Trouble patto_tasks"
+Sleep 0.5s
+Enter
+Type ";Integration with trouble.nvim is included as well"
+Sleep 5s
+Escape
+Escape
 Type ";qa"
-Sleep 1s
 Enter
 EOF
-vhs demo.tape
-rm *.pn demo.tape
+vhs demo.tape -o out_tasks.gif
+cp out_tasks.gif $cwd/
+cd $cwd
+rm -rf $tmpdir
 
