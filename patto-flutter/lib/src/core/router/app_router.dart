@@ -19,14 +19,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PageListScreen(),
       ),
 
-      // Page view - use wildcard to capture full path including slashes
+      // Page view - capture everything after /note/
       GoRoute(
-        path: '/note/:path(.*)',
+        path: '/note',
         name: 'note',
         builder: (context, state) {
-          final path = state.pathParameters['path'] ?? '';
-          // Path is already decoded by go_router
+          // Get path from query parameter instead
+          final path = state.uri.queryParameters['path'] ?? '';
           final title = state.uri.queryParameters['title'];
+
+          print('Opening note - path: $path, title: $title');
+
           return PageViewScreen(
             path: path,
             title: title,

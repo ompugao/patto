@@ -98,8 +98,10 @@ class PageViewScreen extends ConsumerWidget {
     final linkedNote = notes.where((n) => n.name == name).firstOrNull;
 
     if (linkedNote != null) {
-      // Use path directly - go_router handles encoding
-      context.push('/note/${linkedNote.path}?title=${Uri.encodeComponent(linkedNote.name)}');
+      // Use query parameters to avoid path encoding issues
+      final encodedPath = Uri.encodeComponent(linkedNote.path);
+      final encodedTitle = Uri.encodeComponent(linkedNote.name);
+      context.push('/note?path=$encodedPath&title=$encodedTitle');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -111,13 +113,30 @@ class PageViewScreen extends ConsumerWidget {
   }
 
   Future<void> _handleUrlTap(BuildContext context, String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    try {
+      final uri = Uri.tryParse(url);
+      if (uri == null) {
+        throw Exception('Invalid URL format');
+      }
+
+      // On Linux, canLaunchUrl may return false even when xdg-open can handle it
+      // So we try to launch directly and catch any errors
+      try {
+        await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (launchError) {
+        // If direct launch fails, show a more helpful error
+        throw Exception('Failed to launch: $launchError');
+      }
+    } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cannot open: $url')),
+          SnackBar(
+            content: Text('Cannot open: $url\nError: $e'),
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }

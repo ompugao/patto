@@ -288,6 +288,19 @@ class AstRenderer extends StatelessWidget {
                 ..onTap = () => onUrlTap?.call(m.group(1)!),
             ),
       ),
+      // Bare URL: https://... or http://...
+      (
+        regex: RegExp(r'https?://[^\s\[\]]+'),
+        builder: (Match m) => TextSpan(
+              text: m.group(0),
+              style: TextStyle(
+                color: theme.colorScheme.primary,
+                decoration: TextDecoration.underline,
+              ),
+              recognizer: TapGestureRecognizer()
+                ..onTap = () => onUrlTap?.call(m.group(0)!),
+            ),
+      ),
       // Wiki link with anchor: [PageName#anchor]
       (
         regex: RegExp(r'\[([^\[\]@`$\/\s][^\[\]#]*?)#([^\[\]]+)\]'),
