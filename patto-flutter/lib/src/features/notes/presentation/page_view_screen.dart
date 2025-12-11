@@ -98,8 +98,8 @@ class PageViewScreen extends ConsumerWidget {
     final linkedNote = notes.where((n) => n.name == name).firstOrNull;
 
     if (linkedNote != null) {
-      final encodedPath = Uri.encodeComponent(linkedNote.path);
-      context.push('/note/$encodedPath?title=${Uri.encodeComponent(linkedNote.name)}');
+      // Use path directly - go_router handles encoding
+      context.push('/note/${linkedNote.path}?title=${Uri.encodeComponent(linkedNote.name)}');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../core/utils/secure_storage.dart';
 import '../domain/git_config.dart';
+import '../../../rust_bridge/api/git_api.dart' as bridge;
 
 /// Git state
 class GitState {
@@ -118,28 +119,31 @@ class GitNotifier extends StateNotifier<GitState> {
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {
-      // Clear existing repo directory
+      state = state.copyWith(
+        progress: const GitProgress(phase: 'Cloning', current: 0, total: 1),
+      );
+
       final dir = Directory(_repoDir);
       if (await dir.exists()) {
         await dir.delete(recursive: true);
       }
 
-      // TODO: Call Rust git_api.clone_repository via flutter_rust_bridge
-      // For now, simulate a delay
-      state = state.copyWith(
-        progress: const GitProgress(phase: 'Cloning', current: 0, total: 100),
+      final result = await bridge.cloneRepository(
+        url: state.config!.repoUrl,
+        path: _repoDir,
+        branch: state.config!.branch,
+        username: state.config!.username,
+        password: state.config!.password,
       );
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Placeholder: In production, this would use the Rust bridge:
-      // final result = await cloneRepository(
-      //   url: state.config!.repoUrl,
-      //   path: _repoDir,
-      //   branch: state.config!.branch,
-      //   username: state.config!.username,
-      //   password: state.config!.password,
-      // );
+      if (!result.success) {
+        state = state.copyWith(
+          isLoading: false,
+          error: result.error ?? result.message ?? 'Clone failed',
+          clearProgress: true,
+        );
+        return;
+      }
 
       state = state.copyWith(
         isLoading: false,
@@ -161,17 +165,33 @@ class GitNotifier extends StateNotifier<GitState> {
       state = state.copyWith(error: 'Repository not cloned');
       return;
     }
+    if (state.config == null) {
+      state = state.copyWith(error: 'No configuration set');
+      return;
+    }
 
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {
       state = state.copyWith(
-        progress: const GitProgress(phase: 'Pulling', current: 0, total: 100),
+        progress: const GitProgress(phase: 'Pulling', current: 0, total: 1),
       );
 
-      await Future.delayed(const Duration(seconds: 1));
+      final result = await bridge.pullRepository(
+        path: _repoDir,
+        branch: state.config!.branch,
+        username: state.config!.username,
+        password: state.config!.password,
+      );
 
-      // TODO: Call Rust git_api.pull_repository via flutter_rust_bridge
+      if (!result.success) {
+        state = state.copyWith(
+          isLoading: false,
+          error: result.error ?? result.message ?? 'Pull failed',
+          clearProgress: true,
+        );
+        return;
+      }
 
       state = state.copyWith(
         isLoading: false,
@@ -189,12 +209,16 @@ class GitNotifier extends StateNotifier<GitState> {
   /// Clear local repository data
   Future<void> clearLocalData() async {
     try {
-      final dir = Directory(_repoDir);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
+      final result = await bridge.deleteRepository(path: _repoDir);
+      if (!result.success) {
+        final dir = Directory(_repoDir);
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
       }
 
-      state = state.copyWith(isCloned: false, clearError: true);
+      state = state.copyWith(
+          isCloned: false, clearError: true, clearProgress: true);
     } catch (e) {
       state = state.copyWith(error: 'Failed to clear data: $e');
     }
@@ -207,7 +231,10 @@ class GitNotifier extends StateNotifier<GitState> {
 
   /// Check if repository is cloned
   Future<bool> _checkIsCloned() async {
-    final gitDir = Directory('$_repoDir/.git');
-    return await gitDir.exists();
+    try {
+      return bridge.isGitRepository(path: _repoDir);
+    } catch (_) {
+      return false;
+    }
   }
 }

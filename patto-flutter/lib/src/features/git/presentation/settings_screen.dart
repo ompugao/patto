@@ -110,7 +110,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
         // Appearance section
-        _SectionHeader(title: 'Appearance'),
+        const _SectionHeader(title: 'Appearance'),
         const SizedBox(height: AppSpacing.sm),
         SegmentedButton<AppThemeMode>(
           segments: const [
@@ -138,7 +138,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         const SizedBox(height: AppSpacing.lg),
 
         // Git repository section
-        _SectionHeader(title: 'Git Repository'),
+         const _SectionHeader(title: 'Git Repository'),
         const SizedBox(height: AppSpacing.sm),
         TextField(
           controller: _repoUrlController,
@@ -163,7 +163,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         const SizedBox(height: AppSpacing.lg),
 
         // Authentication section
-        _SectionHeader(title: 'Authentication'),
+         const _SectionHeader(title: 'Authentication'),
         const SizedBox(height: AppSpacing.xs),
         Text(
           'For private repositories, enter your GitHub username and a personal access token.',
@@ -209,7 +209,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: AppSpacing.lg),
 
           // Sync section
-          _SectionHeader(title: 'Sync'),
+           const _SectionHeader(title: 'Sync'),
           const SizedBox(height: AppSpacing.sm),
           OutlinedButton.icon(
             onPressed: _handleSync,
@@ -219,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: AppSpacing.lg),
 
           // Data section
-          _SectionHeader(title: 'Data'),
+           const _SectionHeader(title: 'Data'),
           const SizedBox(height: AppSpacing.sm),
           FilledButton.icon(
             onPressed: _handleClearData,

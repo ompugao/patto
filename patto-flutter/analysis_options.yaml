@@ -7,7 +7,7 @@ linter:
     prefer_final_fields: true
     prefer_final_locals: true
     avoid_print: true
-    sort_constructors_first: true
+    sort_constructors_first: false
     prefer_single_quotes: true
     use_key_in_widget_constructors: true
     prefer_const_constructors_in_immutables: true

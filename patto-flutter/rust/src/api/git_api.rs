@@ -6,7 +6,7 @@
 use flutter_rust_bridge::frb;
 use git2::{
     build::RepoBuilder, Cred, FetchOptions, PushOptions, RemoteCallbacks, Repository,
-    ResetType, Signature,
+    ResetType, Signature, CertificateCheckStatus, Error, ProxyOptions,
 };
 use std::path::Path;
 
@@ -190,22 +190,49 @@ fn clone_repo_internal(
     username: Option<&str>,
     password: Option<&str>,
 ) -> Result<Repository, git2::Error> {
-    let mut callbacks = RemoteCallbacks::new();
-    
-    if let (Some(user), Some(pass)) = (username, password) {
-        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
-            Cred::userpass_plaintext(user, pass)
-        });
-    }
-    
+    let callbacks = build_callbacks(username, password);
     let mut fetch_options = FetchOptions::new();
     fetch_options.remote_callbacks(callbacks);
+    let mut proxy_options = ProxyOptions::new();
+    proxy_options.auto(false);
+    fetch_options.proxy_options(proxy_options);
     
     let mut builder = RepoBuilder::new();
     builder.branch(branch);
     builder.fetch_options(fetch_options);
     
     builder.clone(url, Path::new(path))
+}
+
+fn build_callbacks(
+    username: Option<&str>,
+    password: Option<&str>,
+) -> RemoteCallbacks<'static> {
+    let mut callbacks = RemoteCallbacks::new();
+    let username = username.map(str::to_owned);
+    let password = password.map(str::to_owned);
+    let mut tried_credentials = false;
+
+    callbacks.certificate_check(|_cert, _host| Ok(CertificateCheckStatus::CertificateOk));
+
+    callbacks.credentials(move |_url, username_from_url, _allowed_types| {
+        if tried_credentials {
+            return Err(Error::from_str("authentication already attempted"));
+        }
+        tried_credentials = true;
+
+        if let Some(pass) = password.as_ref() {
+            let user = username
+                .as_deref()
+                .or(username_from_url)
+                .unwrap_or("git");
+            Cred::userpass_plaintext(user, pass)
+        } else {
+            Cred::default()
+        }
+    });
+
+    callbacks
 }
 
 fn fetch_repo_internal(
@@ -217,16 +244,12 @@ fn fetch_repo_internal(
     let repo = Repository::open(path)?;
     let mut remote = repo.find_remote("origin")?;
     
-    let mut callbacks = RemoteCallbacks::new();
-    
-    if let (Some(user), Some(pass)) = (username, password) {
-        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
-            Cred::userpass_plaintext(user, pass)
-        });
-    }
-    
+    let callbacks = build_callbacks(username, password);
     let mut fetch_options = FetchOptions::new();
     fetch_options.remote_callbacks(callbacks);
+    let mut proxy_options = ProxyOptions::new();
+    proxy_options.auto(false);
+    fetch_options.proxy_options(proxy_options);
     
     let refspec = format!("refs/heads/{}", branch);
     remote.fetch(&[&refspec], Some(&mut fetch_options), None)?;

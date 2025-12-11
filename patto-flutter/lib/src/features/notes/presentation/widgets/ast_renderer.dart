@@ -75,6 +75,8 @@ class AstRenderer extends StatelessWidget {
       child: Text.rich(
         TextSpan(children: spans),
         style: theme.textTheme.bodyLarge,
+        softWrap: true,
+        textWidthBasis: TextWidthBasis.parent,
       ),
     );
   }
@@ -104,10 +106,13 @@ class AstRenderer extends StatelessWidget {
             color: theme.colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 8),
-          Text(
-            language.isNotEmpty ? language.toUpperCase() : 'CODE',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          Expanded(
+            child: Text(
+              language.isNotEmpty ? language.toUpperCase() : 'CODE',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -121,9 +126,9 @@ class AstRenderer extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(top: AppSpacing.sm),
       padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF9E6),
-        borderRadius: const BorderRadius.only(
+      decoration: const BoxDecoration(
+        color: Color(0xFFFFF9E6),
+        borderRadius: BorderRadius.only(
           topLeft: Radius.circular(8),
           topRight: Radius.circular(8),
         ),
@@ -172,11 +177,14 @@ class AstRenderer extends StatelessWidget {
           ),
           if (cite != null) ...[
             const SizedBox(width: 8),
-            Text(
-              '— $cite',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontStyle: FontStyle.italic,
+            Expanded(
+              child: Text(
+                '— $cite',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontStyle: FontStyle.italic,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -213,11 +221,11 @@ class AstRenderer extends StatelessWidget {
         regex: RegExp(r'\[\$([^$]*)\$\]'),
         builder: (Match m) => TextSpan(
               text: m.group(1),
-              style: TextStyle(
-                fontFamily: 'monospace',
-                backgroundColor: const Color(0xFFFFF9E6),
-              ),
-            ),
+               style: const TextStyle(
+                 fontFamily: 'monospace',
+                 backgroundColor: Color(0xFFFFF9E6),
+               ),
+             ),
       ),
       // Bold: [* text]
       (

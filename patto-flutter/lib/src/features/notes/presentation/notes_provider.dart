@@ -2,18 +2,22 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../domain/note_info.dart';
+import '../../../rust_bridge/api/git_api.dart' as bridge_git;
+import '../../../rust_bridge/api/parser_api.dart' as parser;
 import '../../git/presentation/git_provider.dart';
+import '../domain/note_info.dart';
 
 /// Notes provider
 final notesProvider =
     StateNotifierProvider<NotesNotifier, AsyncValue<List<NoteInfo>>>((ref) {
   final gitState = ref.watch(gitProvider);
-  return NotesNotifier(ref, gitState.isCloned ? ref.read(gitProvider.notifier).repoDir : null);
+  return NotesNotifier(
+      gitState.isCloned ? ref.read(gitProvider.notifier).repoDir : null);
 });
 
 /// Sort option provider
-final sortOptionProvider = StateProvider<SortOption>((ref) => SortOption.recent);
+final sortOptionProvider =
+    StateProvider<SortOption>((ref) => SortOption.recent);
 
 /// Search query provider
 final searchQueryProvider = StateProvider<String>((ref) => '');
@@ -49,11 +53,10 @@ final filteredNotesProvider = Provider<AsyncValue<List<NoteInfo>>>((ref) {
 
 /// Notes state notifier
 class NotesNotifier extends StateNotifier<AsyncValue<List<NoteInfo>>> {
-  final Ref _ref;
   final String? _repoDir;
   final Map<String, List<String>> _linkGraph = {};
 
-  NotesNotifier(this._ref, this._repoDir) : super(const AsyncValue.loading()) {
+  NotesNotifier(this._repoDir) : super(const AsyncValue.loading()) {
     if (_repoDir != null) {
       refresh();
     } else {
@@ -80,70 +83,49 @@ class NotesNotifier extends StateNotifier<AsyncValue<List<NoteInfo>>> {
 
   /// Load notes from the repository
   Future<List<NoteInfo>> _loadNotes() async {
+    final repoDir = _repoDir!;
     final notes = <NoteInfo>[];
     final linkCounts = <String, int>{};
 
-    final dir = Directory(_repoDir!);
+    final dir = Directory(repoDir);
     if (!await dir.exists()) {
       return notes;
     }
 
-    // Collect all .pn files
-    await for (final entity in dir.list(recursive: true)) {
-      if (entity is File && entity.path.endsWith('.pn')) {
-        // Skip .git directory
-        if (entity.path.contains('/.git/')) continue;
+    final files = bridge_git.listPnFiles(repoPath: repoDir);
 
-        final stat = await entity.stat();
-        final relativePath = entity.path.replaceFirst('$_repoDir/', '');
-        final name = relativePath.replaceAll('.pn', '').split('/').last;
+    for (final file in files) {
+      final modifiedSeconds = file.modified.toInt();
+      final modified = DateTime.fromMillisecondsSinceEpoch(
+        modifiedSeconds * 1000,
+        isUtc: true,
+      ).toLocal();
 
-        // Parse file to extract links
-        try {
-          final content = await entity.readAsString();
-          final links = _extractLinks(content);
-          _linkGraph[name] = links;
+      try {
+        final content = bridge_git.readFileContent(
+          filePath: '$repoDir/${file.path}',
+        );
+        final links = parser.getLinks(content: content);
+        _linkGraph[file.name] = links.map((l) => l.name).toList();
 
-          // Count incoming links
-          for (final link in links) {
-            linkCounts[link] = (linkCounts[link] ?? 0) + 1;
-          }
-        } catch (e) {
-          _linkGraph[name] = [];
+        for (final link in links) {
+          linkCounts[link.name] = (linkCounts[link.name] ?? 0) + 1;
         }
-
-        notes.add(NoteInfo(
-          path: relativePath,
-          name: name,
-          modified: stat.modified,
-        ));
+      } catch (_) {
+        _linkGraph[file.name] = [];
       }
+
+      notes.add(NoteInfo(
+        path: file.path,
+        name: file.name,
+        modified: modified,
+      ));
     }
 
     // Apply link counts
     return notes.map((note) {
       return note.copyWith(linkCount: linkCounts[note.name] ?? 0);
     }).toList();
-  }
-
-  /// Extract wiki links from content (simple regex-based extraction)
-  List<String> _extractLinks(String content) {
-    final links = <String>[];
-    // Match wiki links: [PageName] or [PageName#anchor]
-    final regex = RegExp(r'\[([^\[\]@`$\/\s][^\[\]#]*?)(?:#[^\[\]]+)?\]');
-
-    for (final match in regex.allMatches(content)) {
-      final name = match.group(1)?.trim();
-      if (name != null &&
-          !name.contains('://') &&
-          !name.startsWith('@') &&
-          !name.startsWith('`') &&
-          !name.startsWith('\$')) {
-        links.add(name);
-      }
-    }
-
-    return links;
   }
 
   /// Get note by name
@@ -164,11 +146,10 @@ final noteContentProvider =
   }
 
   final repoDir = ref.read(gitProvider.notifier).repoDir;
-  final file = File('$repoDir/$path');
-
-  if (!await file.exists()) {
-    throw StateError('File not found: $path');
+  final fullPath = '$repoDir/$path';
+  try {
+    return bridge_git.readFileContent(filePath: fullPath);
+  } catch (e) {
+    throw StateError('Failed to read file: $path ($e)');
   }
-
-  return await file.readAsString();
 });

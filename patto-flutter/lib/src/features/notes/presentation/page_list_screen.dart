@@ -206,8 +206,8 @@ class _PageListScreenState extends ConsumerState<PageListScreen> {
           return NoteListItem(
             note: note,
             onTap: () {
-              final encodedPath = Uri.encodeComponent(note.path);
-              context.push('/note/$encodedPath?title=${Uri.encodeComponent(note.name)}');
+              // Use path directly - go_router handles encoding of path segments
+              context.push('/note/${note.path}?title=${Uri.encodeComponent(note.name)}');
             },
           );
         },

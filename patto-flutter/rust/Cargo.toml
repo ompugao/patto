@@ -12,13 +12,13 @@ name = "patto_flutter_rust"
 
 [dependencies]
 # Flutter Rust Bridge
-flutter_rust_bridge = "2.0"
+flutter_rust_bridge = "=2.11.1"
 
 # Import the main patto crate for parser
 patto = { path = "../.." }
 
 # Git operations
-git2 = { version = "0.18", default-features = false, features = ["vendored-libgit2", "https"] }
+git2 = { version = "0.18", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
