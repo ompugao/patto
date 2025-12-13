@@ -12,7 +12,7 @@ Unlike Markdown, every newline (\n) creates a new line, and a leading hard tab (
 This simple, line-oriented structure makes it easy to outline ideas, organize tasks, and brainstorm effectively.
 
 ## Demo
-![demo](https://github.com/user-attachments/assets/6169d37d-d910-4c09-a128-7bfabe8f2850)
+![demo.gif](https://github.com/user-attachments/assets/8e1772dc-e4a7-4b22-bf83-c434e73726fb)
 
 
 ## Features
@@ -104,7 +104,7 @@ Currently, `anchor` and `task` properties are implemented:
 	* snippets will only be completed with lsp-oriented snippet plugins such as [vim-vsnip](https://github.com/hrsh7th/vim-vsnip).
 * You will have `:LspPattoTasks` command; that will gather tasks from the notes in your workspace and show them in a location window.
 
-![demo_task_aggregation](https://github.com/user-attachments/assets/45f6a513-da7d-4f5e-8d20-788e75454fad)
+![demo_tasks aggregation](https://github.com/user-attachments/assets/e9945524-b430-496e-ae56-6a68bfd7c390)
 
 * You will see 2-hop links of the current buffer with `:LspPattoTwoHopLinks` command (only in neovim, currently).
 
