@@ -192,6 +192,10 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 <img width="752" height="524" alt="image" src="https://github.com/user-attachments/assets/320d8f00-dd03-45e9-b58b-c5a900c25a3a" />
 
 ## Recent Updates
+### v0.2.10
+- Bump nextjs
+- Minor Update
+
 ### v0.2.9
 - Minor update
 
