@@ -1,0 +1,317 @@
+import { create } from 'zustand';
+import { MessageTypes, createSelectFileMessage } from './messageTypes';
+
+/**
+ * Connection states for WebSocket
+ */
+export const ConnectionState = {
+    CONNECTING: 'connecting',
+    CONNECTED: 'connected',
+    DISCONNECTED: 'disconnected',
+    RECONNECTING: 'reconnecting',
+};
+
+/**
+ * Zustand store for patto preview application.
+ * Combines data state, UI state, and WebSocket connection management.
+ */
+export const usePattoStore = create((set, get) => ({
+    // === Data State ===
+    files: [],
+    fileMetadata: {},
+    previewHtml: '',
+    backLinks: [],
+    twoHopLinks: [],
+
+    // === Routing State ===
+    currentNote: null,
+    anchor: null,
+
+    // === UI State ===
+    sortBy: 'modified',
+    sidebarCollapsed: false,
+
+    // === Connection State ===
+    connectionState: ConnectionState.DISCONNECTED,
+
+    // === WebSocket (managed externally, ref stored here) ===
+    _ws: null,
+    _retryCount: 0,
+    _retryTimeout: null,
+
+    // === Actions ===
+
+    /**
+     * Handle incoming WebSocket messages
+     */
+    handleMessage: (message) => {
+        const { type, data } = message;
+        const { currentNote } = get();
+
+        switch (type) {
+            case MessageTypes.FILE_LIST:
+                set({
+                    files: data.files || [],
+                    fileMetadata: data.metadata || {},
+                });
+                break;
+
+            case MessageTypes.FILE_CHANGED: {
+                const isCurrentFile = data.path === currentNote;
+                set(state => ({
+                    previewHtml: isCurrentFile ? (data.html || '') : state.previewHtml,
+                    files: state.files.includes(data.path)
+                        ? state.files
+                        : [...state.files, data.path],
+                    fileMetadata: {
+                        ...state.fileMetadata,
+                        [data.path]: data.metadata,
+                    },
+                }));
+                break;
+            }
+
+            case MessageTypes.FILE_ADDED:
+                set(state => ({
+                    files: state.files.includes(data.path)
+                        ? state.files
+                        : [...state.files, data.path],
+                    fileMetadata: {
+                        ...state.fileMetadata,
+                        [data.path]: data.metadata,
+                    },
+                }));
+                break;
+
+            case MessageTypes.FILE_REMOVED: {
+                const isCurrentFile = data.path === currentNote;
+                set(state => {
+                    const newMetadata = { ...state.fileMetadata };
+                    delete newMetadata[data.path];
+                    const newFiles = state.files.filter(f => f !== data.path);
+                    return {
+                        files: newFiles,
+                        fileMetadata: newMetadata,
+                        // Clear preview if current file was removed
+                        previewHtml: isCurrentFile ? '' : state.previewHtml,
+                        backLinks: isCurrentFile ? [] : state.backLinks,
+                        twoHopLinks: isCurrentFile ? [] : state.twoHopLinks,
+                        // Also clear currentNote if the file was removed
+                        currentNote: isCurrentFile ? null : state.currentNote,
+                    };
+                });
+                // Navigate home if current file was removed
+                if (isCurrentFile && typeof window !== 'undefined') {
+                    document.title = 'Patto Preview';
+                    const url = new URL(window.location);
+                    url.searchParams.delete('note');
+                    url.hash = '';
+                    window.history.pushState({}, '', url.toString());
+                }
+                break;
+            }
+
+            case MessageTypes.BACK_LINKS_DATA:
+                if (data.path === currentNote) {
+                    set({ backLinks: data.back_links || [] });
+                }
+                break;
+
+            case MessageTypes.TWO_HOP_LINKS_DATA:
+                if (data.path === currentNote) {
+                    set({ twoHopLinks: data.two_hop_links || [] });
+                }
+                break;
+        }
+    },
+
+    /**
+     * Send a message through WebSocket
+     */
+    sendMessage: (message) => {
+        const { _ws } = get();
+        if (_ws?.readyState === WebSocket.OPEN) {
+            _ws.send(JSON.stringify(message));
+        }
+    },
+
+    /**
+     * Select a file and navigate to it
+     */
+    selectFile: (path, anchorId = null) => {
+        if (typeof window === 'undefined') return;
+
+        // Clear previous preview
+        set({ previewHtml: '', backLinks: [], twoHopLinks: [] });
+
+        // Update URL
+        const url = new URL(window.location);
+        if (path) {
+            url.searchParams.set('note', path);
+        } else {
+            url.searchParams.delete('note');
+        }
+        url.hash = anchorId ? `#${anchorId}` : '';
+        window.history.pushState({ note: path, anchor: anchorId }, '', url.toString());
+
+        // Update state
+        set({ currentNote: path, anchor: anchorId });
+
+        // Update title
+        document.title = path ? `${path} - Patto Preview` : 'Patto Preview';
+
+        // Request file content from server
+        if (path) {
+            get().sendMessage(createSelectFileMessage(path));
+        }
+    },
+
+    /**
+     * Navigate to home (clear selection)
+     */
+    navigateHome: () => {
+        get().selectFile(null, null);
+    },
+
+    /**
+     * Update sort preference
+     */
+    setSortBy: (newSort) => {
+        set({ sortBy: newSort });
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('patto-sort-order', newSort);
+        }
+    },
+
+    /**
+     * Toggle sidebar visibility
+     */
+    toggleSidebar: () => {
+        set(state => {
+            const newValue = !state.sidebarCollapsed;
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('sidebar-collapsed', newValue.toString());
+            }
+            return { sidebarCollapsed: newValue };
+        });
+    },
+
+    /**
+     * Initialize store from URL and localStorage
+     */
+    initialize: () => {
+        if (typeof window === 'undefined') return;
+
+        // Parse URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const noteParam = urlParams.get('note');
+        const hashAnchor = window.location.hash ? window.location.hash.substring(1) : null;
+
+        // Load UI preferences
+        const savedSort = localStorage.getItem('patto-sort-order');
+        const savedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+
+        set({
+            currentNote: noteParam,
+            anchor: hashAnchor,
+            sortBy: savedSort || 'modified',
+            sidebarCollapsed: savedCollapsed,
+        });
+
+        // Set initial title
+        if (noteParam) {
+            document.title = `${noteParam} - Patto Preview`;
+        }
+
+        // Handle browser navigation
+        const handlePopState = () => {
+            const params = new URLSearchParams(window.location.search);
+            set({
+                currentNote: params.get('note'),
+                anchor: window.location.hash ? window.location.hash.substring(1) : null,
+            });
+        };
+        window.addEventListener('popstate', handlePopState);
+
+        return () => window.removeEventListener('popstate', handlePopState);
+    },
+
+    /**
+     * Connect to WebSocket server
+     */
+    connect: () => {
+        if (typeof window === 'undefined') return;
+
+        const { _ws, _retryCount } = get();
+        if (_ws) _ws.close();
+
+        set({
+            connectionState: _retryCount > 0 ? ConnectionState.RECONNECTING : ConnectionState.CONNECTING
+        });
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+        set({ _ws: ws });
+
+        ws.onopen = () => {
+            set({ connectionState: ConnectionState.CONNECTED, _retryCount: 0 });
+            // Request current file if set
+            const { currentNote } = get();
+            if (currentNote) {
+                get().sendMessage(createSelectFileMessage(currentNote));
+            }
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                get().handleMessage(message);
+            } catch (error) {
+                console.error('WebSocket message error:', error);
+            }
+        };
+
+        ws.onclose = (event) => {
+            set({ connectionState: ConnectionState.DISCONNECTED });
+            const { _retryCount } = get();
+            if (event.code !== 1000 && _retryCount < 5) {
+                const delay = Math.min(1000 * Math.pow(2, _retryCount), 16000);
+                const timeout = setTimeout(() => {
+                    set({ _retryCount: _retryCount + 1 });
+                    get().connect();
+                }, delay);
+                set({ _retryTimeout: timeout });
+            }
+        };
+
+        ws.onerror = () => { };
+    },
+
+    /**
+     * Disconnect WebSocket
+     */
+    disconnect: () => {
+        const { _ws, _retryTimeout } = get();
+        if (_retryTimeout) clearTimeout(_retryTimeout);
+        if (_ws) _ws.close(1000);
+        set({ _ws: null, _retryTimeout: null });
+    },
+}));
+
+/**
+ * Get connection indicator style
+ */
+export function getConnectionIndicator(connectionState) {
+    return {
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        backgroundColor: {
+            [ConnectionState.CONNECTED]: '#4caf50',
+            [ConnectionState.CONNECTING]: '#ff9800',
+            [ConnectionState.RECONNECTING]: '#ff9800',
+            [ConnectionState.DISCONNECTED]: '#f44336',
+        }[connectionState] || '#888',
+        marginRight: '8px',
+    };
+}
