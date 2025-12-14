@@ -25,6 +25,7 @@ EOF
 rm -f ~/.nvimswap/project*.pn.*
 cat > demo.tape << EOF
 Set FontSize 26
+Set FontFamily "FiraCode Nerd Font Mono"
 Set Width 1400
 Set Height 800
 Type "# patto-lsp can aggregate tasks in a workspace."

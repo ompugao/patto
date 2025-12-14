@@ -18,6 +18,7 @@ rm -f note.pn
 touch note2.pn note3.pn note4.pn
 cat > demo.tape << EOF
 Set FontSize 26
+Set FontFamily "FiraCode Nerd Font Mono"
 Set Width 1200
 Set Height 600
 Type "nvim"
