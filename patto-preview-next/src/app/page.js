@@ -37,6 +37,12 @@ export default function PattoApp() {
   }, [initialize, connect, disconnect]);
 
   const connectionIndicator = getConnectionIndicator(connectionState);
+  const connectionLabel = {
+    [ConnectionState.CONNECTED]: 'Connected',
+    [ConnectionState.CONNECTING]: 'Connecting',
+    [ConnectionState.RECONNECTING]: 'Reconnecting',
+    [ConnectionState.DISCONNECTED]: 'Disconnected',
+  }[connectionState] || 'Disconnected';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -46,11 +52,34 @@ export default function PattoApp() {
         color: 'white',
         padding: '10px 15px',
         display: 'flex',
-        justifyContent: 'start',
-        alignItems: 'center'
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '12px'
       }}>
-        <div style={connectionIndicator} title={`Connection: ${connectionState}`} />
-        <span style={{ fontSize: 'larger', height: '1.2em' }}>{currentNote || ''}</span>
+        <span style={{ fontSize: 'larger', height: '1.2em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {currentNote || ''}
+        </span>
+        <button
+          type="button"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '4px 8px',
+            borderRadius: '12px',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            color: 'rgba(255, 255, 255, 0.82)',
+            fontSize: '12px',
+            fontWeight: 500,
+            cursor: 'default'
+          }}
+          title={connectionLabel}
+          aria-label={`Connection status: ${connectionLabel}`}
+        >
+          <div style={connectionIndicator} aria-hidden="true" />
+          <span aria-live="polite">{connectionLabel}</span>
+        </button>
       </div>
 
       {/* Main content */}
@@ -80,4 +109,3 @@ export default function PattoApp() {
     </div>
   );
 }
-

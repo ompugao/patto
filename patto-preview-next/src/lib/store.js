@@ -303,15 +303,15 @@ export const usePattoStore = create((set, get) => ({
  */
 export function getConnectionIndicator(connectionState) {
     return {
-        width: '8px',
-        height: '8px',
-        borderRadius: '50%',
+        width: '6px',
+        height: '6px',
+        borderRadius: '999px',
         backgroundColor: {
-            [ConnectionState.CONNECTED]: '#4caf50',
-            [ConnectionState.CONNECTING]: '#ff9800',
-            [ConnectionState.RECONNECTING]: '#ff9800',
-            [ConnectionState.DISCONNECTED]: '#f44336',
-        }[connectionState] || '#888',
-        marginRight: '8px',
+            [ConnectionState.CONNECTED]: '#6ecf82',
+            [ConnectionState.CONNECTING]: '#f5c16c',
+            [ConnectionState.RECONNECTING]: '#f5c16c',
+            [ConnectionState.DISCONNECTED]: '#e27b7b',
+        }[connectionState] || '#9aa0a6',
+        marginRight: '0px',
     };
 }
