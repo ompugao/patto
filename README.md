@@ -6,9 +6,9 @@ A simple plain-text format for quick note-taking, outlining, and task management
 <!-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ompugao/patto) -->
 
 ## Description
-Patto Note is a text format inspired by [Cosense (formerly Scrapbox)](https://scrapbox.io), designed for quick note-taking, task management, and outlining.
+Patto Note is a text format inspired by [Cosense (formerly Scrapbox)](https://scrapbox.io), designed for outlining, quick note-taking and task management.
 It works with your favorite editor, powered by the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/).
-Unlike Markdown, every newline (\n) creates a new line, and a leading hard tab (\t) itemizes the line.
+Unlike Markdown, patto note is line-oriented; every newline (\n) creates a new line, and a leading hard tab (\t) itemizes the line.
 This simple, line-oriented structure makes it easy to outline ideas, organize tasks, and brainstorm effectively.
 
 ## Demo
