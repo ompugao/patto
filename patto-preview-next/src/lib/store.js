@@ -2,6 +2,38 @@ import { create } from 'zustand';
 import { MessageTypes, createSelectFileMessage } from './messageTypes';
 
 /**
+ * Setup print event listeners to strip .pn extension from title when printing.
+ * This ensures PDF filenames are clean (e.g., "file_basename.pdf" instead of "file_basename.pn.pdf").
+ * @returns {Function} Cleanup function to remove event listeners
+ */
+function setupPrintTitleHandler() {
+    if (typeof window === 'undefined') return () => {};
+
+    let originalTitle = '';
+
+    const handleBeforePrint = () => {
+        originalTitle = document.title;
+        if (originalTitle.endsWith('.pn')) {
+            document.title = originalTitle.slice(0, -3);
+        }
+    };
+
+    const handleAfterPrint = () => {
+        if (originalTitle) {
+            document.title = originalTitle;
+        }
+    };
+
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+
+    return () => {
+        window.removeEventListener('beforeprint', handleBeforePrint);
+        window.removeEventListener('afterprint', handleAfterPrint);
+    };
+}
+
+/**
  * Connection states for WebSocket
  */
 export const ConnectionState = {
@@ -102,7 +134,7 @@ export const usePattoStore = create((set, get) => ({
                 });
                 // Navigate home if current file was removed
                 if (isCurrentFile && typeof window !== 'undefined') {
-                    document.title = 'Patto Preview';
+                    document.title = '';
                     const url = new URL(window.location);
                     url.searchParams.delete('note');
                     url.hash = '';
@@ -158,7 +190,7 @@ export const usePattoStore = create((set, get) => ({
         set({ currentNote: path, anchor: anchorId });
 
         // Update title
-        document.title = path ? `${path} - Patto Preview` : 'Patto Preview';
+        document.title = path || '';
 
         // Request file content from server
         if (path) {
@@ -220,8 +252,11 @@ export const usePattoStore = create((set, get) => ({
 
         // Set initial title
         if (noteParam) {
-            document.title = `${noteParam} - Patto Preview`;
+            document.title = noteParam;
         }
+
+        // Setup print title handler (strips .pn extension when printing to PDF)
+        const cleanupPrintHandler = setupPrintTitleHandler();
 
         // Handle browser navigation
         const handlePopState = () => {
@@ -233,7 +268,10 @@ export const usePattoStore = create((set, get) => ({
         };
         window.addEventListener('popstate', handlePopState);
 
-        return () => window.removeEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+            cleanupPrintHandler();
+        };
     },
 
     /**
