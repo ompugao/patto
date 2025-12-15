@@ -729,11 +729,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 }
                             },
                             RepositoryMessage::FileRemoved(path) => {
-                                let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
-                                    continue;
-                                };
+                                // Note: path is already relative (stripped in repository.rs)
                                 WsMessage::FileRemoved {
-                                    path: rel_path.to_string_lossy().to_string(),
+                                    path: path.to_string_lossy().to_string(),
                                 }
                             },
                             RepositoryMessage::BackLinksChanged(path, back_links) => {

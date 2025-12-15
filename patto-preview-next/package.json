@@ -20,7 +20,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-use": "^17.5.1",
-    "react-use-websocket": "^4.8.1"
+    "react-use-websocket": "^4.8.1",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
