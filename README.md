@@ -112,6 +112,12 @@ Currently, `anchor` and `task` properties are implemented:
 ### Install lsp server
 Please download binaries from [GitHub release](https://github.com/ompugao/patto/releases)
 
+If you use [jdx/mise](https://github.com/jdx/mise):
+```sh
+mise use -g github:ompugao/patto
+mise use -g cargo:patto
+```
+
 or, use cargo:
 ```sh
 cargo install patto
