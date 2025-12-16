@@ -44,6 +44,18 @@ export const ConnectionState = {
 };
 
 /**
+ * Adaptive throttle state for render-time-aware update batching.
+ * Tracks render performance and skips intermediate updates when client is slow.
+ */
+const createAdaptiveThrottle = () => ({
+    renderTimeEma: 16,      // Exponential moving average of render time (ms), start at ~60fps
+    lastRenderStart: 0,     // Timestamp when last render started
+    pendingUpdate: null,    // Queued update when throttled
+    throttleTimeout: null,  // Timeout for processing pending update
+    isRendering: false,     // Whether we're currently in a render cycle
+});
+
+/**
  * Zustand store for patto preview application.
  * Combines data state, UI state, and WebSocket connection management.
  */
@@ -71,14 +83,74 @@ export const usePattoStore = create((set, get) => ({
     _retryCount: 0,
     _retryTimeout: null,
 
+    // === Adaptive Throttle State ===
+    _throttle: createAdaptiveThrottle(),
+
     // === Actions ===
+
+    /**
+     * Mark render start - call this before rendering preview content
+     */
+    markRenderStart: () => {
+        const { _throttle } = get();
+        _throttle.lastRenderStart = performance.now();
+        _throttle.isRendering = true;
+    },
+
+    /**
+     * Mark render complete - call this after rendering preview content
+     * Updates the exponential moving average of render time
+     */
+    markRenderComplete: () => {
+        const { _throttle } = get();
+        if (_throttle.lastRenderStart > 0) {
+            const renderTime = performance.now() - _throttle.lastRenderStart;
+            // EMA with alpha=0.3 for smoothing
+            _throttle.renderTimeEma = 0.3 * renderTime + 0.7 * _throttle.renderTimeEma;
+            _throttle.isRendering = false;
+        }
+    },
+
+    /**
+     * Get adaptive throttle delay based on render performance
+     * Returns delay in ms (1.5x the EMA, bounded 8-500ms)
+     */
+    _getThrottleDelay: () => {
+        const { _throttle } = get();
+        return Math.min(500, Math.max(8, _throttle.renderTimeEma * 1.5));
+    },
+
+    /**
+     * Process a FILE_CHANGED update (possibly throttled)
+     */
+    _processFileChanged: (data) => {
+        const { currentNote, _throttle, markRenderStart } = get();
+        const isCurrentFile = data.path === currentNote;
+
+        if (isCurrentFile) {
+            markRenderStart();
+        }
+
+        set(state => ({
+            previewHtml: isCurrentFile ? (data.html || '') : state.previewHtml,
+            files: state.files.includes(data.path)
+                ? state.files
+                : [...state.files, data.path],
+            fileMetadata: {
+                ...state.fileMetadata,
+                [data.path]: data.metadata,
+            },
+        }));
+
+        _throttle.pendingUpdate = null;
+    },
 
     /**
      * Handle incoming WebSocket messages
      */
     handleMessage: (message) => {
         const { type, data } = message;
-        const { currentNote } = get();
+        const { currentNote, _throttle, _processFileChanged, _getThrottleDelay } = get();
 
         switch (type) {
             case MessageTypes.FILE_LIST:
@@ -90,16 +162,52 @@ export const usePattoStore = create((set, get) => ({
 
             case MessageTypes.FILE_CHANGED: {
                 const isCurrentFile = data.path === currentNote;
-                set(state => ({
-                    previewHtml: isCurrentFile ? (data.html || '') : state.previewHtml,
-                    files: state.files.includes(data.path)
-                        ? state.files
-                        : [...state.files, data.path],
-                    fileMetadata: {
-                        ...state.fileMetadata,
-                        [data.path]: data.metadata,
-                    },
-                }));
+
+                // For non-current files, process immediately (cheap update)
+                if (!isCurrentFile) {
+                    set(state => ({
+                        files: state.files.includes(data.path)
+                            ? state.files
+                            : [...state.files, data.path],
+                        fileMetadata: {
+                            ...state.fileMetadata,
+                            [data.path]: data.metadata,
+                        },
+                    }));
+                    break;
+                }
+
+                // For current file: use adaptive throttling
+                // If we're still rendering or within throttle window, queue the update
+                if (_throttle.isRendering || _throttle.throttleTimeout) {
+                    // Replace pending update with latest (drop intermediate updates)
+                    _throttle.pendingUpdate = data;
+
+                    // Schedule processing if not already scheduled
+                    if (!_throttle.throttleTimeout) {
+                        const delay = _getThrottleDelay();
+                        _throttle.throttleTimeout = setTimeout(() => {
+                            _throttle.throttleTimeout = null;
+                            const pending = _throttle.pendingUpdate;
+                            if (pending) {
+                                _processFileChanged(pending);
+                            }
+                        }, delay);
+                    }
+                } else {
+                    // Process immediately
+                    _processFileChanged(data);
+
+                    // Set up throttle window to batch rapid subsequent updates
+                    const delay = _getThrottleDelay();
+                    _throttle.throttleTimeout = setTimeout(() => {
+                        _throttle.throttleTimeout = null;
+                        const pending = _throttle.pendingUpdate;
+                        if (pending) {
+                            _processFileChanged(pending);
+                        }
+                    }, delay);
+                }
                 break;
             }
 

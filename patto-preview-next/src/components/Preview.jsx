@@ -1,11 +1,12 @@
 import parse from 'html-react-parser';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import styles from './Preview.module.css';
 import { useHtmlTransformer, escapeInvalidTags } from '../lib/useHtmlTransformer';
 import TwoHopLinks from './TwoHopLinks.jsx';
 import BackLinks from './BackLinks.jsx';
 import 'highlight.js/styles/github.min.css';
 import { MathJaxContext, MathJax } from 'better-react-mathjax';
+import { usePattoStore } from '../lib/store';
 
 /**
  * MathJax configuration for LaTeX rendering
@@ -38,6 +39,19 @@ const mathJaxConfig = {
 export default function Preview({ html, anchor, onSelectFile, currentNote, backLinks, twoHopLinks }) {
   // Get memoized transform options from hook
   const transformOptions = useHtmlTransformer(onSelectFile);
+  const markRenderComplete = usePattoStore(state => state.markRenderComplete);
+  const prevHtmlRef = useRef(html);
+
+  // Mark render complete after DOM updates (for adaptive throttling)
+  useLayoutEffect(() => {
+    if (html && html !== prevHtmlRef.current) {
+      // Use requestAnimationFrame to measure after paint
+      requestAnimationFrame(() => {
+        markRenderComplete();
+      });
+      prevHtmlRef.current = html;
+    }
+  }, [html, markRenderComplete]);
 
   /**
    * Enhanced anchor scrolling with retry mechanism
