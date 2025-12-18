@@ -122,7 +122,10 @@ mod debounce {
         fn debounce_for(&self, path: &PathBuf) -> u64 {
             self.last_parse_time_ms
                 .get(path)
-                .map(|&ms| ((ms as f64 * PARSE_TIME_MULTIPLIER) as u64).clamp(DEBOUNCE_MIN_MS, DEBOUNCE_MAX_MS))
+                .map(|&ms| {
+                    ((ms as f64 * PARSE_TIME_MULTIPLIER) as u64)
+                        .clamp(DEBOUNCE_MIN_MS, DEBOUNCE_MAX_MS)
+                })
                 .unwrap_or(DEBOUNCE_DEFAULT_MS)
         }
 
@@ -225,8 +228,7 @@ impl PreviewLspBackend {
         let debouncer = self.debouncer.clone();
         let repository = self.repository.clone();
 
-        let (flush_now, generation, debounce_ms) =
-            debouncer.lock().unwrap().queue(&path, text);
+        let (flush_now, generation, debounce_ms) = debouncer.lock().unwrap().queue(&path, text);
 
         if let Some(text) = flush_now {
             // Max wait exceeded, flush immediately with lightweight update
@@ -496,9 +498,14 @@ async fn main() {
 
     let mut shutdown_signal = None;
     if args.preview_lsp_stdio {
-        shutdown_signal = Some(start_preview_lsp_stdio(repository.clone(), debouncer.clone()));
+        shutdown_signal = Some(start_preview_lsp_stdio(
+            repository.clone(),
+            debouncer.clone(),
+        ));
     } else if let Some(lsp_port) = args.preview_lsp_port {
-        if let Err(e) = start_preview_lsp_server(repository.clone(), lsp_port, debouncer.clone()).await {
+        if let Err(e) =
+            start_preview_lsp_server(repository.clone(), lsp_port, debouncer.clone()).await
+        {
             eprintln!("Failed to start preview LSP server: {}", e);
         }
     }

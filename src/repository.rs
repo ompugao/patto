@@ -647,11 +647,9 @@ impl Repository {
             }
         });
 
-        let _ = self.tx.send(RepositoryMessage::FileChanged(
-            path,
-            metadata,
-            content,
-        ));
+        let _ = self
+            .tx
+            .send(RepositoryMessage::FileChanged(path, metadata, content));
     }
 
     /// Start filesystem watcher for the repository
