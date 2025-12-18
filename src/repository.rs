@@ -628,6 +628,32 @@ impl Repository {
             .send(RepositoryMessage::TwoHopLinksChanged(path, two_hop_links));
     }
 
+    /// Lightweight live file change - only broadcasts content without recalculating links.
+    /// Use this for rapid typing; call handle_live_file_change after idle for full update.
+    pub fn handle_live_file_change_lightweight(&self, path: PathBuf, content: String) {
+        if !path.starts_with(&self.root_dir) {
+            return;
+        }
+
+        let metadata = self.collect_file_metadata(&path).unwrap_or_else(|_| {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            FileMetadata {
+                modified: now,
+                created: now,
+                link_count: 0,
+            }
+        });
+
+        let _ = self.tx.send(RepositoryMessage::FileChanged(
+            path,
+            metadata,
+            content,
+        ));
+    }
+
     /// Start filesystem watcher for the repository
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
