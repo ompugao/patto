@@ -70,22 +70,108 @@ struct Args {
 struct AppState {
     repository: Arc<Repository>,
     line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
+    debouncer: Arc<Mutex<debounce::ContentDebouncer>>,
 }
 
-const CONTENT_UPDATE_DEBOUNCE_MS: u64 = 200;
-const CONTENT_UPDATE_MAX_WAIT_MS: u64 = 500;
+// ============================================================================
+// Content Debouncer - Batches content updates with adaptive timing
+// ============================================================================
+//
+// Adjusts debounce delay based on previous parse/render time:
+// - Slower files get longer debounce to avoid overwhelming the system
+// - Faster files get shorter debounce for quicker feedback
+// - Always flushes within max_wait to ensure responsiveness
 
-struct PendingContentUpdate {
-    latest_text: String,
-    first_pending_at: Instant,
-    generation: u64,
+mod debounce {
+    use super::*;
+
+    const DEBOUNCE_MIN_MS: u64 = 5;
+    const DEBOUNCE_MAX_MS: u64 = 500;
+    const DEBOUNCE_DEFAULT_MS: u64 = 20;
+    const MAX_WAIT_MS: u64 = 2000;
+    // Debounce = parse_time * multiplier (clamped to range)
+    const PARSE_TIME_MULTIPLIER: f64 = 2.0;
+
+    /// Tracks pending content for a single file
+    struct PendingUpdate {
+        text: String,
+        first_pending_at: Instant,
+        generation: u64,
+    }
+
+    /// Debounces content updates for multiple files based on parse time
+    pub struct ContentDebouncer {
+        pending: HashMap<PathBuf, PendingUpdate>,
+        last_parse_time_ms: HashMap<PathBuf, u64>,
+    }
+
+    impl ContentDebouncer {
+        pub fn new() -> Self {
+            Self {
+                pending: HashMap::new(),
+                last_parse_time_ms: HashMap::new(),
+            }
+        }
+
+        /// Record how long parsing took for a file (call after parse completes)
+        pub fn record_parse_time(&mut self, path: &PathBuf, duration_ms: u64) {
+            self.last_parse_time_ms.insert(path.clone(), duration_ms);
+        }
+
+        /// Compute debounce time based on last parse duration
+        fn debounce_for(&self, path: &PathBuf) -> u64 {
+            self.last_parse_time_ms
+                .get(path)
+                .map(|&ms| ((ms as f64 * PARSE_TIME_MULTIPLIER) as u64).clamp(DEBOUNCE_MIN_MS, DEBOUNCE_MAX_MS))
+                .unwrap_or(DEBOUNCE_DEFAULT_MS)
+        }
+
+        /// Queue a content update. Returns (text_to_flush_now, generation, debounce_ms).
+        pub fn queue(&mut self, path: &PathBuf, text: String) -> (Option<String>, u64, u64) {
+            let now = Instant::now();
+            let debounce_ms = self.debounce_for(path);
+
+            match self.pending.entry(path.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(PendingUpdate {
+                        text,
+                        first_pending_at: now,
+                        generation: 0,
+                    });
+                    (None, 0, debounce_ms)
+                }
+                Entry::Occupied(mut entry) => {
+                    let pending = entry.get_mut();
+                    pending.text = text;
+                    pending.generation = pending.generation.wrapping_add(1);
+
+                    // Flush immediately if waiting too long
+                    if pending.first_pending_at.elapsed() >= Duration::from_millis(MAX_WAIT_MS) {
+                        let text = entry.remove().text;
+                        (Some(text), 0, 0)
+                    } else {
+                        (None, pending.generation, debounce_ms)
+                    }
+                }
+            }
+        }
+
+        /// Take pending text if generation matches (called after debounce delay).
+        pub fn take_if_ready(&mut self, path: &PathBuf, generation: u64) -> Option<String> {
+            if self.pending.get(path).map(|p| p.generation) == Some(generation) {
+                self.pending.remove(path).map(|p| p.text)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 struct PreviewLspBackend {
     client: Client,
     repository: Arc<Repository>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
-    pending_updates: Arc<Mutex<HashMap<PathBuf, PendingContentUpdate>>>,
+    debouncer: Arc<Mutex<debounce::ContentDebouncer>>,
 }
 
 impl PreviewLspBackend {
@@ -93,12 +179,13 @@ impl PreviewLspBackend {
         client: Client,
         repository: Arc<Repository>,
         shutdown_tx: Option<oneshot::Sender<()>>,
+        debouncer: Arc<Mutex<debounce::ContentDebouncer>>,
     ) -> Self {
         Self {
             client,
             repository,
             shutdown_tx: Mutex::new(shutdown_tx),
-            pending_updates: Arc::new(Mutex::new(HashMap::new())),
+            debouncer,
         }
     }
 
@@ -135,87 +222,26 @@ impl PreviewLspBackend {
     }
 
     async fn queue_live_content_update(&self, path: PathBuf, text: String) {
-        let pending_updates = self.pending_updates.clone();
+        let debouncer = self.debouncer.clone();
         let repository = self.repository.clone();
-        let flush_text = {
-            let mut pending = pending_updates.lock().unwrap();
-            match pending.entry(path.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(PendingContentUpdate {
-                        latest_text: text.clone(),
-                        first_pending_at: Instant::now(),
-                        generation: 0,
-                    });
-                    schedule_debounce_flush(
-                        pending_updates.clone(),
-                        repository.clone(),
-                        path.clone(),
-                        0,
-                    );
-                    None
+
+        let (flush_now, generation, debounce_ms) =
+            debouncer.lock().unwrap().queue(&path, text);
+
+        if let Some(text) = flush_now {
+            // Max wait exceeded, flush immediately
+            repository.handle_live_file_change(path, text).await;
+        } else {
+            // Schedule delayed flush
+            tokio::spawn(async move {
+                sleep(Duration::from_millis(debounce_ms)).await;
+                let text = debouncer.lock().unwrap().take_if_ready(&path, generation);
+                if let Some(text) = text {
+                    repository.handle_live_file_change(path, text).await;
                 }
-                Entry::Occupied(mut occupied) => {
-                    let mut flush_now = false;
-                    let scheduled_generation = {
-                        let pending_entry = occupied.get_mut();
-                        pending_entry.latest_text = text;
-                        pending_entry.generation = pending_entry.generation.wrapping_add(1);
-
-                        if pending_entry.first_pending_at.elapsed()
-                            >= Duration::from_millis(CONTENT_UPDATE_MAX_WAIT_MS)
-                        {
-                            flush_now = true;
-                        }
-
-                        pending_entry.generation
-                    };
-
-                    if flush_now {
-                        Some(occupied.remove().latest_text)
-                    } else {
-                        schedule_debounce_flush(
-                            pending_updates.clone(),
-                            repository.clone(),
-                            path.clone(),
-                            scheduled_generation,
-                        );
-                        None
-                    }
-                }
-            }
-        };
-
-        if let Some(text) = flush_text {
-            self.repository.handle_live_file_change(path, text).await;
+            });
         }
     }
-}
-
-fn schedule_debounce_flush(
-    pending_updates: Arc<Mutex<HashMap<PathBuf, PendingContentUpdate>>>,
-    repository: Arc<Repository>,
-    path: PathBuf,
-    generation: u64,
-) {
-    tokio::spawn(async move {
-        sleep(Duration::from_millis(CONTENT_UPDATE_DEBOUNCE_MS)).await;
-        let text = {
-            let mut guard = pending_updates.lock().unwrap();
-            if guard
-                .get(&path)
-                .map(|entry| entry.generation == generation)
-                .unwrap_or(false)
-            {
-                guard.remove(&path).map(|entry| entry.latest_text)
-            } else {
-                None
-            }
-        };
-
-        if let Some(text) = text {
-            repository.handle_live_file_change(path, text).await;
-        }
-    });
 }
 
 #[tower_lsp::async_trait]
@@ -263,7 +289,11 @@ impl LanguageServer for PreviewLspBackend {
     }
 }
 
-async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std::io::Result<()> {
+async fn start_preview_lsp_server(
+    repository: Arc<Repository>,
+    port: u16,
+    debouncer: Arc<Mutex<debounce::ContentDebouncer>>,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     eprintln!("Preview LSP server listening on 127.0.0.1:{}", port);
 
@@ -272,10 +302,11 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     let repo = repository.clone();
+                    let debouncer = debouncer.clone();
                     tokio::spawn(async move {
                         let (reader, writer) = tokio::io::split(stream);
                         let (service, socket) = LspService::new(|client| {
-                            PreviewLspBackend::new(client, repo.clone(), None)
+                            PreviewLspBackend::new(client, repo.clone(), None, debouncer.clone())
                         });
                         Server::new(reader, writer, socket).serve(service).await;
                         eprintln!("Preview LSP connection {} closed", addr);
@@ -291,7 +322,10 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
     Ok(())
 }
 
-fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()> {
+fn start_preview_lsp_stdio(
+    repository: Arc<Repository>,
+    debouncer: Arc<Mutex<debounce::ContentDebouncer>>,
+) -> oneshot::Receiver<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     let (tx, rx) = oneshot::channel();
@@ -307,7 +341,7 @@ fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()>
     tokio::spawn(async move {
         let (service, socket) = LspService::new(move |client| {
             let sender = shutdown_tx.lock().unwrap().take();
-            PreviewLspBackend::new(client, repository, sender)
+            PreviewLspBackend::new(client, repository.clone(), sender, debouncer.clone())
         });
         Server::new(stdin, stdout, socket).serve(service).await;
         if let Some(tx) = shutdown_tx_server.lock().unwrap().take() {
@@ -441,11 +475,15 @@ async fn main() {
         std::process::exit(1);
     }
 
+    // Create shared debouncer for adaptive timing based on parse speed
+    let debouncer = Arc::new(Mutex::new(debounce::ContentDebouncer::new()));
+
     // Create repository and app state
     let repository = Arc::new(Repository::new(dir.clone()));
     let state = AppState {
         repository: repository.clone(),
         line_trackers: Arc::new(Mutex::new(HashMap::new())),
+        debouncer: debouncer.clone(),
     };
 
     // Start file watcher in a separate task
@@ -458,9 +496,9 @@ async fn main() {
 
     let mut shutdown_signal = None;
     if args.preview_lsp_stdio {
-        shutdown_signal = Some(start_preview_lsp_stdio(repository.clone()));
+        shutdown_signal = Some(start_preview_lsp_stdio(repository.clone(), debouncer.clone()));
     } else if let Some(lsp_port) = args.preview_lsp_port {
-        if let Err(e) = start_preview_lsp_server(repository.clone(), lsp_port).await {
+        if let Err(e) = start_preview_lsp_server(repository.clone(), lsp_port, debouncer.clone()).await {
             eprintln!("Failed to start preview LSP server: {}", e);
         }
     }
@@ -959,8 +997,12 @@ async fn render_patto_to_html(
 
     // Get or create line tracker for this file
     let line_trackers = Arc::clone(&state.line_trackers);
+    let debouncer = Arc::clone(&state.debouncer);
+    let file_path_for_debounce = file_path_buf.clone();
 
     let html_output = tokio::task::spawn_blocking(move || {
+        let start = Instant::now();
+
         // Get or create line tracker for this file
         let mut trackers = line_trackers.lock().unwrap();
         let line_tracker = trackers.entry(file_path_buf.clone()).or_insert_with(|| {
@@ -978,6 +1020,14 @@ async fn render_patto_to_html(
         let renderer = HtmlRenderer::new(HtmlRendererOptions {});
 
         let _ = renderer.format(&result.ast, &mut html_output);
+
+        // Record parse time for adaptive debounce
+        let parse_time_ms = start.elapsed().as_millis() as u64;
+        debouncer
+            .lock()
+            .unwrap()
+            .record_parse_time(&file_path_for_debounce, parse_time_ms);
+
         html_output
     })
     .await;
