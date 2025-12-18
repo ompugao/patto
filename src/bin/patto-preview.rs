@@ -229,15 +229,15 @@ impl PreviewLspBackend {
             debouncer.lock().unwrap().queue(&path, text);
 
         if let Some(text) = flush_now {
-            // Max wait exceeded, flush immediately
-            repository.handle_live_file_change(path, text).await;
+            // Max wait exceeded, flush immediately with lightweight update
+            repository.handle_live_file_change_lightweight(path, text);
         } else {
-            // Schedule delayed flush
+            // Schedule delayed flush with lightweight update
             tokio::spawn(async move {
                 sleep(Duration::from_millis(debounce_ms)).await;
                 let text = debouncer.lock().unwrap().take_if_ready(&path, generation);
                 if let Some(text) = text {
-                    repository.handle_live_file_change(path, text).await;
+                    repository.handle_live_file_change_lightweight(path, text);
                 }
             });
         }
