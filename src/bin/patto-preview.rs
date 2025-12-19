@@ -85,24 +85,24 @@ struct AppState {
 mod debounce {
     use super::*;
 
-    const DEBOUNCE_MIN_MS: u64 = 5;
+    const DEBOUNCE_MIN_MS: u64 = 50;
     const DEBOUNCE_MAX_MS: u64 = 500;
-    const DEBOUNCE_DEFAULT_MS: u64 = 20;
-    const MAX_WAIT_MS: u64 = 2000;
+    const DEBOUNCE_DEFAULT_MS: u64 = 100;
     // Debounce = parse_time * multiplier (clamped to range)
     const PARSE_TIME_MULTIPLIER: f64 = 2.0;
 
     /// Tracks pending content for a single file
     struct PendingUpdate {
         text: String,
-        first_pending_at: Instant,
-        generation: u64,
+        /// Whether a timer is already scheduled for this pending update
+        timer_scheduled: bool,
     }
 
     /// Debounces content updates for multiple files based on parse time
     pub struct ContentDebouncer {
         pending: HashMap<PathBuf, PendingUpdate>,
         last_parse_time_ms: HashMap<PathBuf, u64>,
+        last_flush_at: HashMap<PathBuf, Instant>,
     }
 
     impl ContentDebouncer {
@@ -110,6 +110,7 @@ mod debounce {
             Self {
                 pending: HashMap::new(),
                 last_parse_time_ms: HashMap::new(),
+                last_flush_at: HashMap::new(),
             }
         }
 
@@ -129,40 +130,54 @@ mod debounce {
                 .unwrap_or(DEBOUNCE_DEFAULT_MS)
         }
 
-        /// Queue a content update. Returns (text_to_flush_now, generation, debounce_ms).
-        pub fn queue(&mut self, path: &PathBuf, text: String) -> (Option<String>, u64, u64) {
+        /// Queue a content update. Returns (text_to_flush_now, should_schedule_timer, debounce_ms).
+        /// Flushes immediately if debounce period has passed since last flush, otherwise debounces.
+        pub fn queue(&mut self, path: &PathBuf, text: String) -> (Option<String>, bool, u64) {
             let now = Instant::now();
             let debounce_ms = self.debounce_for(path);
 
-            match self.pending.entry(path.clone()) {
-                Entry::Vacant(entry) => {
-                    entry.insert(PendingUpdate {
-                        text,
-                        first_pending_at: now,
-                        generation: 0,
-                    });
-                    (None, 0, debounce_ms)
-                }
-                Entry::Occupied(mut entry) => {
-                    let pending = entry.get_mut();
-                    pending.text = text;
-                    pending.generation = pending.generation.wrapping_add(1);
+            // Check if enough time passed since last flush - if so, flush immediately
+            let should_flush_now = self
+                .last_flush_at
+                .get(path)
+                .map(|&t| now.duration_since(t) >= Duration::from_millis(debounce_ms))
+                .unwrap_or(true); // No previous flush = flush now
 
-                    // Flush immediately if waiting too long
-                    if pending.first_pending_at.elapsed() >= Duration::from_millis(MAX_WAIT_MS) {
-                        let text = entry.remove().text;
-                        (Some(text), 0, 0)
-                    } else {
-                        (None, pending.generation, debounce_ms)
+            if should_flush_now {
+                self.last_flush_at.insert(path.clone(), now);
+                self.pending.remove(path); // Clear any pending
+                (Some(text), false, debounce_ms)
+            } else {
+                // Update pending text, only schedule timer if not already scheduled
+                let should_schedule = match self.pending.entry(path.clone()) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(PendingUpdate {
+                            text,
+                            timer_scheduled: true,
+                        });
+                        true
                     }
-                }
+                    Entry::Occupied(mut entry) => {
+                        let pending = entry.get_mut();
+                        pending.text = text;
+                        // Don't schedule another timer if one is already pending
+                        if pending.timer_scheduled {
+                            false
+                        } else {
+                            pending.timer_scheduled = true;
+                            true
+                        }
+                    }
+                };
+                (None, should_schedule, debounce_ms)
             }
         }
 
-        /// Take pending text if generation matches (called after debounce delay).
-        pub fn take_if_ready(&mut self, path: &PathBuf, generation: u64) -> Option<String> {
-            if self.pending.get(path).map(|p| p.generation) == Some(generation) {
-                self.pending.remove(path).map(|p| p.text)
+        /// Take pending text (called after debounce delay). Always takes latest.
+        pub fn take_pending(&mut self, path: &PathBuf) -> Option<String> {
+            if let Some(pending) = self.pending.remove(path) {
+                self.last_flush_at.insert(path.clone(), Instant::now());
+                Some(pending.text)
             } else {
                 None
             }
@@ -228,21 +243,22 @@ impl PreviewLspBackend {
         let debouncer = self.debouncer.clone();
         let repository = self.repository.clone();
 
-        let (flush_now, generation, debounce_ms) = debouncer.lock().unwrap().queue(&path, text);
+        let (flush_now, should_schedule, debounce_ms) = debouncer.lock().unwrap().queue(&path, text);
 
         if let Some(text) = flush_now {
-            // Max wait exceeded, flush immediately with lightweight update
+            // Immediate flush - enough time passed since last flush
             repository.handle_live_file_change_lightweight(path, text);
-        } else {
-            // Schedule delayed flush with lightweight update
+        } else if should_schedule {
+            // Schedule delayed flush (only one timer per batch)
             tokio::spawn(async move {
                 sleep(Duration::from_millis(debounce_ms)).await;
-                let text = debouncer.lock().unwrap().take_if_ready(&path, generation);
+                let text = debouncer.lock().unwrap().take_pending(&path);
                 if let Some(text) = text {
                     repository.handle_live_file_change_lightweight(path, text);
                 }
             });
         }
+        // else: timer already scheduled, it will pick up the latest text
     }
 }
 
