@@ -68,8 +68,7 @@ export function GitConfig() {
         try {
             await invoke('configure_remote', {
                 repoPath: workspacePath,
-                url: remoteUrl.trim(),
-                remoteName: 'origin',
+                remoteUrl: remoteUrl.trim(),
             });
             setStatusMessage('Remote origin configured');
             await loadGitStatus();
@@ -91,7 +90,7 @@ export function GitConfig() {
         try {
             await invoke('git_clone', {
                 url: remoteUrl.trim(),
-                targetPath: manualPath.trim(),
+                dest: manualPath.trim(),
                 credentials: { username, token },
             });
             setWorkspacePath(manualPath.trim());
