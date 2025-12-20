@@ -164,122 +164,130 @@ pub async fn git_clone(
     result
 }
 
-/// Set file modification times to their last commit time (with progress)
+/// Set file modification times to their last commit time (optimized)
+/// Walks commits once to build file->timestamp map, then applies timestamps
 fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf, app: &AppHandle) -> usize {
+    use std::collections::HashMap;
     use std::fs;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime};
 
+    // Emit starting message
+    let _ = app.emit(
+        "clone-progress",
+        CloneProgress {
+            stage: "Building file history".to_string(),
+            received: 0,
+            total: 0,
+            percent: 0,
+        },
+    );
+
+    // Build map of file -> last commit timestamp by walking commits once
+    let mut file_times: HashMap<String, i64> = HashMap::new();
+
+    if let Ok(mut revwalk) = repo.revwalk() {
+        let _ = revwalk.push_head();
+        let _ = revwalk.set_sorting(git2::Sort::TIME | git2::Sort::REVERSE); // oldest first
+
+        let commits: Vec<_> = revwalk.flatten().collect();
+        let total_commits = commits.len();
+        let mut processed_commits = 0;
+        let mut last_percent = 0;
+
+        for oid in commits {
+            processed_commits += 1;
+            let percent = if total_commits > 0 {
+                (processed_commits * 50) / total_commits // First 50% for history
+            } else {
+                0
+            };
+
+            if percent >= last_percent + 10 {
+                last_percent = percent;
+                let _ = app.emit(
+                    "clone-progress",
+                    CloneProgress {
+                        stage: "Analyzing commits".to_string(),
+                        received: processed_commits,
+                        total: total_commits,
+                        percent: percent as u32,
+                    },
+                );
+            }
+
+            if let Ok(commit) = repo.find_commit(oid) {
+                let commit_time = commit.time().seconds();
+
+                if let Some(parent) = commit.parent(0).ok() {
+                    if let (Ok(commit_tree), Ok(parent_tree)) = (commit.tree(), parent.tree()) {
+                        if let Ok(diff) =
+                            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)
+                        {
+                            for delta in diff.deltas() {
+                                if let Some(path) = delta.new_file().path() {
+                                    file_times
+                                        .insert(path.to_string_lossy().to_string(), commit_time);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Initial commit - all files are new
+                    if let Ok(tree) = commit.tree() {
+                        let _ = tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+                            if entry.kind() == Some(git2::ObjectType::Blob) {
+                                let path = if dir.is_empty() {
+                                    entry.name().unwrap_or("").to_string()
+                                } else {
+                                    format!("{}{}", dir, entry.name().unwrap_or(""))
+                                };
+                                file_times.insert(path, commit_time);
+                            }
+                            git2::TreeWalkResult::Ok
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Now apply timestamps to files
+    let total_files = file_times.len();
     let mut count = 0;
+    let mut last_percent = 50; // Start at 50% (second half)
 
-    // Walk through all files in HEAD
-    let head = match repo.head() {
-        Ok(h) => h,
-        Err(_) => return 0,
-    };
+    for (i, (path, timestamp)) in file_times.iter().enumerate() {
+        let percent = 50
+            + if total_files > 0 {
+                ((i + 1) * 50) / total_files
+            } else {
+                50
+            };
 
-    let tree = match head.peel_to_tree() {
-        Ok(t) => t,
-        Err(_) => return 0,
-    };
-
-    // First, count total files
-    let mut total_files = 0;
-    let _ = tree.walk(git2::TreeWalkMode::PreOrder, |_dir, entry| {
-        if entry.kind() == Some(git2::ObjectType::Blob) {
-            total_files += 1;
-        }
-        git2::TreeWalkResult::Ok
-    });
-
-    // Walk the tree and get last commit time for each file
-    let mut processed = 0;
-    let mut last_percent = 0;
-    let _ = tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
-        if entry.kind() != Some(git2::ObjectType::Blob) {
-            return git2::TreeWalkResult::Ok;
-        }
-
-        processed += 1;
-        let percent = if total_files > 0 {
-            (processed * 100) / total_files
-        } else {
-            0
-        };
-
-        // Emit progress every 10%
         if percent >= last_percent + 10 || percent == 100 {
             last_percent = percent;
             let _ = app.emit(
                 "clone-progress",
                 CloneProgress {
-                    stage: "Fixing timestamps".to_string(),
-                    received: processed,
+                    stage: "Setting timestamps".to_string(),
+                    received: i + 1,
                     total: total_files,
                     percent: percent as u32,
                 },
             );
         }
 
-        let path = if dir.is_empty() {
-            entry.name().unwrap_or("").to_string()
-        } else {
-            format!("{}{}", dir, entry.name().unwrap_or(""))
-        };
-
-        // Get last commit time for this file
-        if let Some(commit_time) = get_file_last_commit_time(repo, &path) {
-            let file_path = repo_path.join(&path);
-            if file_path.exists() {
-                // Set the file's mtime
-                let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(commit_time as u64);
-                if let Ok(file) = fs::File::open(&file_path) {
-                    let _ = file.set_modified(mtime);
-                    count += 1;
-                }
-            }
-        }
-
-        git2::TreeWalkResult::Ok
-    });
-
-    count
-}
-
-/// Get the timestamp of the last commit that modified a file
-fn get_file_last_commit_time(repo: &Repository, file_path: &str) -> Option<i64> {
-    let mut revwalk = repo.revwalk().ok()?;
-    revwalk.push_head().ok()?;
-    revwalk.set_sorting(git2::Sort::TIME).ok()?;
-
-    for oid in revwalk.flatten() {
-        let commit = repo.find_commit(oid).ok()?;
-
-        // Check if this commit modified the file
-        if let Some(parent) = commit.parent(0).ok() {
-            let commit_tree = commit.tree().ok()?;
-            let parent_tree = parent.tree().ok()?;
-
-            let diff = repo
-                .diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)
-                .ok()?;
-
-            for delta in diff.deltas() {
-                if let Some(new_path) = delta.new_file().path() {
-                    if new_path.to_string_lossy() == file_path {
-                        return Some(commit.time().seconds());
-                    }
-                }
-            }
-        } else {
-            // Initial commit - check if file exists in this commit
-            let tree = commit.tree().ok()?;
-            if tree.get_path(std::path::Path::new(file_path)).is_ok() {
-                return Some(commit.time().seconds());
+        let file_path = repo_path.join(path);
+        if file_path.exists() {
+            let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
+            if let Ok(file) = fs::File::open(&file_path) {
+                let _ = file.set_modified(mtime);
+                count += 1;
             }
         }
     }
 
-    None
+    count
 }
 
 /// Pull changes from remote
