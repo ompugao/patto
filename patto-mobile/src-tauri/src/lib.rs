@@ -12,6 +12,7 @@ use commands::tasks::{get_all_tasks, get_file_tasks, get_task_summary};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             // Git commands
             git_clone,

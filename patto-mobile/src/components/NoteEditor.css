@@ -1,0 +1,75 @@
+/* NoteEditor styles */
+
+.note-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #1a1a2e;
+}
+
+.editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+}
+
+.preview-btn {
+    background: #0f3460;
+    border: 1px solid #e94560;
+    border-radius: 6px;
+    color: #e94560;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preview-btn:hover {
+    background: #e94560;
+    color: white;
+}
+
+.editor-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #f1f1f1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 50%;
+}
+
+.editor-textarea {
+    flex: 1;
+    padding: 16px;
+    background: #1a1a2e;
+    border: none;
+    color: #f1f1f1;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    tab-size: 2;
+}
+
+.editor-textarea:focus {
+    outline: none;
+}
+
+.editor-textarea::placeholder {
+    color: #666;
+}
+
+.editor-footer {
+    padding: 8px 16px;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+}
+
+.save-status {
+    color: #51cf66;
+    font-size: 0.85rem;
+}

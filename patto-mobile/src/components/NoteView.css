@@ -1,0 +1,156 @@
+/* NoteView styles */
+
+.note-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #1a1a2e;
+}
+
+.note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.back-btn {
+    background: transparent;
+    border: none;
+    color: #e94560;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 8px 12px;
+}
+
+.note-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #f1f1f1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 50%;
+}
+
+.edit-btn {
+    background: #e94560;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.edit-btn:hover {
+    opacity: 0.9;
+}
+
+.note-content {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    color: #f1f1f1;
+    line-height: 1.6;
+}
+
+/* Patto content styles */
+.note-content h1,
+.note-content h2,
+.note-content h3 {
+    color: #e94560;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.note-content a {
+    color: #4dabf7;
+    text-decoration: none;
+}
+
+.note-content a:hover {
+    text-decoration: underline;
+}
+
+.note-content ul {
+    padding-left: 1.5em;
+}
+
+.note-content li {
+    margin: 0.25em 0;
+}
+
+.note-content code {
+    background: #0f3460;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Fira Code', monospace;
+}
+
+.note-content pre {
+    background: #0f3460;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.note-content pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.note-content blockquote {
+    border-left: 3px solid #e94560;
+    margin-left: 0;
+    padding-left: 16px;
+    color: #a9a9a9;
+}
+
+.note-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1em 0;
+}
+
+.note-content th,
+.note-content td {
+    border: 1px solid #0f3460;
+    padding: 8px;
+    text-align: left;
+}
+
+.note-content th {
+    background: #16213e;
+}
+
+/* Task styling */
+.note-content .task {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.note-content .task-todo {
+    background: #ffa94d30;
+    color: #ffa94d;
+}
+
+.note-content .task-doing {
+    background: #4dabf730;
+    color: #4dabf7;
+}
+
+.note-content .task-done {
+    background: #51cf6630;
+    color: #51cf66;
+}
