@@ -7,6 +7,9 @@ use git2::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
 
 /// Result of git operations
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,8 +25,21 @@ pub struct GitCredentials {
     pub token: String,
 }
 
-/// Create callbacks for authentication
-fn create_callbacks(credentials: &GitCredentials) -> RemoteCallbacks<'_> {
+/// Progress event for frontend
+#[derive(Debug, Clone, Serialize)]
+pub struct CloneProgress {
+    pub stage: String,
+    pub received: usize,
+    pub total: usize,
+    pub percent: u32,
+}
+
+/// Create callbacks for authentication with optional progress reporting
+fn create_callbacks_with_progress<'a>(
+    credentials: &'a GitCredentials,
+    app_handle: Option<&'a AppHandle>,
+    last_percent: Option<Arc<AtomicU32>>,
+) -> RemoteCallbacks<'a> {
     let mut callbacks = RemoteCallbacks::new();
     let username = credentials.username.clone();
     let token = credentials.token.clone();
@@ -35,38 +51,117 @@ fn create_callbacks(credentials: &GitCredentials) -> RemoteCallbacks<'_> {
     // Skip SSL certificate verification on mobile (CA certs not available)
     callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
 
+    // Add transfer progress reporting
+    if let (Some(app), Some(last_pct)) = (app_handle, last_percent) {
+        let app = app.clone();
+        callbacks.transfer_progress(move |stats| {
+            let received = stats.received_objects();
+            let total = stats.total_objects();
+            let percent = if total > 0 {
+                (received as u32 * 100) / total as u32
+            } else {
+                0
+            };
+
+            // Only emit every 5% to reduce event spam
+            let prev = last_pct.load(Ordering::Relaxed);
+            if percent >= prev + 5 || percent == 100 {
+                last_pct.store(percent, Ordering::Relaxed);
+                let _ = app.emit(
+                    "clone-progress",
+                    CloneProgress {
+                        stage: "Receiving objects".to_string(),
+                        received,
+                        total,
+                        percent,
+                    },
+                );
+            }
+            true
+        });
+    }
+
     callbacks
 }
 
-/// Clone a repository from a remote URL
+/// Create callbacks for authentication (without progress reporting)
+fn create_callbacks(credentials: &GitCredentials) -> RemoteCallbacks<'_> {
+    create_callbacks_with_progress(credentials, None, None)
+}
+
+/// Clone a repository from a remote URL (with progress events)
 #[tauri::command]
-pub fn git_clone(
+pub async fn git_clone(
+    app: AppHandle,
     url: String,
     dest: PathBuf,
     credentials: GitCredentials,
 ) -> Result<GitResult, String> {
-    let callbacks = create_callbacks(&credentials);
+    // Emit starting event
+    let _ = app.emit(
+        "clone-progress",
+        CloneProgress {
+            stage: "Starting clone".to_string(),
+            received: 0,
+            total: 0,
+            percent: 0,
+        },
+    );
 
-    let mut fetch_options = FetchOptions::new();
-    fetch_options.remote_callbacks(callbacks);
+    // Run clone in a blocking thread to not block the main thread
+    let result = tokio::task::spawn_blocking(move || {
+        let last_percent = Arc::new(AtomicU32::new(0));
+        let callbacks =
+            create_callbacks_with_progress(&credentials, Some(&app), Some(last_percent));
 
-    let mut builder = RepoBuilder::new();
-    builder.fetch_options(fetch_options);
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
 
-    match builder.clone(&url, &dest) {
-        Ok(repo) => {
-            // Fix file timestamps to match commit times
-            let fixed = fix_file_timestamps(&repo, &dest);
-            Ok(GitResult {
-                success: true,
-                message: format!(
-                    "Successfully cloned to {:?} (fixed {} file timestamps)",
-                    dest, fixed
-                ),
-            })
+        let mut builder = RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+
+        match builder.clone(&url, &dest) {
+            Ok(repo) => {
+                // Emit indexing stage
+                let _ = app.emit(
+                    "clone-progress",
+                    CloneProgress {
+                        stage: "Fixing timestamps".to_string(),
+                        received: 0,
+                        total: 0,
+                        percent: 100,
+                    },
+                );
+
+                // Fix file timestamps to match commit times
+                let fixed = fix_file_timestamps(&repo, &dest);
+
+                // Emit complete
+                let _ = app.emit(
+                    "clone-progress",
+                    CloneProgress {
+                        stage: "Complete".to_string(),
+                        received: 0,
+                        total: 0,
+                        percent: 100,
+                    },
+                );
+
+                Ok(GitResult {
+                    success: true,
+                    message: format!(
+                        "Successfully cloned to {:?} (fixed {} file timestamps)",
+                        dest, fixed
+                    ),
+                })
+            }
+            Err(e) => Err(format!("Failed to clone repository: {}", e)),
         }
-        Err(e) => Err(format!("Failed to clone repository: {}", e)),
-    }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    result
 }
 
 /// Set file modification times to their last commit time

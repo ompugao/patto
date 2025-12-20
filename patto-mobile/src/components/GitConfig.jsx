@@ -94,7 +94,18 @@ export function GitConfig() {
         }
 
         setIsCloning(true);
-        setStatusMessage('Cloning repository...');
+        setStatusMessage('Starting clone...');
+
+        // Listen for progress events
+        const { listen } = await import('@tauri-apps/api/event');
+        const unlisten = await listen('clone-progress', (event) => {
+            const { stage, percent, received, total } = event.payload;
+            if (total > 0) {
+                setStatusMessage(`${stage}: ${received}/${total} (${percent}%)`);
+            } else {
+                setStatusMessage(stage);
+            }
+        });
 
         try {
             await invoke('git_clone', {
@@ -111,6 +122,7 @@ export function GitConfig() {
             console.error('Clone failed:', err);
             setStatusMessage('Clone failed: ' + err);
         } finally {
+            unlisten();
             setIsCloning(false);
         }
     };
