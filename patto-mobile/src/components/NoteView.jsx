@@ -1,10 +1,9 @@
 // NoteView component - displays rendered note content with search
-// Uses browser's native window.find() for better performance
 
 import { useStore, View } from '../lib/store';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import './NoteView.css';
 
 export function NoteView() {
@@ -19,8 +18,10 @@ export function NoteView() {
 
     const contentRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [activeQuery, setActiveQuery] = useState(''); // Query that's actually being searched
     const [showSearch, setShowSearch] = useState(false);
-    const [matchInfo, setMatchInfo] = useState('');
+    const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+    const [totalMatches, setTotalMatches] = useState(0);
     const searchInputRef = useRef(null);
 
     // Convert file:// URLs to proper Tauri asset URLs for images
@@ -31,7 +32,6 @@ export function NoteView() {
         images.forEach(img => {
             const src = img.getAttribute('src');
             if (src && src.startsWith('file://')) {
-                // Convert file:// to proper Tauri asset URL
                 const filePath = src.replace('file://', '');
                 try {
                     img.src = convertFileSrc(filePath);
@@ -40,7 +40,46 @@ export function NoteView() {
                 }
             }
         });
-    }, [renderedHtml]);
+    }, [renderedHtml, activeQuery]);
+
+    // Create highlighted HTML
+    const highlightedHtml = useMemo(() => {
+        if (!activeQuery.trim() || !renderedHtml) {
+            return renderedHtml;
+        }
+
+        const query = activeQuery;
+        const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+
+        // Count matches
+        const matches = renderedHtml.match(regex);
+        setTotalMatches(matches ? matches.length : 0);
+
+        // Simple text replacement - but avoid replacing inside HTML tags
+        let matchIndex = 0;
+        const result = renderedHtml.replace(/>([^<]*)</g, (fullMatch, textContent) => {
+            if (!textContent.trim()) return fullMatch;
+
+            const highlighted = textContent.replace(regex, (match) => {
+                const idx = matchIndex++;
+                const isCurrent = idx === currentMatchIndex;
+                return `<mark class="search-match${isCurrent ? ' current' : ''}" data-idx="${idx}">${match}</mark>`;
+            });
+            return '>' + highlighted + '<';
+        });
+
+        return result;
+    }, [renderedHtml, activeQuery, currentMatchIndex]);
+
+    // Scroll to current match when it changes
+    useEffect(() => {
+        if (!contentRef.current || totalMatches === 0) return;
+
+        const currentEl = contentRef.current.querySelector('.search-match.current');
+        if (currentEl) {
+            currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [currentMatchIndex, highlightedHtml]);
 
     // Handle link clicks
     useEffect(() => {
@@ -55,7 +94,6 @@ export function NoteView() {
 
             if (!href) return;
 
-            // External URL - open in system browser
             if (href.startsWith('http://') || href.startsWith('https://')) {
                 try {
                     await openUrl(href);
@@ -65,7 +103,6 @@ export function NoteView() {
                 return;
             }
 
-            // Internal wiki link - navigate to note
             const [noteName, anchor] = href.split('#');
             if (noteName) {
                 const notePath = noteName.endsWith('.pn') ? noteName : `${noteName}.pn`;
@@ -77,7 +114,7 @@ export function NoteView() {
         return () => {
             contentRef.current?.removeEventListener('click', handleClick);
         };
-    }, [renderedHtml, openNote]);
+    }, [highlightedHtml, openNote]);
 
     // Focus search input when shown
     useEffect(() => {
@@ -86,63 +123,45 @@ export function NoteView() {
         }
     }, [showSearch]);
 
-    // Clear search highlights when closing
-    const clearSearch = useCallback(() => {
-        // Clear selection
-        if (window.getSelection) {
-            window.getSelection().removeAllRanges();
-        }
-        setSearchQuery('');
-        setMatchInfo('');
-    }, []);
-
-    // Perform search using browser's find
-    const doSearch = useCallback((forward = true) => {
-        if (!searchQuery.trim()) {
-            setMatchInfo('');
-            return;
-        }
-
-        // Use CSS to highlight matches
-        if (window.CSS && CSS.highlights) {
-            // Modern Highlight API (if available)
-            const content = contentRef.current;
-            if (!content) return;
-
-            const text = content.textContent.toLowerCase();
-            const query = searchQuery.toLowerCase();
-            const matches = [];
-            let index = 0;
-            while ((index = text.indexOf(query, index)) !== -1) {
-                matches.push(index);
-                index += query.length;
-            }
-            setMatchInfo(matches.length > 0 ? `${matches.length} matches` : 'No matches');
-        } else {
-            // Fallback: use window.find (deprecated but works)
-            const found = window.find(searchQuery, false, !forward, true, false, false, false);
-            setMatchInfo(found ? 'Found' : 'No matches');
-        }
-    }, [searchQuery]);
-
-    const handleSearchSubmit = (e) => {
-        e.preventDefault();
-        doSearch(true);
+    // Perform search
+    const doSearch = () => {
+        setActiveQuery(searchQuery);
+        setCurrentMatchIndex(0);
     };
 
-    const handleSearchKeyDown = (e) => {
-        if (e.key === 'Escape') {
+    // Navigate matches
+    const goToNext = () => {
+        if (totalMatches === 0) return;
+        setCurrentMatchIndex((currentMatchIndex + 1) % totalMatches);
+    };
+
+    const goToPrev = () => {
+        if (totalMatches === 0) return;
+        setCurrentMatchIndex(currentMatchIndex === 0 ? totalMatches - 1 : currentMatchIndex - 1);
+    };
+
+    // Handle key events
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
             e.preventDefault();
-            clearSearch();
-            setShowSearch(false);
+            if (!activeQuery || activeQuery !== searchQuery) {
+                doSearch();
+            } else if (e.shiftKey) {
+                goToPrev();
+            } else {
+                goToNext();
+            }
+        } else if (e.key === 'Escape') {
+            handleClose();
         }
     };
 
-    const findNext = () => doSearch(true);
-    const findPrev = () => doSearch(false);
-
+    // Close search
     const handleClose = () => {
-        clearSearch();
+        setSearchQuery('');
+        setActiveQuery('');
+        setTotalMatches(0);
+        setCurrentMatchIndex(0);
         setShowSearch(false);
     };
 
@@ -162,7 +181,7 @@ export function NoteView() {
 
             {/* Search bar */}
             {showSearch && (
-                <form className="search-bar" onSubmit={handleSearchSubmit}>
+                <div className="search-bar">
                     <input
                         ref={searchInputRef}
                         type="text"
@@ -170,22 +189,26 @@ export function NoteView() {
                         placeholder="Search..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleSearchKeyDown}
+                        onKeyDown={handleKeyDown}
                     />
-                    <span className="match-info">{matchInfo}</span>
-                    <button type="submit" className="search-action-btn">
-                        Find
+                    <button type="button" className="search-action-btn" onClick={doSearch}>
+                        🔍
                     </button>
-                    <button type="button" className="search-action-btn" onClick={findPrev}>
+                    {totalMatches > 0 && (
+                        <span className="match-info">
+                            {currentMatchIndex + 1}/{totalMatches}
+                        </span>
+                    )}
+                    <button type="button" className="search-action-btn" onClick={goToPrev} disabled={totalMatches === 0}>
                         ↑
                     </button>
-                    <button type="button" className="search-action-btn" onClick={findNext}>
+                    <button type="button" className="search-action-btn" onClick={goToNext} disabled={totalMatches === 0}>
                         ↓
                     </button>
                     <button type="button" className="search-close-btn" onClick={handleClose}>
                         ✕
                     </button>
-                </form>
+                </div>
             )}
 
             {!showSearch && (
@@ -197,8 +220,13 @@ export function NoteView() {
             <article
                 ref={contentRef}
                 className="note-content"
-                dangerouslySetInnerHTML={{ __html: renderedHtml }}
+                dangerouslySetInnerHTML={{ __html: highlightedHtml }}
             />
         </div>
     );
+}
+
+// Escape special regex characters
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

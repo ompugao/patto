@@ -414,3 +414,15 @@
 .search-close-btn:active {
     color: #e94560;
 }
+
+/* Search match highlighting */
+.search-match {
+    background: rgba(255, 169, 77, 0.4);
+    padding: 1px 0;
+    border-radius: 2px;
+}
+
+.search-match.current {
+    background: rgba(233, 69, 96, 0.5);
+    outline: 2px solid #e94560;
+}
