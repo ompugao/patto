@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useStore, View } from '../lib/store';
 import { invoke } from '@tauri-apps/api/core';
+import { appDataDir } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import './GitConfig.css';
 
@@ -42,6 +43,18 @@ export function GitConfig() {
         } catch (err) {
             console.error('Failed to select directory:', err);
             setStatusMessage('Browse not available on this platform');
+        }
+    };
+
+    const handleUseAppDir = async () => {
+        try {
+            const appDir = await appDataDir();
+            const notesPath = appDir + 'notes';
+            setManualPath(notesPath);
+            setStatusMessage(`App data path: ${notesPath}`);
+        } catch (err) {
+            console.error('Failed to get app data dir:', err);
+            setStatusMessage('Error: ' + err);
         }
     };
 
@@ -152,15 +165,21 @@ export function GitConfig() {
                     <div className="button-row">
                         <button
                             className="secondary-btn"
+                            onClick={handleUseAppDir}
+                        >
+                            App Dir
+                        </button>
+                        <button
+                            className="secondary-btn"
                             onClick={handleSelectWorkspace}
                         >
-                            Browse...
+                            Browse
                         </button>
                         <button
                             className="primary-btn"
                             onClick={handleManualPathSubmit}
                         >
-                            Set Path
+                            Set
                         </button>
                     </div>
                 </section>
