@@ -1,8 +1,8 @@
 // Note operations for patto-mobile
-// Read, write, render notes using patto parser and renderer
+// Read, write, render notes using patto parser and mobile renderer
 
+use crate::renderer::MobileHtmlRenderer;
 use patto::parser;
-use patto::renderer::{HtmlRenderer, HtmlRendererOptions, Renderer};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -42,7 +42,7 @@ pub fn write_note(root: PathBuf, file_path: String, content: String) -> Result<(
     fs::write(&full_path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-/// Render note to HTML
+/// Render note to HTML using mobile-optimized renderer
 #[tauri::command]
 pub fn render_note(root: PathBuf, file_path: String) -> Result<RenderedNote, String> {
     let full_path = root.join(&file_path);
@@ -57,14 +57,11 @@ pub fn render_note(root: PathBuf, file_path: String) -> Result<RenderedNote, Str
     // Parse the content
     let parse_result = parser::parse_text(&content);
 
-    // Render to HTML
-    let renderer = HtmlRenderer::new(HtmlRendererOptions::default());
-    let mut html_output = Vec::new();
-    renderer
-        .format(&parse_result.ast, &mut html_output)
+    // Render to HTML using mobile renderer
+    let renderer = MobileHtmlRenderer::new(Some(root.to_string_lossy().to_string()));
+    let html = renderer
+        .render(&parse_result.ast)
         .map_err(|e| format!("Failed to render: {}", e))?;
-
-    let html = String::from_utf8(html_output).map_err(|e| format!("Invalid UTF-8: {}", e))?;
 
     // Get note name
     let name = full_path
@@ -86,14 +83,11 @@ pub fn render_content(content: String) -> Result<String, String> {
     // Parse the content
     let parse_result = parser::parse_text(&content);
 
-    // Render to HTML
-    let renderer = HtmlRenderer::new(HtmlRendererOptions::default());
-    let mut html_output = Vec::new();
+    // Render to HTML using mobile renderer
+    let renderer = MobileHtmlRenderer::new(None);
     renderer
-        .format(&parse_result.ast, &mut html_output)
-        .map_err(|e| format!("Failed to render: {}", e))?;
-
-    String::from_utf8(html_output).map_err(|e| format!("Invalid UTF-8: {}", e))
+        .render(&parse_result.ast)
+        .map_err(|e| format!("Failed to render: {}", e))
 }
 
 /// Link information extracted from a note

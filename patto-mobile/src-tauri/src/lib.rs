@@ -2,6 +2,7 @@
 // A mobile app for viewing and editing patto notes
 
 mod commands;
+mod renderer;
 
 use commands::files::{create_file, delete_file, get_file_info, list_files, rename_file};
 use commands::git::{configure_remote, git_clone, git_init, git_pull, git_status, git_sync};
