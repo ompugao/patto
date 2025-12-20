@@ -54,12 +54,105 @@ pub fn git_clone(
     builder.fetch_options(fetch_options);
 
     match builder.clone(&url, &dest) {
-        Ok(_repo) => Ok(GitResult {
-            success: true,
-            message: format!("Successfully cloned to {:?}", dest),
-        }),
+        Ok(repo) => {
+            // Fix file timestamps to match commit times
+            let fixed = fix_file_timestamps(&repo, &dest);
+            Ok(GitResult {
+                success: true,
+                message: format!(
+                    "Successfully cloned to {:?} (fixed {} file timestamps)",
+                    dest, fixed
+                ),
+            })
+        }
         Err(e) => Err(format!("Failed to clone repository: {}", e)),
     }
+}
+
+/// Set file modification times to their last commit time
+fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf) -> usize {
+    use std::fs;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let mut count = 0;
+
+    // Walk through all files in HEAD
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(_) => return 0,
+    };
+
+    let tree = match head.peel_to_tree() {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+
+    // Walk the tree and get last commit time for each file
+    let _ = tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+        if entry.kind() != Some(git2::ObjectType::Blob) {
+            return git2::TreeWalkResult::Ok;
+        }
+
+        let path = if dir.is_empty() {
+            entry.name().unwrap_or("").to_string()
+        } else {
+            format!("{}{}", dir, entry.name().unwrap_or(""))
+        };
+
+        // Get last commit time for this file
+        if let Some(commit_time) = get_file_last_commit_time(repo, &path) {
+            let file_path = repo_path.join(&path);
+            if file_path.exists() {
+                // Set the file's mtime
+                let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(commit_time as u64);
+                if let Ok(file) = fs::File::open(&file_path) {
+                    let _ = file.set_modified(mtime);
+                    count += 1;
+                }
+            }
+        }
+
+        git2::TreeWalkResult::Ok
+    });
+
+    count
+}
+
+/// Get the timestamp of the last commit that modified a file
+fn get_file_last_commit_time(repo: &Repository, file_path: &str) -> Option<i64> {
+    let mut revwalk = repo.revwalk().ok()?;
+    revwalk.push_head().ok()?;
+    revwalk.set_sorting(git2::Sort::TIME).ok()?;
+
+    for oid in revwalk.flatten() {
+        let commit = repo.find_commit(oid).ok()?;
+
+        // Check if this commit modified the file
+        if let Some(parent) = commit.parent(0).ok() {
+            let commit_tree = commit.tree().ok()?;
+            let parent_tree = parent.tree().ok()?;
+
+            let diff = repo
+                .diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)
+                .ok()?;
+
+            for delta in diff.deltas() {
+                if let Some(new_path) = delta.new_file().path() {
+                    if new_path.to_string_lossy() == file_path {
+                        return Some(commit.time().seconds());
+                    }
+                }
+            }
+        } else {
+            // Initial commit - check if file exists in this commit
+            let tree = commit.tree().ok()?;
+            if tree.get_path(std::path::Path::new(file_path)).is_ok() {
+                return Some(commit.time().seconds());
+            }
+        }
+    }
+
+    None
 }
 
 /// Pull changes from remote
