@@ -32,6 +32,9 @@ fn create_callbacks(credentials: &GitCredentials) -> RemoteCallbacks<'_> {
         Cred::userpass_plaintext(&username, &token)
     });
 
+    // Skip SSL certificate verification on mobile (CA certs not available)
+    callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
+
     callbacks
 }
 
