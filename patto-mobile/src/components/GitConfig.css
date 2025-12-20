@@ -168,3 +168,11 @@
     font-size: 0.9rem;
     margin-top: 8px;
 }
+
+.platform-info {
+    margin-top: 24px;
+    padding: 8px;
+    text-align: center;
+    color: #555;
+    font-size: 0.8rem;
+}

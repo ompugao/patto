@@ -1,9 +1,11 @@
 // GitConfig component - configure git credentials, workspace, and remote
+// Platform-aware: Android shows remote URL only, Desktop shows local path
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore, View } from '../lib/store';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
+import { type } from '@tauri-apps/plugin-os';
 import { open } from '@tauri-apps/plugin-dialog';
 import './GitConfig.css';
 
@@ -19,12 +21,36 @@ export function GitConfig() {
         loadFiles,
     } = useStore();
 
+    const [platform, setPlatform] = useState('unknown'); // 'android', 'ios', or desktop variants
     const [username, setUsername] = useState(gitCredentials.username);
     const [token, setToken] = useState(gitCredentials.token);
     const [manualPath, setManualPath] = useState(workspacePath || '');
     const [remoteUrl, setRemoteUrl] = useState('');
     const [isCloning, setIsCloning] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
+
+    const isMobile = platform === 'android' || platform === 'ios';
+
+    // Detect platform on mount
+    useEffect(() => {
+        const detectPlatform = async () => {
+            try {
+                const osType = await type();
+                setPlatform(osType);
+
+                // Auto-set app data path on mobile
+                if (osType === 'android' || osType === 'ios') {
+                    const appDir = await appDataDir();
+                    const basePath = appDir.endsWith('/') ? appDir : appDir + '/';
+                    setManualPath(basePath + 'notes');
+                }
+            } catch (err) {
+                console.error('Failed to detect platform:', err);
+                setPlatform('unknown');
+            }
+        };
+        detectPlatform();
+    }, []);
 
     const handleSelectWorkspace = async () => {
         try {
@@ -39,6 +65,7 @@ export function GitConfig() {
                 setManualPath(selected);
                 await loadFiles();
                 await loadGitStatus();
+                setStatusMessage('Workspace set');
             }
         } catch (err) {
             console.error('Failed to select directory:', err);
@@ -46,61 +73,28 @@ export function GitConfig() {
         }
     };
 
-    const handleUseAppDir = async () => {
-        try {
-            const appDir = await appDataDir();
-            // Ensure trailing slash
-            const basePath = appDir.endsWith('/') ? appDir : appDir + '/';
-            const notesPath = basePath + 'notes';
-            setManualPath(notesPath);
-            setStatusMessage(`App data path: ${notesPath}`);
-        } catch (err) {
-            console.error('Failed to get app data dir:', err);
-            setStatusMessage('Error: ' + err);
-        }
-    };
-
-    const handleManualPathSubmit = async () => {
+    const handleSetPath = async () => {
         if (manualPath.trim()) {
             setWorkspacePath(manualPath.trim());
             await loadFiles();
             await loadGitStatus();
-            setStatusMessage('Workspace set');
-        }
-    };
-
-    const handleSaveCredentials = () => {
-        setGitCredentials({ username, token });
-        setStatusMessage('Credentials saved');
-    };
-
-    const handleConfigureRemote = async () => {
-        if (!workspacePath || !remoteUrl.trim()) {
-            setStatusMessage('Enter workspace path and remote URL first');
-            return;
-        }
-
-        try {
-            await invoke('configure_remote', {
-                repoPath: workspacePath,
-                remoteUrl: remoteUrl.trim(),
-            });
-            setStatusMessage('Remote origin configured');
-            await loadGitStatus();
-        } catch (err) {
-            console.error('Failed to configure remote:', err);
-            setStatusMessage('Error: ' + err);
+            setStatusMessage('Workspace set: ' + manualPath.trim());
         }
     };
 
     const handleClone = async () => {
         if (!manualPath.trim() || !remoteUrl.trim()) {
-            setStatusMessage('Enter path and remote URL first');
+            setStatusMessage('Remote URL is required');
+            return;
+        }
+
+        if (!username || !token) {
+            setStatusMessage('Git credentials required for cloning');
             return;
         }
 
         setIsCloning(true);
-        setStatusMessage('Cloning...');
+        setStatusMessage('Cloning repository...');
 
         try {
             await invoke('git_clone', {
@@ -112,6 +106,7 @@ export function GitConfig() {
             await loadFiles();
             await loadGitStatus();
             setStatusMessage('Clone successful!');
+            setView(View.FILE_LIST);
         } catch (err) {
             console.error('Clone failed:', err);
             setStatusMessage('Clone failed: ' + err);
@@ -120,20 +115,9 @@ export function GitConfig() {
         }
     };
 
-    const handleInitRepo = async () => {
-        if (!workspacePath) {
-            setStatusMessage('Set workspace path first');
-            return;
-        }
-
-        try {
-            await invoke('git_init', { repoPath: workspacePath });
-            await loadGitStatus();
-            setStatusMessage('Git repository initialized');
-        } catch (err) {
-            console.error('Git init failed:', err);
-            setStatusMessage('Init failed: ' + err);
-        }
+    const handleSaveCredentials = () => {
+        setGitCredentials({ username, token });
+        setStatusMessage('Credentials saved');
     };
 
     return (
@@ -151,81 +135,69 @@ export function GitConfig() {
                     <div className="status-message">{statusMessage}</div>
                 )}
 
-                <section className="config-section">
-                    <h2>Workspace</h2>
+                {/* MOBILE: Show remote URL for cloning */}
+                {isMobile && (
+                    <section className="config-section">
+                        <h2>Remote Repository</h2>
+                        <p className="hint">Enter your notes repository URL to clone</p>
 
-                    <label className="input-group">
-                        <span className="label">Path</span>
-                        <input
-                            type="text"
-                            value={manualPath}
-                            onChange={(e) => setManualPath(e.target.value)}
-                            placeholder="/storage/emulated/0/patto-notes"
-                        />
-                    </label>
+                        <label className="input-group">
+                            <span className="label">Remote URL</span>
+                            <input
+                                type="text"
+                                value={remoteUrl}
+                                onChange={(e) => setRemoteUrl(e.target.value)}
+                                placeholder="https://github.com/user/notes.git"
+                            />
+                        </label>
 
-                    <div className="button-row">
-                        <button
-                            className="secondary-btn"
-                            onClick={handleUseAppDir}
-                        >
-                            App Dir
-                        </button>
-                        <button
-                            className="secondary-btn"
-                            onClick={handleSelectWorkspace}
-                        >
-                            Browse
-                        </button>
                         <button
                             className="primary-btn"
-                            onClick={handleManualPathSubmit}
-                        >
-                            Set
-                        </button>
-                    </div>
-                </section>
-
-                <section className="config-section">
-                    <h2>Git Remote</h2>
-                    <p className="hint">Clone a repo or set remote for existing folder</p>
-
-                    <label className="input-group">
-                        <span className="label">Remote URL</span>
-                        <input
-                            type="text"
-                            value={remoteUrl}
-                            onChange={(e) => setRemoteUrl(e.target.value)}
-                            placeholder="https://github.com/user/notes.git"
-                        />
-                    </label>
-
-                    <div className="button-row">
-                        <button
-                            className="secondary-btn"
                             onClick={handleClone}
                             disabled={isCloning}
                         >
-                            {isCloning ? 'Cloning...' : 'Clone'}
+                            {isCloning ? 'Cloning...' : 'Clone Repository'}
                         </button>
-                        <button
-                            className="secondary-btn"
-                            onClick={handleInitRepo}
-                        >
-                            Init
-                        </button>
-                        <button
-                            className="primary-btn"
-                            onClick={handleConfigureRemote}
-                        >
-                            Set Remote
-                        </button>
-                    </div>
-                </section>
+                    </section>
+                )}
 
+                {/* DESKTOP: Show local path selector */}
+                {!isMobile && (
+                    <section className="config-section">
+                        <h2>Workspace</h2>
+                        <p className="hint">Select your local notes folder</p>
+
+                        <label className="input-group">
+                            <span className="label">Path</span>
+                            <input
+                                type="text"
+                                value={manualPath}
+                                onChange={(e) => setManualPath(e.target.value)}
+                                placeholder="/path/to/notes"
+                            />
+                        </label>
+
+                        <div className="button-row">
+                            <button
+                                className="secondary-btn"
+                                onClick={handleSelectWorkspace}
+                            >
+                                Browse
+                            </button>
+                            <button
+                                className="primary-btn"
+                                onClick={handleSetPath}
+                            >
+                                Set Path
+                            </button>
+                        </div>
+                    </section>
+                )}
+
+                {/* Credentials - shown on both platforms but more prominent on mobile */}
                 <section className="config-section">
-                    <h2>Credentials (HTTPS)</h2>
-                    <p className="hint">For GitHub/GitLab authentication</p>
+                    <h2>Git Credentials</h2>
+                    <p className="hint">{isMobile ? 'Required for cloning' : 'For push/pull operations'}</p>
 
                     <label className="input-group">
                         <span className="label">Username</span>
@@ -255,7 +227,8 @@ export function GitConfig() {
                     </button>
                 </section>
 
-                {gitStatus && (
+                {/* Git status - desktop only */}
+                {!isMobile && gitStatus && (
                     <section className="config-section">
                         <h2>Git Status</h2>
                         <div className="status-info">
@@ -277,6 +250,11 @@ export function GitConfig() {
                         </div>
                     </section>
                 )}
+
+                {/* Debug: show platform */}
+                <div className="platform-info">
+                    Platform: {platform}
+                </div>
             </div>
         </div>
     );
