@@ -426,3 +426,10 @@
     background: rgba(233, 69, 96, 0.5);
     outline: 2px solid #e94560;
 }
+
+/* Active search result - used for element-level highlighting */
+.search-active {
+    background: rgba(233, 69, 96, 0.3) !important;
+    outline: 2px solid #e94560;
+    border-radius: 4px;
+}
