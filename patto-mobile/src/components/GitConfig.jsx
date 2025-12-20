@@ -19,6 +19,7 @@ export function GitConfig() {
 
     const [username, setUsername] = useState(gitCredentials.username);
     const [token, setToken] = useState(gitCredentials.token);
+    const [manualPath, setManualPath] = useState(workspacePath || '');
 
     const handleSelectWorkspace = async () => {
         try {
@@ -30,11 +31,20 @@ export function GitConfig() {
 
             if (selected) {
                 setWorkspacePath(selected);
+                setManualPath(selected);
                 await loadFiles();
                 await loadGitStatus();
             }
         } catch (err) {
             console.error('Failed to select directory:', err);
+        }
+    };
+
+    const handleManualPathSubmit = async () => {
+        if (manualPath.trim()) {
+            setWorkspacePath(manualPath.trim());
+            await loadFiles();
+            await loadGitStatus();
         }
     };
 
@@ -56,19 +66,31 @@ export function GitConfig() {
             <div className="config-content">
                 <section className="config-section">
                     <h2>Workspace</h2>
-                    <div className="workspace-path">
-                        {workspacePath ? (
-                            <span className="path">{workspacePath}</span>
-                        ) : (
-                            <span className="no-path">No workspace selected</span>
-                        )}
+
+                    <label className="input-group">
+                        <span className="label">Path</span>
+                        <input
+                            type="text"
+                            value={manualPath}
+                            onChange={(e) => setManualPath(e.target.value)}
+                            placeholder="/path/to/notes"
+                        />
+                    </label>
+
+                    <div className="button-row">
+                        <button
+                            className="secondary-btn"
+                            onClick={handleSelectWorkspace}
+                        >
+                            Browse...
+                        </button>
+                        <button
+                            className="primary-btn"
+                            onClick={handleManualPathSubmit}
+                        >
+                            Set Path
+                        </button>
                     </div>
-                    <button
-                        className="primary-btn"
-                        onClick={handleSelectWorkspace}
-                    >
-                        Select Workspace
-                    </button>
                 </section>
 
                 <section className="config-section">

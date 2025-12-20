@@ -97,7 +97,7 @@
 }
 
 .primary-btn {
-    width: 100%;
+    flex: 1;
     background: #e94560;
     border: none;
     border-radius: 8px;
@@ -111,6 +111,28 @@
 
 .primary-btn:hover {
     opacity: 0.9;
+}
+
+.secondary-btn {
+    flex: 1;
+    background: transparent;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 12px 24px;
+    color: #a9a9a9;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.secondary-btn:hover {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+.button-row {
+    display: flex;
+    gap: 12px;
 }
 
 .status-info {
