@@ -11,7 +11,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    /* Add padding for Android status bar */
+    padding: calc(env(safe-area-inset-top, 24px) + 12px) 16px 12px 16px;
     background: #16213e;
     border-bottom: 1px solid #0f3460;
     position: sticky;
@@ -26,6 +27,7 @@
     font-size: 1rem;
     cursor: pointer;
     padding: 8px 12px;
+    min-width: 60px;
 }
 
 .note-title {
@@ -47,6 +49,7 @@
     font-size: 0.9rem;
     cursor: pointer;
     transition: opacity 0.2s;
+    min-width: 60px;
 }
 
 .edit-btn:hover {
@@ -71,6 +74,14 @@
     display: block;
     padding: 2px 0;
     position: relative;
+    min-height: 1.4em;
+    /* Ensures empty lines have height */
+}
+
+/* Empty line styling - show as blank space */
+.patto-line .line-content:empty::before {
+    content: " ";
+    white-space: pre;
 }
 
 /* Indentation via data-depth attribute */
@@ -323,4 +334,90 @@
     text-align: center;
     margin: 1em 0;
     overflow-x: auto;
+}
+
+/* Search functionality */
+.search-toggle-btn {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 24px) + 60px);
+    right: 16px;
+    background: #0f3460;
+    border: none;
+    border-radius: 20px;
+    color: #f1f1f1;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    z-index: 5;
+    opacity: 0.8;
+}
+
+.search-toggle-btn:hover {
+    opacity: 1;
+}
+
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #0f3460;
+    border-bottom: 1px solid #16213e;
+}
+
+.search-input {
+    flex: 1;
+    background: #1a1a2e;
+    border: 1px solid #16213e;
+    border-radius: 6px;
+    color: #f1f1f1;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #e94560;
+}
+
+.match-count {
+    color: #a9a9a9;
+    font-size: 0.85rem;
+    min-width: 50px;
+    text-align: center;
+}
+
+.search-nav-btn {
+    background: transparent;
+    border: none;
+    color: #e94560;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.search-close-btn {
+    background: transparent;
+    border: none;
+    color: #a9a9a9;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.search-close-btn:hover {
+    color: #e94560;
+}
+
+/* Search highlight */
+.search-highlight {
+    background: #ffa94d40;
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+.search-highlight.current {
+    background: #e9456080;
+    outline: 2px solid #e94560;
 }
