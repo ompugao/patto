@@ -1,8 +1,10 @@
 // NoteView component - displays rendered note content with search
+// Uses browser's native window.find() for better performance
 
 import { useStore, View } from '../lib/store';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { useEffect, useRef, useState } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import './NoteView.css';
 
 export function NoteView() {
@@ -18,9 +20,27 @@ export function NoteView() {
     const contentRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [showSearch, setShowSearch] = useState(false);
-    const [matchCount, setMatchCount] = useState(0);
-    const [currentMatch, setCurrentMatch] = useState(0);
+    const [matchInfo, setMatchInfo] = useState('');
     const searchInputRef = useRef(null);
+
+    // Convert file:// URLs to proper Tauri asset URLs for images
+    useEffect(() => {
+        if (!contentRef.current) return;
+
+        const images = contentRef.current.querySelectorAll('img');
+        images.forEach(img => {
+            const src = img.getAttribute('src');
+            if (src && src.startsWith('file://')) {
+                // Convert file:// to proper Tauri asset URL
+                const filePath = src.replace('file://', '');
+                try {
+                    img.src = convertFileSrc(filePath);
+                } catch (e) {
+                    console.error('Failed to convert image src:', e);
+                }
+            }
+        });
+    }, [renderedHtml]);
 
     // Handle link clicks
     useEffect(() => {
@@ -46,7 +66,6 @@ export function NoteView() {
             }
 
             // Internal wiki link - navigate to note
-            // Links are typically in format: note_name or note_name#anchor
             const [noteName, anchor] = href.split('#');
             if (noteName) {
                 const notePath = noteName.endsWith('.pn') ? noteName : `${noteName}.pn`;
@@ -67,83 +86,65 @@ export function NoteView() {
         }
     }, [showSearch]);
 
-    // Highlight search results
-    useEffect(() => {
-        if (!contentRef.current || !searchQuery.trim()) {
-            setMatchCount(0);
-            setCurrentMatch(0);
+    // Clear search highlights when closing
+    const clearSearch = useCallback(() => {
+        // Clear selection
+        if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+        }
+        setSearchQuery('');
+        setMatchInfo('');
+    }, []);
+
+    // Perform search using browser's find
+    const doSearch = useCallback((forward = true) => {
+        if (!searchQuery.trim()) {
+            setMatchInfo('');
             return;
         }
 
-        const content = contentRef.current;
-        const query = searchQuery.toLowerCase();
+        // Use CSS to highlight matches
+        if (window.CSS && CSS.highlights) {
+            // Modern Highlight API (if available)
+            const content = contentRef.current;
+            if (!content) return;
 
-        // Remove previous highlights
-        content.querySelectorAll('.search-highlight').forEach(el => {
-            const parent = el.parentNode;
-            parent.replaceChild(document.createTextNode(el.textContent), el);
-            parent.normalize();
-        });
-
-        if (!query) return;
-
-        // Find and highlight matches using TreeWalker for text nodes
-        const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
-        const matches = [];
-        let node;
-
-        while (node = walker.nextNode()) {
-            const text = node.textContent.toLowerCase();
+            const text = content.textContent.toLowerCase();
+            const query = searchQuery.toLowerCase();
+            const matches = [];
             let index = 0;
             while ((index = text.indexOf(query, index)) !== -1) {
-                matches.push({ node, index });
+                matches.push(index);
                 index += query.length;
             }
+            setMatchInfo(matches.length > 0 ? `${matches.length} matches` : 'No matches');
+        } else {
+            // Fallback: use window.find (deprecated but works)
+            const found = window.find(searchQuery, false, !forward, true, false, false, false);
+            setMatchInfo(found ? 'Found' : 'No matches');
         }
+    }, [searchQuery]);
 
-        // Apply highlights (in reverse to preserve indices)
-        matches.reverse().forEach((match, i) => {
-            const range = document.createRange();
-            range.setStart(match.node, match.index);
-            range.setEnd(match.node, match.index + query.length);
-
-            const highlight = document.createElement('mark');
-            highlight.className = 'search-highlight';
-            if (matches.length - 1 - i === currentMatch) {
-                highlight.classList.add('current');
-            }
-            range.surroundContents(highlight);
-        });
-
-        setMatchCount(matches.length);
-    }, [searchQuery, renderedHtml, currentMatch]);
+    const handleSearchSubmit = (e) => {
+        e.preventDefault();
+        doSearch(true);
+    };
 
     const handleSearchKeyDown = (e) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Escape') {
             e.preventDefault();
-            if (e.shiftKey) {
-                // Previous match
-                setCurrentMatch(prev => prev > 0 ? prev - 1 : matchCount - 1);
-            } else {
-                // Next match
-                setCurrentMatch(prev => prev < matchCount - 1 ? prev + 1 : 0);
-            }
-        } else if (e.key === 'Escape') {
+            clearSearch();
             setShowSearch(false);
-            setSearchQuery('');
         }
     };
 
-    const scrollToCurrentMatch = () => {
-        const current = contentRef.current?.querySelector('.search-highlight.current');
-        if (current) {
-            current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    };
+    const findNext = () => doSearch(true);
+    const findPrev = () => doSearch(false);
 
-    useEffect(() => {
-        scrollToCurrentMatch();
-    }, [currentMatch]);
+    const handleClose = () => {
+        clearSearch();
+        setShowSearch(false);
+    };
 
     const noteName = currentNote?.replace(/\.pn$/, '') || 'Note';
 
@@ -160,38 +161,36 @@ export function NoteView() {
             </header>
 
             {/* Search bar */}
-            {showSearch ? (
-                <div className="search-bar">
+            {showSearch && (
+                <form className="search-bar" onSubmit={handleSearchSubmit}>
                     <input
                         ref={searchInputRef}
                         type="text"
                         className="search-input"
-                        placeholder="Search in note..."
+                        placeholder="Search..."
                         value={searchQuery}
-                        onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            setCurrentMatch(0);
-                        }}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={handleSearchKeyDown}
                     />
-                    {matchCount > 0 && (
-                        <span className="match-count">
-                            {currentMatch + 1}/{matchCount}
-                        </span>
-                    )}
-                    <button className="search-nav-btn" onClick={() => setCurrentMatch(prev => prev > 0 ? prev - 1 : matchCount - 1)}>
-                        ▲
+                    <span className="match-info">{matchInfo}</span>
+                    <button type="submit" className="search-action-btn">
+                        Find
                     </button>
-                    <button className="search-nav-btn" onClick={() => setCurrentMatch(prev => prev < matchCount - 1 ? prev + 1 : 0)}>
-                        ▼
+                    <button type="button" className="search-action-btn" onClick={findPrev}>
+                        ↑
                     </button>
-                    <button className="search-close-btn" onClick={() => { setShowSearch(false); setSearchQuery(''); }}>
+                    <button type="button" className="search-action-btn" onClick={findNext}>
+                        ↓
+                    </button>
+                    <button type="button" className="search-close-btn" onClick={handleClose}>
                         ✕
                     </button>
-                </div>
-            ) : (
+                </form>
+            )}
+
+            {!showSearch && (
                 <button className="search-toggle-btn" onClick={() => setShowSearch(true)}>
-                    🔍 Search
+                    🔍
                 </button>
             )}
 

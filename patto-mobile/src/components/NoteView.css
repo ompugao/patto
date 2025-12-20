@@ -338,41 +338,41 @@
 
 /* Search functionality */
 .search-toggle-btn {
-    position: absolute;
+    position: fixed;
     top: calc(env(safe-area-inset-top, 24px) + 60px);
     right: 16px;
-    background: #0f3460;
+    background: #e94560;
     border: none;
-    border-radius: 20px;
-    color: #f1f1f1;
-    padding: 8px 16px;
-    font-size: 0.85rem;
+    border-radius: 50%;
+    color: white;
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
     cursor: pointer;
-    z-index: 5;
-    opacity: 0.8;
-}
-
-.search-toggle-btn:hover {
-    opacity: 1;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .search-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: #0f3460;
-    border-bottom: 1px solid #16213e;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    flex-wrap: nowrap;
 }
 
 .search-input {
     flex: 1;
+    min-width: 0;
     background: #1a1a2e;
-    border: 1px solid #16213e;
+    border: 1px solid #0f3460;
     border-radius: 6px;
     color: #f1f1f1;
     padding: 8px 12px;
-    font-size: 0.9rem;
+    font-size: 16px;
+    /* Prevents zoom on iOS */
 }
 
 .search-input:focus {
@@ -380,20 +380,25 @@
     border-color: #e94560;
 }
 
-.match-count {
+.match-info {
     color: #a9a9a9;
-    font-size: 0.85rem;
-    min-width: 50px;
-    text-align: center;
+    font-size: 0.75rem;
+    white-space: nowrap;
 }
 
-.search-nav-btn {
-    background: transparent;
+.search-action-btn {
+    background: #0f3460;
     border: none;
-    color: #e94560;
-    font-size: 1rem;
+    border-radius: 4px;
+    color: #f1f1f1;
+    padding: 8px 12px;
+    font-size: 0.85rem;
     cursor: pointer;
-    padding: 4px 8px;
+    white-space: nowrap;
+}
+
+.search-action-btn:active {
+    background: #e94560;
 }
 
 .search-close-btn {
@@ -403,21 +408,9 @@
     font-size: 1.2rem;
     cursor: pointer;
     padding: 4px 8px;
+    flex-shrink: 0;
 }
 
-.search-close-btn:hover {
+.search-close-btn:active {
     color: #e94560;
-}
-
-/* Search highlight */
-.search-highlight {
-    background: #ffa94d40;
-    color: inherit;
-    padding: 0 2px;
-    border-radius: 2px;
-}
-
-.search-highlight.current {
-    background: #e9456080;
-    outline: 2px solid #e94560;
 }
