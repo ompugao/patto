@@ -7,6 +7,14 @@
     background: #1a1a2e;
 }
 
+.status-message {
+    padding: 12px 16px;
+    background: #0f3460;
+    color: #4dabf7;
+    font-size: 0.9rem;
+    border-bottom: 1px solid #16213e;
+}
+
 .config-header {
     display: flex;
     justify-content: space-between;
