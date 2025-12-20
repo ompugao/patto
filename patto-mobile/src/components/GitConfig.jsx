@@ -49,7 +49,9 @@ export function GitConfig() {
     const handleUseAppDir = async () => {
         try {
             const appDir = await appDataDir();
-            const notesPath = appDir + 'notes';
+            // Ensure trailing slash
+            const basePath = appDir.endsWith('/') ? appDir : appDir + '/';
+            const notesPath = basePath + 'notes';
             setManualPath(notesPath);
             setStatusMessage(`App data path: ${notesPath}`);
         } catch (err) {
