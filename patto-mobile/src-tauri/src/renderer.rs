@@ -295,11 +295,11 @@ impl MobileHtmlRenderer {
             return src.to_string();
         }
 
-        // For local paths, resolve relative to workspace and use file:// protocol
+        // For local paths, resolve relative to workspace and use Tauri asset protocol
         if let Some(workspace) = &self.workspace_path {
             let full_path = Path::new(workspace).join(src);
-            // Use file:// protocol for local files on Android
-            format!("file://{}", full_path.display())
+            // Use https://asset.localhost for Tauri 2 asset protocol
+            format!("https://asset.localhost/{}", full_path.display())
         } else {
             src.to_string()
         }

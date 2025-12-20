@@ -153,3 +153,29 @@ fn extract_links_from_ast(node: &parser::AstNode, links: &mut Vec<LinkInfo>) {
         extract_links_from_ast(child, links);
     }
 }
+
+/// Get image as base64 data URL
+#[tauri::command]
+pub fn get_image_base64(path: String) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err(format!("Image not found: {:?}", path));
+    }
+
+    let data = fs::read(path).map_err(|e| format!("Failed to read image: {}", e))?;
+
+    // Determine MIME type from extension
+    let mime = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+
+    let base64 = STANDARD.encode(&data);
+    Ok(format!("data:{};base64,{}", mime, base64))
+}

@@ -2,7 +2,7 @@
 
 import { useStore, View } from '../lib/store';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import './NoteView.css';
 
@@ -24,22 +24,29 @@ export function NoteView() {
     const [totalMatches, setTotalMatches] = useState(0);
     const searchInputRef = useRef(null);
 
-    // Convert file:// URLs to proper Tauri asset URLs for images
+    // Convert local image paths to base64 data URLs
     useEffect(() => {
         if (!contentRef.current) return;
 
-        const images = contentRef.current.querySelectorAll('img');
-        images.forEach(img => {
-            const src = img.getAttribute('src');
-            if (src && src.startsWith('file://')) {
-                const filePath = src.replace('file://', '');
-                try {
-                    img.src = convertFileSrc(filePath);
-                } catch (e) {
-                    console.error('Failed to convert image src:', e);
+        const loadImages = async () => {
+            const images = contentRef.current.querySelectorAll('img');
+            for (const img of images) {
+                const src = img.getAttribute('src');
+                // Check for https://asset.localhost paths (local images)
+                if (src && src.startsWith('https://asset.localhost/')) {
+                    const filePath = src.replace('https://asset.localhost/', '');
+                    try {
+                        const dataUrl = await invoke('get_image_base64', { path: filePath });
+                        img.src = dataUrl;
+                    } catch (e) {
+                        console.error('Failed to load image:', e);
+                        img.alt = 'Image not found';
+                    }
                 }
             }
-        });
+        };
+
+        loadImages();
     }, [renderedHtml, activeQuery]);
 
     // Create highlighted HTML
