@@ -133,8 +133,8 @@ pub async fn git_clone(
                     },
                 );
 
-                // Fix file timestamps to match commit times
-                let fixed = fix_file_timestamps(&repo, &dest);
+                // Fix file timestamps to match commit times (with progress)
+                let fixed = fix_file_timestamps(&repo, &dest, &app);
 
                 // Emit complete
                 let _ = app.emit(
@@ -164,8 +164,8 @@ pub async fn git_clone(
     result
 }
 
-/// Set file modification times to their last commit time
-fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf) -> usize {
+/// Set file modification times to their last commit time (with progress)
+fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf, app: &AppHandle) -> usize {
     use std::fs;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -182,10 +182,42 @@ fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf) -> usize {
         Err(_) => return 0,
     };
 
+    // First, count total files
+    let mut total_files = 0;
+    let _ = tree.walk(git2::TreeWalkMode::PreOrder, |_dir, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            total_files += 1;
+        }
+        git2::TreeWalkResult::Ok
+    });
+
     // Walk the tree and get last commit time for each file
+    let mut processed = 0;
+    let mut last_percent = 0;
     let _ = tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
         if entry.kind() != Some(git2::ObjectType::Blob) {
             return git2::TreeWalkResult::Ok;
+        }
+
+        processed += 1;
+        let percent = if total_files > 0 {
+            (processed * 100) / total_files
+        } else {
+            0
+        };
+
+        // Emit progress every 10%
+        if percent >= last_percent + 10 || percent == 100 {
+            last_percent = percent;
+            let _ = app.emit(
+                "clone-progress",
+                CloneProgress {
+                    stage: "Fixing timestamps".to_string(),
+                    received: processed,
+                    total: total_files,
+                    percent: percent as u32,
+                },
+            );
         }
 
         let path = if dir.is_empty() {
