@@ -1,7 +1,7 @@
 // NoteView component - displays rendered note content
 
 import { useStore, View } from '../lib/store';
-import { open } from '@tauri-apps/plugin-opener';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useEffect, useRef } from 'react';
 import './NoteView.css';
 
@@ -33,7 +33,7 @@ export function NoteView() {
             // External URL - open in system browser
             if (href.startsWith('http://') || href.startsWith('https://')) {
                 try {
-                    await open(href);
+                    await openUrl(href);
                 } catch (err) {
                     console.error('Failed to open URL:', err);
                 }
