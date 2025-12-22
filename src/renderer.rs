@@ -534,17 +534,15 @@ impl MarkdownRenderer {
                     }
                 }
 
-                writeln!(output)?;
+                // Block containers handle their own newlines
+                if !is_block_container {
+                    writeln!(output)?;
+                }
 
                 // Render children
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     self._format_impl(child, output, depth + 1, in_quote)?;
-                }
-
-                // Add blank line after root-level paragraphs without children
-                if depth == 0 && !has_children {
-                    writeln!(output)?;
                 }
             }
             AstNodeKind::Quote => {
@@ -556,7 +554,6 @@ impl MarkdownRenderer {
                     write!(output, "> ")?;
                     self._format_impl(child, output, depth, true)?;
                 }
-                writeln!(output)?;
             }
             AstNodeKind::Math { inline } => {
                 if *inline {
@@ -585,14 +582,12 @@ impl MarkdownRenderer {
                     write!(output, "`")?;
                 } else {
                     // Proper fenced code block (NOT nested in list)
-                    writeln!(output)?;
                     writeln!(output, "```{}", lang)?;
                     let children = ast.value().children.lock().unwrap();
                     for child in children.iter() {
                         writeln!(output, "{}", child.extract_str())?;
                     }
                     writeln!(output, "```")?;
-                    writeln!(output)?;
                 }
             }
             AstNodeKind::Image { src, alt } => {
@@ -696,14 +691,12 @@ impl MarkdownRenderer {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
-                writeln!(output, "---")?;
-                writeln!(output)?;
+                write!(output, "---")?;
             }
             AstNodeKind::Table { caption } => {
                 // Caption as emphasized text
                 if let Some(caption) = caption {
                     writeln!(output, "*{}*", caption)?;
-                    writeln!(output)?;
                 }
 
                 let children = ast.value().children.lock().unwrap();
@@ -720,7 +713,6 @@ impl MarkdownRenderer {
                         writeln!(output)?;
                     }
                 }
-                writeln!(output)?;
             }
             AstNodeKind::TableRow => {
                 write!(output, "|")?;

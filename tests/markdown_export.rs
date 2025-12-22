@@ -136,7 +136,7 @@ mod code_blocks {
         // Code block should NOT start with "- ```"
         assert!(!output.contains("- ```"));
         // Should be proper fenced block
-        assert!(output.contains("\n```python\n"));
+        assert!(output.contains("```python\n"));
     }
 
     #[test]
@@ -899,5 +899,63 @@ mod regressions {
 
         assert!(output.contains("- Root"));
         assert!(output.contains("  - Child"));
+    }
+
+    #[test]
+    fn test_no_extra_blank_lines_between_consecutive_lines() {
+        // Regression: consecutive lines had extra blank lines inserted
+        let input = "Line1\nLine2\nLine3";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        // Should be exactly 3 lines with no blank lines between
+        assert_eq!(output, "Line1\nLine2\nLine3\n");
+    }
+
+    #[test]
+    fn test_no_extra_blank_line_after_horizontal_rule() {
+        // Regression: horizontal rule added extra blank line after
+        let input = "Before\n-----\nAfter";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        assert_eq!(output, "Before\n---\nAfter\n");
+    }
+
+    #[test]
+    fn test_no_extra_blank_lines_around_code_block() {
+        // Regression: code blocks added extra blank lines before/after
+        let input = "Before\n[@code python]\n\tprint('hello')\nAfter";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        // Should have no extra blank lines
+        assert!(output.contains("Before\n```python"));
+        assert!(output.contains("```\nAfter"));
+    }
+
+    #[test]
+    fn test_no_extra_blank_line_after_quote() {
+        // Regression: quotes added extra blank line after
+        let input = "Before\n[@quote]\n\tquoted text\nAfter";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        assert!(output.contains("> quoted text\nAfter"));
+    }
+
+    #[test]
+    fn test_no_extra_blank_line_after_table() {
+        // Regression: tables added extra blank line after
+        let input = "Before\n[@table]\n\ta\tb\n\t1\t2\nAfter";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        assert!(output.contains("| 1 | 2 |\nAfter"));
+    }
+
+    #[test]
+    fn test_explicit_blank_lines_preserved() {
+        // Explicit blank lines in original should be preserved (not doubled)
+        let input = "Line1\n\nLine2";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        // Should have exactly one blank line between
+        assert_eq!(output, "Line1\n\nLine2\n");
     }
 }
