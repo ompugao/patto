@@ -36,67 +36,71 @@ pub struct TaskAggregation {
 
 /// Get all tasks from workspace categorized by deadline
 #[tauri::command]
-pub fn get_all_tasks(root: PathBuf) -> Result<TaskAggregation, String> {
-    let mut aggregation = TaskAggregation::default();
-    let today = Local::now().date_naive();
-    let week_end = today + chrono::Duration::days(7);
+pub async fn get_all_tasks(root: PathBuf) -> Result<TaskAggregation, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut aggregation = TaskAggregation::default();
+        let today = Local::now().date_naive();
+        let week_end = today + chrono::Duration::days(7);
 
-    // Collect all patto files
-    let files = collect_patto_files(&root).map_err(|e| e.to_string())?;
+        // Collect all patto files
+        let files = collect_patto_files(&root).map_err(|e| e.to_string())?;
 
-    for file_path in files {
-        let full_path = root.join(&file_path);
-        if let Ok(content) = fs::read_to_string(&full_path) {
-            let tasks = extract_tasks_from_content(&content, &file_path);
+        for file_path in files {
+            let full_path = root.join(&file_path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                let tasks = extract_tasks_from_content(&content, &file_path);
 
-            for task in tasks {
-                match task.status.as_str() {
-                    "done" => {
-                        aggregation.done.push(task);
-                    }
-                    _ => {
-                        // Categorize by deadline
-                        match &task.due_timestamp {
-                            Some(ts) => {
-                                let due_date = NaiveDateTime::from_timestamp_opt(*ts, 0)
-                                    .map(|dt| dt.date())
-                                    .unwrap_or(today);
+                for task in tasks {
+                    match task.status.as_str() {
+                        "done" => {
+                            aggregation.done.push(task);
+                        }
+                        _ => {
+                            // Categorize by deadline
+                            match &task.due_timestamp {
+                                Some(ts) => {
+                                    let due_date = NaiveDateTime::from_timestamp_opt(*ts, 0)
+                                        .map(|dt| dt.date())
+                                        .unwrap_or(today);
 
-                                if due_date < today {
-                                    aggregation.overdue.push(task);
-                                } else if due_date == today {
-                                    aggregation.today.push(task);
-                                } else if due_date <= week_end {
-                                    aggregation.this_week.push(task);
-                                } else {
-                                    aggregation.later.push(task);
+                                    if due_date < today {
+                                        aggregation.overdue.push(task);
+                                    } else if due_date == today {
+                                        aggregation.today.push(task);
+                                    } else if due_date <= week_end {
+                                        aggregation.this_week.push(task);
+                                    } else {
+                                        aggregation.later.push(task);
+                                    }
                                 }
-                            }
-                            None => {
-                                aggregation.no_deadline.push(task);
+                                None => {
+                                    aggregation.no_deadline.push(task);
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Sort each category by due date
-    aggregation
-        .overdue
-        .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
-    aggregation
-        .today
-        .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
-    aggregation
-        .this_week
-        .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
-    aggregation
-        .later
-        .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
+        // Sort each category by due date
+        aggregation
+            .overdue
+            .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
+        aggregation
+            .today
+            .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
+        aggregation
+            .this_week
+            .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
+        aggregation
+            .later
+            .sort_by(|a, b| a.due_timestamp.cmp(&b.due_timestamp));
 
-    Ok(aggregation)
+        Ok(aggregation)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 fn collect_patto_files(root: &Path) -> std::io::Result<Vec<String>> {
@@ -243,8 +247,8 @@ pub struct TaskSummary {
 
 /// Get task summary counts
 #[tauri::command]
-pub fn get_task_summary(root: PathBuf) -> Result<TaskSummary, String> {
-    let tasks = get_all_tasks(root)?;
+pub async fn get_task_summary(root: PathBuf) -> Result<TaskSummary, String> {
+    let tasks = get_all_tasks(root).await?;
 
     Ok(TaskSummary {
         total: tasks.overdue.len()

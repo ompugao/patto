@@ -36,7 +36,7 @@ export function FileList() {
                         className="icon-btn"
                         title="Sync with Git"
                     >
-                        {isGitSyncing ? '⟳' : '↻'}
+                        <span className={isGitSyncing ? 'spinning' : ''}>↻</span>
                     </button>
                     <button
                         onClick={() => setView(View.TASKS)}

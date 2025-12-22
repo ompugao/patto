@@ -58,7 +58,7 @@ export function TaskPanel() {
                 </button>
                 <h1>Tasks</h1>
                 <button className="refresh-btn" onClick={loadTasks} disabled={isLoadingTasks}>
-                    ↻
+                    <span className={isLoadingTasks ? 'spinning' : ''}>↻</span>
                 </button>
             </header>
 

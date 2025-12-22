@@ -292,154 +292,167 @@ fn fix_file_timestamps(repo: &Repository, repo_path: &PathBuf, app: &AppHandle) 
 
 /// Pull changes from remote
 #[tauri::command]
-pub fn git_pull(repo_path: PathBuf, credentials: GitCredentials) -> Result<GitResult, String> {
-    let repo = Repository::open(&repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
+pub async fn git_pull(
+    repo_path: PathBuf,
+    credentials: GitCredentials,
+) -> Result<GitResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let repo =
+            Repository::open(&repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
 
-    // Get the current branch name
-    let head = repo
-        .head()
-        .map_err(|e| format!("Failed to get HEAD: {}", e))?;
-    let branch_name = head.shorthand().unwrap_or("main");
+        // Get the current branch name
+        let head = repo
+            .head()
+            .map_err(|e| format!("Failed to get HEAD: {}", e))?;
+        let branch_name = head.shorthand().unwrap_or("main");
 
-    // Fetch from origin
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| format!("Failed to find remote 'origin': {}", e))?;
+        // Fetch from origin
+        let mut remote = repo
+            .find_remote("origin")
+            .map_err(|e| format!("Failed to find remote 'origin': {}", e))?;
 
-    let callbacks = create_callbacks(&credentials);
-    let mut fetch_options = FetchOptions::new();
-    fetch_options.remote_callbacks(callbacks);
+        let callbacks = create_callbacks(&credentials);
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
 
-    remote
-        .fetch(&[branch_name], Some(&mut fetch_options), None)
-        .map_err(|e| format!("Failed to fetch: {}", e))?;
+        remote
+            .fetch(&[branch_name], Some(&mut fetch_options), None)
+            .map_err(|e| format!("Failed to fetch: {}", e))?;
 
-    // Get fetch head
-    let fetch_head = repo
-        .find_reference("FETCH_HEAD")
-        .map_err(|e| format!("Failed to find FETCH_HEAD: {}", e))?;
+        // Get fetch head
+        let fetch_head = repo
+            .find_reference("FETCH_HEAD")
+            .map_err(|e| format!("Failed to find FETCH_HEAD: {}", e))?;
 
-    let fetch_commit = repo
-        .reference_to_annotated_commit(&fetch_head)
-        .map_err(|e| format!("Failed to get fetch commit: {}", e))?;
+        let fetch_commit = repo
+            .reference_to_annotated_commit(&fetch_head)
+            .map_err(|e| format!("Failed to get fetch commit: {}", e))?;
 
-    // Perform merge (fast-forward if possible)
-    let analysis = repo
-        .merge_analysis(&[&fetch_commit])
-        .map_err(|e| format!("Failed merge analysis: {}", e))?;
+        // Perform merge (fast-forward if possible)
+        let analysis = repo
+            .merge_analysis(&[&fetch_commit])
+            .map_err(|e| format!("Failed merge analysis: {}", e))?;
 
-    if analysis.0.is_up_to_date() {
-        Ok(GitResult {
-            success: true,
-            message: "Already up to date".to_string(),
-        })
-    } else if analysis.0.is_fast_forward() {
-        // Fast-forward merge
-        let refname = format!("refs/heads/{}", branch_name);
-        let mut reference = repo
-            .find_reference(&refname)
-            .map_err(|e| format!("Failed to find reference: {}", e))?;
-        reference
-            .set_target(fetch_commit.id(), "Fast-forward")
-            .map_err(|e| format!("Failed to set target: {}", e))?;
-        repo.set_head(&refname)
-            .map_err(|e| format!("Failed to set HEAD: {}", e))?;
-        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
-            .map_err(|e| format!("Failed to checkout: {}", e))?;
+        if analysis.0.is_up_to_date() {
+            Ok(GitResult {
+                success: true,
+                message: "Already up to date".to_string(),
+            })
+        } else if analysis.0.is_fast_forward() {
+            // Fast-forward merge
+            let refname = format!("refs/heads/{}", branch_name);
+            let mut reference = repo
+                .find_reference(&refname)
+                .map_err(|e| format!("Failed to find reference: {}", e))?;
+            reference
+                .set_target(fetch_commit.id(), "Fast-forward")
+                .map_err(|e| format!("Failed to set target: {}", e))?;
+            repo.set_head(&refname)
+                .map_err(|e| format!("Failed to set HEAD: {}", e))?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+                .map_err(|e| format!("Failed to checkout: {}", e))?;
 
-        Ok(GitResult {
-            success: true,
-            message: "Fast-forward merge completed".to_string(),
-        })
-    } else {
-        Err("Merge required - manual intervention needed".to_string())
-    }
+            Ok(GitResult {
+                success: true,
+                message: "Fast-forward merge completed".to_string(),
+            })
+        } else {
+            Err("Merge required - manual intervention needed".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Commit all changes and push to remote
 #[tauri::command]
-pub fn git_sync(
+pub async fn git_sync(
     repo_path: PathBuf,
     message: String,
     credentials: GitCredentials,
 ) -> Result<GitResult, String> {
-    let repo = Repository::open(&repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
+    tokio::task::spawn_blocking(move || {
+        let repo =
+            Repository::open(&repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
 
-    // Stage all changes
-    let mut index = repo
-        .index()
-        .map_err(|e| format!("Failed to get index: {}", e))?;
-    index
-        .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
-        .map_err(|e| format!("Failed to add files: {}", e))?;
-    index
-        .write()
-        .map_err(|e| format!("Failed to write index: {}", e))?;
+        // Stage all changes
+        let mut index = repo
+            .index()
+            .map_err(|e| format!("Failed to get index: {}", e))?;
+        index
+            .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+            .map_err(|e| format!("Failed to add files: {}", e))?;
+        index
+            .write()
+            .map_err(|e| format!("Failed to write index: {}", e))?;
 
-    // Check if there are changes to commit
-    let tree_id = index
-        .write_tree()
-        .map_err(|e| format!("Failed to write tree: {}", e))?;
-    let tree = repo
-        .find_tree(tree_id)
-        .map_err(|e| format!("Failed to find tree: {}", e))?;
+        // Check if there are changes to commit
+        let tree_id = index
+            .write_tree()
+            .map_err(|e| format!("Failed to write tree: {}", e))?;
+        let tree = repo
+            .find_tree(tree_id)
+            .map_err(|e| format!("Failed to find tree: {}", e))?;
 
-    // Get parent commit
-    let head = repo.head().ok();
-    let parent_commit = head.as_ref().and_then(|h| h.peel_to_commit().ok());
+        // Get parent commit
+        let head = repo.head().ok();
+        let parent_commit = head.as_ref().and_then(|h| h.peel_to_commit().ok());
 
-    // Create signature
-    let signature = Signature::now("Patto Mobile", "patto@mobile.app")
-        .map_err(|e| format!("Failed to create signature: {}", e))?;
+        // Create signature
+        let signature = Signature::now("Patto Mobile", "patto@mobile.app")
+            .map_err(|e| format!("Failed to create signature: {}", e))?;
 
-    // Check if tree is different from parent
-    let has_changes = match &parent_commit {
-        Some(parent) => parent.tree_id() != tree_id,
-        None => true,
-    };
+        // Check if tree is different from parent
+        let has_changes = match &parent_commit {
+            Some(parent) => parent.tree_id() != tree_id,
+            None => true,
+        };
 
-    if has_changes {
-        // Create commit
-        let parents: Vec<&git2::Commit> =
-            parent_commit.as_ref().map(|c| vec![c]).unwrap_or_default();
-        repo.commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            &message,
-            &tree,
-            &parents,
-        )
-        .map_err(|e| format!("Failed to commit: {}", e))?;
-    }
+        if has_changes {
+            // Create commit
+            let parents: Vec<&git2::Commit> =
+                parent_commit.as_ref().map(|c| vec![c]).unwrap_or_default();
+            repo.commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                &message,
+                &tree,
+                &parents,
+            )
+            .map_err(|e| format!("Failed to commit: {}", e))?;
+        }
 
-    // Push to origin
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| format!("Failed to find remote 'origin': {}", e))?;
+        // Push to origin
+        let mut remote = repo
+            .find_remote("origin")
+            .map_err(|e| format!("Failed to find remote 'origin': {}", e))?;
 
-    let callbacks = create_callbacks(&credentials);
-    let mut push_options = PushOptions::new();
-    push_options.remote_callbacks(callbacks);
+        let callbacks = create_callbacks(&credentials);
+        let mut push_options = PushOptions::new();
+        push_options.remote_callbacks(callbacks);
 
-    let head = repo
-        .head()
-        .map_err(|e| format!("Failed to get HEAD: {}", e))?;
-    let branch_name = head.shorthand().unwrap_or("main");
-    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+        let head = repo
+            .head()
+            .map_err(|e| format!("Failed to get HEAD: {}", e))?;
+        let branch_name = head.shorthand().unwrap_or("main");
+        let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
 
-    remote
-        .push(&[&refspec], Some(&mut push_options))
-        .map_err(|e| format!("Failed to push: {}", e))?;
+        remote
+            .push(&[&refspec], Some(&mut push_options))
+            .map_err(|e| format!("Failed to push: {}", e))?;
 
-    Ok(GitResult {
-        success: true,
-        message: if has_changes {
-            "Changes committed and pushed".to_string()
-        } else {
-            "No changes to commit, pushed to remote".to_string()
-        },
+        Ok(GitResult {
+            success: true,
+            message: if has_changes {
+                "Changes committed and pushed".to_string()
+            } else {
+                "No changes to commit, pushed to remote".to_string()
+            },
+        })
     })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Configure remote URL for existing repository
