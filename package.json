@@ -112,6 +112,12 @@
           "default": "patto-preview",
           "description": "Path to patto-preview binary. If not in PATH, specify full path here."
         },
+        "patto.markdown.defaultFlavor": {
+          "type": "string",
+          "enum": ["standard", "obsidian", "github"],
+          "default": "standard",
+          "description": "Default markdown flavor for 'Copy as Markdown' command"
+        },
         "editor.semanticHighlighting.enabled": {
           "type": "boolean",
           "default": true,

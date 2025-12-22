@@ -50,6 +50,16 @@ function checkPortAvailable(port: number): Promise<boolean> {
 	});
 }
 
+// Get patto configuration for LSP server
+function getPattoConfiguration() {
+	const config = workspace.getConfiguration('patto');
+	return {
+		markdown: {
+			defaultFlavor: config.get<string>('markdown.defaultFlavor', 'standard')
+		}
+	};
+}
+
 
 // Launch preview server
 async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel, command: string): Promise<number | null> {
@@ -226,9 +236,11 @@ function startLanguageClient(
 			{ scheme: "untitled", language: "patto" },
 		],
 		synchronize: {
-			fileEvents: workspace.createFileSystemWatcher('**/*.pn')
+			fileEvents: workspace.createFileSystemWatcher('**/*.pn'),
+			configurationSection: 'patto'
 		},
-		outputChannel: traceOutputChannel
+		outputChannel: traceOutputChannel,
+		initializationOptions: getPattoConfiguration()
 	};
 
 	// Create the language client and start the client.
@@ -417,7 +429,7 @@ function startLanguageClient(
 		})
 	);
 
-	// Copy as Markdown command
+	// Copy as Markdown command (uses configured default flavor)
 	context.subscriptions.push(
 		commands.registerCommand("patto.copyAsMarkdown", async () => {
 			const editor = vscode.window.activeTextEditor;
@@ -426,24 +438,22 @@ function startLanguageClient(
 				return;
 			}
 
-			// Ask for markdown flavor
-			const flavor = await vscode.window.showQuickPick(
-				['standard', 'obsidian', 'github'],
-				{ placeHolder: 'Select markdown flavor' }
-			);
-			if (!flavor) {
-				return;
-			}
+			// Use configured default flavor (LSP will also fall back to its settings)
+			const config = workspace.getConfiguration('patto');
+			const flavor = config.get<string>('markdown.defaultFlavor', 'standard');
 
 			try {
 				const uri = editor.document.uri.toString();
 				const selection = editor.selection;
-				const args: (string | number)[] = [uri];
+				const args: (string | number | undefined)[] = [uri];
 
 				// If there's a selection, include the range
 				if (!selection.isEmpty) {
 					args.push(selection.start.line);
 					args.push(selection.end.line);
+				} else {
+					args.push(undefined);
+					args.push(undefined);
 				}
 				args.push(flavor);
 

@@ -134,6 +134,15 @@ return {
   capabilities = {
     offsetEncoding = { 'utf-8' },
   },
+  -- Default settings (can be overridden in user config)
+  -- To override: vim.lsp.config('patto_lsp', { settings = { patto = { markdown = { defaultFlavor = 'obsidian' } } } })
+  settings = {
+    patto = {
+      markdown = {
+        defaultFlavor = 'standard',  -- 'standard', 'obsidian', or 'github'
+      },
+    },
+  },
   on_attach = function(client, bufnr)
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasks', function()
       vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
@@ -196,9 +205,10 @@ return {
     -- Copy buffer or selection as markdown to clipboard
     -- Usage: :LspPattoCopyAsMarkdown [flavor]
     -- In visual mode, copies selection; in normal mode, copies entire buffer
+    -- If no flavor specified, uses the defaultFlavor from settings
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoCopyAsMarkdown', function(opts)
       local uri = vim.uri_from_bufnr(0)
-      local flavor = opts.args ~= '' and opts.args or 'standard'
+      local explicit_flavor = opts.args ~= '' and opts.args or nil
       local args = {uri}
 
       -- Check if we have a visual selection
@@ -209,8 +219,11 @@ return {
         local end_line = opts.line2 - 1
         table.insert(args, start_line)
         table.insert(args, end_line)
+      else
+        table.insert(args, vim.NIL)
+        table.insert(args, vim.NIL)
       end
-      table.insert(args, flavor)
+      table.insert(args, explicit_flavor)  -- nil lets LSP use configured default
 
       vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
         command = 'patto/renderAsMarkdown',
@@ -220,7 +233,16 @@ return {
           if res.result and res.result ~= vim.NIL then
             vim.fn.setreg('+', res.result)
             vim.fn.setreg('"', res.result)
-            print("Copied as markdown (" .. flavor .. ")")
+            -- Show the actual flavor used
+            local flavor_msg = explicit_flavor
+            if not flavor_msg then
+              -- Get from client settings
+              local config_settings = client.config.settings or {}
+              local patto_settings = config_settings.patto or {}
+              local markdown_settings = patto_settings.markdown or {}
+              flavor_msg = markdown_settings.defaultFlavor or 'standard'
+            end
+            print("Copied as markdown (" .. flavor_msg .. ")")
             return
           end
         end

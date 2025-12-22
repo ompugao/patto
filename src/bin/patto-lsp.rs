@@ -28,12 +28,30 @@ use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGE
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
+/// LSP settings that can be configured by clients
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PattoSettings {
+    /// Markdown export settings
+    #[serde(default)]
+    markdown: MarkdownSettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownSettings {
+    /// Default markdown flavor for export (standard, obsidian, github)
+    #[serde(default)]
+    default_flavor: Option<String>,
+}
+
 //#[derive(Debug)]
 struct Backend {
     client: Client,
     repository: Arc<Mutex<Option<Repository>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     paper_catalog: PaperCatalog,
+    settings: Arc<Mutex<PattoSettings>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
@@ -788,6 +806,28 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        // Try to extract patto settings from the configuration
+        // VSCode sends: { "patto": { "markdown": { "defaultFlavor": "obsidian" } } }
+        // or just the patto section depending on client
+        let settings_value = if let Some(patto) = params.settings.get("patto") {
+            patto.clone()
+        } else {
+            params.settings
+        };
+
+        match serde_json::from_value::<PattoSettings>(settings_value) {
+            Ok(new_settings) => {
+                log::info!("Updated patto settings: {:?}", new_settings);
+                let mut settings = self.settings.lock().unwrap();
+                *settings = new_settings;
+            }
+            Err(e) => {
+                log::warn!("Failed to parse patto settings: {:?}", e);
+            }
+        }
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         log::info!("did_open: {:?}", params.text_document.uri);
         self.on_change(TextDocumentItem {
@@ -935,6 +975,7 @@ impl LanguageServer for Backend {
             "patto/renderAsMarkdown" => {
                 // Arguments: [uri, startLine?, endLine?, flavor?]
                 // If startLine/endLine not provided, render entire document
+                // If flavor not provided, use default from settings
                 let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
                     return Ok(None);
                 };
@@ -955,12 +996,21 @@ impl LanguageServer for Backend {
                     .and_then(|a| a.as_u64())
                     .map(|n| n as usize);
 
-                // Parse optional flavor (default: standard)
+                // Parse optional flavor, falling back to settings default, then "standard"
                 let flavor_str = params
                     .arguments
                     .get(3)
                     .and_then(|a| a.as_str())
-                    .unwrap_or("standard");
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        self.settings
+                            .lock()
+                            .unwrap()
+                            .markdown
+                            .default_flavor
+                            .clone()
+                    })
+                    .unwrap_or_else(|| "standard".to_string());
                 let flavor = match flavor_str.to_lowercase().as_str() {
                     "obsidian" => MarkdownFlavor::Obsidian,
                     "github" => MarkdownFlavor::GitHub,
@@ -1500,6 +1550,7 @@ async fn main() {
             repository,
             root_uri: Arc::new(Mutex::new(None)),
             paper_catalog: shared_catalog.clone(),
+            settings: Arc::new(Mutex::new(PattoSettings::default())),
         }
     });
     log::info!("Patto Language Server Protocol started");
