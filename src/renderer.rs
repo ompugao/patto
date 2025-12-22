@@ -332,18 +332,7 @@ impl HtmlRenderer {
     }
 }
 
-#[derive(Debug)]
-pub struct MarkdownRendererOptions {
-    pub use_hard_line_break: bool,
-}
-
-impl Default for MarkdownRendererOptions {
-    fn default() -> Self {
-        Self {
-            use_hard_line_break: true,
-        }
-    }
-}
+use crate::markdown::{AnchorFormat, MarkdownRendererOptions, TaskFormat, WikiLinkFormat};
 
 pub struct MarkdownRenderer {
     options: MarkdownRendererOptions,
@@ -351,8 +340,17 @@ pub struct MarkdownRenderer {
 
 impl Renderer for MarkdownRenderer {
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        // Add frontmatter if enabled
+        if self.options.include_frontmatter() {
+            writeln!(output, "---")?;
+            writeln!(output, "patto_source: true")?;
+            writeln!(output, "flavor: {}", self.options.flavor)?;
+            writeln!(output, "---")?;
+            writeln!(output)?;
+        }
+
         let depth: usize = 0;
-        self._format_impl(ast, output, depth)?;
+        self._format_impl(ast, output, depth, false)?;
         Ok(())
     }
 }
@@ -362,134 +360,216 @@ impl MarkdownRenderer {
         Self { options }
     }
 
-    fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
+    fn _format_impl(
+        &self,
+        ast: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        in_quote: bool,
+    ) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
-                for child in ast.value().children.lock().unwrap().iter() {
-                    self._format_impl(child, output, depth)?;
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    self._format_impl(child, output, depth, in_quote)?;
                 }
             }
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-                for _ in 0..depth {
-                    write!(output, "  ")?;
+                let has_children = !ast.value().children.lock().unwrap().is_empty();
+                let is_quote_content = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
+                
+                // Check if this line only contains a block element (quote, code, math, table)
+                let contents = ast.value().contents.lock().unwrap();
+                let is_block_container = contents.len() == 1 && matches!(
+                    contents[0].kind(),
+                    AstNodeKind::Quote | AstNodeKind::Code { inline: false, .. } | 
+                    AstNodeKind::Math { inline: false } | AstNodeKind::Table { .. }
+                );
+                
+                // Check if this is an empty line (no contents, no properties, no children)
+                let is_empty = contents.is_empty() && properties.is_empty() && !has_children;
+                drop(contents);
+                
+                // For empty lines, just output a blank line
+                if is_empty {
+                    writeln!(output)?;
+                    return Ok(());
                 }
-                if !self.options.use_hard_line_break || depth > 0 {
-                    write!(output, "* ")?;
+
+                // Indentation for nested items (skip for quote content - handled by Quote)
+                if !in_quote && !is_block_container {
+                    for _ in 0..depth {
+                        write!(output, "  ")?;
+                    }
                 }
+
+                // Determine if this is a task
+                let mut task_due: Option<&crate::parser::Deadline> = None;
+                let mut is_done = false;
                 for property in properties {
-                    if let Property::Task { status, .. } = property {
-                        if matches!(status, TaskStatus::Done) {
-                            write!(output, "[-] ")?;
-                        } else {
-                            write!(output, "[ ] ")?;
-                        }
+                    if let Property::Task { status, due, .. } = property {
+                        task_due = Some(due);
+                        is_done = matches!(status, TaskStatus::Done);
                         break;
                     }
                 }
 
-                for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(content, output, depth)?;
+                // List marker for nested items or items with children (not for quote content or block containers)
+                if !is_quote_content && !is_block_container && (depth > 0 || has_children) {
+                    write!(output, "- ")?;
                 }
-                if !properties.is_empty() {
-                    write!(output, " ")?;
-                    for property in properties {
-                        match property {
-                            Property::Anchor { name, .. } => {
-                                write!(output, "#{}", name)?;
-                            }
-                            Property::Task { status, due, .. } => match status {
-                                TaskStatus::Done => {
-                                    // do nothing
+
+                // Task checkbox
+                if task_due.is_some() {
+                    if is_done {
+                        write!(output, "[x] ")?;
+                    } else {
+                        write!(output, "[ ] ")?;
+                    }
+                }
+
+                // Render contents
+                for content in ast.value().contents.lock().unwrap().iter() {
+                    self._format_impl(content, output, depth, in_quote)?;
+                }
+
+                // Append due date (only if not done and has non-empty due date)
+                if let Some(due) = task_due {
+                    if !is_done {
+                        let due_str = due.to_string();
+                        if !due_str.is_empty() {
+                            match self.options.task_format() {
+                                TaskFormat::Checkbox => write!(output, " (due: {})", due_str)?,
+                                TaskFormat::ObsidianEmoji => write!(output, " 📅 {}", due_str)?,
+                                TaskFormat::ObsidianDataview => {
+                                    write!(output, " [due:: {}]", due_str)?
                                 }
-                                _ => write!(output, "  due: {}", due)?,
-                            },
+                            }
                         }
                     }
                 }
-                let no_children = ast.value().children.lock().unwrap().is_empty();
-                if no_children && depth == 0 && self.options.use_hard_line_break {
-                    writeln!(output, " \\")?;
-                } else {
-                    writeln!(output)?;
-                }
-                if !no_children {
-                    for child in ast.value().children.lock().unwrap().iter() {
-                        self._format_impl(child, output, depth + 1)?;
+
+                // Append anchors
+                for property in properties {
+                    if let Property::Anchor { name, .. } = property {
+                        match self.options.anchor_format() {
+                            AnchorFormat::HtmlAnchor => {
+                                write!(output, " <a id=\"{}\"></a>", name)?
+                            }
+                            AnchorFormat::HtmlComment => {
+                                write!(output, " <!-- anchor: {} -->", name)?
+                            }
+                            AnchorFormat::ObsidianBlock => write!(output, " ^{}", name)?,
+                            AnchorFormat::Inline => write!(output, " #{}", name)?,
+                        }
                     }
+                }
+
+                writeln!(output)?;
+
+                // Render children
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    self._format_impl(child, output, depth + 1, in_quote)?;
+                }
+
+                // Add blank line after root-level paragraphs without children
+                if depth == 0 && !has_children {
+                    writeln!(output)?;
                 }
             }
             AstNodeKind::Quote => {
-                for (ichild, child) in ast.value().children.lock().unwrap().iter().enumerate() {
-                    if ichild > 0 {
-                        for _ in 0..depth {
-                            write!(output, "  ")?;
-                        }
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    for _ in 0..depth {
                         write!(output, "  ")?;
                     }
                     write!(output, "> ")?;
-                    self._format_impl(child, output, depth + 1)?;
+                    self._format_impl(child, output, depth, true)?;
                 }
+                writeln!(output)?;
             }
             AstNodeKind::Math { inline } => {
                 if *inline {
-                    write!(output, "\\(")?;
-                    write!(
-                        output,
-                        "{}",
-                        ast.value().contents.lock().unwrap()[0].extract_str()
-                    )?; //TODO html escape?
-                    write!(output, "\\)")?;
-                } else {
-                    // see https://github.com/mathjax/MathJax/issues/2312
-                    write!(output, "\\[\\displaylines{{")?;
-                    for child in ast.value().children.lock().unwrap().iter() {
-                        write!(output, "{}", child.extract_str())?;
+                    write!(output, "$")?;
+                    let contents = ast.value().contents.lock().unwrap();
+                    if !contents.is_empty() {
+                        write!(output, "{}", contents[0].extract_str())?;
                     }
-                    write!(output, "}}\\]")?;
+                    write!(output, "$")?;
+                } else {
+                    writeln!(output, "$$")?;
+                    let children = ast.value().children.lock().unwrap();
+                    for child in children.iter() {
+                        writeln!(output, "{}", child.extract_str())?;
+                    }
+                    writeln!(output, "$$")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "`")?;
-                    write!(
-                        output,
-                        "{}",
-                        ast.value().contents.lock().unwrap()[0].extract_str()
-                    )?;
+                    let contents = ast.value().contents.lock().unwrap();
+                    if !contents.is_empty() {
+                        write!(output, "{}", contents[0].extract_str())?;
+                    }
                     write!(output, "`")?;
                 } else {
-                    //TODO use syntext
+                    // Proper fenced code block (NOT nested in list)
+                    writeln!(output)?;
                     writeln!(output, "```{}", lang)?;
-                    for child in ast.value().children.lock().unwrap().iter() {
+                    let children = ast.value().children.lock().unwrap();
+                    for child in children.iter() {
                         writeln!(output, "{}", child.extract_str())?;
                     }
                     writeln!(output, "```")?;
+                    writeln!(output)?;
                 }
             }
             AstNodeKind::Image { src, alt } => {
                 if let Some(alt) = alt {
                     write!(output, "![{}]({})", alt, src)?;
                 } else {
-                    write!(output, "![{}]({})", src, src)?;
+                    write!(output, "![]({})", src)?;
                 }
             }
             AstNodeKind::WikiLink { link, anchor } => {
-                if let Some(anchor) = anchor {
-                    write!(output, "[[{}#{}]]", link, anchor)?;
-                    //write!(
-                    //    output,
-                    //    "[{}#{}]({}.md#{})",
-                    //    link, anchor, link, anchor
-                    //)?;
-                } else {
-                    write!(output, "[[{}]]", link)?;
+                match self.options.wiki_link_format() {
+                    WikiLinkFormat::WikiStyle => {
+                        if let Some(anchor) = anchor {
+                            if link.is_empty() {
+                                // Self-link to anchor
+                                write!(output, "[[#{}]]", anchor)?;
+                            } else {
+                                write!(output, "[[{}#{}]]", link, anchor)?;
+                            }
+                        } else {
+                            write!(output, "[[{}]]", link)?;
+                        }
+                    }
+                    WikiLinkFormat::Markdown => {
+                        let ext = self.options.file_extension();
+                        if let Some(anchor) = anchor {
+                            if link.is_empty() {
+                                // Self-link to anchor
+                                write!(output, "[#{}](#{})", anchor, anchor)?;
+                            } else {
+                                write!(output, "[{}#{}]({}{}#{})", link, anchor, link, ext, anchor)?;
+                            }
+                        } else {
+                            write!(output, "[{}]({}{})", link, link, ext)?;
+                        }
+                    }
                 }
             }
             AstNodeKind::Link { link, title } => {
                 if let Some(youtube_id) = get_youtube_id(link) {
+                    // YouTube embed as link (markdown doesn't support iframe)
                     write!(
                         output,
-                        "<div style=\"max-width: 90%; height: 30vw;\"><iframe class=\"videoContainer__video\" width=100% height=100% src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
+                        "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
+                        youtube_id, youtube_id
+                    )?;
                 } else if let Some(embed) = get_twitter_embed(link) {
                     write!(output, "{}", embed)?;
                 } else if let Some(title) = title {
@@ -504,39 +584,38 @@ impl MarkdownRenderer {
                 underline,
                 deleted,
             } => {
+                // Open tags
                 if *fontsize > 0 && !*italic {
-                    // bold
-                    write!(output, "**")?;
+                    write!(output, "**")?; // bold
                 } else if *italic && *fontsize <= 0 {
-                    // italic
-                    write!(output, "*")?;
+                    write!(output, "*")?; // italic
                 } else if *italic && *fontsize > 0 {
-                    // bold italic
-                    write!(output, "***")?;
+                    write!(output, "***")?; // bold italic
                 }
                 if *underline {
                     write!(output, "<ins>")?;
                 }
                 if *deleted {
-                    write!(output, "<del>")?;
+                    write!(output, "~~")?;
                 }
+
+                // Content
                 for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(content, output, depth)?;
+                    self._format_impl(content, output, depth, in_quote)?;
                 }
+
+                // Close tags (reverse order)
                 if *deleted {
-                    write!(output, "</del>")?;
+                    write!(output, "~~")?;
                 }
                 if *underline {
                     write!(output, "</ins>")?;
                 }
                 if *fontsize > 0 && !*italic {
-                    // bold
                     write!(output, "**")?;
                 } else if *italic && *fontsize <= 0 {
-                    // italic
                     write!(output, "*")?;
                 } else if *italic && *fontsize > 0 {
-                    // bold italic
                     write!(output, "***")?;
                 }
             }
@@ -544,52 +623,45 @@ impl MarkdownRenderer {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
-                write!(output, "---")?;
+                writeln!(output, "---")?;
+                writeln!(output)?;
             }
             AstNodeKind::Table { caption } => {
+                // Caption as emphasized text
                 if let Some(caption) = caption {
-                    writeln!(output, "*{caption}*")?;
+                    writeln!(output, "*{}*", caption)?;
                     writeln!(output)?;
                 }
+
                 let children = ast.value().children.lock().unwrap();
                 for (i, child) in children.iter().enumerate() {
-                    if i > 0 && !self.options.use_hard_line_break {
-                        write!(output, "  ")?;
-                    }
-                    self._format_impl(child, output, depth)?;
+                    self._format_impl(child, output, depth, in_quote)?;
+
                     // Add header separator after first row
                     if i == 0 {
-                        for _ in 0..depth {
-                            write!(output, "  ")?;
-                        }
-                        if !self.options.use_hard_line_break {
-                            write!(output, "  ")?;
-                        }
-                        // Count columns to create separator
                         let col_count = child.value().contents.lock().unwrap().len();
                         write!(output, "|")?;
                         for _ in 0..col_count {
-                            write!(output, "---|")?;
+                            write!(output, " --- |")?;
                         }
                         writeln!(output)?;
                     }
                 }
+                writeln!(output)?;
             }
             AstNodeKind::TableRow => {
-                for _ in 0..depth {
-                    write!(output, "  ")?;
-                }
                 write!(output, "|")?;
                 let contents = ast.value().contents.lock().unwrap();
                 for content in contents.iter() {
-                    self._format_impl(content, output, depth)?;
-                    write!(output, "|")?;
+                    write!(output, " ")?;
+                    self._format_impl(content, output, depth, in_quote)?;
+                    write!(output, " |")?;
                 }
                 writeln!(output)?;
             }
             AstNodeKind::TableColumn => {
                 for content in ast.value().contents.lock().unwrap().iter() {
-                    self._format_impl(content, output, depth)?;
+                    self._format_impl(content, output, depth, in_quote)?;
                 }
             }
         }
