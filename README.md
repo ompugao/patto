@@ -199,21 +199,14 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 
 ## Recent Updates
 ### v0.3.0
-- **Breaking Change**: Markdown exporter completely overhauled
-  - `--flavor` now defaults to `standard` (no longer required)
-  - Reads from stdin if no `-f` specified, writes to stdout if no `-o` specified
-  - Removed `--use-hard-line-break` flag
-- **Three Markdown Flavors**:
-  - **Standard**: CommonMark-compatible with `[note](note.md)` links
-  - **Obsidian**: Native format with `[[wikilinks]]`, `^anchors`, `📅` emoji tasks, YAML frontmatter
-  - **GitHub**: GFM with HTML comment anchors
-- **Fixed Issues**:
+- **Better markdown Export Support with Breaking change**: Markdown exporter completely overhauled
+- Fixed issues:
   - Code blocks now properly fenced (no longer nested in lists)
   - Tables render with proper `|` column separators
   - Quotes use standard `>` blockquote syntax
   - Tasks no longer show empty "due:" text
   - Nested structure properly preserved
-- **72 new tests** for markdown export
+- 72 new tests added
 
 ### v0.2.10
 - Bump nextjs
@@ -307,18 +300,6 @@ cat note.pn | patto-markdown-renderer -o note.md
 | Tasks | `- [ ] task (due: date)` | `- [ ] task 📅 date` | `- [ ] task (due: date)` |
 | Anchors | `<a id="name"></a>` | `^name` | `<!-- anchor: name -->` |
 | Frontmatter | No | Yes | No |
-
-### Options
-
-```bash
-patto-markdown-renderer --help
-
-Options:
-  -f, --file <FILE>      Input patto file (reads from stdin if omitted)
-  -o, --output <OUTPUT>  Output markdown file (writes to stdout if omitted)
-  -F, --flavor <FLAVOR>  Markdown flavor: standard (default), obsidian, github
-      --no-frontmatter   Disable frontmatter (Obsidian only)
-```
 
 ## Misc
 ## unix command utilities
