@@ -212,18 +212,17 @@ return {
       end
       table.insert(args, flavor)
 
-      vim.lsp.buf_request(0, 'workspace/executeCommand', {
+      vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
         command = 'patto/renderAsMarkdown',
         arguments = args,
-      }, function(err, result)
-        if err then
-          vim.notify("Error: " .. vim.inspect(err), vim.log.levels.ERROR)
-          return
-        end
-        if result then
-          vim.fn.setreg('+', result)
-          vim.fn.setreg('"', result)
-          vim.notify("Copied as markdown (" .. flavor .. ")", vim.log.levels.INFO)
+      }, function(results)
+        for _, res in pairs(results) do
+          if res.result and res.result ~= vim.NIL then
+            vim.fn.setreg('+', res.result)
+            vim.fn.setreg('"', res.result)
+            print("Copied as markdown (" .. flavor .. ")")
+            return
+          end
         end
       end)
     end, {
