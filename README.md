@@ -126,7 +126,7 @@ cargo install patto
 This will install the following utilities:
 * `patto-lsp`: a lsp server
 * `patto-preview`: a preview server for your patto notes
-* `patto-markdown-renderer`: a format converter from patto note to markdown
+* `patto-markdown-renderer`: export patto notes to markdown (Standard, Obsidian, GitHub flavors)
 * `patto-html-renderer`: a format converter from patto note to html
 
 ### Setup vim with vim-lsp (using vim-plug)
@@ -198,6 +198,16 @@ Released from v0.2.2. You can install from [HERE](https://marketplace.visualstud
 <img width="752" height="524" alt="image" src="https://github.com/user-attachments/assets/320d8f00-dd03-45e9-b58b-c5a900c25a3a" />
 
 ## Recent Updates
+### v0.3.0
+- **Better markdown Export Support with Breaking change**: Markdown exporter completely overhauled
+- Fixed issues:
+  - Code blocks now properly fenced (no longer nested in lists)
+  - Tables render with proper `|` column separators
+  - Quotes use standard `>` blockquote syntax
+  - Tasks no longer show empty "due:" text
+  - Nested structure properly preserved
+- 72 new tests added
+
 ### v0.2.10
 - Bump nextjs
 - Minor Update
@@ -259,6 +269,37 @@ Other candidate vim plugins:
 - https://github.com/mattn/vim-sonictemplate
 - https://github.com/hrsh7th/vim-vsnip
 - https://github.com/echasnovski/mini.snippets
+
+## Markdown Export
+
+Export your patto notes to markdown with the `patto-markdown-renderer` command:
+
+```bash
+# Standard markdown (CommonMark-compatible)
+patto-markdown-renderer -f note.pn -o note.md
+
+# Obsidian-native format
+patto-markdown-renderer -f note.pn -o note.md --flavor obsidian
+
+# GitHub-flavored markdown
+patto-markdown-renderer -f note.pn -o note.md --flavor github
+
+# Pipe from stdin to stdout
+echo "Hello [* world]" | patto-markdown-renderer
+# Output: Hello **world**
+
+# Read from stdin, write to file
+cat note.pn | patto-markdown-renderer -o note.md
+```
+
+### Flavor Comparison
+
+| Feature | Standard | Obsidian | GitHub |
+|---------|----------|----------|--------|
+| WikiLinks | `[note](note.md)` | `[[note]]` | `[note](note.md)` |
+| Tasks | `- [ ] task (due: date)` | `- [ ] task 📅 date` | `- [ ] task (due: date)` |
+| Anchors | `<a id="name"></a>` | `^name` | `<!-- anchor: name -->` |
+| Frontmatter | No | Yes | No |
 
 ## Misc
 ## unix command utilities

@@ -2,7 +2,7 @@
   "name": "patto-language-server",
   "description": "Patto Note language server with preview support",
   "license": "MIT",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "publisher": "ompugao",
   "displayName": "Patto Language Server",
   "categories": [
@@ -63,6 +63,10 @@
       {
         "command": "patto.snapshotPapers",
         "title": "Patto: Snapshot Papers (refresh cache)"
+      },
+      {
+        "command": "patto.copyAsMarkdown",
+        "title": "Patto: Copy as Markdown"
       }
     ],
     "views": {
@@ -107,6 +111,12 @@
           "type": "string",
           "default": "patto-preview",
           "description": "Path to patto-preview binary. If not in PATH, specify full path here."
+        },
+        "patto.markdown.defaultFlavor": {
+          "type": "string",
+          "enum": ["standard", "obsidian", "github"],
+          "default": "standard",
+          "description": "Default markdown flavor for 'Copy as Markdown' command"
         },
         "editor.semanticHighlighting.enabled": {
           "type": "boolean",

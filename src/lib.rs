@@ -1,5 +1,6 @@
 pub mod diagnostic_translator;
 pub mod line_tracker;
+pub mod markdown;
 pub mod parser;
 pub mod renderer;
 pub mod repository;

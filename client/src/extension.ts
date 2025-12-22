@@ -50,6 +50,16 @@ function checkPortAvailable(port: number): Promise<boolean> {
 	});
 }
 
+// Get patto configuration for LSP server
+function getPattoConfiguration() {
+	const config = workspace.getConfiguration('patto');
+	return {
+		markdown: {
+			defaultFlavor: config.get<string>('markdown.defaultFlavor', 'standard')
+		}
+	};
+}
+
 
 // Launch preview server
 async function launchPreviewServer(rootPath: string, outputChannel: OutputChannel, command: string): Promise<number | null> {
@@ -226,9 +236,11 @@ function startLanguageClient(
 			{ scheme: "untitled", language: "patto" },
 		],
 		synchronize: {
-			fileEvents: workspace.createFileSystemWatcher('**/*.pn')
+			fileEvents: workspace.createFileSystemWatcher('**/*.pn'),
+			configurationSection: 'patto'
 		},
-		outputChannel: traceOutputChannel
+		outputChannel: traceOutputChannel,
+		initializationOptions: getPattoConfiguration()
 	};
 
 	// Create the language client and start the client.
@@ -413,6 +425,53 @@ function startLanguageClient(
 				vscode.window.showInformationMessage('Snapshot papers initiated');
 			} catch (error) {
 				traceOutputChannel.appendLine("[patto] Error snapshotting papers: " + error);
+			}
+		})
+	);
+
+	// Copy as Markdown command (uses configured default flavor)
+	context.subscriptions.push(
+		commands.registerCommand("patto.copyAsMarkdown", async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor || editor.document.languageId !== 'patto') {
+				vscode.window.showWarningMessage('No active Patto document');
+				return;
+			}
+
+			// Use configured default flavor (LSP will also fall back to its settings)
+			const config = workspace.getConfiguration('patto');
+			const flavor = config.get<string>('markdown.defaultFlavor', 'standard');
+
+			try {
+				const uri = editor.document.uri.toString();
+				const selection = editor.selection;
+				const args: (string | number | undefined)[] = [uri];
+
+				// If there's a selection, include the range
+				if (!selection.isEmpty) {
+					args.push(selection.start.line);
+					args.push(selection.end.line);
+				} else {
+					args.push(undefined);
+					args.push(undefined);
+				}
+				args.push(flavor);
+
+				const response = await client.sendRequest(ExecuteCommandRequest.type, {
+					command: "patto/renderAsMarkdown",
+					arguments: args,
+				});
+
+				if (response && typeof response === 'string') {
+					await vscode.env.clipboard.writeText(response);
+					const rangeInfo = selection.isEmpty ? 'document' : 'selection';
+					vscode.window.showInformationMessage(`Copied ${rangeInfo} as ${flavor} markdown`);
+				} else {
+					vscode.window.showWarningMessage('Failed to render markdown');
+				}
+			} catch (error) {
+				traceOutputChannel.appendLine("[patto] Error copying as markdown: " + error);
+				vscode.window.showErrorMessage('Failed to copy as markdown: ' + error);
 			}
 		})
 	);

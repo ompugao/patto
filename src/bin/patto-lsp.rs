@@ -19,12 +19,31 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use patto::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
+use patto::renderer::{MarkdownRenderer, Renderer};
 use patto::repository::{Repository, RepositoryMessage};
 use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+
+/// LSP settings that can be configured by clients
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PattoSettings {
+    /// Markdown export settings
+    #[serde(default)]
+    markdown: MarkdownSettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownSettings {
+    /// Default markdown flavor for export (standard, obsidian, github)
+    #[serde(default)]
+    default_flavor: Option<String>,
+}
 
 //#[derive(Debug)]
 struct Backend {
@@ -32,6 +51,7 @@ struct Backend {
     repository: Arc<Mutex<Option<Repository>>>,
     root_uri: Arc<Mutex<Option<Url>>>,
     paper_catalog: PaperCatalog,
+    settings: Arc<Mutex<PattoSettings>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
@@ -698,6 +718,7 @@ impl LanguageServer for Backend {
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
                         "patto/snapshotPapers".to_string(),
+                        "patto/renderAsMarkdown".to_string(),
                     ],
                     work_done_progress_options: Default::default(),
                 }),
@@ -783,6 +804,28 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        // Try to extract patto settings from the configuration
+        // VSCode sends: { "patto": { "markdown": { "defaultFlavor": "obsidian" } } }
+        // or just the patto section depending on client
+        let settings_value = if let Some(patto) = params.settings.get("patto") {
+            patto.clone()
+        } else {
+            params.settings
+        };
+
+        match serde_json::from_value::<PattoSettings>(settings_value) {
+            Ok(new_settings) => {
+                log::info!("Updated patto settings: {:?}", new_settings);
+                let mut settings = self.settings.lock().unwrap();
+                *settings = new_settings;
+            }
+            Err(e) => {
+                log::warn!("Failed to parse patto settings: {:?}", e);
+            }
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -928,6 +971,77 @@ impl LanguageServer for Backend {
                         return Ok(None);
                     }
                 }
+            }
+            "patto/renderAsMarkdown" => {
+                // Arguments: [uri, startLine?, endLine?, flavor?]
+                // If startLine/endLine not provided, render entire document
+                // If flavor not provided, use default from settings
+                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
+                    return Ok(None);
+                };
+                let Ok(uri) = Url::parse(uri_str) else {
+                    return Ok(None);
+                };
+                let uri = Repository::normalize_url_percent_encoding(&uri);
+
+                // Parse optional range (0-indexed, inclusive)
+                let start_line = params
+                    .arguments
+                    .get(1)
+                    .and_then(|a| a.as_u64())
+                    .map(|n| n as usize);
+                let end_line = params
+                    .arguments
+                    .get(2)
+                    .and_then(|a| a.as_u64())
+                    .map(|n| n as usize);
+
+                // Parse optional flavor, falling back to settings default, then "standard"
+                let flavor_str = params
+                    .arguments
+                    .get(3)
+                    .and_then(|a| a.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        self.settings
+                            .lock()
+                            .unwrap()
+                            .markdown
+                            .default_flavor
+                            .clone()
+                    })
+                    .unwrap_or_else(|| "standard".to_string());
+                let flavor = match flavor_str.to_lowercase().as_str() {
+                    "obsidian" => MarkdownFlavor::Obsidian,
+                    "github" => MarkdownFlavor::GitHub,
+                    _ => MarkdownFlavor::Standard,
+                };
+
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
+                    return Ok(None);
+                };
+                let Some(ast) = repo.ast_map.get(&uri) else {
+                    return Ok(None);
+                };
+
+                let options = MarkdownRendererOptions::new(flavor).with_frontmatter(false);
+                let renderer = MarkdownRenderer::new(options);
+                let mut output = Vec::new();
+
+                let result = if let (Some(start), Some(end)) = (start_line, end_line) {
+                    renderer.format_range(ast.value(), &mut output, start, end)
+                } else {
+                    renderer.format(ast.value(), &mut output)
+                };
+
+                if result.is_err() {
+                    log::error!("Failed to render markdown: {:?}", result);
+                    return Ok(None);
+                }
+
+                let markdown = String::from_utf8_lossy(&output).to_string();
+                return Ok(Some(json!(markdown)));
             }
             c => {
                 log::info!("unknown command: {}", c);
@@ -1436,6 +1550,7 @@ async fn main() {
             repository,
             root_uri: Arc::new(Mutex::new(None)),
             paper_catalog: shared_catalog.clone(),
+            settings: Arc::new(Mutex::new(PattoSettings::default())),
         }
     });
     log::info!("Patto Language Server Protocol started");
