@@ -192,6 +192,48 @@ return {
     end, {
       desc = 'Take a snapshot of papers',
     })
+
+    -- Copy buffer or selection as markdown to clipboard
+    -- Usage: :LspPattoCopyAsMarkdown [flavor]
+    -- In visual mode, copies selection; in normal mode, copies entire buffer
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoCopyAsMarkdown', function(opts)
+      local uri = vim.uri_from_bufnr(0)
+      local flavor = opts.args ~= '' and opts.args or 'standard'
+      local args = {uri}
+
+      -- Check if we have a visual selection
+      local mode = vim.fn.mode()
+      if opts.range == 2 then
+        -- Called with range (visual selection or explicit range)
+        local start_line = opts.line1 - 1  -- Convert to 0-indexed
+        local end_line = opts.line2 - 1
+        table.insert(args, start_line)
+        table.insert(args, end_line)
+      end
+      table.insert(args, flavor)
+
+      vim.lsp.buf_request(0, 'workspace/executeCommand', {
+        command = 'patto/renderAsMarkdown',
+        arguments = args,
+      }, function(err, result)
+        if err then
+          vim.notify("Error: " .. vim.inspect(err), vim.log.levels.ERROR)
+          return
+        end
+        if result then
+          vim.fn.setreg('+', result)
+          vim.fn.setreg('"', result)
+          vim.notify("Copied as markdown (" .. flavor .. ")", vim.log.levels.INFO)
+        end
+      end)
+    end, {
+      desc = 'Copy buffer/selection as markdown to clipboard',
+      nargs = '?',
+      range = true,
+      complete = function()
+        return {'standard', 'obsidian', 'github'}
+      end,
+    })
   end,
 
   docs = {

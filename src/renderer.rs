@@ -360,6 +360,74 @@ impl MarkdownRenderer {
         Self { options }
     }
 
+    /// Format a range of lines from the AST to markdown
+    /// start_line and end_line are 0-indexed, inclusive
+    pub fn format_range(
+        &self,
+        ast: &AstNode,
+        output: &mut dyn Write,
+        start_line: usize,
+        end_line: usize,
+    ) -> io::Result<()> {
+        let depth: usize = 0;
+        self._format_range_impl(ast, output, depth, false, start_line, end_line)?;
+        Ok(())
+    }
+
+    fn _format_range_impl(
+        &self,
+        ast: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        in_quote: bool,
+        start_line: usize,
+        end_line: usize,
+    ) -> io::Result<()> {
+        match &ast.kind() {
+            AstNodeKind::Dummy => {
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    let child_row = child.location().row;
+                    // Check if this child or any of its descendants are in range
+                    if child_row <= end_line {
+                        self._format_range_impl(
+                            child, output, depth, in_quote, start_line, end_line,
+                        )?;
+                    }
+                }
+            }
+            AstNodeKind::Line { .. } | AstNodeKind::QuoteContent { .. } => {
+                let row = ast.location().row;
+                if row >= start_line && row <= end_line {
+                    // This line is in range, render it normally
+                    self._format_impl(ast, output, depth, in_quote)?;
+                } else if row < start_line {
+                    // This line is before range, but check children
+                    let children = ast.value().children.lock().unwrap();
+                    for child in children.iter() {
+                        let child_row = child.location().row;
+                        if child_row >= start_line && child_row <= end_line {
+                            self._format_range_impl(
+                                child, output, depth, in_quote, start_line, end_line,
+                            )?;
+                        } else if child_row < start_line {
+                            // Recurse to check deeper children
+                            self._format_range_impl(
+                                child, output, depth, in_quote, start_line, end_line,
+                            )?;
+                        }
+                    }
+                }
+                // If row > end_line, skip entirely
+            }
+            _ => {
+                // For other node types, delegate to regular format
+                self._format_impl(ast, output, depth, in_quote)?;
+            }
+        }
+        Ok(())
+    }
+
     fn _format_impl(
         &self,
         ast: &AstNode,

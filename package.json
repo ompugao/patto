@@ -63,6 +63,10 @@
       {
         "command": "patto.snapshotPapers",
         "title": "Patto: Snapshot Papers (refresh cache)"
+      },
+      {
+        "command": "patto.copyAsMarkdown",
+        "title": "Patto: Copy as Markdown"
       }
     ],
     "views": {

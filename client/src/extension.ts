@@ -417,6 +417,55 @@ function startLanguageClient(
 		})
 	);
 
+	// Copy as Markdown command
+	context.subscriptions.push(
+		commands.registerCommand("patto.copyAsMarkdown", async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor || editor.document.languageId !== 'patto') {
+				vscode.window.showWarningMessage('No active Patto document');
+				return;
+			}
+
+			// Ask for markdown flavor
+			const flavor = await vscode.window.showQuickPick(
+				['standard', 'obsidian', 'github'],
+				{ placeHolder: 'Select markdown flavor' }
+			);
+			if (!flavor) {
+				return;
+			}
+
+			try {
+				const uri = editor.document.uri.toString();
+				const selection = editor.selection;
+				const args: (string | number)[] = [uri];
+
+				// If there's a selection, include the range
+				if (!selection.isEmpty) {
+					args.push(selection.start.line);
+					args.push(selection.end.line);
+				}
+				args.push(flavor);
+
+				const response = await client.sendRequest(ExecuteCommandRequest.type, {
+					command: "patto/renderAsMarkdown",
+					arguments: args,
+				});
+
+				if (response && typeof response === 'string') {
+					await vscode.env.clipboard.writeText(response);
+					const rangeInfo = selection.isEmpty ? 'document' : 'selection';
+					vscode.window.showInformationMessage(`Copied ${rangeInfo} as ${flavor} markdown`);
+				} else {
+					vscode.window.showWarningMessage('Failed to render markdown');
+				}
+			} catch (error) {
+				traceOutputChannel.appendLine("[patto] Error copying as markdown: " + error);
+				vscode.window.showErrorMessage('Failed to copy as markdown: ' + error);
+			}
+		})
+	);
+
 	// Preview command
 	context.subscriptions.push(
 		commands.registerCommand("patto.openPreview", async () => {

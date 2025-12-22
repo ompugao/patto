@@ -19,7 +19,9 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use patto::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
+use patto::renderer::{MarkdownRenderer, Renderer};
 use patto::repository::{Repository, RepositoryMessage};
 use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 
@@ -698,6 +700,7 @@ impl LanguageServer for Backend {
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
                         "patto/snapshotPapers".to_string(),
+                        "patto/renderAsMarkdown".to_string(),
                     ],
                     work_done_progress_options: Default::default(),
                 }),
@@ -928,6 +931,67 @@ impl LanguageServer for Backend {
                         return Ok(None);
                     }
                 }
+            }
+            "patto/renderAsMarkdown" => {
+                // Arguments: [uri, startLine?, endLine?, flavor?]
+                // If startLine/endLine not provided, render entire document
+                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
+                    return Ok(None);
+                };
+                let Ok(uri) = Url::parse(uri_str) else {
+                    return Ok(None);
+                };
+                let uri = Repository::normalize_url_percent_encoding(&uri);
+
+                // Parse optional range (0-indexed, inclusive)
+                let start_line = params
+                    .arguments
+                    .get(1)
+                    .and_then(|a| a.as_u64())
+                    .map(|n| n as usize);
+                let end_line = params
+                    .arguments
+                    .get(2)
+                    .and_then(|a| a.as_u64())
+                    .map(|n| n as usize);
+
+                // Parse optional flavor (default: standard)
+                let flavor_str = params
+                    .arguments
+                    .get(3)
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("standard");
+                let flavor = match flavor_str.to_lowercase().as_str() {
+                    "obsidian" => MarkdownFlavor::Obsidian,
+                    "github" => MarkdownFlavor::GitHub,
+                    _ => MarkdownFlavor::Standard,
+                };
+
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
+                    return Ok(None);
+                };
+                let Some(ast) = repo.ast_map.get(&uri) else {
+                    return Ok(None);
+                };
+
+                let options = MarkdownRendererOptions::new(flavor).with_frontmatter(false);
+                let renderer = MarkdownRenderer::new(options);
+                let mut output = Vec::new();
+
+                let result = if let (Some(start), Some(end)) = (start_line, end_line) {
+                    renderer.format_range(ast.value(), &mut output, start, end)
+                } else {
+                    renderer.format(ast.value(), &mut output)
+                };
+
+                if result.is_err() {
+                    log::error!("Failed to render markdown: {:?}", result);
+                    return Ok(None);
+                }
+
+                let markdown = String::from_utf8_lossy(&output).to_string();
+                return Ok(Some(json!(markdown)));
             }
             c => {
                 log::info!("unknown command: {}", c);
