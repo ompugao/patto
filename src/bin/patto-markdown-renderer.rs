@@ -99,7 +99,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "stdin".to_string());
-            eprintln!("✓ Exported {} to {} (flavor: {})", input_name, path.display(), flavor);
+            eprintln!(
+                "✓ Exported {} to {} (flavor: {})",
+                input_name,
+                path.display(),
+                flavor
+            );
         }
         None => {
             let stdout = io::stdout();

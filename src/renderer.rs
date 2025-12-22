@@ -377,19 +377,22 @@ impl MarkdownRenderer {
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
                 let has_children = !ast.value().children.lock().unwrap().is_empty();
                 let is_quote_content = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
-                
+
                 // Check if this line only contains a block element (quote, code, math, table)
                 let contents = ast.value().contents.lock().unwrap();
-                let is_block_container = contents.len() == 1 && matches!(
-                    contents[0].kind(),
-                    AstNodeKind::Quote | AstNodeKind::Code { inline: false, .. } | 
-                    AstNodeKind::Math { inline: false } | AstNodeKind::Table { .. }
-                );
-                
+                let is_block_container = contents.len() == 1
+                    && matches!(
+                        contents[0].kind(),
+                        AstNodeKind::Quote
+                            | AstNodeKind::Code { inline: false, .. }
+                            | AstNodeKind::Math { inline: false }
+                            | AstNodeKind::Table { .. }
+                    );
+
                 // Check if this is an empty line (no contents, no properties, no children)
                 let is_empty = contents.is_empty() && properties.is_empty() && !has_children;
                 drop(contents);
-                
+
                 // For empty lines, just output a blank line
                 if is_empty {
                     writeln!(output)?;
@@ -453,9 +456,7 @@ impl MarkdownRenderer {
                 for property in properties {
                     if let Property::Anchor { name, .. } = property {
                         match self.options.anchor_format() {
-                            AnchorFormat::HtmlAnchor => {
-                                write!(output, " <a id=\"{}\"></a>", name)?
-                            }
+                            AnchorFormat::HtmlAnchor => write!(output, " <a id=\"{}\"></a>", name)?,
                             AnchorFormat::HtmlComment => {
                                 write!(output, " <!-- anchor: {} -->", name)?
                             }
@@ -554,7 +555,11 @@ impl MarkdownRenderer {
                                 // Self-link to anchor
                                 write!(output, "[#{}](#{})", anchor, anchor)?;
                             } else {
-                                write!(output, "[{}#{}]({}{}#{})", link, anchor, link, ext, anchor)?;
+                                write!(
+                                    output,
+                                    "[{}#{}]({}{}#{})",
+                                    link, anchor, link, ext, anchor
+                                )?;
                             }
                         } else {
                             write!(output, "[{}]({}{})", link, link, ext)?;
