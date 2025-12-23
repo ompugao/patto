@@ -161,6 +161,7 @@ impl MarkdownImporter {
         let mut pending_contents: Vec<AstNode> = Vec::new();
         let mut in_emphasis = false;
         let mut in_strong = false;
+        let mut in_strikethrough = false;
         let mut in_link = false;
         let mut link_url = String::new();
         let mut link_contents: Vec<AstNode> = Vec::new();
@@ -250,6 +251,9 @@ impl MarkdownImporter {
                         }
                         Tag::Strong => {
                             in_strong = true;
+                        }
+                        Tag::Strikethrough => {
+                            in_strikethrough = true;
                         }
                         Tag::Link { dest_url, .. } => {
                             in_link = true;
@@ -458,6 +462,9 @@ impl MarkdownImporter {
                         TagEnd::Strong => {
                             in_strong = false;
                         }
+                        TagEnd::Strikethrough => {
+                            in_strikethrough = false;
+                        }
                         TagEnd::Link => {
                             in_link = false;
                             // Convert link to patto format
@@ -515,6 +522,7 @@ impl MarkdownImporter {
                             current_line,
                             in_strong,
                             in_emphasis,
+                            in_strikethrough,
                         );
                         heading_contents.push(content);
                     } else if in_link {
@@ -527,6 +535,7 @@ impl MarkdownImporter {
                             current_line,
                             in_strong,
                             in_emphasis,
+                            in_strikethrough,
                         );
                         pending_contents.push(content);
                     }
@@ -650,10 +659,12 @@ impl MarkdownImporter {
         line: usize,
         bold: bool,
         italic: bool,
+        strikethrough: bool,
     ) -> AstNode {
-        if bold || italic {
+        if bold || italic || strikethrough {
             let fontsize = if bold { 1 } else { 0 };
-            let decoration = AstNode::decoration(text, line, None, fontsize, italic, false, false);
+            let decoration =
+                AstNode::decoration(text, line, None, fontsize, italic, false, strikethrough);
             let text_node = AstNode::text(text, line, None);
             decoration.add_content(text_node);
             decoration

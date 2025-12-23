@@ -555,3 +555,31 @@ fn test_blockquote_not_affected_by_list_context() {
         "Quote block should not be indented"
     );
 }
+
+#[test]
+fn test_strikethrough_conversion() {
+    let md = r#"This is ~~strikethrough~~ text.
+
+Combined **~~bold strikethrough~~** and *~~italic strikethrough~~*.
+"#;
+
+    let patto = import_lossy(md);
+
+    // Simple strikethrough
+    assert!(
+        patto.contains("[- strikethrough]"),
+        "Strikethrough should be converted to [- ...]"
+    );
+
+    // Combined bold + strikethrough
+    assert!(
+        patto.contains("[*- bold strikethrough]"),
+        "Bold strikethrough should be converted to [*- ...]"
+    );
+
+    // Combined italic + strikethrough
+    assert!(
+        patto.contains("[/- italic strikethrough]"),
+        "Italic strikethrough should be converted to [/- ...]"
+    );
+}
