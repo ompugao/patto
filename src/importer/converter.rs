@@ -98,16 +98,16 @@ impl MarkdownImporter {
         // Render AST to patto string format using PattoRenderer
         let renderer = PattoRenderer::new();
         let mut patto_content = Vec::new();
-        renderer.format(&ast, &mut patto_content)
+        renderer
+            .format(&ast, &mut patto_content)
             .map_err(|e| ImportError {
                 line: 0,
                 message: format!("Failed to render AST: {}", e),
             })?;
-        let patto_content = String::from_utf8(patto_content)
-            .map_err(|e| ImportError {
-                line: 0,
-                message: format!("Invalid UTF-8 in output: {}", e),
-            })?;
+        let patto_content = String::from_utf8(patto_content).map_err(|e| ImportError {
+            line: 0,
+            message: format!("Invalid UTF-8 in output: {}", e),
+        })?;
 
         report.statistics.converted_lines =
             report.statistics.total_lines - report.statistics.failed_lines;
@@ -201,14 +201,14 @@ impl MarkdownImporter {
                                     self.add_child_at_depth(&root, line_node, indent_level);
                                 }
                             }
-                            
+
                             // If this is a top-level list (no parent list), create a list root
                             if list_stack.is_empty() {
                                 let list_root = AstNode::line("", current_line, None, None);
                                 root.add_child(list_root.clone());
                                 list_root_node = Some(list_root);
                             }
-                            
+
                             list_stack.push(ordered.is_some());
                             report.statistics.increment_feature("lists");
                         }
@@ -225,7 +225,8 @@ impl MarkdownImporter {
                                 pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
                                 pulldown_cmark::CodeBlockKind::Indented => String::new(),
                             };
-                            code_node = Some(AstNode::code("", current_line, None, &code_lang, false));
+                            code_node =
+                                Some(AstNode::code("", current_line, None, &code_lang, false));
                             report.statistics.increment_feature("code_blocks");
                         }
                         Tag::BlockQuote(_) => {
@@ -256,7 +257,9 @@ impl MarkdownImporter {
                             link_contents.clear();
                             report.statistics.increment_feature("links");
                         }
-                        Tag::Image { dest_url, title, .. } => {
+                        Tag::Image {
+                            dest_url, title, ..
+                        } => {
                             let alt = if title.is_empty() {
                                 None
                             } else {
@@ -268,31 +271,30 @@ impl MarkdownImporter {
                         }
                         Tag::Paragraph => {
                             if !in_heading && current_line_node.is_none() {
-                                current_line_node = Some(AstNode::line("", current_line, None, None));
+                                current_line_node =
+                                    Some(AstNode::line("", current_line, None, None));
                             }
                         }
-                        Tag::FootnoteDefinition(_) => {
-                            match self.options.mode {
-                                ImportMode::Strict => {
-                                    return Err(ImportError {
-                                        line: current_line,
-                                        message: "Footnotes are not supported by patto".to_string(),
-                                    });
-                                }
-                                ImportMode::Lossy => {
-                                    report.add_warning(ImportWarning {
-                                        line: current_line,
-                                        column: None,
-                                        kind: WarningKind::UnsupportedFeature,
-                                        feature: "footnote".to_string(),
-                                        message: "Dropped footnote definition".to_string(),
-                                        suggestion: Some("Move footnote content inline".to_string()),
-                                    });
-                                    report.statistics.increment_unsupported("footnotes");
-                                }
-                                ImportMode::Preserve => {}
+                        Tag::FootnoteDefinition(_) => match self.options.mode {
+                            ImportMode::Strict => {
+                                return Err(ImportError {
+                                    line: current_line,
+                                    message: "Footnotes are not supported by patto".to_string(),
+                                });
                             }
-                        }
+                            ImportMode::Lossy => {
+                                report.add_warning(ImportWarning {
+                                    line: current_line,
+                                    column: None,
+                                    kind: WarningKind::UnsupportedFeature,
+                                    feature: "footnote".to_string(),
+                                    message: "Dropped footnote definition".to_string(),
+                                    suggestion: Some("Move footnote content inline".to_string()),
+                                });
+                                report.statistics.increment_unsupported("footnotes");
+                            }
+                            ImportMode::Preserve => {}
+                        },
                         _ => {}
                     }
                 }
@@ -313,7 +315,15 @@ impl MarkdownImporter {
                                 root.add_child(hr);
                             } else {
                                 // H2-H6: bold decoration
-                                let decoration = AstNode::decoration("", current_line, None, 1, false, false, false);
+                                let decoration = AstNode::decoration(
+                                    "",
+                                    current_line,
+                                    None,
+                                    1,
+                                    false,
+                                    false,
+                                    false,
+                                );
                                 for content in heading_contents.drain(..) {
                                     decoration.add_content(content);
                                 }
@@ -329,7 +339,11 @@ impl MarkdownImporter {
                                 message: format!(
                                     "Converted h{} heading to {}",
                                     heading_level,
-                                    if heading_level == 1 { "text with horizontal line" } else { "emphasized text" }
+                                    if heading_level == 1 {
+                                        "text with horizontal line"
+                                    } else {
+                                        "emphasized text"
+                                    }
                                 ),
                                 suggestion: None,
                             });
@@ -346,19 +360,27 @@ impl MarkdownImporter {
                             // Finalize the line node with task property if applicable
                             let properties = if let Some(checked) = current_task_status.take() {
                                 // Extract text content to get due date
-                                let text: String = pending_contents.iter()
+                                let text: String = pending_contents
+                                    .iter()
                                     .map(|n| n.extract_str().to_string())
                                     .collect::<Vec<_>>()
                                     .join("");
-                                
-                                let status = if checked { TaskStatus::Done } else { TaskStatus::Todo };
-                                let due = self.extract_due_date(&text)
-                                    .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
+
+                                let status = if checked {
+                                    TaskStatus::Done
+                                } else {
+                                    TaskStatus::Todo
+                                };
+                                let due = self
+                                    .extract_due_date(&text)
+                                    .and_then(|d| {
+                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
+                                    })
                                     .map(Deadline::Date)
                                     .unwrap_or(Deadline::Uninterpretable(String::new()));
-                                
+
                                 report.statistics.increment_feature("tasks");
-                                
+
                                 Some(vec![Property::Task {
                                     status,
                                     due,
@@ -367,16 +389,16 @@ impl MarkdownImporter {
                             } else {
                                 None
                             };
-                            
+
                             // Create line node with properties
                             let line_node = AstNode::line("", current_line, None, properties);
                             for content in pending_contents.drain(..) {
                                 line_node.add_content(content);
                             }
-                            
+
                             // Discard the old line node if any and use the new one
                             current_line_node.take();
-                            
+
                             // Add to list_root_node if in top-level list, otherwise use add_child_at_depth
                             if let Some(ref list_root) = list_root_node {
                                 if indent_level == 1 {
@@ -417,12 +439,16 @@ impl MarkdownImporter {
                             }
                         }
                         TagEnd::TableHead | TagEnd::TableRow => {
-                            if let (Some(row), Some(table)) = (current_row.take(), table_node.as_ref()) {
+                            if let (Some(row), Some(table)) =
+                                (current_row.take(), table_node.as_ref())
+                            {
                                 table.add_child(row);
                             }
                         }
                         TagEnd::TableCell => {
-                            if let (Some(cell), Some(row)) = (current_cell.take(), current_row.as_ref()) {
+                            if let (Some(cell), Some(row)) =
+                                (current_cell.take(), current_row.as_ref())
+                            {
                                 row.add_content(cell);
                             }
                         }
@@ -435,7 +461,8 @@ impl MarkdownImporter {
                         TagEnd::Link => {
                             in_link = false;
                             // Convert link to patto format
-                            let link_node = self.create_link_node(&link_url, &link_contents, current_line);
+                            let link_node =
+                                self.create_link_node(&link_url, &link_contents, current_line);
                             if in_heading {
                                 heading_contents.push(link_node);
                             } else {
@@ -452,8 +479,10 @@ impl MarkdownImporter {
                                     root.add_child(line_node);
                                 } else if let Some(quote) = quote_node.as_ref() {
                                     // Add as quote content
-                                    let quote_content = AstNode::quotecontent("", current_line, None, None);
-                                    for content in line_node.value().contents.lock().unwrap().iter() {
+                                    let quote_content =
+                                        AstNode::quotecontent("", current_line, None, None);
+                                    for content in line_node.value().contents.lock().unwrap().iter()
+                                    {
                                         quote_content.add_content(content.clone());
                                     }
                                     quote.add_child(quote_content);
@@ -481,14 +510,24 @@ impl MarkdownImporter {
                         }
                     } else if in_heading {
                         // Apply decorations if any
-                        let content = self.create_text_with_decoration(&text_str, current_line, in_strong, in_emphasis);
+                        let content = self.create_text_with_decoration(
+                            &text_str,
+                            current_line,
+                            in_strong,
+                            in_emphasis,
+                        );
                         heading_contents.push(content);
                     } else if in_link {
                         let text_node = AstNode::text(&text_str, current_line, None);
                         link_contents.push(text_node);
                     } else {
                         // Apply decorations
-                        let content = self.create_text_with_decoration(&text_str, current_line, in_strong, in_emphasis);
+                        let content = self.create_text_with_decoration(
+                            &text_str,
+                            current_line,
+                            in_strong,
+                            in_emphasis,
+                        );
                         pending_contents.push(content);
                     }
                 }
@@ -498,7 +537,7 @@ impl MarkdownImporter {
                     let inline_code = AstNode::code(&code_str, current_line, None, "", true);
                     let code_content = AstNode::codecontent(&code_str, current_line, None);
                     inline_code.add_content(code_content);
-                    
+
                     if in_heading {
                         heading_contents.push(inline_code);
                     } else {
@@ -514,7 +553,10 @@ impl MarkdownImporter {
                         ImportMode::Strict => {
                             return Err(ImportError {
                                 line: current_line,
-                                message: format!("HTML is not supported by patto: {}", html_str.trim()),
+                                message: format!(
+                                    "HTML is not supported by patto: {}",
+                                    html_str.trim()
+                                ),
                             });
                         }
                         ImportMode::Lossy => {
@@ -524,7 +566,9 @@ impl MarkdownImporter {
                                 kind: WarningKind::UnsupportedFeature,
                                 feature: "html".to_string(),
                                 message: format!("Dropped HTML: {}", html_str.trim()),
-                                suggestion: Some("Use plain text or patto markup instead".to_string()),
+                                suggestion: Some(
+                                    "Use plain text or patto markup instead".to_string(),
+                                ),
                             });
                             report.statistics.increment_unsupported("html");
                         }
@@ -543,7 +587,8 @@ impl MarkdownImporter {
                                 column: None,
                                 kind: WarningKind::PreservedContent,
                                 feature: "html".to_string(),
-                                message: "Preserved HTML in code block for manual editing".to_string(),
+                                message: "Preserved HTML in code block for manual editing"
+                                    .to_string(),
                                 suggestion: None,
                             });
                         }
@@ -560,31 +605,29 @@ impl MarkdownImporter {
                 Event::TaskListMarker(checked) => {
                     current_task_status = Some(checked);
                 }
-                Event::FootnoteReference(name) => {
-                    match self.options.mode {
-                        ImportMode::Strict => {
-                            return Err(ImportError {
-                                line: current_line,
-                                message: format!("Footnote reference [^{}] is not supported", name),
-                            });
-                        }
-                        ImportMode::Lossy => {
-                            report.add_warning(ImportWarning {
-                                line: current_line,
-                                column: None,
-                                kind: WarningKind::UnsupportedFeature,
-                                feature: "footnote_ref".to_string(),
-                                message: format!("Dropped footnote reference [^{}]", name),
-                                suggestion: Some("Move footnote content inline".to_string()),
-                            });
-                            report.statistics.increment_unsupported("footnotes");
-                        }
-                        ImportMode::Preserve => {
-                            let text = AstNode::text(&format!("[^{}]", name), current_line, None);
-                            pending_contents.push(text);
-                        }
+                Event::FootnoteReference(name) => match self.options.mode {
+                    ImportMode::Strict => {
+                        return Err(ImportError {
+                            line: current_line,
+                            message: format!("Footnote reference [^{}] is not supported", name),
+                        });
                     }
-                }
+                    ImportMode::Lossy => {
+                        report.add_warning(ImportWarning {
+                            line: current_line,
+                            column: None,
+                            kind: WarningKind::UnsupportedFeature,
+                            feature: "footnote_ref".to_string(),
+                            message: format!("Dropped footnote reference [^{}]", name),
+                            suggestion: Some("Move footnote content inline".to_string()),
+                        });
+                        report.statistics.increment_unsupported("footnotes");
+                    }
+                    ImportMode::Preserve => {
+                        let text = AstNode::text(&format!("[^{}]", name), current_line, None);
+                        pending_contents.push(text);
+                    }
+                },
                 _ => {}
             }
         }
@@ -601,7 +644,13 @@ impl MarkdownImporter {
     }
 
     /// Create a text node with optional decoration
-    fn create_text_with_decoration(&self, text: &str, line: usize, bold: bool, italic: bool) -> AstNode {
+    fn create_text_with_decoration(
+        &self,
+        text: &str,
+        line: usize,
+        bold: bool,
+        italic: bool,
+    ) -> AstNode {
         if bold || italic {
             let fontsize = if bold { 1 } else { 0 };
             let decoration = AstNode::decoration(text, line, None, fontsize, italic, false, false);
@@ -616,7 +665,8 @@ impl MarkdownImporter {
     /// Create a link node from URL and content
     fn create_link_node(&self, url: &str, contents: &[AstNode], line: usize) -> AstNode {
         // Extract link text from contents
-        let link_text: String = contents.iter()
+        let link_text: String = contents
+            .iter()
             .map(|n| n.extract_str().to_string())
             .collect::<Vec<_>>()
             .join("");
@@ -627,7 +677,11 @@ impl MarkdownImporter {
         }
 
         // Check if it's an internal link (ends with .md or .pn)
-        if url.ends_with(".md") || url.ends_with(".pn") || url.contains(".md#") || url.contains(".pn#") {
+        if url.ends_with(".md")
+            || url.ends_with(".pn")
+            || url.contains(".md#")
+            || url.contains(".pn#")
+        {
             if let Some(hash_pos) = url.find('#') {
                 let (file_part, anchor) = url.split_at(hash_pos);
                 let note_name = file_part.trim_end_matches(".md").trim_end_matches(".pn");
@@ -678,7 +732,12 @@ impl MarkdownImporter {
     }
 
     /// Add task property to a line node
-    fn add_task_property_to_line(&self, _line_node: &AstNode, checked: bool, report: &mut ConversionReport) {
+    fn add_task_property_to_line(
+        &self,
+        _line_node: &AstNode,
+        checked: bool,
+        report: &mut ConversionReport,
+    ) {
         // Extract due date from line content
         let contents = _line_node.value().contents.lock().unwrap();
         let mut text = String::new();
@@ -687,8 +746,13 @@ impl MarkdownImporter {
         }
         drop(contents);
 
-        let status = if checked { TaskStatus::Done } else { TaskStatus::Todo };
-        let due = self.extract_due_date(&text)
+        let status = if checked {
+            TaskStatus::Done
+        } else {
+            TaskStatus::Todo
+        };
+        let due = self
+            .extract_due_date(&text)
             .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
             .map(Deadline::Date);
 
@@ -696,7 +760,7 @@ impl MarkdownImporter {
         // Note: Due to how AstNode works, we can't easily modify the kind after creation
         // The task property is tracked in the report for now
         report.statistics.increment_feature("tasks");
-        
+
         // For now, we'll track this but the actual property setting
         // would require modifying how AstNode is created
         let _ = (status, due);
@@ -1033,16 +1097,30 @@ mod tests {
         // Test link conversion via actual markdown import
         // Internal links become wikilinks
         let result = import_lossy("[note](note.md)");
-        assert!(result.patto_content.contains("[note]"), "Internal .md link should become wikilink");
-        
+        assert!(
+            result.patto_content.contains("[note]"),
+            "Internal .md link should become wikilink"
+        );
+
         let result = import_lossy("[text](note.md#anchor)");
-        assert!(result.patto_content.contains("[note#anchor]"), "Link with anchor should preserve anchor");
-        
+        assert!(
+            result.patto_content.contains("[note#anchor]"),
+            "Link with anchor should preserve anchor"
+        );
+
         let result = import_lossy("[section](#anchor)");
-        assert!(result.patto_content.contains("[#anchor]"), "Self-anchor link");
-        
+        assert!(
+            result.patto_content.contains("[#anchor]"),
+            "Self-anchor link"
+        );
+
         let result = import_lossy("[Example](https://example.com)");
-        assert!(result.patto_content.contains("[Example https://example.com]"), "External URL");
+        assert!(
+            result
+                .patto_content
+                .contains("[Example https://example.com]"),
+            "External URL"
+        );
     }
 
     #[test]

@@ -526,8 +526,7 @@ fn test_links_in_lists() {
   - Nested with [[wikilink]]
 "#;
 
-    let options = ImportOptions::new(ImportMode::Lossy)
-        .with_flavor(MarkdownInputFlavor::Obsidian);
+    let options = ImportOptions::new(ImportMode::Lossy).with_flavor(MarkdownInputFlavor::Obsidian);
     let importer = MarkdownImporter::new(options);
     let result = importer.import(md, "test.md", "test.pn").unwrap();
     let patto = result.patto_content;

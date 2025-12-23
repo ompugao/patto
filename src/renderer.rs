@@ -842,7 +842,12 @@ impl PattoRenderer {
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
             }
-            AstNodeKind::Decoration { fontsize, italic, underline, deleted } => {
+            AstNodeKind::Decoration {
+                fontsize,
+                italic,
+                underline,
+                deleted,
+            } => {
                 // Determine decoration markers
                 let mut markers = String::new();
                 if *fontsize > 0 {
