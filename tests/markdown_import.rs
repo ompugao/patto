@@ -327,3 +327,232 @@ fn test_report_text_format() {
     assert!(text.contains("Output: test.pn"));
     assert!(text.contains("Mode:   lossy"));
 }
+
+#[test]
+fn test_mixed_paragraphs_and_lists() {
+    // Test case inspired by README.md structure: paragraphs should NOT be indented
+    // but list items SHOULD be indented
+    let md = r#"# Patto Note
+
+A simple plain-text format for note-taking.
+
+## Description
+
+Patto Note is a text format designed for outlining.
+
+## Features
+
+* Primary Zettelkasten support
+* Real-time Preview support
+* Task management
+* Language Server Protocol support
+    * asynchronous scanning
+    * diagnostics
+    * jumping between notes
+
+## Another Section
+
+Some more paragraph text here.
+"#;
+
+    let patto = import_lossy(md);
+
+    // Paragraphs should NOT be indented
+    assert!(
+        patto.contains("\nA simple plain-text format"),
+        "Paragraph after h1 should not be indented"
+    );
+    assert!(
+        patto.contains("\nPatto Note is a text format"),
+        "Paragraph after h2 should not be indented"
+    );
+    assert!(
+        patto.contains("\nSome more paragraph text"),
+        "Paragraph after list should not be indented"
+    );
+
+    // List items SHOULD be indented
+    assert!(
+        patto.contains("\n\tPrimary Zettelkasten"),
+        "First-level list item should have 1 tab"
+    );
+    assert!(
+        patto.contains("\n\tReal-time Preview"),
+        "First-level list item should have 1 tab"
+    );
+    assert!(
+        patto.contains("\n\tLanguage Server Protocol"),
+        "First-level list item should have 1 tab"
+    );
+
+    // Nested list items should have 2 tabs
+    assert!(
+        patto.contains("\n\t\tasynchronous scanning"),
+        "Nested list item should have 2 tabs"
+    );
+    assert!(
+        patto.contains("\n\t\tdiagnostics"),
+        "Nested list item should have 2 tabs"
+    );
+}
+
+#[test]
+fn test_multiple_separate_lists() {
+    // Multiple separate lists should each have their own indentation context
+    let md = r#"First paragraph.
+
+- List 1 item 1
+- List 1 item 2
+
+Middle paragraph.
+
+- List 2 item 1
+- List 2 item 2
+  - List 2 nested
+
+Final paragraph.
+"#;
+
+    let patto = import_lossy(md);
+
+    // Paragraphs should NOT be indented (check they don't have tabs before them)
+    assert!(
+        patto.starts_with("First paragraph") || patto.contains("\nFirst paragraph"),
+        "First paragraph should not be indented"
+    );
+    assert!(
+        patto.contains("\nMiddle paragraph"),
+        "Middle paragraph should not be indented"
+    );
+    assert!(
+        patto.contains("\nFinal paragraph"),
+        "Final paragraph should not be indented"
+    );
+
+    // All list items should be indented
+    assert!(
+        patto.contains("\n\tList 1 item 1"),
+        "First list items should have 1 tab"
+    );
+    assert!(
+        patto.contains("\n\tList 2 item 1"),
+        "Second list items should have 1 tab"
+    );
+    assert!(
+        patto.contains("\n\t\tList 2 nested"),
+        "Nested item should have 2 tabs"
+    );
+}
+
+#[test]
+fn test_code_blocks_not_indented_by_lists() {
+    // Code blocks should not be affected by list indentation context
+    let md = r#"Some text.
+
+- List item
+
+```python
+print("hello")
+```
+
+More text.
+"#;
+
+    let patto = import_lossy(md);
+
+    // Code block should start at root level (no extra indent from list context)
+    assert!(
+        patto.contains("\n[@code python]"),
+        "Code block should not be indented due to list"
+    );
+}
+
+#[test]
+fn test_headings_not_indented_by_lists() {
+    // Headings should not be affected by surrounding list content
+    let md = r#"- List before
+
+## Heading
+
+- List after
+"#;
+
+    let patto = import_lossy(md);
+
+    // Heading should not be indented
+    assert!(
+        patto.contains("\n[* Heading]"),
+        "Heading should not be indented"
+    );
+}
+
+#[test]
+fn test_deep_nesting_with_paragraphs() {
+    let md = r#"Intro paragraph.
+
+- Level 1 item 1
+  - Level 2 item 1
+    - Level 3 item 1
+  - Level 2 item 2
+- Level 1 item 2
+
+Outro paragraph.
+"#;
+
+    let patto = import_lossy(md);
+
+    // Check paragraphs are not indented
+    assert!(
+        patto.starts_with("Intro paragraph") || patto.contains("\nIntro paragraph"),
+        "Intro should not be indented"
+    );
+    assert!(
+        patto.contains("\nOutro paragraph"),
+        "Outro should not be indented"
+    );
+
+    // Check list structure
+    assert!(patto.contains("\n\tLevel 1 item 1"));
+    assert!(patto.contains("\n\t\tLevel 2 item 1"));
+    assert!(patto.contains("\n\t\t\tLevel 3 item 1"));
+    assert!(patto.contains("\n\t\tLevel 2 item 2"));
+    assert!(patto.contains("\n\tLevel 1 item 2"));
+}
+
+#[test]
+fn test_links_in_lists() {
+    let md = r#"- Item with [internal link](note.md)
+- Item with [external link](https://example.com)
+  - Nested with [[wikilink]]
+"#;
+
+    let options = ImportOptions::new(ImportMode::Lossy)
+        .with_flavor(MarkdownInputFlavor::Obsidian);
+    let importer = MarkdownImporter::new(options);
+    let result = importer.import(md, "test.md", "test.pn").unwrap();
+    let patto = result.patto_content;
+
+    // All items should be properly indented
+    assert!(patto.contains("\n\tItem with [note]") || patto.starts_with("\tItem with [note]"));
+    assert!(patto.contains("\n\tItem with [external link https://example.com]"));
+    // Wikilinks in text are preserved as-is (pulldown-cmark doesn't parse them)
+    assert!(patto.contains("\n\t\tNested with [[wikilink]]"));
+}
+
+#[test]
+fn test_blockquote_not_affected_by_list_context() {
+    let md = r#"- List item
+
+> Quote text
+
+- Another item
+"#;
+
+    let patto = import_lossy(md);
+
+    // Quote should be at root level
+    assert!(
+        patto.contains("\n[@quote]"),
+        "Quote block should not be indented"
+    );
+}
