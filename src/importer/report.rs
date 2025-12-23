@@ -164,12 +164,18 @@ impl ConversionReport {
                 100
             }
         ));
-        output.push_str(&format!("Failed:          {}\n", self.statistics.failed_lines));
+        output.push_str(&format!(
+            "Failed:          {}\n",
+            self.statistics.failed_lines
+        ));
         output.push_str(&format!(
             "Warnings:        {}\n",
             self.statistics.warning_count
         ));
-        output.push_str(&format!("Errors:          {}\n\n", self.statistics.error_count));
+        output.push_str(&format!(
+            "Errors:          {}\n\n",
+            self.statistics.error_count
+        ));
 
         if !self.statistics.feature_counts.is_empty() {
             output.push_str("Conversions\n");
@@ -268,8 +274,12 @@ mod tests {
 
     #[test]
     fn test_report_to_json() {
-        let report =
-            ConversionReport::new("input.md", "output.pn", ImportMode::Lossy, MarkdownInputFlavor::Standard);
+        let report = ConversionReport::new(
+            "input.md",
+            "output.pn",
+            ImportMode::Lossy,
+            MarkdownInputFlavor::Standard,
+        );
         let json = report.to_json().unwrap();
         assert!(json.contains("\"input_file\": \"input.md\""));
         assert!(json.contains("\"mode\": \"Lossy\""));
@@ -277,8 +287,12 @@ mod tests {
 
     #[test]
     fn test_report_to_text() {
-        let mut report =
-            ConversionReport::new("input.md", "output.pn", ImportMode::Lossy, MarkdownInputFlavor::Standard);
+        let mut report = ConversionReport::new(
+            "input.md",
+            "output.pn",
+            ImportMode::Lossy,
+            MarkdownInputFlavor::Standard,
+        );
         report.statistics.total_lines = 100;
         report.statistics.converted_lines = 100;
         report.statistics.increment_feature("lists");

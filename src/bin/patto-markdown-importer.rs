@@ -251,7 +251,11 @@ fn batch_convert(
         }
 
         if args.verbose {
-            eprintln!("Converting {} -> {}", input_path.display(), output_path.display());
+            eprintln!(
+                "Converting {} -> {}",
+                input_path.display(),
+                output_path.display()
+            );
         }
 
         let input_content = match fs::read_to_string(&input_path) {
@@ -312,18 +316,14 @@ fn batch_convert(
 
     // Write batch report if requested
     if let Some(report_path) = &args.report {
-        let batch_report = create_batch_report(
-            dir,
-            output_dir,
-            &all_reports,
-            duration.as_millis() as u64,
-        );
-        
+        let batch_report =
+            create_batch_report(dir, output_dir, &all_reports, duration.as_millis() as u64);
+
         let report_content = match args.report_format {
             ReportFormat::Json => serde_json::to_string_pretty(&batch_report)?,
             ReportFormat::Text => format_batch_report_text(&batch_report),
         };
-        
+
         fs::write(report_path, report_content)?;
         eprintln!("✓ Report written to {}", report_path.display());
     }
@@ -406,29 +406,33 @@ fn create_batch_report(
 
 fn format_batch_report_text(report: &BatchReport) -> String {
     let mut output = String::new();
-    
+
     output.push_str("Batch Conversion Report\n");
     output.push_str("=======================\n");
     output.push_str(&format!("Input directory:  {}\n", report.input_directory));
     output.push_str(&format!("Output directory: {}\n", report.output_directory));
     output.push_str(&format!("Duration:         {}ms\n\n", report.duration_ms));
-    
+
     output.push_str("Summary\n");
     output.push_str("-------\n");
     output.push_str(&format!("Files processed:  {}\n", report.files_processed));
     output.push_str(&format!("Succeeded:        {}\n", report.files_succeeded));
     output.push_str(&format!("Failed:           {}\n", report.files_failed));
     output.push_str(&format!("Total warnings:   {}\n\n", report.total_warnings));
-    
+
     output.push_str("Files\n");
     output.push_str("-----\n");
     for file in &report.files {
-        let status_icon = if file.status == "success" { "✓" } else { "⚠" };
+        let status_icon = if file.status == "success" {
+            "✓"
+        } else {
+            "⚠"
+        };
         output.push_str(&format!(
             "{} {} -> {} ({} warnings, {}ms)\n",
             status_icon, file.input, file.output, file.warnings, file.duration_ms
         ));
     }
-    
+
     output
 }

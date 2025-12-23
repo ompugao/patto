@@ -67,10 +67,7 @@ impl Default for ImportOptions {
 impl ImportOptions {
     /// Create new import options with specified mode
     pub fn new(mode: ImportMode) -> Self {
-        Self {
-            mode,
-            flavor: None,
-        }
+        Self { mode, flavor: None }
     }
 
     /// Set the input flavor

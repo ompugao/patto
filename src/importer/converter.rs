@@ -90,7 +90,8 @@ impl MarkdownImporter {
         // Convert
         let patto_content = self.convert_markdown(markdown, &mut report)?;
 
-        report.statistics.converted_lines = report.statistics.total_lines - report.statistics.failed_lines;
+        report.statistics.converted_lines =
+            report.statistics.total_lines - report.statistics.failed_lines;
         report.duration_ms = start_time.elapsed().as_millis() as u64;
 
         Ok(ImportResult {
@@ -165,11 +166,20 @@ impl MarkdownImporter {
                                     let status = if checked { "done" } else { "todo" };
                                     let due = self.extract_due_date(&pending_text);
                                     let text = self.strip_due_date(&pending_text);
-                                    
+
                                     if let Some(due) = due {
-                                        output.push_str(&format!("{} {{@task status={} due={}}}\n", text.trim(), status, due));
+                                        output.push_str(&format!(
+                                            "{} {{@task status={} due={}}}\n",
+                                            text.trim(),
+                                            status,
+                                            due
+                                        ));
                                     } else {
-                                        output.push_str(&format!("{} {{@task status={}}}\n", text.trim(), status));
+                                        output.push_str(&format!(
+                                            "{} {{@task status={}}}\n",
+                                            text.trim(),
+                                            status
+                                        ));
                                     }
                                     report.statistics.increment_feature("tasks");
                                 } else {
@@ -225,7 +235,9 @@ impl MarkdownImporter {
                             link_text.clear();
                             report.statistics.increment_feature("links");
                         }
-                        Tag::Image { dest_url, title, .. } => {
+                        Tag::Image {
+                            dest_url, title, ..
+                        } => {
                             // Output image immediately
                             let alt = if title.is_empty() {
                                 None
@@ -314,17 +326,26 @@ impl MarkdownImporter {
                             // Flush pending text
                             if !pending_text.is_empty() {
                                 self.write_indent(&mut output, indent_level);
-                                
+
                                 // Add task status if present
                                 if let Some(checked) = current_task_status {
                                     let status = if checked { "done" } else { "todo" };
                                     let due = self.extract_due_date(&pending_text);
                                     let text = self.strip_due_date(&pending_text);
-                                    
+
                                     if let Some(due) = due {
-                                        output.push_str(&format!("{} {{@task status={} due={}}}\n", text.trim(), status, due));
+                                        output.push_str(&format!(
+                                            "{} {{@task status={} due={}}}\n",
+                                            text.trim(),
+                                            status,
+                                            due
+                                        ));
                                     } else {
-                                        output.push_str(&format!("{} {{@task status={}}}\n", text.trim(), status));
+                                        output.push_str(&format!(
+                                            "{} {{@task status={}}}\n",
+                                            text.trim(),
+                                            status
+                                        ));
                                     }
                                     report.statistics.increment_feature("tasks");
                                 } else {
@@ -455,7 +476,10 @@ impl MarkdownImporter {
                         ImportMode::Strict => {
                             return Err(ImportError {
                                 line: current_line,
-                                message: format!("HTML is not supported by patto: {}", html_str.trim()),
+                                message: format!(
+                                    "HTML is not supported by patto: {}",
+                                    html_str.trim()
+                                ),
                             });
                         }
                         ImportMode::Lossy => {
@@ -465,7 +489,9 @@ impl MarkdownImporter {
                                 kind: WarningKind::UnsupportedFeature,
                                 feature: "html".to_string(),
                                 message: format!("Dropped HTML: {}", html_str.trim()),
-                                suggestion: Some("Use plain text or patto markup instead".to_string()),
+                                suggestion: Some(
+                                    "Use plain text or patto markup instead".to_string(),
+                                ),
                             });
                             report.statistics.increment_unsupported("html");
                         }
@@ -483,7 +509,8 @@ impl MarkdownImporter {
                                 column: None,
                                 kind: WarningKind::PreservedContent,
                                 feature: "html".to_string(),
-                                message: "Preserved HTML in code block for manual editing".to_string(),
+                                message: "Preserved HTML in code block for manual editing"
+                                    .to_string(),
                                 suggestion: None,
                             });
                         }
@@ -512,30 +539,31 @@ impl MarkdownImporter {
                 Event::TaskListMarker(checked) => {
                     current_task_status = Some(checked);
                 }
-                Event::FootnoteReference(name) => {
-                    match self.options.mode {
-                        ImportMode::Strict => {
-                            return Err(ImportError {
-                                line: current_line,
-                                message: format!("Footnote reference [^{}] is not supported by patto", name),
-                            });
-                        }
-                        ImportMode::Lossy => {
-                            report.add_warning(ImportWarning {
-                                line: current_line,
-                                column: None,
-                                kind: WarningKind::UnsupportedFeature,
-                                feature: "footnote_ref".to_string(),
-                                message: format!("Dropped footnote reference [^{}]", name),
-                                suggestion: Some("Move footnote content inline".to_string()),
-                            });
-                            report.statistics.increment_unsupported("footnotes");
-                        }
-                        ImportMode::Preserve => {
-                            pending_text.push_str(&format!("[^{}]", name));
-                        }
+                Event::FootnoteReference(name) => match self.options.mode {
+                    ImportMode::Strict => {
+                        return Err(ImportError {
+                            line: current_line,
+                            message: format!(
+                                "Footnote reference [^{}] is not supported by patto",
+                                name
+                            ),
+                        });
                     }
-                }
+                    ImportMode::Lossy => {
+                        report.add_warning(ImportWarning {
+                            line: current_line,
+                            column: None,
+                            kind: WarningKind::UnsupportedFeature,
+                            feature: "footnote_ref".to_string(),
+                            message: format!("Dropped footnote reference [^{}]", name),
+                            suggestion: Some("Move footnote content inline".to_string()),
+                        });
+                        report.statistics.increment_unsupported("footnotes");
+                    }
+                    ImportMode::Preserve => {
+                        pending_text.push_str(&format!("[^{}]", name));
+                    }
+                },
                 _ => {}
             }
         }
@@ -570,7 +598,11 @@ impl MarkdownImporter {
         }
 
         // Check if it's an internal link (ends with .md or .pn)
-        if url.ends_with(".md") || url.ends_with(".pn") || url.contains(".md#") || url.contains(".pn#") {
+        if url.ends_with(".md")
+            || url.ends_with(".pn")
+            || url.contains(".md#")
+            || url.contains(".pn#")
+        {
             // Handle anchor in URL
             if let Some(hash_pos) = url.find('#') {
                 let (file_part, anchor) = url.split_at(hash_pos);
@@ -620,10 +652,7 @@ impl MarkdownImporter {
         }
 
         // Pattern: @2024-12-31
-        if let Some(captures) = Regex::new(r"@(\d{4}-\d{2}-\d{2})")
-            .unwrap()
-            .captures(text)
-        {
+        if let Some(captures) = Regex::new(r"@(\d{4}-\d{2}-\d{2})").unwrap().captures(text) {
             return captures.get(1).map(|m| m.as_str().to_string());
         }
 
@@ -685,7 +714,9 @@ mod tests {
         let result = import_lossy("- item 1\n  - nested");
         let lines: Vec<&str> = result.patto_content.lines().collect();
         // Check that nested item has indentation
-        assert!(lines.iter().any(|l| l.starts_with('\t') && l.contains("nested")));
+        assert!(lines
+            .iter()
+            .any(|l| l.starts_with('\t') && l.contains("nested")));
     }
 
     #[test]
@@ -788,19 +819,25 @@ mod tests {
     #[test]
     fn test_task_with_due_date_emoji() {
         let result = import_lossy("- [ ] task 📅 2024-12-31");
-        assert!(result.patto_content.contains("{@task status=todo due=2024-12-31}"));
+        assert!(result
+            .patto_content
+            .contains("{@task status=todo due=2024-12-31}"));
     }
 
     #[test]
     fn test_task_with_due_date_parentheses() {
         let result = import_lossy("- [ ] task (due: 2024-12-31)");
-        assert!(result.patto_content.contains("{@task status=todo due=2024-12-31}"));
+        assert!(result
+            .patto_content
+            .contains("{@task status=todo due=2024-12-31}"));
     }
 
     #[test]
     fn test_task_with_due_date_dataview() {
         let result = import_lossy("- [ ] task [due:: 2024-12-31]");
-        assert!(result.patto_content.contains("{@task status=todo due=2024-12-31}"));
+        assert!(result
+            .patto_content
+            .contains("{@task status=todo due=2024-12-31}"));
     }
 
     #[test]
@@ -861,7 +898,7 @@ mod tests {
     fn test_report_generation() {
         let result = import_lossy("# Title\n- item\n- [ ] task 📅 2024-12-31");
         let report = &result.report;
-        
+
         assert_eq!(report.mode, ImportMode::Lossy);
         assert!(report.statistics.feature_counts.contains_key("headings"));
         assert!(report.statistics.feature_counts.contains_key("lists"));
@@ -872,7 +909,7 @@ mod tests {
     fn test_statistics_tracking() {
         let result = import_lossy("# Title\n## Subtitle\n- item 1\n- item 2\n```code\ntest\n```");
         let stats = &result.report.statistics;
-        
+
         assert_eq!(stats.feature_counts.get("headings"), Some(&2));
         assert_eq!(stats.feature_counts.get("lists"), Some(&1)); // one list with 2 items
         assert_eq!(stats.feature_counts.get("code_blocks"), Some(&1));
@@ -884,14 +921,27 @@ mod tests {
         // may be parsed as more HTML events. Test with more realistic cases.
         let md = "Normal text\n\n<div>html content</div>\n\nAnother paragraph";
         let result = import_lossy(md);
-        
+
         // Should have warnings for HTML
-        assert!(!result.report.warnings.is_empty(), "Expected warnings for HTML");
-        assert!(result.report.warnings.iter().any(|w| w.feature == "html"), "Expected HTML warning");
+        assert!(
+            !result.report.warnings.is_empty(),
+            "Expected warnings for HTML"
+        );
+        assert!(
+            result.report.warnings.iter().any(|w| w.feature == "html"),
+            "Expected HTML warning"
+        );
         // Should still produce output for valid text
-        assert!(result.patto_content.contains("Normal text"), "Missing 'Normal text'");
+        assert!(
+            result.patto_content.contains("Normal text"),
+            "Missing 'Normal text'"
+        );
         // The paragraph after HTML should be captured
-        assert!(result.patto_content.contains("Another paragraph"), "Missing 'Another paragraph', content: {}", result.patto_content);
+        assert!(
+            result.patto_content.contains("Another paragraph"),
+            "Missing 'Another paragraph', content: {}",
+            result.patto_content
+        );
     }
 
     #[test]
@@ -907,28 +957,52 @@ mod tests {
         // Note: actual wikilinks in pulldown-cmark need to be detected differently
         // This tests the helper function directly
         assert_eq!(importer.convert_link("note.md", "note"), "[note]");
-        assert_eq!(importer.convert_link("note.md#anchor", "note"), "[note#anchor]");
+        assert_eq!(
+            importer.convert_link("note.md#anchor", "note"),
+            "[note#anchor]"
+        );
         assert_eq!(importer.convert_link("#anchor", "section"), "[#anchor]");
-        assert_eq!(importer.convert_link("https://example.com", "Example"), "[Example https://example.com]");
+        assert_eq!(
+            importer.convert_link("https://example.com", "Example"),
+            "[Example https://example.com]"
+        );
     }
 
     #[test]
     fn test_extract_due_date() {
         let importer = MarkdownImporter::new(ImportOptions::default());
-        
-        assert_eq!(importer.extract_due_date("task 📅 2024-12-31"), Some("2024-12-31".to_string()));
-        assert_eq!(importer.extract_due_date("task (due: 2024-12-31)"), Some("2024-12-31".to_string()));
-        assert_eq!(importer.extract_due_date("task [due:: 2024-12-31]"), Some("2024-12-31".to_string()));
-        assert_eq!(importer.extract_due_date("task @2024-12-31"), Some("2024-12-31".to_string()));
+
+        assert_eq!(
+            importer.extract_due_date("task 📅 2024-12-31"),
+            Some("2024-12-31".to_string())
+        );
+        assert_eq!(
+            importer.extract_due_date("task (due: 2024-12-31)"),
+            Some("2024-12-31".to_string())
+        );
+        assert_eq!(
+            importer.extract_due_date("task [due:: 2024-12-31]"),
+            Some("2024-12-31".to_string())
+        );
+        assert_eq!(
+            importer.extract_due_date("task @2024-12-31"),
+            Some("2024-12-31".to_string())
+        );
         assert_eq!(importer.extract_due_date("task without date"), None);
     }
 
     #[test]
     fn test_strip_due_date() {
         let importer = MarkdownImporter::new(ImportOptions::default());
-        
+
         assert_eq!(importer.strip_due_date("task 📅 2024-12-31").trim(), "task");
-        assert_eq!(importer.strip_due_date("task (due: 2024-12-31)").trim(), "task");
-        assert_eq!(importer.strip_due_date("task [due:: 2024-12-31]").trim(), "task");
+        assert_eq!(
+            importer.strip_due_date("task (due: 2024-12-31)").trim(),
+            "task"
+        );
+        assert_eq!(
+            importer.strip_due_date("task [due:: 2024-12-31]").trim(),
+            "task"
+        );
     }
 }
