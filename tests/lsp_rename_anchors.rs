@@ -270,6 +270,37 @@ async fn test_prepare_rename_on_anchor_definition() {
 }
 
 #[tokio::test]
+async fn test_prepare_rename_on_anchor_long_form() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("note_a.pn", "Content here\n{@anchor section1}\nMore content\n");
+
+    let mut client = LspTestClient::new(&workspace).await;
+    client.initialize().await;
+    client.initialized().await;
+
+    let uri = workspace.get_uri("note_a.pn");
+    client
+        .did_open(uri.clone(), "Content here\n{@anchor section1}\nMore content\n".to_string())
+        .await;
+
+    // Position cursor on {@anchor section1} (line 1, character 10 which is inside "section1")
+    let response = client.prepare_rename(uri, 1, 10).await;
+
+    assert!(response.get("result").is_some(), "prepare_rename failed for long form anchor");
+    assert!(
+        response["result"]["range"].is_object(),
+        "No range in prepare_rename for long form"
+    );
+    assert_eq!(
+        response["result"]["placeholder"].as_str(),
+        Some("section1"),
+        "Wrong placeholder for long form anchor"
+    );
+
+    println!("✅ Prepare rename on long form anchor definition test passed");
+}
+
+#[tokio::test]
 async fn test_rename_anchor_simple() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("note_a.pn", "Content\n#old_anchor\nMore content\n");
@@ -315,14 +346,9 @@ async fn test_rename_anchor_simple() {
 
 #[tokio::test]
 async fn test_rename_anchor_long_form() {
-    // NOTE: The long form {@anchor name} is NOT currently supported by the parser.
-    // It gets parsed as expr_property and then rejected because property_name != "task".
-    // So we skip this test for now. If long form anchor support is added to the parser,
-    // this test can be re-enabled.
-    // 
-    // For now, use the short form #anchor which is fully supported.
+    // Test the long form {@anchor name} syntax
     let mut workspace = TestWorkspace::new();
-    workspace.create_file("note_a.pn", "Content\n#old_anchor\nMore content\n");
+    workspace.create_file("note_a.pn", "Content\n{@anchor old_anchor}\nMore content\n");
     workspace.create_file("note_b.pn", "Link to [note_a#old_anchor]\n");
 
     let mut client = LspTestClient::new(&workspace).await;
@@ -333,7 +359,7 @@ async fn test_rename_anchor_long_form() {
     let uri_b = workspace.get_uri("note_b.pn");
     
     client
-        .did_open(uri_a.clone(), "Content\n#old_anchor\nMore content\n".to_string())
+        .did_open(uri_a.clone(), "Content\n{@anchor old_anchor}\nMore content\n".to_string())
         .await;
     client
         .did_open(uri_b.clone(), "Link to [note_a#old_anchor]\n".to_string())
@@ -342,16 +368,16 @@ async fn test_rename_anchor_long_form() {
     // Wait for workspace scan
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // Rename anchor: position inside #old_anchor (line 1, char 1)
-    let response = client.rename(uri_a, 1, 1, "new_anchor").await;
+    // Rename anchor: position inside {@anchor old_anchor} (line 1, char 10 which is inside "old_anchor")
+    let response = client.rename(uri_a, 1, 10, "new_anchor").await;
 
     assert!(response.get("result").is_some(), "Rename failed: {:?}", response);
     let doc_changes = &response["result"]["documentChanges"];
 
-    // Verify anchor definition is updated
+    // Verify anchor definition is updated (should preserve long form)
     assert!(
-        assert_has_text_edit(doc_changes, "note_a.pn", "#new_anchor"),
-        "Anchor definition not updated"
+        assert_has_text_edit(doc_changes, "note_a.pn", "{@anchor new_anchor}"),
+        "Long form anchor definition not updated"
     );
 
     // Verify link is updated in note_b.pn
@@ -360,7 +386,7 @@ async fn test_rename_anchor_long_form() {
         "Link with anchor not updated"
     );
 
-    println!("✅ Anchor rename (short form only) test passed");
+    println!("✅ Long form anchor rename test passed");
 }
 
 #[tokio::test]
