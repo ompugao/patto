@@ -11,6 +11,8 @@
       * we do not support `#` for the name of notes.
     * eliminate the logic that self-link if link is empty
     * better depth and state handling
+    * [ ] custom macro command
+      * plugin system
   * LSP server
     * [x] async note scanning
     * [x] return all errors as diagnostics
@@ -33,7 +35,7 @@
       * vim-lsp does not support CreateFile/RenameFile/DeleteFile
         * [https://github.com/prabirshrestha/vim-lsp/issues/1371](https://github.com/prabirshrestha/vim-lsp/issues/1371)
       * yegappan/lsp supports these
-    * [ ] anchor renaming
+    * [x] anchor renaming
     * [x] make error.variant.message() user-friendly
     * [x] fix indentation error at a line after a block with trailing empty lines
     * [x] lsp server hangs sometimes

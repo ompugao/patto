@@ -194,6 +194,29 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
         .map(|x| x.clone());
 }
 
+/// Find anchor definition at the given row and column position
+/// Returns (anchor_name, anchor_location) if cursor is on an anchor definition
+fn find_anchor_at_position(parent: &AstNode, row: usize, col: usize) -> Option<(String, parser::Location)> {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
+        if parent.location().row == row {
+            for prop in properties {
+                if let Property::Anchor { name, location } = prop {
+                    if location.span.contains(col) {
+                        return Some((name.clone(), location.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        if let Some(result) = find_anchor_at_position(child, row, col) {
+            return Some(result);
+        }
+    }
+    None
+}
+
 fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     if let Some(route) = locate_node_route_impl(parent, row, col) {
         //route.reverse();
@@ -1243,6 +1266,24 @@ impl LanguageServer for Backend {
             let line_str = line.as_str()?;
             let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
 
+            // Try to find anchor definition at cursor
+            if let Some((anchor_name, anchor_loc)) = find_anchor_at_position(&ast, position.line as usize, posbyte) {
+                // Return range of the anchor name (excluding # prefix for short form, or {@anchor } for long form)
+                // The location includes the full anchor expression
+                let start_char = utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32;
+                let end_char = utf16_from_byte_idx(line_str, anchor_loc.span.1) as u32;
+
+                let range = Range::new(
+                    Position::new(position.line, start_char),
+                    Position::new(position.line, end_char),
+                );
+
+                return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                    range,
+                    placeholder: anchor_name,
+                });
+            }
+
             // Try to find WikiLink at cursor
             if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
                 for node in &node_route {
@@ -1302,11 +1343,148 @@ impl LanguageServer for Backend {
         if new_name.is_empty() {
             return Err(tower_lsp::jsonrpc::Error {
                 code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
-                message: "Note name cannot be empty".into(),
+                message: "Name cannot be empty".into(),
                 data: None,
             });
         }
 
+        // Check if we're renaming an anchor
+        let anchor_rename_result = || -> Option<WorkspaceEdit> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            let rope = repo.document_map.get(&uri)?;
+
+            let line = rope.value().get_line(position.line as usize)?;
+            let line_str = line.as_str()?;
+            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
+
+            // Check if cursor is on an anchor definition
+            let (old_anchor_name, anchor_loc) = find_anchor_at_position(&ast, position.line as usize, posbyte)?;
+
+            log::info!("Renaming anchor '{}' to '{}'", old_anchor_name, new_name);
+
+            // Validate anchor name (similar rules to note names but allow # prefix)
+            let clean_new_name = new_name.trim_start_matches('#');
+            if clean_new_name.is_empty() {
+                return None;
+            }
+            if clean_new_name.contains('/') || clean_new_name.contains('\\') || clean_new_name.contains('#') {
+                return None;
+            }
+
+            let mut document_changes = Vec::new();
+
+            // Get the current file's link name for finding references
+            let current_file_link = if let Ok(path) = uri.to_file_path() {
+                repo.path_to_link(&path)?
+            } else {
+                return None;
+            };
+
+            // 1. Update the anchor definition in the current file
+            // The anchor definition can be in two forms:
+            // - Short form: #anchor_name (span includes #)
+            // - Long form: {@anchor anchor_name} (span includes the whole expression)
+            let anchor_text = &line_str[anchor_loc.span.0..anchor_loc.span.1];
+            let new_anchor_text = if anchor_text.starts_with("{@anchor") {
+                format!("{{@anchor {}}}", clean_new_name)
+            } else {
+                // Short form #anchor
+                format!("#{}", clean_new_name)
+            };
+
+            let start_char = utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32;
+            let end_char = utf16_from_byte_idx(line_str, anchor_loc.span.1) as u32;
+
+            let anchor_edit = TextEdit {
+                range: Range::new(
+                    Position::new(anchor_loc.row as u32, start_char),
+                    Position::new(anchor_loc.row as u32, end_char),
+                ),
+                new_text: new_anchor_text,
+            };
+
+            document_changes.push(DocumentChangeOperation::Edit(
+                TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        uri: uri.clone(),
+                        version: None,
+                    },
+                    edits: vec![OneOf::Left(anchor_edit)],
+                },
+            ));
+
+            // 2. Find all links in the repository that reference this file with this anchor
+            if let Ok(graph) = repo.document_graph.lock() {
+                if let Some(target_node) = graph.get(&uri) {
+                    // Iterate through all incoming edges (links pointing to this file)
+                    for edge in target_node.iter_in() {
+                        let source_uri = edge.source().key();
+                        let edge_data = edge.value();
+
+                        // Get source document rope for line access
+                        let source_rope = repo.document_map.get(source_uri)?;
+
+                        let mut edits = Vec::new();
+
+                        // Create TextEdit for each link location that references this anchor
+                        for link_loc in &edge_data.locations {
+                            if link_loc.target_anchor.as_ref() == Some(&old_anchor_name) {
+                                if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
+                                    if let Some(src_line_str) = line.as_str() {
+                                        // Build new link text with updated anchor
+                                        let new_link_text = format!("[{}#{}]", current_file_link, clean_new_name);
+
+                                        // Convert byte offsets to UTF-16
+                                        let start_char =
+                                            utf16_from_byte_idx(src_line_str, link_loc.source_col_range.0)
+                                                as u32;
+                                        let end_char =
+                                            utf16_from_byte_idx(src_line_str, link_loc.source_col_range.1)
+                                                as u32;
+
+                                        let range = Range::new(
+                                            Position::new(link_loc.source_line as u32, start_char),
+                                            Position::new(link_loc.source_line as u32, end_char),
+                                        );
+
+                                        edits.push(OneOf::Left(TextEdit {
+                                            range,
+                                            new_text: new_link_text,
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+
+                        if !edits.is_empty() {
+                            document_changes.push(DocumentChangeOperation::Edit(
+                                TextDocumentEdit {
+                                    text_document: OptionalVersionedTextDocumentIdentifier {
+                                        uri: source_uri.clone(),
+                                        version: None,
+                                    },
+                                    edits,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+
+            Some(WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(document_changes)),
+                ..Default::default()
+            })
+        }();
+
+        // If anchor rename succeeded, return it
+        if anchor_rename_result.is_some() {
+            return Ok(anchor_rename_result);
+        }
+
+        // Otherwise, try note renaming (existing logic)
         if new_name.contains('/') || new_name.contains('\\') {
             return Err(tower_lsp::jsonrpc::Error {
                 code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
