@@ -196,7 +196,11 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
 
 /// Find anchor definition at the given row and column position
 /// Returns (anchor_name, anchor_location) if cursor is on an anchor definition
-fn find_anchor_at_position(parent: &AstNode, row: usize, col: usize) -> Option<(String, parser::Location)> {
+fn find_anchor_at_position(
+    parent: &AstNode,
+    row: usize,
+    col: usize,
+) -> Option<(String, parser::Location)> {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         if parent.location().row == row {
             for prop in properties {
@@ -1267,7 +1271,9 @@ impl LanguageServer for Backend {
             let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
 
             // Try to find anchor definition at cursor
-            if let Some((anchor_name, anchor_loc)) = find_anchor_at_position(&ast, position.line as usize, posbyte) {
+            if let Some((anchor_name, anchor_loc)) =
+                find_anchor_at_position(&ast, position.line as usize, posbyte)
+            {
                 // Return range of the anchor name (excluding # prefix for short form, or {@anchor } for long form)
                 // The location includes the full anchor expression
                 let start_char = utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32;
@@ -1360,7 +1366,8 @@ impl LanguageServer for Backend {
             let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
 
             // Check if cursor is on an anchor definition
-            let (old_anchor_name, anchor_loc) = find_anchor_at_position(&ast, position.line as usize, posbyte)?;
+            let (old_anchor_name, anchor_loc) =
+                find_anchor_at_position(&ast, position.line as usize, posbyte)?;
 
             log::info!("Renaming anchor '{}' to '{}'", old_anchor_name, new_name);
 
@@ -1369,7 +1376,10 @@ impl LanguageServer for Backend {
             if clean_new_name.is_empty() {
                 return None;
             }
-            if clean_new_name.contains('/') || clean_new_name.contains('\\') || clean_new_name.contains('#') {
+            if clean_new_name.contains('/')
+                || clean_new_name.contains('\\')
+                || clean_new_name.contains('#')
+            {
                 return None;
             }
 
@@ -1405,15 +1415,13 @@ impl LanguageServer for Backend {
                 new_text: new_anchor_text,
             };
 
-            document_changes.push(DocumentChangeOperation::Edit(
-                TextDocumentEdit {
-                    text_document: OptionalVersionedTextDocumentIdentifier {
-                        uri: uri.clone(),
-                        version: None,
-                    },
-                    edits: vec![OneOf::Left(anchor_edit)],
+            document_changes.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: None,
                 },
-            ));
+                edits: vec![OneOf::Left(anchor_edit)],
+            }));
 
             // 2. Find all links in the repository that reference this file with this anchor
             if let Ok(graph) = repo.document_graph.lock() {
@@ -1431,18 +1439,25 @@ impl LanguageServer for Backend {
                         // Create TextEdit for each link location that references this anchor
                         for link_loc in &edge_data.locations {
                             if link_loc.target_anchor.as_ref() == Some(&old_anchor_name) {
-                                if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
+                                if let Some(line) =
+                                    source_rope.value().get_line(link_loc.source_line)
+                                {
                                     if let Some(src_line_str) = line.as_str() {
                                         // Build new link text with updated anchor
-                                        let new_link_text = format!("[{}#{}]", current_file_link, clean_new_name);
+                                        let new_link_text =
+                                            format!("[{}#{}]", current_file_link, clean_new_name);
 
                                         // Convert byte offsets to UTF-16
-                                        let start_char =
-                                            utf16_from_byte_idx(src_line_str, link_loc.source_col_range.0)
-                                                as u32;
-                                        let end_char =
-                                            utf16_from_byte_idx(src_line_str, link_loc.source_col_range.1)
-                                                as u32;
+                                        let start_char = utf16_from_byte_idx(
+                                            src_line_str,
+                                            link_loc.source_col_range.0,
+                                        )
+                                            as u32;
+                                        let end_char = utf16_from_byte_idx(
+                                            src_line_str,
+                                            link_loc.source_col_range.1,
+                                        )
+                                            as u32;
 
                                         let range = Range::new(
                                             Position::new(link_loc.source_line as u32, start_char),

@@ -249,7 +249,10 @@ async fn test_prepare_rename_on_anchor_definition() {
 
     let uri = workspace.get_uri("note_a.pn");
     client
-        .did_open(uri.clone(), "Content here\n#section1\nMore content\n".to_string())
+        .did_open(
+            uri.clone(),
+            "Content here\n#section1\nMore content\n".to_string(),
+        )
         .await;
 
     // Position cursor on #section1 (line 1, character 1 which is inside #section1)
@@ -272,7 +275,10 @@ async fn test_prepare_rename_on_anchor_definition() {
 #[tokio::test]
 async fn test_prepare_rename_on_anchor_long_form() {
     let mut workspace = TestWorkspace::new();
-    workspace.create_file("note_a.pn", "Content here\n{@anchor section1}\nMore content\n");
+    workspace.create_file(
+        "note_a.pn",
+        "Content here\n{@anchor section1}\nMore content\n",
+    );
 
     let mut client = LspTestClient::new(&workspace).await;
     client.initialize().await;
@@ -280,13 +286,19 @@ async fn test_prepare_rename_on_anchor_long_form() {
 
     let uri = workspace.get_uri("note_a.pn");
     client
-        .did_open(uri.clone(), "Content here\n{@anchor section1}\nMore content\n".to_string())
+        .did_open(
+            uri.clone(),
+            "Content here\n{@anchor section1}\nMore content\n".to_string(),
+        )
         .await;
 
     // Position cursor on {@anchor section1} (line 1, character 10 which is inside "section1")
     let response = client.prepare_rename(uri, 1, 10).await;
 
-    assert!(response.get("result").is_some(), "prepare_rename failed for long form anchor");
+    assert!(
+        response.get("result").is_some(),
+        "prepare_rename failed for long form anchor"
+    );
     assert!(
         response["result"]["range"].is_object(),
         "No range in prepare_rename for long form"
@@ -312,9 +324,12 @@ async fn test_rename_anchor_simple() {
 
     let uri_a = workspace.get_uri("note_a.pn");
     let uri_b = workspace.get_uri("note_b.pn");
-    
+
     client
-        .did_open(uri_a.clone(), "Content\n#old_anchor\nMore content\n".to_string())
+        .did_open(
+            uri_a.clone(),
+            "Content\n#old_anchor\nMore content\n".to_string(),
+        )
         .await;
     client
         .did_open(uri_b.clone(), "Link to [note_a#old_anchor]\n".to_string())
@@ -326,7 +341,11 @@ async fn test_rename_anchor_simple() {
     // Rename anchor: position on #old_anchor (line 1, char 1)
     let response = client.rename(uri_a, 1, 1, "new_anchor").await;
 
-    assert!(response.get("result").is_some(), "Rename failed: {:?}", response);
+    assert!(
+        response.get("result").is_some(),
+        "Rename failed: {:?}",
+        response
+    );
     let doc_changes = &response["result"]["documentChanges"];
 
     // Verify anchor definition is updated in note_a.pn
@@ -357,9 +376,12 @@ async fn test_rename_anchor_long_form() {
 
     let uri_a = workspace.get_uri("note_a.pn");
     let uri_b = workspace.get_uri("note_b.pn");
-    
+
     client
-        .did_open(uri_a.clone(), "Content\n{@anchor old_anchor}\nMore content\n".to_string())
+        .did_open(
+            uri_a.clone(),
+            "Content\n{@anchor old_anchor}\nMore content\n".to_string(),
+        )
         .await;
     client
         .did_open(uri_b.clone(), "Link to [note_a#old_anchor]\n".to_string())
@@ -371,7 +393,11 @@ async fn test_rename_anchor_long_form() {
     // Rename anchor: position inside {@anchor old_anchor} (line 1, char 10 which is inside "old_anchor")
     let response = client.rename(uri_a, 1, 10, "new_anchor").await;
 
-    assert!(response.get("result").is_some(), "Rename failed: {:?}", response);
+    assert!(
+        response.get("result").is_some(),
+        "Rename failed: {:?}",
+        response
+    );
     let doc_changes = &response["result"]["documentChanges"];
 
     // Verify anchor definition is updated (should preserve long form)
@@ -394,7 +420,10 @@ async fn test_rename_anchor_multiple_references() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("target.pn", "Content\n#myanchor\nMore content\n");
     workspace.create_file("ref1.pn", "See [target#myanchor] for details\n");
-    workspace.create_file("ref2.pn", "Also [target#myanchor] and [target#myanchor] again\n");
+    workspace.create_file(
+        "ref2.pn",
+        "Also [target#myanchor] and [target#myanchor] again\n",
+    );
     workspace.create_file("ref3.pn", "Just [target] no anchor\n");
 
     let mut client = LspTestClient::new(&workspace).await;
@@ -402,9 +431,12 @@ async fn test_rename_anchor_multiple_references() {
     client.initialized().await;
 
     let uri_target = workspace.get_uri("target.pn");
-    
+
     client
-        .did_open(uri_target.clone(), "Content\n#myanchor\nMore content\n".to_string())
+        .did_open(
+            uri_target.clone(),
+            "Content\n#myanchor\nMore content\n".to_string(),
+        )
         .await;
 
     // Wait for workspace scan
@@ -413,7 +445,11 @@ async fn test_rename_anchor_multiple_references() {
     // Rename anchor
     let response = client.rename(uri_target, 1, 1, "renamed_anchor").await;
 
-    assert!(response.get("result").is_some(), "Rename failed: {:?}", response);
+    assert!(
+        response.get("result").is_some(),
+        "Rename failed: {:?}",
+        response
+    );
     let doc_changes = &response["result"]["documentChanges"];
 
     // Verify anchor definition updated
@@ -437,13 +473,17 @@ async fn test_rename_anchor_multiple_references() {
     // Verify ref3.pn is NOT in the changes (no anchor reference)
     let changes = doc_changes.as_array().unwrap();
     let ref3_changed = changes.iter().any(|change| {
-        change.get("textDocument")
+        change
+            .get("textDocument")
             .and_then(|td| td.get("uri"))
             .and_then(|u| u.as_str())
             .map(|s| s.contains("ref3.pn"))
             .unwrap_or(false)
     });
-    assert!(!ref3_changed, "ref3.pn should not be modified (has no anchor reference)");
+    assert!(
+        !ref3_changed,
+        "ref3.pn should not be modified (has no anchor reference)"
+    );
 
     println!("✅ Multiple references anchor rename test passed");
 }
@@ -460,12 +500,18 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
 
     let uri_target = workspace.get_uri("target.pn");
     let uri_ref = workspace.get_uri("ref.pn");
-    
+
     client
-        .did_open(uri_target.clone(), "#anchor1\nContent\n#anchor2\n".to_string())
+        .did_open(
+            uri_target.clone(),
+            "#anchor1\nContent\n#anchor2\n".to_string(),
+        )
         .await;
     client
-        .did_open(uri_ref.clone(), "[target#anchor1]\n[target#anchor2]\n".to_string())
+        .did_open(
+            uri_ref.clone(),
+            "[target#anchor1]\n[target#anchor2]\n".to_string(),
+        )
         .await;
 
     // Wait for workspace scan
@@ -474,7 +520,11 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
     // Rename only anchor1 (line 0, char 1)
     let response = client.rename(uri_target, 0, 1, "new_anchor1").await;
 
-    assert!(response.get("result").is_some(), "Rename failed: {:?}", response);
+    assert!(
+        response.get("result").is_some(),
+        "Rename failed: {:?}",
+        response
+    );
     let doc_changes = &response["result"]["documentChanges"];
 
     // Verify anchor1 is updated
@@ -498,7 +548,8 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
                 if let Some(new_text) = edit.get("newText").and_then(|t| t.as_str()) {
                     assert!(
                         !new_text.contains("anchor2") || new_text == "[target#anchor2]",
-                        "anchor2 should not be modified: found '{}'", new_text
+                        "anchor2 should not be modified: found '{}'",
+                        new_text
                     );
                 }
             }

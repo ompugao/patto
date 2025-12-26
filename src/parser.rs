@@ -1328,7 +1328,7 @@ fn transform_property(
         Rule::expr_property => {
             let mut inner = pair.into_inner();
             let property_name = inner.next().unwrap().as_str();
-            
+
             match property_name {
                 "anchor" => {
                     // Long form anchor: {@anchor name}
@@ -1346,7 +1346,7 @@ fn transform_property(
                     let mut status = TaskStatus::Todo;
                     let mut due = Deadline::Uninterpretable("".to_string());
                     let mut current_key = "";
-                    
+
                     for kv in inner {
                         match kv.as_rule() {
                             Rule::property_keyword_pair => {
@@ -1354,7 +1354,7 @@ fn transform_property(
                                 let mut pair_inner = kv.into_inner();
                                 let key = pair_inner.next().unwrap().as_str();
                                 let value = pair_inner.next().unwrap().as_str();
-                                
+
                                 if key == "status" {
                                     status = match value {
                                         "todo" => TaskStatus::Todo,
@@ -1399,7 +1399,10 @@ fn transform_property(
                                 }
                             }
                             Rule::property_positional_arg => {
-                                log::warn!("Unexpected positional arg in task property: {}", kv.as_str());
+                                log::warn!(
+                                    "Unexpected positional arg in task property: {}",
+                                    kv.as_str()
+                                );
                             }
                             _ => {
                                 log::warn!("Unexpected rule in task property: {:?}", kv.as_rule());
@@ -1734,9 +1737,13 @@ mod tests {
         let input = "{@anchor myanchor}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        
+
         assert_eq!(props.len(), 1, "Should have one anchor property");
-        if let Property::Anchor { ref name, ref location } = props[0] {
+        if let Property::Anchor {
+            ref name,
+            ref location,
+        } = props[0]
+        {
             assert_eq!(name, "myanchor");
             // The location should cover the entire {@anchor myanchor} span
             assert_eq!(location.span.0, 0);
@@ -1752,11 +1759,11 @@ mod tests {
         let input = "Some text {@anchor section1}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        
+
         // Should have text node and anchor property
         assert_eq!(nodes.len(), 1, "Should have one text node");
         assert_eq!(props.len(), 1, "Should have one anchor property");
-        
+
         if let Property::Anchor { ref name, .. } = props[0] {
             assert_eq!(name, "section1");
         } else {
@@ -1771,15 +1778,15 @@ mod tests {
         let input = "Text #short {@anchor long1}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        
+
         assert_eq!(props.len(), 2, "Should have two anchor properties");
-        
+
         if let Property::Anchor { ref name, .. } = props[0] {
             assert_eq!(name, "short");
         } else {
             panic!("Expected short anchor property");
         }
-        
+
         if let Property::Anchor { ref name, .. } = props[1] {
             assert_eq!(name, "long1");
         } else {
