@@ -558,3 +558,72 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
 
     println!("✅ Anchor rename isolation test passed");
 }
+
+#[tokio::test]
+async fn test_multibyte_note_and_anchor_rename() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("リンク元.pn", "Link to [ノート#セクション]\n");
+    workspace.create_file("ノート.pn", "Content\n#セクション\n");
+
+    let mut client = LspTestClient::new(&workspace).await;
+    client.initialize().await;
+    client.initialized().await;
+
+    let uri_src = workspace.get_uri("リンク元.pn");
+    let uri_note = workspace.get_uri("ノート.pn");
+
+    client
+        .did_open(uri_src.clone(), "Link to [ノート#セクション]\n".to_string())
+        .await;
+    client
+        .did_open(uri_note.clone(), "Content\n#セクション\n".to_string())
+        .await;
+
+    // Wait for workspace scan
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // 1. Rename Note "ノート" -> "メモ" (from reference in リンク元.pn)
+    // "Link to [ノート#セクション]"
+    // "Link to [" is 9 characters (ASCII)
+    let response = client.rename(uri_src.clone(), 0, 9, "メモ").await;
+
+    assert!(
+        response.get("result").is_some(),
+        "Note rename failed: {:?}",
+        response
+    );
+    let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify reference update
+    assert!(
+        assert_has_text_edit(doc_changes, "リンク元.pn", "[メモ#セクション]"),
+        "Link to multi-byte note not updated"
+    );
+
+    // 2. Rename Anchor "#セクション" -> "#部分" (from definition in ノート.pn)
+    // "Content\n#セクション\n" -> Line 1, char 1 (after '#')
+    let response = client.rename(uri_note.clone(), 1, 1, "部分").await;
+
+    assert!(
+        response.get("result").is_some(),
+        "Anchor rename failed: {:?}",
+        response
+    );
+    let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify definition update
+    assert!(
+        assert_has_text_edit(doc_changes, "ノート.pn", "#部分"),
+        "Multi-byte anchor definition not updated"
+    );
+
+    // Verify reference update (assuming starting state since we didn't apply previous edits)
+    // The reference in 'リンク元.pn' is '[ノート#セクション]'
+    assert!(
+        assert_has_text_edit(doc_changes, "リンク元.pn", "[ノート#部分]"),
+        "Link to multi-byte anchor not updated: {:?}",
+        doc_changes
+    );
+
+    println!("✅ Multi-byte note and anchor rename test passed");
+}

@@ -6,7 +6,9 @@ pub fn assert_has_text_edit(changes: &Value, file_name: &str, expected_text: &st
         for change in array {
             if let Some(text_doc) = change.get("textDocument") {
                 if let Some(uri) = text_doc.get("uri").and_then(|v| v.as_str()) {
-                    if uri.contains(file_name) {
+                    let decoded_uri =
+                        urlencoding::decode(uri).unwrap_or(std::borrow::Cow::Borrowed(uri));
+                    if decoded_uri.contains(file_name) {
                         if let Some(edits) = change.get("edits").and_then(|v| v.as_array()) {
                             for edit in edits {
                                 if let Some(new_text) = edit.get("newText").and_then(|v| v.as_str())
