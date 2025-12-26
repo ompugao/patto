@@ -329,3 +329,66 @@ pub fn get_semantic_tokens_range(
 
     build_semantic_tokens(filtered_tokens)
 }
+
+/// Compute delta (edits) between old and new semantic tokens
+/// Returns a vector of SemanticTokensEdit representing the minimal changes
+pub fn compute_semantic_tokens_delta(
+    old_tokens: &[SemanticToken],
+    new_tokens: &[SemanticToken],
+) -> Vec<tower_lsp::lsp_types::SemanticTokensEdit> {
+    use tower_lsp::lsp_types::SemanticTokensEdit;
+
+    let mut edits = Vec::new();
+
+    // Simple diff algorithm: find longest common subsequence and generate edits
+    // For simplicity, we use a basic approach: if tokens differ significantly,
+    // replace the entire range
+
+    // Find the first differing position
+    let mut start_idx = 0;
+    while start_idx < old_tokens.len() && start_idx < new_tokens.len() {
+        if !tokens_equal(&old_tokens[start_idx], &new_tokens[start_idx]) {
+            break;
+        }
+        start_idx += 1;
+    }
+
+    // Find the last differing position (from the end)
+    let mut old_end_idx = old_tokens.len();
+    let mut new_end_idx = new_tokens.len();
+
+    while old_end_idx > start_idx && new_end_idx > start_idx {
+        if !tokens_equal(&old_tokens[old_end_idx - 1], &new_tokens[new_end_idx - 1]) {
+            break;
+        }
+        old_end_idx -= 1;
+        new_end_idx -= 1;
+    }
+
+    // If there are differences, create an edit
+    if start_idx < old_end_idx || start_idx < new_end_idx {
+        let delete_count = old_end_idx - start_idx;
+        let new_data: Vec<SemanticToken> = new_tokens[start_idx..new_end_idx].to_vec();
+
+        edits.push(SemanticTokensEdit {
+            start: (start_idx * 5) as u32, // Each token is 5 u32 values
+            delete_count: (delete_count * 5) as u32,
+            data: if new_data.is_empty() {
+                None
+            } else {
+                Some(new_data)
+            },
+        });
+    }
+
+    edits
+}
+
+/// Helper function to compare two semantic tokens for equality
+fn tokens_equal(a: &SemanticToken, b: &SemanticToken) -> bool {
+    a.delta_line == b.delta_line
+        && a.delta_start == b.delta_start
+        && a.length == b.length
+        && a.token_type == b.token_type
+        && a.token_modifiers_bitset == b.token_modifiers_bitset
+}

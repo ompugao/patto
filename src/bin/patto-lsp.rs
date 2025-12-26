@@ -23,7 +23,9 @@ use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
 use patto::renderer::{MarkdownRenderer, Renderer};
 use patto::repository::{Repository, RepositoryMessage};
-use patto::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
+use patto::semantic_token::{
+    compute_semantic_tokens_delta, get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE,
+};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -52,6 +54,7 @@ struct Backend {
     root_uri: Arc<Mutex<Option<Url>>>,
     paper_catalog: PaperCatalog,
     settings: Arc<Mutex<PattoSettings>>,
+    token_cache: Arc<Mutex<std::collections::HashMap<Url, CachedSemanticTokens>>>,
     //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
 }
 
@@ -145,6 +148,14 @@ fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     for child in parent.value().children.lock().unwrap().iter() {
         gather_tasks(child, tasklines);
     }
+}
+
+/// Cached semantic tokens for delta computation
+#[derive(Debug, Clone)]
+struct CachedSemanticTokens {
+    result_id: String,
+    tokens: Vec<SemanticToken>,
+    document_version: i32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
@@ -267,9 +278,17 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
     None
 }
 
+/// Generate a result_id for semantic tokens based on URI and version
+fn generate_result_id(uri: &Url, version: i32) -> String {
+    format!("{}:v{}", uri, version)
+}
+
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let uri = Repository::normalize_url_percent_encoding(&params.uri);
+
+        // Invalidate cached semantic tokens for this document
+        self.token_cache.lock().unwrap().remove(&uri);
 
         // Use repository's add_file_to_graph method which handles everything
         if let Ok(file_path) = uri.to_file_path() {
@@ -775,7 +794,7 @@ impl LanguageServer for Backend {
                                     token_modifiers: vec![],
                                 },
                                 range: Some(true),
-                                full: Some(SemanticTokensFullOptions::Bool(true)),
+                                full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
                             },
                             static_registration_options: StaticRegistrationOptions::default(),
                         },
@@ -1218,8 +1237,24 @@ impl LanguageServer for Backend {
             let ast = repo.ast_map.get(&uri)?;
             let data = get_semantic_tokens(ast.value());
 
+            // Generate result_id based on document version (use 0 if not available)
+            let version = repo
+                .document_map
+                .get(&uri)
+                .map(|rope| rope.value().len_bytes() as i32)
+                .unwrap_or(0);
+            let result_id = generate_result_id(&uri, version);
+
+            // Cache the tokens for future delta requests
+            let cached = CachedSemanticTokens {
+                result_id: result_id.clone(),
+                tokens: data.clone(),
+                document_version: version,
+            };
+            self.token_cache.lock().unwrap().insert(uri.clone(), cached);
+
             Some(SemanticTokensResult::Tokens(SemanticTokens {
-                result_id: None,
+                result_id: Some(result_id),
                 data,
             }))
         }();
@@ -1248,6 +1283,102 @@ impl LanguageServer for Backend {
                 result_id: None,
                 data,
             }))
+        }();
+
+        Ok(result)
+    }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+
+        let result = || -> Option<SemanticTokensFullDeltaResult> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+
+            let ast = repo.ast_map.get(&uri)?;
+            let new_tokens = get_semantic_tokens(ast.value());
+
+            // Generate new result_id
+            let version = repo
+                .document_map
+                .get(&uri)
+                .map(|rope| rope.value().len_bytes() as i32)
+                .unwrap_or(0);
+            let new_result_id = generate_result_id(&uri, version);
+
+            // Check if we have cached tokens with the requested previous result_id
+            let cache_lock = self.token_cache.lock().unwrap();
+            let cached = cache_lock.get(&uri);
+
+            let delta_result = if let Some(cached_tokens) = cached {
+                if cached_tokens.result_id == params.previous_result_id {
+                    // Compute delta
+                    let edits = compute_semantic_tokens_delta(&cached_tokens.tokens, &new_tokens);
+
+                    // Drop cache lock before updating it
+                    drop(cache_lock);
+
+                    // Update cache with new tokens
+                    let new_cached = CachedSemanticTokens {
+                        result_id: new_result_id.clone(),
+                        tokens: new_tokens.clone(),
+                        document_version: version,
+                    };
+                    self.token_cache
+                        .lock()
+                        .unwrap()
+                        .insert(uri.clone(), new_cached);
+
+                    // Return delta
+                    Some(SemanticTokensFullDeltaResult::TokensDelta(
+                        SemanticTokensDelta {
+                            result_id: Some(new_result_id),
+                            edits,
+                        },
+                    ))
+                } else {
+                    // Previous result_id doesn't match, return full tokens
+                    drop(cache_lock);
+
+                    let new_cached = CachedSemanticTokens {
+                        result_id: new_result_id.clone(),
+                        tokens: new_tokens.clone(),
+                        document_version: version,
+                    };
+                    self.token_cache
+                        .lock()
+                        .unwrap()
+                        .insert(uri.clone(), new_cached);
+
+                    Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                        result_id: Some(new_result_id),
+                        data: new_tokens,
+                    }))
+                }
+            } else {
+                // No cached tokens, return full tokens
+                drop(cache_lock);
+
+                let new_cached = CachedSemanticTokens {
+                    result_id: new_result_id.clone(),
+                    tokens: new_tokens.clone(),
+                    document_version: version,
+                };
+                self.token_cache
+                    .lock()
+                    .unwrap()
+                    .insert(uri.clone(), new_cached);
+
+                Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                    result_id: Some(new_result_id),
+                    data: new_tokens,
+                }))
+            };
+
+            delta_result
         }();
 
         Ok(result)
@@ -1736,15 +1867,13 @@ async fn main() {
     let stdout = tokio::io::stdout();
 
     let shared_catalog = paper_catalog.clone();
-    let (service, socket) = LspService::new(move |client| {
-        let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
-        Backend {
-            client,
-            repository,
-            root_uri: Arc::new(Mutex::new(None)),
-            paper_catalog: shared_catalog.clone(),
-            settings: Arc::new(Mutex::new(PattoSettings::default())),
-        }
+    let (service, socket) = LspService::new(move |client| Backend {
+        client,
+        repository: Arc::new(Mutex::new(None)),
+        root_uri: Arc::new(Mutex::new(None)),
+        paper_catalog: shared_catalog.clone(),
+        settings: Arc::new(Mutex::new(PattoSettings::default())),
+        token_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
     });
     log::info!("Patto Language Server Protocol started");
     Server::new(stdin, stdout, socket).serve(service).await;
