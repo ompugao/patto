@@ -32,8 +32,13 @@ pub fn assert_has_file_rename(changes: &Value, old_name: &str, new_name: &str) -
     if let Some(array) = changes.as_array() {
         for change in array {
             if change.get("kind").and_then(|v| v.as_str()) == Some("rename") {
-                let old_uri = change.get("oldUri").and_then(|v| v.as_str()).unwrap_or("");
-                let new_uri = change.get("newUri").and_then(|v| v.as_str()).unwrap_or("");
+                let old_uri_raw = change.get("oldUri").and_then(|v| v.as_str()).unwrap_or("");
+                let new_uri_raw = change.get("newUri").and_then(|v| v.as_str()).unwrap_or("");
+
+                let old_uri = urlencoding::decode(old_uri_raw)
+                    .unwrap_or(std::borrow::Cow::Borrowed(old_uri_raw));
+                let new_uri = urlencoding::decode(new_uri_raw)
+                    .unwrap_or(std::borrow::Cow::Borrowed(new_uri_raw));
 
                 if old_uri.contains(old_name) && new_uri.contains(new_name) {
                     return true;

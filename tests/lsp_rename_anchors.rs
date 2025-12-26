@@ -587,12 +587,19 @@ async fn test_multibyte_note_and_anchor_rename() {
     // "Link to [" is 9 characters (ASCII)
     let response = client.rename(uri_src.clone(), 0, 9, "メモ").await;
 
+    assert!(!response["result"].is_null(), "Note rename result is null");
     assert!(
         response.get("result").is_some(),
         "Note rename failed: {:?}",
         response
     );
     let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify file rename
+    assert!(
+        assert_has_file_rename(doc_changes, "ノート.pn", "メモ.pn"),
+        "File rename not found in changes"
+    );
 
     // Verify reference update
     assert!(
@@ -604,6 +611,10 @@ async fn test_multibyte_note_and_anchor_rename() {
     // "Content\n#セクション\n" -> Line 1, char 1 (after '#')
     let response = client.rename(uri_note.clone(), 1, 1, "部分").await;
 
+    assert!(
+        !response["result"].is_null(),
+        "Anchor rename result is null"
+    );
     assert!(
         response.get("result").is_some(),
         "Anchor rename failed: {:?}",
@@ -626,4 +637,245 @@ async fn test_multibyte_note_and_anchor_rename() {
     );
 
     println!("✅ Multi-byte note and anchor rename test passed");
+}
+
+#[tokio::test]
+async fn test_multibyte_long_rename() {
+    let mut workspace = TestWorkspace::new();
+    let note_name = "長い日本語のファイル名_1234567890";
+    let anchor_name = "長いアンカー名_section_with_emoji_🧩";
+
+    // Note A refers to Note B with anchor
+    let content_a = format!("Link to [{note_name}#{anchor_name}]\n");
+    workspace.create_file("source.pn", &content_a);
+
+    // Note B definition
+    let content_b = format!("Content\n#{anchor_name}\nMore Content\n");
+    let note_path = workspace.create_file(&format!("{}.pn", note_name), &content_b);
+
+    assert!(note_path.exists(), "Note file was not created");
+
+    let mut client = LspTestClient::new(&workspace).await;
+    client.initialize().await;
+    client.initialized().await;
+
+    let uri_src = workspace.get_uri("source.pn");
+    let uri_note = workspace.get_uri(&format!("{}.pn", note_name));
+
+    client.did_open(uri_src.clone(), content_a.clone()).await;
+    client.did_open(uri_note.clone(), content_b.clone()).await;
+
+    // Wait for workspace scan
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    // 1. Rename Note from "source.pn"
+    // "Link to [" is 9 bytes/chars (ASCII)
+    // Cursor at 10 (first char of name) to be safe.
+    let new_note_name = "さらに長い新しい日本語のファイル名_modified_🚀";
+
+    let response = client.rename(uri_src.clone(), 0, 10, new_note_name).await;
+
+    assert!(
+        !response["result"].is_null(),
+        "Long note rename result is null"
+    );
+    assert!(
+        response.get("result").is_some(),
+        "Long note rename failed: {:?}",
+        response
+    );
+    let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify file rename
+    assert!(
+        assert_has_file_rename(
+            doc_changes,
+            &format!("{}.pn", note_name),
+            &format!("{}.pn", new_note_name)
+        ),
+        "File rename not found for long note name"
+    );
+
+    // Verify reference update
+    assert!(
+        assert_has_text_edit(
+            doc_changes,
+            "source.pn",
+            &format!("[{new_note_name}#{anchor_name}]")
+        ),
+        "Link to long note not updated correctly"
+    );
+
+    // 2. Rename Anchor must track the rename conceptually but here we operate on old state unless we apply edits.
+    let new_anchor_name = "変更されたアンカー_truncated";
+    let response = client.rename(uri_note.clone(), 1, 1, new_anchor_name).await;
+
+    assert!(
+        !response["result"].is_null(),
+        "Long anchor rename result is null"
+    );
+    let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify definition update
+    assert!(
+        assert_has_text_edit(
+            doc_changes,
+            &format!("{}.pn", note_name),
+            &format!("#{new_anchor_name}")
+        ),
+        "Long anchor definition not updated"
+    );
+
+    // Verify reference update
+    assert!(
+        assert_has_text_edit(
+            doc_changes,
+            "source.pn",
+            &format!("[{note_name}#{new_anchor_name}]")
+        ),
+        "Link to long anchor not updated"
+    );
+
+    println!("✅ Long multi-byte note and anchor rename test passed");
+}
+
+#[tokio::test]
+async fn test_multiline_content_rename() {
+    let mut workspace = TestWorkspace::new();
+
+    // Create a note with multiple lines and sections
+    let note_name = "multiline_note";
+    let anchor_name = "target_section";
+    let mut note_content = String::new();
+    note_content.push_str("# Multiline Note Title\n\n");
+    for i in 1..15 {
+        note_content.push_str(&format!("This is line {} of padding text.\n", i));
+    }
+    note_content.push_str(&format!("#{}\n", anchor_name));
+    note_content.push_str("Content of the target section.\n");
+    for i in 16..30 {
+        note_content.push_str(&format!("This is footer line {}.\n", i));
+    }
+
+    workspace.create_file(&format!("{}.pn", note_name), &note_content);
+
+    // Create source file ensuring link is in the middle
+    let mut src_content = String::new();
+    src_content.push_str("# Source Content\n");
+    for i in 1..10 {
+        src_content.push_str(&format!("Source padding line {}.\n", i));
+    }
+    // Line 10 (0-indexed) will be the link
+    // "Check " is 6 chars. `[` is at 6. Name starts at 7.
+    let link_line_prefix = "Check ";
+    src_content.push_str(&format!(
+        "Check [{}#{}] for details.\n",
+        note_name, anchor_name
+    ));
+
+    for i in 11..20 {
+        src_content.push_str(&format!("Source footer line {}.\n", i));
+    }
+
+    workspace.create_file("source.pn", &src_content);
+
+    let mut client = LspTestClient::new(&workspace).await;
+    client.initialize().await;
+    client.initialized().await;
+
+    let uri_src = workspace.get_uri("source.pn");
+    client.did_open(uri_src.clone(), src_content).await;
+
+    // Wait for scanning
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    // 1. Rename the Note
+    // Cursor position: Line 10 (0-indexed).
+    // Intro lines: Heading(1) + 9 lines (1..10) = 10 lines. Indices 0..9.
+    // So link is at line 10 (index 10).
+    // Col: "Check " length is 6. `[` is 6. Name starts at 7.
+    let rename_col = link_line_prefix.len() + 1; // 7
+    let new_note_name = "renamed_multiline_note";
+
+    let response = client
+        .rename(uri_src.clone(), 10, rename_col as u32, new_note_name)
+        .await;
+
+    assert!(!response["result"].is_null(), "Note rename result is null");
+    let doc_changes = &response["result"]["documentChanges"];
+
+    // Verify file rename
+    assert!(
+        assert_has_file_rename(
+            doc_changes,
+            &format!("{}.pn", note_name),
+            &format!("{}.pn", new_note_name)
+        ),
+        "File rename failed"
+    );
+
+    // Verify text edit in source
+    assert!(
+        assert_has_text_edit(
+            doc_changes,
+            "source.pn",
+            &format!("[{new_note_name}#{anchor_name}]")
+        ),
+        "Link text update failed for note rename"
+    );
+
+    // 2. Rename the Anchor
+    let new_anchor_name = "renamed_section";
+    // Renaming anchor from reference is not supported by the server yet.
+    // We must rename from the definition.
+
+    // Open the note file
+    let uri_note = workspace.get_uri(&format!("{}.pn", note_name));
+    client.did_open(uri_note.clone(), note_content).await;
+
+    // Anchor definition is at line 16.
+    // "#target_section"
+    // # is 0. Name starts at 1.
+    let anchor_def_line = 16;
+    let anchor_def_col = 1;
+
+    // Wait a bit to ensure note is processed (though did_open should be fast)
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let response_anchor = client
+        .rename(
+            uri_note.clone(),
+            anchor_def_line,
+            anchor_def_col,
+            new_anchor_name,
+        )
+        .await;
+
+    assert!(
+        !response_anchor["result"].is_null(),
+        "Anchor rename result is null"
+    );
+    let doc_changes_anchor = &response_anchor["result"]["documentChanges"];
+
+    // Verify definition update in note file
+    assert!(
+        assert_has_text_edit(
+            doc_changes_anchor,
+            &format!("{}.pn", note_name),
+            &format!("#{new_anchor_name}")
+        ),
+        "Anchor definition update failed"
+    );
+
+    // Verify usage update in source file
+    assert!(
+        assert_has_text_edit(
+            doc_changes_anchor,
+            "source.pn",
+            &format!("[{note_name}#{new_anchor_name}]")
+        ),
+        "Anchor usage update failed"
+    );
+
+    println!("✅ Multiline content rename test passed");
 }

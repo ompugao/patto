@@ -106,7 +106,7 @@ property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
 trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor | expr_task))+ }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
-anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
+anchor = @{ (!(WHITE_SPACE_INLINE | "}" | "]" | "\r" | "\n") ~ ANY)+ }
 expr_task = ${ (symbol_task_done | symbol_task_doing | symbol_task_todo ) ~ task_due }
 symbol_task_done = @{"-"}
 symbol_task_doing = @{"*"}
