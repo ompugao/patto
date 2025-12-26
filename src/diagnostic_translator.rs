@@ -328,7 +328,8 @@ fn is_property_rule(rule: Rule) -> bool {
         rule,
         Rule::expr_property
             | Rule::property_name
-            | Rule::property_arg
+            | Rule::property_positional_arg
+            | Rule::property_keyword_pair
             | Rule::property_keyword_arg
             | Rule::property_keyword_value
             | Rule::trailing_properties

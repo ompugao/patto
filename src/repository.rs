@@ -189,7 +189,8 @@ impl Repository {
                 )
                 .as_str(),
             );
-            Some(Self::normalize_url_percent_encoding(&linkuri))
+            let normalized = Self::normalize_url_percent_encoding(&linkuri);
+            Some(normalized)
         } else {
             None
         }

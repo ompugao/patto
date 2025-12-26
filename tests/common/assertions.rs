@@ -6,7 +6,9 @@ pub fn assert_has_text_edit(changes: &Value, file_name: &str, expected_text: &st
         for change in array {
             if let Some(text_doc) = change.get("textDocument") {
                 if let Some(uri) = text_doc.get("uri").and_then(|v| v.as_str()) {
-                    if uri.contains(file_name) {
+                    let decoded_uri =
+                        urlencoding::decode(uri).unwrap_or(std::borrow::Cow::Borrowed(uri));
+                    if decoded_uri.contains(file_name) {
                         if let Some(edits) = change.get("edits").and_then(|v| v.as_array()) {
                             for edit in edits {
                                 if let Some(new_text) = edit.get("newText").and_then(|v| v.as_str())
@@ -30,8 +32,13 @@ pub fn assert_has_file_rename(changes: &Value, old_name: &str, new_name: &str) -
     if let Some(array) = changes.as_array() {
         for change in array {
             if change.get("kind").and_then(|v| v.as_str()) == Some("rename") {
-                let old_uri = change.get("oldUri").and_then(|v| v.as_str()).unwrap_or("");
-                let new_uri = change.get("newUri").and_then(|v| v.as_str()).unwrap_or("");
+                let old_uri_raw = change.get("oldUri").and_then(|v| v.as_str()).unwrap_or("");
+                let new_uri_raw = change.get("newUri").and_then(|v| v.as_str()).unwrap_or("");
+
+                let old_uri = urlencoding::decode(old_uri_raw)
+                    .unwrap_or(std::borrow::Cow::Borrowed(old_uri_raw));
+                let new_uri = urlencoding::decode(new_uri_raw)
+                    .unwrap_or(std::borrow::Cow::Borrowed(new_uri_raw));
 
                 if old_uri.contains(old_name) && new_uri.contains(new_name) {
                     return true;

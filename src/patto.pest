@@ -95,16 +95,18 @@ expr_math_inline = ${ "[$" ~ WHITE_SPACE_INLINE* ~ math_inline ~ "$]" }
 math_inline = @{ math_inline_char* }
 math_inline_char = _{ !"$]" ~ ANY }
 
-expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ property_keyword_arg ~ "=" ~ property_keyword_value)* ~ "}" }
-//expr_property = ${ "{@" ~ property_name ~ ( WHITE_SPACE_INLINE+ ~ _property_arg  )* ~ "}" }
+// Property syntax: {@name arg1 key=value ...}
+// Supports both positional args and keyword args
+expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ (property_keyword_pair | property_positional_arg))* ~ "}" }
 property_name = @{ ASCII_ALPHANUMERIC+ }
-property_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_pair = ${ property_keyword_arg ~ "=" ~ property_keyword_value }
+property_positional_arg = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
 property_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
 trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor | expr_task))+ }  // ignore white spaces
 expr_anchor = ${ "#" ~ anchor }
-anchor = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
+anchor = @{ (!(WHITE_SPACE_INLINE | "}" | "]" | "\r" | "\n") ~ ANY)+ }
 expr_task = ${ (symbol_task_done | symbol_task_doing | symbol_task_todo ) ~ task_due }
 symbol_task_done = @{"-"}
 symbol_task_doing = @{"*"}

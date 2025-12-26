@@ -1293,6 +1293,17 @@ fn transform_mail_link<'a>(
     }
 }
 
+/// Helper to parse deadline strings
+fn parse_deadline(value: &str) -> Deadline {
+    if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
+        Deadline::DateTime(datetime)
+    } else if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        Deadline::Date(date)
+    } else {
+        Deadline::Uninterpretable(value.to_string())
+    }
+}
+
 fn transform_property(
     pair: Pair<Rule>,
     input: &str,
@@ -1317,60 +1328,98 @@ fn transform_property(
         Rule::expr_property => {
             let mut inner = pair.into_inner();
             let property_name = inner.next().unwrap().as_str();
-            if property_name != "task" {
-                log::warn!("Unknown property: {}", property_name);
-                return None;
-            }
 
-            let mut status = TaskStatus::Todo;
-            let mut due = Deadline::Uninterpretable("".to_string());
-            let mut current_key = "";
-            for kv in inner {
-                match kv.as_rule() {
-                    Rule::property_keyword_arg => {
-                        current_key = kv.as_str();
-                    }
-                    Rule::property_keyword_value => {
-                        let value = kv.as_str();
-                        if current_key == "status" {
-                            if value == "todo" {
-                                status = TaskStatus::Todo;
-                            } else if value == "doing" {
-                                status = TaskStatus::Doing;
-                            } else if value == "done" {
-                                status = TaskStatus::Done;
-                            } else {
-                                log::warn!(
-                                    "Unknown task status: '{}', interpreted as 'todo'",
-                                    value
-                                );
-                            }
-                        } else if current_key == "due" {
-                            if let Ok(datetime) =
-                                chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M")
-                            {
-                                due = Deadline::DateTime(datetime);
-                            } else if let Ok(date) =
-                                chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
-                            {
-                                due = Deadline::Date(date);
-                            } else {
-                                due = Deadline::Uninterpretable(value.to_string());
-                            }
-                        } else {
-                            log::warn!("Unknown property value: {}", value);
-                        }
-                    }
-                    _ => {
-                        unreachable!();
+            match property_name {
+                "anchor" => {
+                    // Long form anchor: {@anchor name}
+                    // Expect one positional argument (the anchor name)
+                    let anchor_name = inner.next().map(|p| p.as_str().to_string());
+                    if let Some(name) = anchor_name {
+                        Some(Property::Anchor { name, location })
+                    } else {
+                        log::warn!("Anchor property missing name");
+                        None
                     }
                 }
+                "task" => {
+                    // Task property: {@task status=todo due=2024-12-31}
+                    let mut status = TaskStatus::Todo;
+                    let mut due = Deadline::Uninterpretable("".to_string());
+                    let mut current_key = "";
+
+                    for kv in inner {
+                        match kv.as_rule() {
+                            Rule::property_keyword_pair => {
+                                // Parse key=value pair
+                                let mut pair_inner = kv.into_inner();
+                                let key = pair_inner.next().unwrap().as_str();
+                                let value = pair_inner.next().unwrap().as_str();
+
+                                if key == "status" {
+                                    status = match value {
+                                        "todo" => TaskStatus::Todo,
+                                        "doing" => TaskStatus::Doing,
+                                        "done" => TaskStatus::Done,
+                                        _ => {
+                                            log::warn!(
+                                                "Unknown task status: '{}', interpreted as 'todo'",
+                                                value
+                                            );
+                                            TaskStatus::Todo
+                                        }
+                                    };
+                                } else if key == "due" {
+                                    due = parse_deadline(value);
+                                } else {
+                                    log::warn!("Unknown task property key: {}", key);
+                                }
+                            }
+                            Rule::property_keyword_arg => {
+                                current_key = kv.as_str();
+                            }
+                            Rule::property_keyword_value => {
+                                let value = kv.as_str();
+                                if current_key == "status" {
+                                    status = match value {
+                                        "todo" => TaskStatus::Todo,
+                                        "doing" => TaskStatus::Doing,
+                                        "done" => TaskStatus::Done,
+                                        _ => {
+                                            log::warn!(
+                                                "Unknown task status: '{}', interpreted as 'todo'",
+                                                value
+                                            );
+                                            TaskStatus::Todo
+                                        }
+                                    };
+                                } else if current_key == "due" {
+                                    due = parse_deadline(value);
+                                } else {
+                                    log::warn!("Unknown task property value: {}", value);
+                                }
+                            }
+                            Rule::property_positional_arg => {
+                                log::warn!(
+                                    "Unexpected positional arg in task property: {}",
+                                    kv.as_str()
+                                );
+                            }
+                            _ => {
+                                log::warn!("Unexpected rule in task property: {:?}", kv.as_rule());
+                            }
+                        }
+                    }
+                    Some(Property::Task {
+                        status,
+                        due,
+                        location,
+                    })
+                }
+                _ => {
+                    log::warn!("Unknown property: {}", property_name);
+                    None
+                }
             }
-            Some(Property::Task {
-                status,
-                due,
-                location,
-            })
         }
         Rule::expr_task => {
             let mut inner = pair.into_inner();
@@ -1382,15 +1431,7 @@ fn transform_property(
                 _ => unreachable!(),
             };
             let due_str = inner.as_str();
-            let due = if let Ok(datetime) =
-                chrono::NaiveDateTime::parse_from_str(due_str, "%Y-%m-%dT%H:%M")
-            {
-                Deadline::DateTime(datetime)
-            } else if let Ok(date) = chrono::NaiveDate::parse_from_str(due_str, "%Y-%m-%d") {
-                Deadline::Date(date)
-            } else {
-                Deadline::Uninterpretable(due_str.to_string())
-            };
+            let due = parse_deadline(due_str);
             Some(Property::Task {
                 status,
                 due,
@@ -1688,6 +1729,69 @@ mod tests {
         // } else {
         //     panic!("anchor3 is not extracted properly");
         // };
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_anchor_long_form() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "{@anchor myanchor}";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+
+        assert_eq!(props.len(), 1, "Should have one anchor property");
+        if let Property::Anchor {
+            ref name,
+            ref location,
+        } = props[0]
+        {
+            assert_eq!(name, "myanchor");
+            // The location should cover the entire {@anchor myanchor} span
+            assert_eq!(location.span.0, 0);
+            assert_eq!(location.span.1, input.len());
+        } else {
+            panic!("Expected anchor property");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_anchor_long_form_trailing() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "Some text {@anchor section1}";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+
+        // Should have text node and anchor property
+        assert_eq!(nodes.len(), 1, "Should have one text node");
+        assert_eq!(props.len(), 1, "Should have one anchor property");
+
+        if let Property::Anchor { ref name, .. } = props[0] {
+            assert_eq!(name, "section1");
+        } else {
+            panic!("Expected anchor property");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_anchor_both_forms() -> Result<(), Box<dyn std::error::Error>> {
+        // Test that both short and long forms work in trailing position
+        let input = "Text #short {@anchor long1}";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+
+        assert_eq!(props.len(), 2, "Should have two anchor properties");
+
+        if let Property::Anchor { ref name, .. } = props[0] {
+            assert_eq!(name, "short");
+        } else {
+            panic!("Expected short anchor property");
+        }
+
+        if let Property::Anchor { ref name, .. } = props[1] {
+            assert_eq!(name, "long1");
+        } else {
+            panic!("Expected long anchor property");
+        }
         Ok(())
     }
 
