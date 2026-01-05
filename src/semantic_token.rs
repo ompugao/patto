@@ -158,7 +158,7 @@ fn collect_semantic_tokens(
                     line: row,
                     start,
                     length,
-                    token_type: TOKEN_TYPE_VARIABLE,
+                    token_type: TOKEN_TYPE_TYPE,
                 });
             }
             AstNodeKind::Quote => {
