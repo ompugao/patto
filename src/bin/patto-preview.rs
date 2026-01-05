@@ -243,7 +243,8 @@ impl PreviewLspBackend {
         let debouncer = self.debouncer.clone();
         let repository = self.repository.clone();
 
-        let (flush_now, should_schedule, debounce_ms) = debouncer.lock().unwrap().queue(&path, text);
+        let (flush_now, should_schedule, debounce_ms) =
+            debouncer.lock().unwrap().queue(&path, text);
 
         if let Some(text) = flush_now {
             // Immediate flush - enough time passed since last flush
