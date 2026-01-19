@@ -3,9 +3,7 @@
 use crate::gcal::auth::get_access_token;
 use crate::gcal::config::GcalConfig;
 use crate::gcal::event_mapper::{task_to_event, PattoTask};
-use crate::gcal::state::{
-    create_fingerprint, similarity, MatchConfidence, SyncState, SyncedTask,
-};
+use crate::gcal::state::{create_fingerprint, similarity, MatchConfidence, SyncState, SyncedTask};
 use crate::parser::{parse_text, AstNode, AstNodeKind, Property, TaskStatus};
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -46,7 +44,12 @@ impl GcalSync {
         let state = SyncState::load(&state_path).unwrap_or_default();
         let client = reqwest::Client::new();
 
-        Ok(Self { config, state, client, access_token })
+        Ok(Self {
+            config,
+            state,
+            client,
+            access_token,
+        })
     }
 
     /// Perform a full sync
@@ -143,10 +146,9 @@ impl GcalSync {
                                 stats.deleted += 1;
                             }
                             Err(e) => {
-                                stats.errors.push(format!(
-                                    "Failed to delete '{}': {}",
-                                    event_id, e
-                                ));
+                                stats
+                                    .errors
+                                    .push(format!("Failed to delete '{}': {}", event_id, e));
                             }
                         }
                     }
@@ -255,7 +257,8 @@ impl GcalSync {
     /// Determine what sync actions need to be taken
     fn determine_actions(&self, tasks: &[PattoTask]) -> Result<Vec<SyncAction>> {
         let mut actions = Vec::new();
-        let mut matched_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut matched_hashes: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for task in tasks {
             let content_hash = &task.fingerprint.content_hash;
@@ -342,56 +345,64 @@ impl GcalSync {
 
     /// Create a new calendar event using reqwest
     async fn create_event(&self, task: &PattoTask) -> Result<String> {
-        log::info!("Creating event for task: {}", task.fingerprint.content_snippet);
+        log::info!(
+            "Creating event for task: {}",
+            task.fingerprint.content_snippet
+        );
         let event = task_to_event(task, &self.config);
-        
+
         let url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/{}/events",
             urlencoding::encode(&self.config.calendar_id)
         );
-        
-        let resp = self.client
+
+        let resp = self
+            .client
             .post(&url)
             .bearer_auth(&self.access_token)
             .json(&event)
             .send()
             .await
             .context("Failed to send create event request")?;
-        
+
         if !resp.status().is_success() {
             let error_text = resp.text().await.unwrap_or_default();
             anyhow::bail!("Failed to create event: {}", error_text);
         }
-        
-        let created: serde_json::Value = resp.json().await
+
+        let created: serde_json::Value = resp
+            .json()
+            .await
             .context("Failed to parse create event response")?;
-        
-        let event_id = created.get("id")
+
+        let event_id = created
+            .get("id")
             .and_then(|v| v.as_str())
             .context("Created event has no ID")?
             .to_string();
-        
+
         Ok(event_id)
     }
 
     /// Update an existing calendar event using reqwest
     async fn update_event(&self, event_id: &str, task: &PattoTask) -> Result<()> {
         let event = task_to_event(task, &self.config);
-        
+
         let url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/{}/events/{}",
             urlencoding::encode(&self.config.calendar_id),
             urlencoding::encode(event_id)
         );
-        
-        let resp = self.client
+
+        let resp = self
+            .client
             .put(&url)
             .bearer_auth(&self.access_token)
             .json(&event)
             .send()
             .await
             .context("Failed to send update event request")?;
-        
+
         if !resp.status().is_success() {
             let error_text = resp.text().await.unwrap_or_default();
             anyhow::bail!("Failed to update event: {}", error_text);
@@ -407,14 +418,15 @@ impl GcalSync {
             urlencoding::encode(&self.config.calendar_id),
             urlencoding::encode(event_id)
         );
-        
-        let resp = self.client
+
+        let resp = self
+            .client
             .delete(&url)
             .bearer_auth(&self.access_token)
             .send()
             .await
             .context("Failed to send delete event request")?;
-        
+
         if !resp.status().is_success() {
             let error_text = resp.text().await.unwrap_or_default();
             anyhow::bail!("Failed to delete event: {}", error_text);

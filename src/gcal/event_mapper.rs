@@ -44,7 +44,10 @@ pub fn task_to_event(task: &PattoTask, config: &GcalConfig) -> SimpleEvent {
         extended_properties: Some(SimpleExtendedProperties {
             private: {
                 let mut map = std::collections::HashMap::new();
-                map.insert("patto_hash".to_string(), task.fingerprint.content_hash.clone());
+                map.insert(
+                    "patto_hash".to_string(),
+                    task.fingerprint.content_hash.clone(),
+                );
                 map.insert("patto_file".to_string(), task.file_path.clone());
                 map.insert("patto_line".to_string(), task.line_number.to_string());
                 map
@@ -106,7 +109,7 @@ fn remove_deadline_marker(line: &str) -> String {
     if let Some(start_idx) = line.find("{@task") {
         if let Some(end_idx) = line.find('}') {
             let before = &line[..start_idx];
-            let after = &line[end_idx+1..];
+            let after = &line[end_idx + 1..];
             let result = format!("{}{}", before, after).trim().to_string();
             if !result.is_empty() {
                 return result;
@@ -160,7 +163,10 @@ fn format_event_description(task: &PattoTask, config: &GcalConfig) -> String {
     let mut description = String::new();
 
     if config.include_file_path {
-        description.push_str(&format!("📁 File: {}:{}\n\n", task.file_path, task.line_number));
+        description.push_str(&format!(
+            "📁 File: {}:{}\n\n",
+            task.file_path, task.line_number
+        ));
     }
 
     description.push_str(&task.content);
@@ -172,7 +178,10 @@ fn format_event_description(task: &PattoTask, config: &GcalConfig) -> String {
 }
 
 /// Format event start and end times
-fn format_event_time(task: &PattoTask, config: &GcalConfig) -> (SimpleEventDateTime, SimpleEventDateTime) {
+fn format_event_time(
+    task: &PattoTask,
+    config: &GcalConfig,
+) -> (SimpleEventDateTime, SimpleEventDateTime) {
     match &task.deadline {
         Deadline::DateTime(dt) => {
             // Convert NaiveDateTime to DateTime<Utc>
@@ -303,11 +312,6 @@ mod tests {
             "hoge  fuga"
         );
     }
-    
-
-
-
-
 
     #[test]
     fn test_remove_deadline_marker_no_marker() {

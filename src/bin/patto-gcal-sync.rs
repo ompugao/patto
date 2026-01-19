@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
             println!();
 
             let config = GcalConfig::load()?;
-            
+
             if config.client_id.is_none() || config.client_secret.is_none() {
                 println!("❌ Missing OAuth credentials!");
                 println!();
@@ -100,7 +100,10 @@ async fn main() -> Result<()> {
             let _auth = auth::authenticate_interactive(&config).await?;
             println!();
             println!("✅ Authentication successful!");
-            println!("Credentials saved to: {:?}", GcalConfig::credentials_path()?);
+            println!(
+                "Credentials saved to: {:?}",
+                GcalConfig::credentials_path()?
+            );
         }
 
         Commands::Sync { dry_run } => {
@@ -110,7 +113,7 @@ async fn main() -> Result<()> {
             }
 
             let config = GcalConfig::load()?;
-            
+
             if !auth::credentials_exist() {
                 println!("❌ Not authenticated!");
                 println!("Please run: patto-gcal-sync auth");
