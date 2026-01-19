@@ -13,34 +13,36 @@ local function parse_deadline(task)
     return "No Deadline", 9999999999
   end
   
-  -- Extract date from Deadline enum variants
-  local date_str = nil
+  -- Extract date/time from Deadline enum variants
+  local year, month, day, hour, min, sec
   if type(task.due) == "table" then
     if task.due.Date then
-      date_str = task.due.Date
+      year, month, day = string.match(task.due.Date, "^(%d+)%-(%d+)%-(%d+)")
+      hour, min, sec = 23, 59, 59  -- End of day for date-only deadlines
     elseif task.due.DateTime then
-      date_str = string.match(task.due.DateTime, "^%d+%-%d+%-%d+")
+      -- Parse ISO 8601 format: YYYY-MM-DDTHH:MM:SS
+      year, month, day, hour, min, sec = string.match(task.due.DateTime, "^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
+      if not hour then
+        -- Fallback: try without time component
+        year, month, day = string.match(task.due.DateTime, "^(%d+)%-(%d+)%-(%d+)")
+        hour, min, sec = 23, 59, 59
+      end
     elseif task.due.Uninterpretable then
       return "Uninterpretable", 9999999998
     end
   end
   
-  if not date_str then
-    return "Invalid Deadline", 9999999997
-  end
-  
-  -- Parse YYYY-MM-DD
-  local year, month, day = string.match(date_str, "^(%d+)%-(%d+)%-(%d+)")
   if not year then
     return "Invalid Deadline", 9999999997
   end
   
-  local due_time = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 23, min = 59, sec = 59})
+  local due_time = os.time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)})
   local now = os.time()
-  local today_start = os.time(os.date("*t", now))
+  local today = os.date("*t", now)
+  local today_start = os.time({year = today.year, month = today.month, day = today.day, hour = 0, min = 0, sec = 0})
+  local sort_key = due_time
   
   local diff_days = math.floor((due_time - today_start) / 86400)
-  local sort_key = due_time
   
   if diff_days < 0 then
     return "⚠️  Overdue", sort_key
@@ -48,13 +50,32 @@ local function parse_deadline(task)
     return "📅 Today", sort_key
   elseif diff_days == 1 then
     return "📆 Tomorrow", sort_key
-  elseif diff_days <= 7 then
-    return "📋 This Week", sort_key
-  elseif diff_days <= 30 then
-    return "📌 This Month", sort_key
-  else
-    return "📦 Later", sort_key
   end
+  
+  -- Calculate end of current calendar week (Saturday 23:59:59)
+  -- wday: 1=Sunday, 2=Monday, ..., 7=Saturday
+  local days_until_saturday = 7 - today.wday
+  local week_end = os.time({year = today.year, month = today.month, day = today.day + days_until_saturday, hour = 23, min = 59, sec = 59})
+  
+  if due_time <= week_end then
+    return "📋 This Week", sort_key
+  end
+  
+  -- Calculate end of current calendar month
+  local next_month_year = today.year
+  local next_month = today.month + 1
+  if next_month > 12 then
+    next_month = 1
+    next_month_year = next_month_year + 1
+  end
+  -- First day of next month minus 1 second = last moment of current month
+  local month_end = os.time({year = next_month_year, month = next_month, day = 1, hour = 0, min = 0, sec = 0}) - 1
+  
+  if due_time <= month_end then
+    return "📌 This Month", sort_key
+  end
+  
+  return "📦 Later", sort_key
 end
 
 ---@diagnostic disable-next-line: missing-fields
