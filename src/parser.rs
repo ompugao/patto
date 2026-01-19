@@ -188,7 +188,7 @@ impl Ord for Deadline {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TaskStatus {
     Todo,
     Doing,
@@ -758,10 +758,9 @@ pub fn parse_text(text: &str) -> ParserResult {
                     *last_nonempty_indent = indent;
                     indent
                 };
-
                 let parent: AstNode = find_parent_line(root.clone(), effective_indent)
                     .unwrap_or_else(|| {
-                        log::warn!("Failed to find parent, indent {indent}");
+                        log::debug!("Failed to find parent, indent {indent}");
                         errors.push(ParserError::InvalidIndentation(Location {
                             input: Arc::from(linetext),
                             row: iline,
@@ -1057,7 +1056,7 @@ fn transform_command<'a>(
                     if let Some(lang_part) = inner.next() {
                         lang = lang_part.as_str();
                     } else {
-                        log::warn!("No language specified for code block");
+                        log::debug!("No language specified for code block");
                     }
                     return Some(AstNode::code(line, row, Some(span), lang, false));
                 }

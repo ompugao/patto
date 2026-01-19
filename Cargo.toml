@@ -19,6 +19,7 @@ eula = false
 [features]
 default = ["zotero"]
 zotero = ["dep:zotero-rs"]
+gcal = ["dep:google-calendar3"]
 
 [dependencies]
 axum = { version = "0.7.4", features = ["ws"] }
@@ -46,6 +47,7 @@ serde_json = "1.0.128"
 simplelog = "0.12.2"
 str_indices = "0.4.4"
 thiserror = "1.0.63"
+time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1.17.0", features = ["full"] }
 toml = "0.8.19"
 tower-lsp = { version = "0.20.0", features = ["runtime-tokio", "proposed"]}
@@ -55,10 +57,18 @@ sha2 = "0.10.8"
 anyhow = "1.0.88"
 rand = "0.8.5"
 zotero-rs = { version = "0.2.5", optional = true }
+google-calendar3 = { version = "5.0.5", optional = true }
+dirs = "5.0"
+hex = "0.4"
+strsim = "0.11"
 
 [dev-dependencies]
 tempfile = "3.8"
 tokio-util = { version = "0.7", features = ["codec"] }
+
+[[bin]]
+name = "patto-gcal-sync"
+required-features = ["gcal"]
 
 # The profile that 'dist' will build with
 [profile.dist]

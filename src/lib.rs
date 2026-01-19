@@ -1,4 +1,6 @@
 pub mod diagnostic_translator;
+#[cfg(feature = "gcal")]
+pub mod gcal;
 pub mod importer;
 pub mod line_tracker;
 pub mod markdown;
