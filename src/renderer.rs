@@ -127,8 +127,7 @@ impl HtmlRenderer {
                 write!(output, "<blockquote>")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    self._format_impl(child, output)?;
-                    write!(output, "<br/>")?;
+                    self.render_quote_content_html(child, output, 0)?;
                 }
                 write!(output, "</blockquote>")?;
             }
@@ -328,6 +327,62 @@ impl HtmlRenderer {
                 write!(output, "</td>")?;
             }
         }
+        Ok(())
+    }
+
+    /// Render quote content with visual indentation using margin-left
+    fn render_quote_content_html(
+        &self,
+        quote_content: &AstNode,
+        output: &mut dyn Write,
+        indent_level: usize,
+    ) -> io::Result<()> {
+        // Check if this contains a nested Quote block
+        let contents = quote_content.value().contents.lock().unwrap();
+        let has_nested_quote = contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
+
+        if has_nested_quote {
+            // Render the nested quote as a nested blockquote
+            for content in contents.iter() {
+                if let AstNodeKind::Quote = content.kind() {
+                    self._format_impl(content, output)?;
+                } else {
+                    self._format_impl(content, output)?;
+                }
+            }
+            drop(contents);
+        } else {
+            // Render with indentation if needed
+            if indent_level > 0 {
+                write!(output, "<div style=\"margin-left: {}em\">", indent_level * 2)?;
+            } else {
+                write!(output, "<div>")?;
+            }
+
+            for content in contents.iter() {
+                self._format_impl(content, output)?;
+            }
+            drop(contents);
+
+            write!(output, "</div>")?;
+        }
+
+        // Render children (nested QuoteContent) with increased indent
+        let children = quote_content.value().children.lock().unwrap();
+        for child in children.iter() {
+            if let AstNodeKind::QuoteContent { .. } = child.kind() {
+                self.render_quote_content_html(child, output, indent_level + 1)?;
+            } else {
+                if indent_level > 0 {
+                    write!(output, "<div style=\"margin-left: {}em\">", indent_level * 2)?;
+                    self._format_impl(child, output)?;
+                    write!(output, "</div>")?;
+                } else {
+                    self._format_impl(child, output)?;
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -546,14 +601,8 @@ impl MarkdownRenderer {
                 }
             }
             AstNodeKind::Quote => {
-                let children = ast.value().children.lock().unwrap();
-                for child in children.iter() {
-                    for _ in 0..depth {
-                        write!(output, "  ")?;
-                    }
-                    write!(output, "> ")?;
-                    self._format_impl(child, output, depth, true)?;
-                }
+                // Render quote children with a helper to track inner indentation
+                self.render_quote_children(ast, output, depth, 0)?;
             }
             AstNodeKind::Math { inline } => {
                 if *inline {
@@ -730,6 +779,172 @@ impl MarkdownRenderer {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Helper to render quote children with nested indentation levels
+    /// `inner_depth` tracks nesting level inside the quote for visual indentation
+    fn render_quote_children(
+        &self,
+        quote: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        inner_depth: usize,
+    ) -> io::Result<()> {
+        let children = quote.value().children.lock().unwrap();
+        for child in children.iter() {
+            match child.kind() {
+                AstNodeKind::QuoteContent { .. } => {
+                    self.render_quote_content(child, output, depth, inner_depth)?;
+                }
+                _ => {
+                    // Other children (shouldn't happen normally but handle gracefully)
+                    for _ in 0..depth {
+                        write!(output, "  ")?;
+                    }
+                    write!(output, "> ")?;
+                    self._format_impl(child, output, depth, true)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Render a QuoteContent node with proper visual indentation
+    fn render_quote_content(
+        &self,
+        quote_content: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        inner_depth: usize,
+    ) -> io::Result<()> {
+        // Output the "> " prefix with outer depth indentation
+        for _ in 0..depth {
+            write!(output, "  ")?;
+        }
+        write!(output, "> ")?;
+
+        // Add visual indentation for inner depth (spaces after ">")
+        for _ in 0..inner_depth {
+            write!(output, "    ")?;  // 4 spaces per indent level
+        }
+
+        // Check if this is a nested Quote block
+        let contents = quote_content.value().contents.lock().unwrap();
+        let has_nested_quote = contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
+
+        if has_nested_quote {
+            // For nested quotes, we need to output with extra "> " markers
+            drop(contents);
+            let contents = quote_content.value().contents.lock().unwrap();
+            for content in contents.iter() {
+                if let AstNodeKind::Quote = content.kind() {
+                    writeln!(output)?; // End the current line
+                    // Render nested quote with extra "> " marker
+                    self.render_nested_quote(content, output, depth, inner_depth + 1)?;
+                } else {
+                    self._format_impl(content, output, depth, true)?;
+                }
+            }
+        } else {
+            // Regular content
+            for content in contents.iter() {
+                self._format_impl(content, output, depth, true)?;
+            }
+            drop(contents);
+
+            // End the line
+            let properties = if let AstNodeKind::QuoteContent { properties } = quote_content.kind() {
+                properties
+            } else {
+                &vec![]
+            };
+
+            if !properties.is_empty() {
+                // We already output newline in _format_impl for lines with properties
+            }
+            writeln!(output)?;
+        }
+
+        // Render children (nested QuoteContent) with increased inner_depth
+        let children = quote_content.value().children.lock().unwrap();
+        for child in children.iter() {
+            if let AstNodeKind::QuoteContent { .. } = child.kind() {
+                self.render_quote_content(child, output, depth, inner_depth + 1)?;
+            } else {
+                // Other children
+                for _ in 0..depth {
+                    write!(output, "  ")?;
+                }
+                write!(output, "> ")?;
+                for _ in 0..inner_depth {
+                    write!(output, "    ")?;
+                }
+                self._format_impl(child, output, depth, true)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Render a nested Quote block using nested blockquote syntax (> >)
+    fn render_nested_quote(
+        &self,
+        quote: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        quote_level: usize,
+    ) -> io::Result<()> {
+        let children = quote.value().children.lock().unwrap();
+        for child in children.iter() {
+            if let AstNodeKind::QuoteContent { .. } = child.kind() {
+                self.render_nested_quote_content(child, output, depth, quote_level)?;
+            } else {
+                for _ in 0..depth {
+                    write!(output, "  ")?;
+                }
+                for _ in 0..=quote_level {
+                    write!(output, "> ")?;
+                }
+                self._format_impl(child, output, depth, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Render QuoteContent in a nested quote context
+    fn render_nested_quote_content(
+        &self,
+        quote_content: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+        quote_level: usize,
+    ) -> io::Result<()> {
+        // Output nested "> >" prefix
+        for _ in 0..depth {
+            write!(output, "  ")?;
+        }
+        for _ in 0..=quote_level {
+            write!(output, "> ")?;
+        }
+
+        // Render contents
+        let contents = quote_content.value().contents.lock().unwrap();
+        for content in contents.iter() {
+            self._format_impl(content, output, depth, true)?;
+        }
+        drop(contents);
+
+        writeln!(output)?;
+
+        // Render children
+        let children = quote_content.value().children.lock().unwrap();
+        for child in children.iter() {
+            if let AstNodeKind::QuoteContent { .. } = child.kind() {
+                self.render_nested_quote_content(child, output, depth, quote_level)?;
+            }
+        }
+
         Ok(())
     }
 }

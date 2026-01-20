@@ -226,12 +226,9 @@ mod markdown_indentation {
             line1_prefix_len, nested_prefix_len
         );
 
-        // TODO: After implementation, enable this assertion:
-        // assert!(nested_prefix_len > line1_prefix_len,
-        //     "Nested line should have more visual indentation");
-
-        // For now, just document that they're currently equal (broken)
-        // This will fail after the fix is applied
+        // Nested line should have more visual indentation
+        assert!(nested_prefix_len > line1_prefix_len,
+            "Nested line should have more visual indentation");
     }
 
     #[test]
@@ -256,9 +253,9 @@ mod markdown_indentation {
 
         println!("L1 prefix: {}, L2 prefix: {}, L3 prefix: {}", l1_prefix, l2_prefix, l3_prefix);
 
-        // TODO: After implementation:
-        // assert!(l2_prefix > l1_prefix, "L2 should be more indented than L1");
-        // assert!(l3_prefix > l2_prefix, "L3 should be more indented than L2");
+        // Each level should be more indented than the previous
+        assert!(l2_prefix > l1_prefix, "L2 should be more indented than L1");
+        assert!(l3_prefix > l2_prefix, "L3 should be more indented than L2");
     }
 }
 
@@ -288,13 +285,12 @@ mod html_indentation {
 
         // After fix: nested content should have margin-left or similar
         // Expected: <div style="margin-left: 2em">Nested line</div>
-        // Current (broken): just "Nested line" with tab character
 
-        // TODO: After implementation, enable this:
-        // assert!(output.contains("margin-left") || output.contains("class=\"indent\""),
-        //     "Nested content should have visual indentation in HTML");
+        // Nested content should have visual indentation in HTML
+        assert!(output.contains("margin-left") || output.contains("class=\"indent\""),
+            "Nested content should have visual indentation in HTML");
 
-        // For now, just check the content is there
+        // Content should also be present
         assert!(output.contains("Nested line"), "Should contain nested line");
     }
 }
@@ -314,11 +310,11 @@ mod nested_quote_blocks {
         println!("Input:\n{}", input);
         println!("Output:\n{}", output);
 
-        // TODO: After implementation, this should round-trip exactly
-        // Currently, [@quote] inside quote is parsed as WikiLink
-
-        // For now, just check it doesn't crash
-        assert!(!output.is_empty());
+        // After implementation, this should round-trip exactly
+        // Currently, [@quote] inside quote is parsed and handled
+        assert!(output.contains("[@quote]"), "Should contain outer quote");
+        assert!(output.contains("Outer line"), "Should contain outer line");
+        assert!(output.contains("Inner line"), "Should contain inner line");
     }
 
     #[test]
@@ -332,9 +328,9 @@ mod nested_quote_blocks {
         // > Outer line
         // > > Inner line
 
-        // TODO: After implementation:
-        // assert!(output.contains("> >") || output.contains(">>"),
-        //     "Should have nested blockquote markers");
+        // Should have nested blockquote markers
+        assert!(output.contains("> >") || output.contains(">>"),
+            "Should have nested blockquote markers");
     }
 
     #[test]
