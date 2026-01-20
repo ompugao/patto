@@ -2,7 +2,7 @@
 
 use crate::gcal::config::GcalConfig;
 use crate::gcal::state::TaskFingerprint;
-use crate::parser::{Deadline, TaskStatus};
+use crate::parser::{Deadline, Span, TaskStatus};
 use chrono::{DateTime, TimeZone, Utc};
 
 /// Represents a Patto task ready for sync
@@ -14,7 +14,7 @@ pub struct PattoTask {
     /// Line number in the file (1-indexed)
     pub line_number: usize,
 
-    /// Full text content of the task
+    /// Full text content of the task (trimmed line)
     pub content: String,
 
     /// Task deadline
@@ -25,6 +25,9 @@ pub struct PattoTask {
 
     /// Task fingerprint for tracking
     pub fingerprint: TaskFingerprint,
+
+    /// Span of the task marker within the content (relative to trimmed content)
+    pub task_marker_span: Option<Span>,
 }
 
 /// Maps a Patto task to a Google Calendar event
@@ -93,8 +96,8 @@ fn format_event_title(task: &PattoTask, config: &GcalConfig) -> String {
     // Get first line of content, strip the deadline marker
     let first_line = task.content.lines().next().unwrap_or("").trim();
 
-    // Remove deadline markers like !2024-12-31 or *2024-12-31
-    let clean_title = remove_deadline_marker(first_line);
+    // Remove task marker using span if available, otherwise fall back to pattern matching
+    let clean_title = extract_clean_title(first_line, task.task_marker_span.as_ref());
 
     if config.event_prefix.is_empty() {
         clean_title
@@ -103,59 +106,29 @@ fn format_event_title(task: &PattoTask, config: &GcalConfig) -> String {
     }
 }
 
-/// Remove deadline marker from a line (can be at beginning or end)
-fn remove_deadline_marker(line: &str) -> String {
-    // Check for {@task ...} format - extract content before and after the block
-    if let Some(start_idx) = line.find("{@task") {
-        if let Some(end_idx) = line.find('}') {
-            let before = &line[..start_idx];
-            let after = &line[end_idx + 1..];
-            let result = format!("{}{}", before, after).trim().to_string();
+/// Extract clean title by removing task marker using span information
+fn extract_clean_title(line: &str, task_marker_span: Option<&Span>) -> String {
+    if let Some(span) = task_marker_span {
+        // Use parser-provided span to extract text before and after the marker
+        let start = span.0.min(line.len());
+        let end = span.1.min(line.len());
+
+        if start <= end && end <= line.len() {
+            let before = line[..start].trim_end();
+            let after = line[end..].trim_start();
+            let result = if !before.is_empty() && !after.is_empty() {
+                format!("{} {}", before, after)
+            } else {
+                format!("{}{}", before, after)
+            };
+            let result = result.trim().to_string();
             if !result.is_empty() {
                 return result;
             }
         }
     }
-
-    // Pattern: [!*-]YYYY-MM-DD or [!*-]YYYY-MM-DDTHH:MM:SS at beginning
-    if line.len() >= 11 {
-        let first_char = line.chars().next().unwrap_or(' ');
-        if matches!(first_char, '!' | '*' | '-') {
-            // Check if followed by date pattern
-            let rest = &line[1..];
-            if rest.len() >= 10
-                && rest.chars().take(4).all(|c| c.is_ascii_digit())
-                && rest.chars().nth(4) == Some('-')
-            {
-                // Find where the date ends
-                let date_end = if rest.len() >= 19 && rest.chars().nth(10) == Some('T') {
-                    19 // DateTime format
-                } else {
-                    10 // Date format
-                };
-
-                return rest[date_end..].trim().to_string();
-            }
-        }
-    }
-
-    // Pattern: [!*-]YYYY-MM-DD or [!*-]YYYY-MM-DDTHH:MM:SS at end
-    // Look for pattern like "Meeting !2024-12-31T14:00:00"
-    let date_markers = ['!', '*', '-'];
-    for marker in date_markers {
-        if let Some(marker_pos) = line.rfind(marker) {
-            let after_marker = &line[marker_pos + 1..];
-            if after_marker.len() >= 10
-                && after_marker.chars().take(4).all(|c| c.is_ascii_digit())
-                && after_marker.chars().nth(4) == Some('-')
-            {
-                // This looks like a date marker at the end
-                return line[..marker_pos].trim().to_string();
-            }
-        }
-    }
-
-    line.trim().to_string()
+    log::warn!("task span is not provided!");
+    return line.trim().to_string();
 }
 
 /// Format the event description
@@ -268,53 +241,28 @@ pub fn extract_patto_hash(event: &serde_json::Value) -> Option<String> {
 mod tests {
     use super::*;
 
+    // Test the span-based extraction (primary method)
     #[test]
-    fn test_remove_deadline_marker_short() {
+    fn test_extract_clean_title_with_span() {
+        // "!2024-12-31 Complete docs" - marker at start, span (0, 11)
         assert_eq!(
-            remove_deadline_marker("!2024-12-31 Complete docs"),
+            extract_clean_title("!2024-12-31 Complete docs", Some(&Span(0, 11))),
             "Complete docs"
         );
-        assert_eq!(
-            remove_deadline_marker("*2024-12-31 In progress"),
-            "In progress"
-        );
-        assert_eq!(remove_deadline_marker("-2024-12-31 Done"), "Done");
-    }
 
-    #[test]
-    fn test_remove_deadline_marker_datetime() {
+        // "Meeting {@task due=2024-12-31}" - marker at end, span (8, 30)
         assert_eq!(
-            remove_deadline_marker("Meeting !2024-12-31T14:00:00"),
+            extract_clean_title("Meeting {@task due=2024-12-31}", Some(&Span(8, 30))),
             "Meeting"
         );
-    }
 
-    #[test]
-    fn test_remove_deadline_marker_property_style() {
+        // "hoge {@task status=todo due=2026-01-19} fuga" - marker in middle
         assert_eq!(
-            remove_deadline_marker("Meeting {@task due=2024-12-31T14:00:00}"),
-            "Meeting"
+            extract_clean_title(
+                "hoge {@task status=todo due=2026-01-19} fuga",
+                Some(&Span(5, 39))
+            ),
+            "hoge fuga"
         );
-    }
-
-    #[test]
-    fn test_remove_deadline_marker_property_style2() {
-        assert_eq!(
-            remove_deadline_marker("Meeting {@task due=2024-12-31T14:00:00} 2"),
-            "Meeting  2"
-        );
-    }
-
-    #[test]
-    fn test_remove_deadline_marker_property_style3() {
-        assert_eq!(
-            remove_deadline_marker("hoge {@task status=todo due=2026-01-19} fuga"),
-            "hoge  fuga"
-        );
-    }
-
-    #[test]
-    fn test_remove_deadline_marker_no_marker() {
-        assert_eq!(remove_deadline_marker("Regular text"), "Regular text");
     }
 }

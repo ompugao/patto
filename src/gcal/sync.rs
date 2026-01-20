@@ -4,7 +4,7 @@ use crate::gcal::auth::get_access_token;
 use crate::gcal::config::GcalConfig;
 use crate::gcal::event_mapper::{task_to_event, PattoTask};
 use crate::gcal::state::{create_fingerprint, similarity, MatchConfidence, SyncState, SyncedTask};
-use crate::parser::{parse_text, AstNode, AstNodeKind, Property, TaskStatus};
+use crate::parser::{parse_text, AstNode, AstNodeKind, Property, Span, TaskStatus};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::Path;
@@ -224,17 +224,30 @@ impl GcalSync {
                     }
 
                     let line_number = location.row + 1;
-                    //let content = node.extract_str().to_string();
-                    //let content = node.extract_str().chars().take_while(|&c| c == '\t').collect::<String>();
-                    let content = node.extract_str().trim().chars().collect::<String>();
+                    let raw_line = node.extract_str();
+                    let trimmed_content = raw_line.trim().to_string();
+
+                    // Calculate span offset due to trimming (leading whitespace removed)
+                    let leading_ws = raw_line.len() - raw_line.trim_start().len();
+                    let task_marker_span = {
+                        let orig_span = &location.span;
+                        // Adjust span to be relative to trimmed content
+                        let start = orig_span.0.saturating_sub(leading_ws);
+                        let end = orig_span.1.saturating_sub(leading_ws);
+                        if start < end && end <= trimmed_content.len() {
+                            Some(Span(start, end))
+                        } else {
+                            None
+                        }
+                    };
 
                     let fingerprint =
-                        create_fingerprint(file_path, line_number, &content, due, None);
+                        create_fingerprint(file_path, line_number, &trimmed_content, due, None);
 
                     tasks.push(PattoTask {
                         file_path: file_path.to_string(),
                         line_number,
-                        content,
+                        content: trimmed_content,
                         deadline: due.clone(),
                         status: match status {
                             TaskStatus::Todo => TaskStatus::Todo,
@@ -242,6 +255,7 @@ impl GcalSync {
                             TaskStatus::Done => TaskStatus::Done,
                         },
                         fingerprint,
+                        task_marker_span,
                     });
                     break;
                 }
@@ -264,7 +278,8 @@ impl GcalSync {
             let content_hash = &task.fingerprint.content_hash;
 
             // Check if this task has an uninterpretable (no) deadline
-            let has_no_due_date = matches!(task.deadline, crate::parser::Deadline::Uninterpretable(_));
+            let has_no_due_date =
+                matches!(task.deadline, crate::parser::Deadline::Uninterpretable(_));
 
             // Try exact match by content hash
             if let Some(synced) = self.state.find_by_hash(content_hash) {
