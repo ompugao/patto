@@ -263,13 +263,18 @@ impl GcalSync {
         for task in tasks {
             let content_hash = &task.fingerprint.content_hash;
 
+            // Check if this task has an uninterpretable (no) deadline
+            let has_no_due_date = matches!(task.deadline, crate::parser::Deadline::Uninterpretable(_));
+
             // Try exact match by content hash
             if let Some(synced) = self.state.find_by_hash(content_hash) {
                 matched_hashes.insert(content_hash.clone());
 
                 // Check if update needed (deadline changed, etc.)
+                // Also always update tasks with no due date so they stay on "today"
                 if synced.fingerprint.deadline != task.fingerprint.deadline
                     || synced.fingerprint.content_snippet != task.fingerprint.content_snippet
+                    || has_no_due_date
                 {
                     actions.push(SyncAction::Update {
                         task: task.clone(),
