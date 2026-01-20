@@ -803,7 +803,7 @@ impl PattoRenderer {
                 }
             }
             AstNodeKind::QuoteContent { properties } => {
-                // Indentation
+                // Indentation based on structural depth
                 for _ in 0..depth {
                     write!(output, "\t")?;
                 }
@@ -817,7 +817,7 @@ impl PattoRenderer {
                     }
                 }
 
-                // Render contents
+                // Render contents (clean text, no embedded tabs)
                 for content in ast.value().contents.lock().unwrap().iter() {
                     self._format_impl(content, output, 0)?;
                 }
@@ -838,6 +838,11 @@ impl PattoRenderer {
                 }
 
                 writeln!(output)?;
+
+                // Recursively render nested children at depth+1
+                for child in ast.value().children.lock().unwrap().iter() {
+                    self._format_impl(child, output, depth + 1)?;
+                }
             }
             AstNodeKind::Text => {
                 write!(output, "{}", ast.extract_str())?;
@@ -914,12 +919,9 @@ impl PattoRenderer {
             }
             AstNodeKind::Quote => {
                 writeln!(output, "[@quote]")?;
+                // Render children (QuoteContent and nested Line/Quote) with depth+1
                 for child in ast.value().children.lock().unwrap().iter() {
-                    write!(output, "\t")?;
-                    for content in child.value().contents.lock().unwrap().iter() {
-                        self._format_impl(content, output, 0)?;
-                    }
-                    writeln!(output)?;
+                    self._format_impl(child, output, depth + 1)?;
                 }
             }
             AstNodeKind::Table { caption } => {

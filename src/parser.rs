@@ -491,13 +491,52 @@ impl fmt::Display for AstNode {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum ParsingState {
+/// State for a single quote level in the quote stack
+struct QuoteLevel {
+    node: AstNode,
+    min_indent: usize,
+}
+
+/// Quote-specific state with nesting support
+struct QuoteState {
+    stack: Vec<QuoteLevel>,
+}
+
+impl QuoteState {
+    fn new(node: AstNode, min_indent: usize) -> Self {
+        Self {
+            stack: vec![QuoteLevel { node, min_indent }],
+        }
+    }
+
+    fn current(&self) -> &QuoteLevel {
+        self.stack.last().expect("quote stack should not be empty")
+    }
+
+    fn current_node(&self) -> &AstNode {
+        &self.current().node
+    }
+
+    fn current_min_indent(&self) -> usize {
+        self.current().min_indent
+    }
+
+    fn push(&mut self, node: AstNode, min_indent: usize) {
+        self.stack.push(QuoteLevel { node, min_indent });
+    }
+
+    fn len(&self) -> usize {
+        self.stack.len()
+    }
+}
+
+/// Block context - carries both state and associated data
+enum BlockContext {
     Line,
-    Quote,
-    Code,
-    Math,
-    Table,
+    Quote(QuoteState),
+    Code { node: AstNode, min_indent: usize },
+    Math { node: AstNode, min_indent: usize },
+    Table { node: AstNode, min_indent: usize },
 }
 
 fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
@@ -516,6 +555,50 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
         })
         .next_back()?;
     find_parent_line(last_child_line, depth - 1)
+}
+
+/// Find parent QuoteContent for nested indentation within a quote block.
+/// relative_indent=0 returns the quote node itself.
+fn find_parent_quote_content(quote: &AstNode, relative_indent: usize) -> AstNode {
+    if relative_indent == 0 {
+        return quote.clone();
+    }
+
+    let children = quote.value().children.lock().unwrap();
+    if let Some(last_qc) = children
+        .iter()
+        .filter(|c| matches!(c.kind(), AstNodeKind::QuoteContent { .. }))
+        .last()
+    {
+        find_parent_quote_content(last_qc, relative_indent - 1)
+    } else {
+        quote.clone() // Fallback if no children yet
+    }
+}
+
+/// Check if line should exit current block (looking ahead for empty lines)
+fn should_exit_block(
+    indent: usize,
+    min_indent: usize,
+    content_len: usize,
+    indent_content_len: &[(usize, usize)],
+    current_line: usize,
+) -> bool {
+    // Non-empty line below min_indent exits
+    if content_len > 0 && indent < min_indent {
+        return true;
+    }
+
+    // Empty line: check if next non-empty line is still in block
+    if content_len == 0 {
+        for &(next_indent, next_content_len) in &indent_content_len[current_line + 1..] {
+            if next_content_len > 0 {
+                return next_indent < min_indent;
+            }
+        }
+    }
+
+    false
 }
 
 #[derive(Debug)]
@@ -603,94 +686,185 @@ pub fn parse_text(text: &str) -> ParserResult {
             (indent, content_len)
         })
         .collect();
-    let numlines = indent_content_len.len();
 
     let root = AstNode::new(text, 0, None, Some(AstNodeKind::Dummy));
     let mut lastlinenode = root.clone();
 
-    let mut parsing_state: ParsingState = ParsingState::Line;
-    let mut parsing_depth = 0;
+    let mut block_context = BlockContext::Line;
 
     let mut errors: Vec<ParserError> = Vec::new();
     for (iline, linetext) in text.lines().enumerate() {
         let (indent, content_len) = indent_content_len[iline];
 
-        // TODO can be O(n^2) where n = numlines
-        let mut depth = indent;
-        if parsing_state != ParsingState::Line {
-            // search which line code/math/quote/table block will continue until
-            let mut inblock = false;
-            for jline in iline..numlines {
-                let (jindent, jcontent_len) = indent_content_len[jline];
-                if jindent >= parsing_depth {
-                    inblock = true;
-                    break;
+        // Handle block exit first
+        match &mut block_context {
+            BlockContext::Line => {}
+
+            BlockContext::Quote(state) => {
+                // Pop nested quotes that we've exited
+                while state.len() > 1
+                    && should_exit_block(
+                        indent,
+                        state.current_min_indent(),
+                        content_len,
+                        &indent_content_len,
+                        iline,
+                    )
+                {
+                    state.stack.pop();
                 }
-                if jindent == 0 && jcontent_len == 0 {
-                    continue;
-                } else {
-                    inblock = false;
-                    break;
+
+                // Check if exited quote entirely
+                if state.len() == 1
+                    && should_exit_block(
+                        indent,
+                        state.current_min_indent(),
+                        content_len,
+                        &indent_content_len,
+                        iline,
+                    )
+                {
+                    block_context = BlockContext::Line;
                 }
             }
-            if inblock {
-                // this line is in block
-                depth = parsing_depth;
-            } else {
-                // this line is not in block, transitioning to line-parsing mode
-                parsing_state = ParsingState::Line;
-                parsing_depth = indent;
-                depth = indent;
-            }
-        } else {
-            log::trace!("content_len: {content_len}");
-            if content_len == 0 {
-                depth = parsing_depth;
+
+            BlockContext::Code { min_indent, .. }
+            | BlockContext::Math { min_indent, .. }
+            | BlockContext::Table { min_indent, .. } => {
+                if should_exit_block(indent, *min_indent, content_len, &indent_content_len, iline) {
+                    block_context = BlockContext::Line;
+                }
             }
         }
-        log::trace!("depth: {depth}, parsing_depth: {parsing_depth}");
 
-        let parent: AstNode = find_parent_line(root.clone(), depth).unwrap_or_else(|| {
-            log::warn!("Failed to find parent, depth {depth}");
-            errors.push(ParserError::InvalidIndentation(Location {
-                input: Arc::from(linetext),
-                row: iline,
-                span: Span(indent, indent + 1),
-            }));
-            lastlinenode.clone()
-        });
+        // Process line based on context
+        match &mut block_context {
+            BlockContext::Line => {
+                // Normal line mode - use indent directly for finding parent
+                let parent: AstNode = find_parent_line(root.clone(), indent).unwrap_or_else(|| {
+                    log::warn!("Failed to find parent, indent {indent}");
+                    errors.push(ParserError::InvalidIndentation(Location {
+                        input: Arc::from(linetext),
+                        row: iline,
+                        span: Span(indent, indent + 1),
+                    }));
+                    lastlinenode.clone()
+                });
 
-        let linestart = cmp::min(depth, indent);
+                // Try parsing as command
+                let (has_command, props) = parse_command_line(linetext, iline, indent);
+                log::trace!("==============================");
 
-        if parsing_state != ParsingState::Line {
-            if parsing_state == ParsingState::Quote {
-                let quote = parent
-                    .value()
-                    .contents
-                    .lock()
-                    .unwrap()
-                    .last()
-                    .expect("no way! should be quote block")
-                    .clone();
-                match PattoLineParser::parse(Rule::statement_nestable, &linetext[linestart..]) {
+                if let Some(command_node) = has_command {
+                    log::trace!("parsed command: {:?}", command_node.extract_str());
+                    match command_node.kind() {
+                        AstNodeKind::Quote => {
+                            block_context =
+                                BlockContext::Quote(QuoteState::new(command_node.clone(), indent + 1));
+                        }
+                        AstNodeKind::Code { .. } => {
+                            block_context = BlockContext::Code {
+                                node: command_node.clone(),
+                                min_indent: indent + 1,
+                            };
+                        }
+                        AstNodeKind::Math { .. } => {
+                            block_context = BlockContext::Math {
+                                node: command_node.clone(),
+                                min_indent: indent + 1,
+                            };
+                        }
+                        AstNodeKind::Table { .. } => {
+                            block_context = BlockContext::Table {
+                                node: command_node.clone(),
+                                min_indent: indent + 1,
+                            };
+                        }
+                        _ => {}
+                    }
+                    let newline = AstNode::line(linetext, iline, None, Some(props));
+                    newline.add_content(command_node);
+                    lastlinenode = newline.clone();
+                    parent.add_child(newline);
+                } else {
+                    // Regular line
+                    log::trace!("---- input ----");
+                    log::trace!("{}", &linetext[indent..]);
+                    match PattoLineParser::parse(Rule::statement, &linetext[indent..]) {
+                        Ok(mut parsed) => {
+                            log::trace!("---- parsed ----");
+                            log::trace!("{:?}", parsed);
+                            log::trace!("---- result ----");
+                            let (nodes, props) =
+                                transform_statement(parsed.next().unwrap(), linetext, iline, indent);
+                            let newline = AstNode::line(linetext, iline, None, Some(props));
+                            newline.add_contents(nodes);
+                            lastlinenode = newline.clone();
+                            log::trace!("{newline}");
+                            parent.add_child(newline);
+                        }
+                        Err(e) => {
+                            errors.push(ParserError::ParseError(
+                                Location {
+                                    input: Arc::from(linetext),
+                                    row: iline,
+                                    span: Span(indent, linetext.len()),
+                                },
+                                e.into(),
+                            ));
+                            let newline = AstNode::line(linetext, iline, None, None);
+                            newline.add_content(AstNode::text(linetext, iline, None));
+                            lastlinenode = newline.clone();
+                            parent.add_child(newline);
+                        }
+                    }
+                }
+            }
+
+            BlockContext::Quote(state) => {
+                let current_min_indent = state.current_min_indent();
+                let relative_indent = indent.saturating_sub(current_min_indent);
+
+                // Check for nested [@quote] command
+                let (has_command, props) = parse_command_line(linetext, iline, indent);
+
+                if let Some(command_node) = has_command {
+                    if matches!(command_node.kind(), AstNodeKind::Quote) {
+                        // Nested quote - add to appropriate parent
+                        let parent_qc =
+                            find_parent_quote_content(state.current_node(), relative_indent);
+                        let newline = AstNode::line(linetext, iline, None, Some(props));
+                        newline.add_content(command_node.clone());
+                        parent_qc.add_child(newline);
+
+                        state.push(command_node, indent + 1);
+                        continue;
+                    }
+                }
+
+                // Regular quote content - parse from `indent` (clean, no tabs in span)
+                match PattoLineParser::parse(Rule::statement_nestable, &linetext[indent..]) {
                     Ok(mut parsed) => {
                         let (nodes, props) =
-                            transform_statement(parsed.next().unwrap(), linetext, iline, depth);
+                            transform_statement(parsed.next().unwrap(), linetext, iline, indent);
                         let quotecontent = AstNode::quotecontent(
                             linetext,
                             iline,
-                            Some(Span(linestart, linetext.len())),
+                            Some(Span(indent, linetext.len())), // Clean span
                             Some(props),
                         );
                         quotecontent.add_contents(nodes);
-                        quote.add_child(quotecontent);
+
+                        let parent_qc =
+                            find_parent_quote_content(state.current_node(), relative_indent);
+                        parent_qc.add_child(quotecontent);
                     }
                     Err(e) => {
                         errors.push(ParserError::ParseError(
                             Location {
                                 input: Arc::from(linetext),
                                 row: iline,
-                                span: Span(linestart, linetext.len()),
+                                span: Span(indent, linetext.len()),
                             },
                             e.into(),
                         ));
@@ -698,50 +872,33 @@ pub fn parse_text(text: &str) -> ParserResult {
                         quotecontent.add_content(AstNode::text(
                             linetext,
                             iline,
-                            Some(Span(linestart, linetext.len())),
+                            Some(Span(indent, linetext.len())),
                         ));
-                        quote.add_child(quotecontent);
+                        let parent_qc =
+                            find_parent_quote_content(state.current_node(), relative_indent);
+                        parent_qc.add_child(quotecontent);
                     }
                 }
-                continue;
-            } else if parsing_state == ParsingState::Code {
-                let block = parent
-                    .value()
-                    .contents
-                    .lock()
-                    .unwrap()
-                    .last()
-                    .expect("no way! should be code block")
-                    .clone();
-                let text =
-                    AstNode::codecontent(linetext, iline, Some(Span(linestart, linetext.len())));
-                block.add_child(text);
-                continue;
-            } else if parsing_state == ParsingState::Math {
-                let block = parent
-                    .value()
-                    .contents
-                    .lock()
-                    .unwrap()
-                    .last()
-                    .expect("no way! should be math block")
-                    .clone();
-                let text =
-                    AstNode::mathcontent(linetext, iline, Some(Span(linestart, linetext.len())));
-                block.add_child(text);
-                continue;
-            } else if parsing_state == ParsingState::Table {
-                let table = parent
-                    .value()
-                    .contents
-                    .lock()
-                    .unwrap()
-                    .last()
-                    .expect("no way! should be table block")
-                    .clone();
+            }
 
+            BlockContext::Code { node, min_indent } => {
+                let linestart = cmp::min(*min_indent, indent);
+                let text_node =
+                    AstNode::codecontent(linetext, iline, Some(Span(linestart, linetext.len())));
+                node.add_child(text_node);
+            }
+
+            BlockContext::Math { node, min_indent } => {
+                let linestart = cmp::min(*min_indent, indent);
+                let text_node =
+                    AstNode::mathcontent(linetext, iline, Some(Span(linestart, linetext.len())));
+                node.add_child(text_node);
+            }
+
+            BlockContext::Table { node, min_indent } => {
+                let linestart = cmp::min(*min_indent, indent);
                 let columntexts: Vec<&str> = linetext[linestart..].split('\t').collect();
-                let mut span_start = depth;
+                let mut span_start = linestart;
                 let mut columns = Vec::new();
 
                 for column_text in columntexts {
@@ -769,82 +926,8 @@ pub fn parse_text(text: &str) -> ParserResult {
 
                 let row = AstNode::tablerow(linetext, iline, Some(Span(linestart, linetext.len())));
                 row.add_contents(columns);
-                table.add_child(row);
-                continue;
+                node.add_child(row);
             }
-        }
-
-        // TODO gather parsing errors
-        let (has_command, props) = parse_command_line(linetext, iline, linestart);
-        log::trace!("==============================");
-        if let Some(command_node) = has_command {
-            log::trace!("parsed command: {:?}", command_node.extract_str());
-            match &command_node.kind() {
-                AstNodeKind::Quote => {
-                    parsing_state = ParsingState::Quote;
-                    parsing_depth = depth + 1;
-                }
-                AstNodeKind::Code { .. } => {
-                    parsing_state = ParsingState::Code;
-                    parsing_depth = depth + 1;
-                }
-                AstNodeKind::Math { .. } => {
-                    parsing_state = ParsingState::Math;
-                    parsing_depth = depth + 1;
-                }
-                AstNodeKind::Table { .. } => {
-                    parsing_state = ParsingState::Table;
-                    parsing_depth = depth + 1;
-                }
-                _ => {
-                    parsing_state = ParsingState::Line;
-                    parsing_depth = depth;
-                }
-            }
-            let newline = AstNode::line(linetext, iline, None, Some(props));
-            newline.add_content(command_node);
-            lastlinenode = newline.clone();
-            parent.add_child(newline);
-        } else {
-            log::trace!("---- input ----");
-            log::trace!("{}", &linetext[cmp::min(depth, indent)..]);
-            // TODO error will never happen since raw_sentence will match finally(...?)
-            match PattoLineParser::parse(Rule::statement, &linetext[cmp::min(depth, indent)..]) {
-                Ok(mut parsed) => {
-                    log::trace!("---- parsed ----");
-                    log::trace!("{:?}", parsed);
-                    log::trace!("---- result ----");
-                    let (nodes, props) = transform_statement(
-                        parsed.next().unwrap(),
-                        linetext,
-                        iline,
-                        cmp::min(depth, indent),
-                    );
-                    let newline = AstNode::line(linetext, iline, None, Some(props));
-                    newline.add_contents(nodes);
-                    lastlinenode = newline.clone();
-                    log::trace!("{newline}");
-                    parent.add_child(newline);
-                }
-                Err(e) => {
-                    // TODO accumulate error
-                    // log::warn!("parsing statement error!: {}", e);
-                    errors.push(ParserError::ParseError(
-                        Location {
-                            input: Arc::from(linetext),
-                            row: iline,
-                            span: Span(linestart, linetext.len()),
-                        },
-                        e.into(),
-                    ));
-                    let newline = AstNode::line(linetext, iline, None, None);
-                    newline.add_content(AstNode::text(linetext, iline, None));
-                    lastlinenode = newline.clone();
-                    parent.add_child(newline);
-                }
-            }
-            // parsing_state = ParsingState::Line;
-            parsing_depth = depth;
         }
     }
     ParserResult {
