@@ -123,38 +123,46 @@
                         <Component Id='binary0' Guid='*'>
                             <File
                                 Id='exe0'
-                                Name='patto-html-renderer.exe'
+                                Name='patto-gcal-sync.exe'
                                 DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\patto-html-renderer.exe'
+                                Source='$(var.CargoTargetBinDir)\patto-gcal-sync.exe'
                                 KeyPath='yes'/>
                         </Component>
                         <Component Id='binary1' Guid='*'>
                             <File
                                 Id='exe1'
-                                Name='patto-lsp.exe'
+                                Name='patto-html-renderer.exe'
                                 DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\patto-lsp.exe'
+                                Source='$(var.CargoTargetBinDir)\patto-html-renderer.exe'
                                 KeyPath='yes'/>
                         </Component>
                         <Component Id='binary2' Guid='*'>
                             <File
                                 Id='exe2'
-                                Name='patto-markdown-importer.exe'
+                                Name='patto-lsp.exe'
                                 DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\patto-markdown-importer.exe'
+                                Source='$(var.CargoTargetBinDir)\patto-lsp.exe'
                                 KeyPath='yes'/>
                         </Component>
                         <Component Id='binary3' Guid='*'>
                             <File
                                 Id='exe3'
-                                Name='patto-markdown-renderer.exe'
+                                Name='patto-markdown-importer.exe'
                                 DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\patto-markdown-renderer.exe'
+                                Source='$(var.CargoTargetBinDir)\patto-markdown-importer.exe'
                                 KeyPath='yes'/>
                         </Component>
                         <Component Id='binary4' Guid='*'>
                             <File
                                 Id='exe4'
+                                Name='patto-markdown-renderer.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\patto-markdown-renderer.exe'
+                                KeyPath='yes'/>
+                        </Component>
+                        <Component Id='binary5' Guid='*'>
+                            <File
+                                Id='exe5'
                                 Name='patto-preview.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\patto-preview.exe'
@@ -186,6 +194,7 @@
             <ComponentRef Id='binary2'/>
             <ComponentRef Id='binary3'/>
             <ComponentRef Id='binary4'/>
+            <ComponentRef Id='binary5'/>
 
             <Feature
                 Id='Environment'
