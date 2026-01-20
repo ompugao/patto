@@ -339,7 +339,8 @@ impl HtmlRenderer {
     ) -> io::Result<()> {
         // Check if this contains a nested Quote block
         let contents = quote_content.value().contents.lock().unwrap();
-        let has_nested_quote = contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
+        let has_nested_quote =
+            contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
 
         if has_nested_quote {
             // Render the nested quote as a nested blockquote
@@ -354,7 +355,11 @@ impl HtmlRenderer {
         } else {
             // Render with indentation if needed
             if indent_level > 0 {
-                write!(output, "<div style=\"margin-left: {}em\">", indent_level * 2)?;
+                write!(
+                    output,
+                    "<div style=\"margin-left: {}em\">",
+                    indent_level * 2
+                )?;
             } else {
                 write!(output, "<div>")?;
             }
@@ -374,7 +379,11 @@ impl HtmlRenderer {
                 self.render_quote_content_html(child, output, indent_level + 1)?;
             } else {
                 if indent_level > 0 {
-                    write!(output, "<div style=\"margin-left: {}em\">", indent_level * 2)?;
+                    write!(
+                        output,
+                        "<div style=\"margin-left: {}em\">",
+                        indent_level * 2
+                    )?;
                     self._format_impl(child, output)?;
                     write!(output, "</div>")?;
                 } else {
@@ -826,12 +835,13 @@ impl MarkdownRenderer {
 
         // Add visual indentation for inner depth (spaces after ">")
         for _ in 0..inner_depth {
-            write!(output, "    ")?;  // 4 spaces per indent level
+            write!(output, "    ")?; // 4 spaces per indent level
         }
 
         // Check if this is a nested Quote block
         let contents = quote_content.value().contents.lock().unwrap();
-        let has_nested_quote = contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
+        let has_nested_quote =
+            contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
 
         if has_nested_quote {
             // For nested quotes, we need to output with extra "> " markers
@@ -840,7 +850,7 @@ impl MarkdownRenderer {
             for content in contents.iter() {
                 if let AstNodeKind::Quote = content.kind() {
                     writeln!(output)?; // End the current line
-                    // Render nested quote with extra "> " marker
+                                       // Render nested quote with extra "> " marker
                     self.render_nested_quote(content, output, depth, inner_depth + 1)?;
                 } else {
                     self._format_impl(content, output, depth, true)?;
@@ -854,7 +864,8 @@ impl MarkdownRenderer {
             drop(contents);
 
             // End the line
-            let properties = if let AstNodeKind::QuoteContent { properties } = quote_content.kind() {
+            let properties = if let AstNodeKind::QuoteContent { properties } = quote_content.kind()
+            {
                 properties
             } else {
                 &vec![]

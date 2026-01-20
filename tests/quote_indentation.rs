@@ -111,7 +111,10 @@ mod patto_roundtrip {
         let input = "[@quote]\n\tLine 1\n\tLine 2\n";
         let output = render_patto(input);
         // Note: PattoRenderer adds trailing newline - this is existing behavior
-        assert_eq!(output, "[@quote]\n\tLine 1\n\tLine 2\n\n", "Simple quote round-trip (with trailing newline)");
+        assert_eq!(
+            output, "[@quote]\n\tLine 1\n\tLine 2\n\n",
+            "Simple quote round-trip (with trailing newline)"
+        );
     }
 
     #[test]
@@ -131,7 +134,8 @@ mod patto_roundtrip {
         let input = "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n";
         let output = render_patto(input);
         assert_eq!(
-            output, "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n\n",
+            output,
+            "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n\n",
             "Deeply nested quote should round-trip (with trailing newline)"
         );
     }
@@ -227,8 +231,10 @@ mod markdown_indentation {
         );
 
         // Nested line should have more visual indentation
-        assert!(nested_prefix_len > line1_prefix_len,
-            "Nested line should have more visual indentation");
+        assert!(
+            nested_prefix_len > line1_prefix_len,
+            "Nested line should have more visual indentation"
+        );
     }
 
     #[test]
@@ -251,7 +257,10 @@ mod markdown_indentation {
         let l2_prefix = l2_line.unwrap().find("L2").unwrap_or(0);
         let l3_prefix = l3_line.unwrap().find("L3").unwrap_or(0);
 
-        println!("L1 prefix: {}, L2 prefix: {}, L3 prefix: {}", l1_prefix, l2_prefix, l3_prefix);
+        println!(
+            "L1 prefix: {}, L2 prefix: {}, L3 prefix: {}",
+            l1_prefix, l2_prefix, l3_prefix
+        );
 
         // Each level should be more indented than the previous
         assert!(l2_prefix > l1_prefix, "L2 should be more indented than L1");
@@ -271,7 +280,10 @@ mod html_indentation {
         let input = "[@quote]\n\tLine 1\n\tLine 2\n";
         let output = render_html(input);
 
-        assert!(output.contains("<blockquote>"), "Should have blockquote tag");
+        assert!(
+            output.contains("<blockquote>"),
+            "Should have blockquote tag"
+        );
         assert!(output.contains("Line 1"), "Should contain Line 1");
         assert!(output.contains("Line 2"), "Should contain Line 2");
     }
@@ -287,8 +299,10 @@ mod html_indentation {
         // Expected: <div style="margin-left: 2em">Nested line</div>
 
         // Nested content should have visual indentation in HTML
-        assert!(output.contains("margin-left") || output.contains("class=\"indent\""),
-            "Nested content should have visual indentation in HTML");
+        assert!(
+            output.contains("margin-left") || output.contains("class=\"indent\""),
+            "Nested content should have visual indentation in HTML"
+        );
 
         // Content should also be present
         assert!(output.contains("Nested line"), "Should contain nested line");
@@ -329,8 +343,10 @@ mod nested_quote_blocks {
         // > > Inner line
 
         // Should have nested blockquote markers
-        assert!(output.contains("> >") || output.contains(">>"),
-            "Should have nested blockquote markers");
+        assert!(
+            output.contains("> >") || output.contains(">>"),
+            "Should have nested blockquote markers"
+        );
     }
 
     #[test]
@@ -395,8 +411,10 @@ mod edge_cases {
         // Expected: "Parent\n\t[@quote]\n\t\tQuoted under parent\n\n"
         // Actual: "Parent\n\t[@quote]\n\tQuoted under parent\n\n"
         // This test documents current (broken) behavior
-        assert_eq!(output, "Parent\n\t[@quote]\n\tQuoted under parent\n\n", 
-            "Quote inside list - CURRENT BEHAVIOR (loses indent)");
+        assert_eq!(
+            output, "Parent\n\t[@quote]\n\tQuoted under parent\n\n",
+            "Quote inside list - CURRENT BEHAVIOR (loses indent)"
+        );
     }
 
     #[test]
@@ -405,7 +423,8 @@ mod edge_cases {
         let output = render_patto(input);
         // Note: code inline adds trailing space - existing behavior
         assert_eq!(
-            output, "[@quote]\n\tPlain text\n\t\t[* bold nested]\n\t\t\t[` code deeply nested `]\n\n",
+            output,
+            "[@quote]\n\tPlain text\n\t\t[* bold nested]\n\t\t\t[` code deeply nested `]\n\n",
             "Mixed content at different levels (with trailing newline and code space)"
         );
     }

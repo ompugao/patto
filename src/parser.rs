@@ -749,16 +749,17 @@ pub fn parse_text(text: &str) -> ParserResult {
                     last_nonempty_indent = indent;
                     indent
                 };
-                
-                let parent: AstNode = find_parent_line(root.clone(), effective_indent).unwrap_or_else(|| {
-                    log::warn!("Failed to find parent, indent {indent}");
-                    errors.push(ParserError::InvalidIndentation(Location {
-                        input: Arc::from(linetext),
-                        row: iline,
-                        span: Span(indent, indent + 1),
-                    }));
-                    lastlinenode.clone()
-                });
+
+                let parent: AstNode = find_parent_line(root.clone(), effective_indent)
+                    .unwrap_or_else(|| {
+                        log::warn!("Failed to find parent, indent {indent}");
+                        errors.push(ParserError::InvalidIndentation(Location {
+                            input: Arc::from(linetext),
+                            row: iline,
+                            span: Span(indent, indent + 1),
+                        }));
+                        lastlinenode.clone()
+                    });
 
                 // Try parsing as command
                 let (has_command, props) = parse_command_line(linetext, iline, indent);
@@ -768,8 +769,10 @@ pub fn parse_text(text: &str) -> ParserResult {
                     log::trace!("parsed command: {:?}", command_node.extract_str());
                     match command_node.kind() {
                         AstNodeKind::Quote => {
-                            block_context =
-                                BlockContext::Quote(QuoteState::new(command_node.clone(), indent + 1));
+                            block_context = BlockContext::Quote(QuoteState::new(
+                                command_node.clone(),
+                                indent + 1,
+                            ));
                         }
                         AstNodeKind::Code { .. } => {
                             block_context = BlockContext::Code {
@@ -804,8 +807,12 @@ pub fn parse_text(text: &str) -> ParserResult {
                             log::trace!("---- parsed ----");
                             log::trace!("{:?}", parsed);
                             log::trace!("---- result ----");
-                            let (nodes, props) =
-                                transform_statement(parsed.next().unwrap(), linetext, iline, indent);
+                            let (nodes, props) = transform_statement(
+                                parsed.next().unwrap(),
+                                linetext,
+                                iline,
+                                indent,
+                            );
                             let newline = AstNode::line(linetext, iline, None, Some(props));
                             newline.add_contents(nodes);
                             lastlinenode = newline.clone();
@@ -2403,13 +2410,17 @@ mod tab_indentation_tests {
 \t\tNested Line2 after empty line(s)
 ";
         let result = parse_text(input);
-        
+
         // Should parse without errors
-        assert!(result.parse_errors.is_empty(), "Should parse without errors: {:?}", result.parse_errors);
-        
+        assert!(
+            result.parse_errors.is_empty(),
+            "Should parse without errors: {:?}",
+            result.parse_errors
+        );
+
         let root = result.ast;
         let children = root.value().children.lock().unwrap();
-        
+
         // Debug output
         eprintln!("Root has {} children", children.len());
         for (i, child) in children.iter().enumerate() {
@@ -2419,8 +2430,11 @@ mod tab_indentation_tests {
                 eprintln!("  Subchild {}: {:?}", j, subchild.kind());
             }
         }
-        
+
         // Should have parsed successfully
-        assert!(children.len() > 0, "Should have at least one top-level line");
+        assert!(
+            children.len() > 0,
+            "Should have at least one top-level line"
+        );
     }
 }
