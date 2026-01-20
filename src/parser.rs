@@ -691,6 +691,7 @@ pub fn parse_text(text: &str) -> ParserResult {
     let mut lastlinenode = root.clone();
 
     let mut block_context = BlockContext::Line;
+    let mut last_nonempty_indent = 0; // Track last non-empty line's indent for empty line handling
 
     let mut errors: Vec<ParserError> = Vec::new();
     for (iline, linetext) in text.lines().enumerate() {
@@ -741,7 +742,15 @@ pub fn parse_text(text: &str) -> ParserResult {
         match &mut block_context {
             BlockContext::Line => {
                 // Normal line mode - use indent directly for finding parent
-                let parent: AstNode = find_parent_line(root.clone(), indent).unwrap_or_else(|| {
+                // For empty lines, use last_nonempty_indent to maintain depth context
+                let effective_indent = if content_len == 0 {
+                    last_nonempty_indent
+                } else {
+                    last_nonempty_indent = indent;
+                    indent
+                };
+                
+                let parent: AstNode = find_parent_line(root.clone(), effective_indent).unwrap_or_else(|| {
                     log::warn!("Failed to find parent, indent {indent}");
                     errors.push(ParserError::InvalidIndentation(Location {
                         input: Arc::from(linetext),
@@ -2376,4 +2385,42 @@ mod tests {
     //     todo!();
     //     ()
     // }
+}
+
+#[cfg(test)]
+mod tab_indentation_tests {
+    use super::*;
+
+    #[test]
+    fn test_tab_indentation_with_empty_lines() {
+        let input = "Some line
+\tIndented Line 1
+\tIndented Line 2
+
+\tIndented Line after empty line(s)
+\t\tNested Line
+
+\t\tNested Line2 after empty line(s)
+";
+        let result = parse_text(input);
+        
+        // Should parse without errors
+        assert!(result.parse_errors.is_empty(), "Should parse without errors: {:?}", result.parse_errors);
+        
+        let root = result.ast;
+        let children = root.value().children.lock().unwrap();
+        
+        // Debug output
+        eprintln!("Root has {} children", children.len());
+        for (i, child) in children.iter().enumerate() {
+            eprintln!("Child {}: {:?}", i, child.kind());
+            let subchildren = child.value().children.lock().unwrap();
+            for (j, subchild) in subchildren.iter().enumerate() {
+                eprintln!("  Subchild {}: {:?}", j, subchild.kind());
+            }
+        }
+        
+        // Should have parsed successfully
+        assert!(children.len() > 0, "Should have at least one top-level line");
+    }
 }
