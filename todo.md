@@ -13,6 +13,8 @@
     * better depth and state handling
     * [ ] custom macro command
       * plugin system
+  * Renderer
+    * [ ] Better quote block rendering logic
   * LSP server
     * [x] async note scanning
     * [x] return all errors as diagnostics
