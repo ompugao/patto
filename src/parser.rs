@@ -531,8 +531,10 @@ impl QuoteState {
 }
 
 /// Block context - carries both state and associated data
+/// - `last_nonempty_indent` in Line = "remember this indent so empty lines inherit the right parent depth"
+/// - `min_indent` in blocks = "content must be indented at least this much to belong to this block"
 enum BlockContext {
-    Line,
+    Line { last_nonempty_indent: usize },
     Quote(QuoteState),
     Code { node: AstNode, min_indent: usize },
     Math { node: AstNode, min_indent: usize },
@@ -690,8 +692,9 @@ pub fn parse_text(text: &str) -> ParserResult {
     let root = AstNode::new(text, 0, None, Some(AstNodeKind::Dummy));
     let mut lastlinenode = root.clone();
 
-    let mut block_context = BlockContext::Line;
-    let mut last_nonempty_indent = 0; // Track last non-empty line's indent for empty line handling
+    let mut block_context = BlockContext::Line {
+        last_nonempty_indent: 0,
+    };
 
     let mut errors: Vec<ParserError> = Vec::new();
     for (iline, linetext) in text.lines().enumerate() {
@@ -699,7 +702,7 @@ pub fn parse_text(text: &str) -> ParserResult {
 
         // Handle block exit first
         match &mut block_context {
-            BlockContext::Line => {}
+            BlockContext::Line { .. } => {}
 
             BlockContext::Quote(state) => {
                 // Pop nested quotes that we've exited
@@ -725,7 +728,9 @@ pub fn parse_text(text: &str) -> ParserResult {
                         iline,
                     )
                 {
-                    block_context = BlockContext::Line;
+                    block_context = BlockContext::Line {
+                        last_nonempty_indent: indent,
+                    };
                 }
             }
 
@@ -733,20 +738,24 @@ pub fn parse_text(text: &str) -> ParserResult {
             | BlockContext::Math { min_indent, .. }
             | BlockContext::Table { min_indent, .. } => {
                 if should_exit_block(indent, *min_indent, content_len, &indent_content_len, iline) {
-                    block_context = BlockContext::Line;
+                    block_context = BlockContext::Line {
+                        last_nonempty_indent: indent,
+                    };
                 }
             }
         }
 
         // Process line based on context
         match &mut block_context {
-            BlockContext::Line => {
+            BlockContext::Line {
+                last_nonempty_indent,
+            } => {
                 // Normal line mode - use indent directly for finding parent
                 // For empty lines, use last_nonempty_indent to maintain depth context
                 let effective_indent = if content_len == 0 {
-                    last_nonempty_indent
+                    *last_nonempty_indent
                 } else {
-                    last_nonempty_indent = indent;
+                    *last_nonempty_indent = indent;
                     indent
                 };
 
