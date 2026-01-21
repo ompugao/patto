@@ -143,6 +143,10 @@ api_key = "your_key"
 endpoint = "http://127.0.0.1:23119/api/" # for communication with zotero on localhost
 ```
 
+### Google Calendar Sync
+
+Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
+
 <details>
 <summary>FAQ & Tips</summary>
 
