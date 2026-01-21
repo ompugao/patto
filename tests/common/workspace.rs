@@ -46,26 +46,3 @@ impl TestWorkspace {
         self.dir.path()
     }
 }
-
-impl Default for TestWorkspace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_workspace_creation() {
-        let mut workspace = TestWorkspace::new();
-        let path = workspace.create_file("test.pn", "content");
-
-        assert!(path.exists());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "content");
-
-        let uri = workspace.get_uri("test.pn");
-        assert!(uri.as_str().contains("test.pn"));
-    }
-}

@@ -1,9 +1,7 @@
 mod assertions;
-mod client;
-mod lsp_codec;
+mod in_process_client;
 mod workspace;
 
 pub use assertions::*;
-pub use client::LspTestClient;
-pub use lsp_codec::LspCodec;
+pub use in_process_client::InProcessLspClient;
 pub use workspace::TestWorkspace;
