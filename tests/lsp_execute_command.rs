@@ -5,21 +5,16 @@ use common::*;
 #[tokio::test]
 async fn test_aggregate_tasks_empty() {
     let workspace = TestWorkspace::new();
-    let mut client = LspTestClient::new(&workspace).await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
-    client.initialize().await;
-    client.initialized().await;
 
     let response = client.aggregate_tasks().await;
 
     // Should return empty array when no tasks
+    assert!(response.is_some(), "No result in aggregate_tasks");
+    let result = response.unwrap();
     assert!(
-        response.get("result").is_some(),
-        "No result in aggregate_tasks"
-    );
-    let result = &response["result"];
-    assert!(
-        result.is_array() || result.is_null(),
+        result.as_ref().map_or(true, |r| r.is_array() || r.is_null()),
         "Result should be array or null"
     );
 
@@ -35,20 +30,15 @@ async fn test_aggregate_tasks_with_tasks() {
     );
     workspace.create_file("done.pn", "Completed {@task status=done due=2024-12-20}\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.aggregate_tasks().await;
 
-    assert!(
-        response.get("result").is_some(),
-        "No result in aggregate_tasks"
-    );
-    let result = &response["result"];
+    assert!(response.is_some(), "No result in aggregate_tasks");
+    let result = response.unwrap().unwrap();
     assert!(result.is_array(), "Result should be array");
 
     let tasks = result.as_array().unwrap();
@@ -115,16 +105,14 @@ async fn test_aggregate_tasks_sorting() {
         "Future {@task status=todo due=2025-12-31}\nSoon {@task status=todo due=2024-12-25}\nPast {@task status=todo due=2024-01-01}\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.aggregate_tasks().await;
 
-    assert!(response.get("result").is_some(), "No result");
-    let result = &response["result"];
+    assert!(response.is_some(), "No result");
+    let result = response.unwrap().unwrap();
     assert!(result.is_array(), "Result should be array");
 
     let tasks = result.as_array().unwrap();
@@ -172,9 +160,7 @@ async fn test_two_hop_links_basic() {
     workspace.create_file("target.pn", "Target content\n");
     workspace.create_file("other.pn", "Also links to [target]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let source_uri = workspace.get_uri("source.pn");
     client
@@ -182,16 +168,13 @@ async fn test_two_hop_links_basic() {
         .await;
 
     // Wait for workspace scan and graph building
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.two_hop_links(source_uri.clone()).await;
 
     // Should return two-hop connections
-    assert!(
-        response.get("result").is_some(),
-        "No result in two_hop_links"
-    );
-    let result = &response["result"];
+    assert!(response.is_some(), "No result in two_hop_links");
+    let result = response.unwrap().unwrap();
 
     // Result should be an array of [target_url, [connected_urls]]
     if result.is_array() {
@@ -252,21 +235,19 @@ async fn test_two_hop_links_no_connections() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("isolated.pn", "No links here\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("isolated.pn");
     client
         .did_open(uri.clone(), "No links here\n".to_string())
         .await;
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.two_hop_links(uri).await;
 
-    assert!(response.get("result").is_some(), "No result");
-    let result = &response["result"];
+    assert!(response.is_some(), "No result");
+    let result = response.unwrap().unwrap();
 
     if result.is_array() {
         let links = result.as_array().unwrap();

@@ -1,6 +1,7 @@
 mod common;
 
 use common::*;
+use tower_lsp::lsp_types::WorkspaceEdit;
 
 #[tokio::test]
 async fn test_prepare_rename_on_current_file() {
@@ -9,9 +10,7 @@ async fn test_prepare_rename_on_current_file() {
     workspace.create_file("note_b.pn", "Content of note B\n");
     workspace.create_file("note_c.pn", "Also reference [note_b]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_b = workspace.get_uri("note_b.pn");
     client
@@ -22,12 +21,15 @@ async fn test_prepare_rename_on_current_file() {
     let response = client.prepare_rename(uri_b, 0, 0).await;
 
     // Should succeed and return the file name as placeholder
-    assert!(response.get("result").is_some(), "prepare_rename failed");
-    assert_eq!(
-        response["result"]["placeholder"].as_str(),
-        Some("note_b"),
-        "Should return file name as placeholder"
-    );
+    assert!(response.is_some(), "prepare_rename failed");
+    let prepare_result = response.unwrap();
+    
+    match prepare_result {
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+            assert_eq!(placeholder, "note_b", "Should return file name as placeholder");
+        }
+        _ => panic!("Expected RangeWithPlaceholder response"),
+    }
 
     println!("✅ Prepare rename on current file test passed");
 }
@@ -39,9 +41,7 @@ async fn test_rename_current_file() {
     workspace.create_file("note_b.pn", "Content of note B\n");
     workspace.create_file("note_c.pn", "Also reference [note_b]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_b = workspace.get_uri("note_b.pn");
     client
@@ -51,9 +51,10 @@ async fn test_rename_current_file() {
     // Rename current file from note_b to renamed_note
     let response = client.rename(uri_b, 0, 0, "renamed_note").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
-    assert!(doc_changes.is_array(), "No documentChanges");
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Should have file rename operation
     assert!(
@@ -104,9 +105,7 @@ async fn test_rename_current_file_with_anchors() {
     );
     workspace.create_file("note_c.pn", "Also [note_b#section2]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_b = workspace.get_uri("note_b.pn");
     client
@@ -119,8 +118,10 @@ async fn test_rename_current_file_with_anchors() {
     // Rename current file
     let response = client.rename(uri_b, 0, 0, "renamed_note").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Should preserve anchors in text edits
     assert!(

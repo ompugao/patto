@@ -7,9 +7,7 @@ async fn test_did_open_and_close() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("test.pn", "Initial content\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("test.pn");
 
@@ -34,9 +32,7 @@ async fn test_did_change() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("test.pn", "Initial\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("test.pn");
     client.did_open(uri.clone(), "Initial\n".to_string()).await;
@@ -63,7 +59,7 @@ async fn test_did_change() {
     let response = client.definition(uri.clone(), 0, 18).await;
 
     // Should be able to find definition for the new link
-    assert!(response.get("result").is_some());
+    assert!(response.is_some());
 
     println!("✅ Did change test passed");
 }
@@ -73,9 +69,7 @@ async fn test_did_save() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("test.pn", "Content\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("test.pn");
     client.did_open(uri.clone(), "Content\n".to_string()).await;
@@ -104,9 +98,7 @@ async fn test_multiple_documents() {
     workspace.create_file("b.pn", "Doc B\n");
     workspace.create_file("c.pn", "Doc C\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_a = workspace.get_uri("a.pn");
     let uri_b = workspace.get_uri("b.pn");

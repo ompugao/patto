@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use serde_json::json;
+use tower_lsp::lsp_types::{SemanticTokensResult, SemanticTokensRangeResult, Position, Range};
 
 #[tokio::test]
 async fn test_semantic_tokens_full() {
@@ -11,9 +11,7 @@ async fn test_semantic_tokens_full() {
         "Normal text [wikilink] more text\n{@anchor section1}\n{@task status=todo due=2024-12-31}\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("test.pn");
     client
@@ -24,28 +22,19 @@ async fn test_semantic_tokens_full() {
         )
         .await;
 
-    let response = client
-        .request(
-            "textDocument/semanticTokens/full",
-            json!({
-                "textDocument": { "uri": uri.to_string() }
-            }),
-        )
-        .await;
+    let result = client.semantic_tokens(uri).await;
 
-    assert!(
-        response.get("result").is_some(),
-        "No result in semantic tokens"
-    );
-    let result = &response["result"];
-    assert!(
-        result["data"].is_array(),
-        "No data array in semantic tokens"
-    );
-
-    let data = result["data"].as_array().unwrap();
-    // Should have tokens for wikilink, anchor, task, etc.
-    assert!(!data.is_empty(), "Semantic tokens data should not be empty");
+    assert!(result.is_some(), "No result in semantic tokens");
+    
+    match result.unwrap() {
+        SemanticTokensResult::Tokens(tokens) => {
+            // Should have tokens for wikilink, anchor, task, etc.
+            assert!(!tokens.data.is_empty(), "Semantic tokens data should not be empty");
+        }
+        SemanticTokensResult::Partial(_) => {
+            panic!("Unexpected partial result");
+        }
+    }
 
     println!("✅ Semantic tokens full test passed");
 }
@@ -58,9 +47,7 @@ async fn test_semantic_tokens_range() {
         "Line 1 [link1]\nLine 2 [link2]\nLine 3 [link3]\nLine 4 [link4]\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("test.pn");
     client
@@ -71,34 +58,26 @@ async fn test_semantic_tokens_range() {
         .await;
 
     // Request tokens for lines 1-2 only
-    let response = client
-        .request(
-            "textDocument/semanticTokens/range",
-            json!({
-                "textDocument": { "uri": uri.to_string() },
-                "range": {
-                    "start": { "line": 1, "character": 0 },
-                    "end": { "line": 2, "character": 100 }
-                }
-            }),
-        )
-        .await;
+    let range = Range {
+        start: Position { line: 1, character: 0 },
+        end: Position { line: 2, character: 100 },
+    };
+    
+    let result = client.semantic_tokens_range(uri, range).await;
 
-    assert!(
-        response.get("result").is_some(),
-        "No result in semantic tokens range"
-    );
-    let result = &response["result"];
-    assert!(
-        result["data"].is_array(),
-        "No data array in semantic tokens range"
-    );
-
-    let data = result["data"].as_array().unwrap();
-    assert!(
-        !data.is_empty(),
-        "Should have tokens for the specified range"
-    );
+    assert!(result.is_some(), "No result in semantic tokens range");
+    
+    match result.unwrap() {
+        SemanticTokensRangeResult::Tokens(tokens) => {
+            assert!(
+                !tokens.data.is_empty(),
+                "Should have tokens for the specified range"
+            );
+        }
+        SemanticTokensRangeResult::Partial(_) => {
+            panic!("Unexpected partial result");
+        }
+    }
 
     println!("✅ Semantic tokens range test passed");
 }
@@ -108,29 +87,23 @@ async fn test_semantic_tokens_empty_file() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("empty.pn", "");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("empty.pn");
     client.did_open(uri.clone(), "".to_string()).await;
 
-    let response = client
-        .request(
-            "textDocument/semanticTokens/full",
-            json!({
-                "textDocument": { "uri": uri.to_string() }
-            }),
-        )
-        .await;
+    let result = client.semantic_tokens(uri).await;
 
-    assert!(response.get("result").is_some(), "No result");
-    let result = &response["result"];
+    assert!(result.is_some(), "No result");
 
-    if result.is_object() && result["data"].is_array() {
-        let data = result["data"].as_array().unwrap();
-        // Empty file should have empty or minimal tokens
-        assert_eq!(data.len(), 0, "Empty file should have no tokens");
+    match result.unwrap() {
+        SemanticTokensResult::Tokens(tokens) => {
+            // Empty file should have empty or minimal tokens
+            assert_eq!(tokens.data.len(), 0, "Empty file should have no tokens");
+        }
+        SemanticTokensResult::Partial(_) => {
+            panic!("Unexpected partial result");
+        }
     }
 
     println!("✅ Semantic tokens empty file test passed");

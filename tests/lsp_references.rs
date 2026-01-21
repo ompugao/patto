@@ -11,9 +11,7 @@ async fn test_find_references_single_file() {
     );
     workspace.create_file("target.pn", "Target content\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let target_uri = workspace.get_uri("target.pn");
     client
@@ -23,11 +21,9 @@ async fn test_find_references_single_file() {
     // Find references to target.pn
     let response = client.references(target_uri.clone(), 0, 0).await;
 
-    assert!(response.get("result").is_some(), "No result in references");
-    let result = &response["result"];
-    assert!(result.is_array(), "Result is not an array");
-
-    let refs = result.as_array().unwrap();
+    assert!(response.is_some(), "No result in references");
+    let refs = response.unwrap();
+    
     // Should find 3 references
     assert_eq!(refs.len(), 3, "Expected 3 references");
 
@@ -42,9 +38,7 @@ async fn test_find_references_multiple_files() {
     workspace.create_file("c.pn", "And [target] again\nTwice [target]\n");
     workspace.create_file("target.pn", "Target content\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let target_uri = workspace.get_uri("target.pn");
     client
@@ -52,13 +46,12 @@ async fn test_find_references_multiple_files() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.references(target_uri.clone(), 0, 0).await;
 
-    assert!(response.get("result").is_some(), "No result in references");
-    let result = &response["result"];
-    let refs = result.as_array().unwrap();
+    assert!(response.is_some(), "No result in references");
+    let refs = response.unwrap();
 
     // Should find 4 references total (1 in a, 1 in b, 2 in c)
     assert!(
@@ -79,9 +72,7 @@ async fn test_find_references_with_anchors() {
     );
     workspace.create_file("target.pn", "{@anchor section1}\n{@anchor section2}\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let target_uri = workspace.get_uri("target.pn");
     client
@@ -91,12 +82,12 @@ async fn test_find_references_with_anchors() {
         )
         .await;
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response = client.references(target_uri.clone(), 0, 0).await;
 
-    assert!(response.get("result").is_some(), "No result in references");
-    let refs = response["result"].as_array().unwrap();
+    assert!(response.is_some(), "No result in references");
+    let refs = response.unwrap();
 
     // All 3 links point to target.pn
     assert!(refs.len() >= 3, "Expected at least 3 references");

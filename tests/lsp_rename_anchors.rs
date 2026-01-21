@@ -1,6 +1,7 @@
 mod common;
 
 use common::*;
+use tower_lsp::lsp_types::WorkspaceEdit;
 
 #[tokio::test]
 async fn test_anchor_preservation_simple() {
@@ -11,9 +12,7 @@ async fn test_anchor_preservation_simple() {
     );
     workspace.create_file("note_b.pn", "Content\n{@anchor section1}\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("note_a.pn");
     client
@@ -26,8 +25,10 @@ async fn test_anchor_preservation_simple() {
     // Rename note_b -> new_note
     let response = client.rename(uri, 0, 14, "new_note").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify simple link
     assert!(
@@ -81,9 +82,7 @@ async fn test_anchor_preservation_multiple_anchors() {
         "Content\n{@anchor section1}\n{@anchor section2}\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_a = workspace.get_uri("note_a.pn");
     client
@@ -96,8 +95,10 @@ async fn test_anchor_preservation_multiple_anchors() {
     // Rename note_b -> renamed
     let response = client.rename(uri_a, 0, 9, "renamed").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Check note_a.pn edits
     assert!(
@@ -146,9 +147,7 @@ async fn test_no_anchor_modification_in_simple_links() {
     workspace.create_file("note_a.pn", "Just a simple [note_b] link\n");
     workspace.create_file("note_b.pn", "Content\n{@anchor section1}\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("note_a.pn");
     client
@@ -158,8 +157,10 @@ async fn test_no_anchor_modification_in_simple_links() {
     // Rename note_b -> new_name
     let response = client.rename(uri, 0, 17, "new_name").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify the edit doesn't have an anchor
     let changes = doc_changes.as_array().unwrap();
@@ -199,9 +200,7 @@ async fn test_different_anchors_in_same_file() {
         "{@anchor intro}\nContent\n{@anchor middle}\nMore\n{@anchor end}\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("note_a.pn");
     client
@@ -214,8 +213,10 @@ async fn test_different_anchors_in_same_file() {
     // Rename note_b -> chapter
     let response = client.rename(uri, 0, 9, "chapter").await;
 
-    assert!(response.get("result").is_some(), "Rename failed");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // All three different anchors should be preserved
     assert!(
@@ -243,9 +244,7 @@ async fn test_prepare_rename_on_anchor_definition() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("note_a.pn", "Content here\n#section1\nMore content\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("note_a.pn");
     client
@@ -258,16 +257,15 @@ async fn test_prepare_rename_on_anchor_definition() {
     // Position cursor on #section1 (line 1, character 1 which is inside #section1)
     let response = client.prepare_rename(uri, 1, 1).await;
 
-    assert!(response.get("result").is_some(), "prepare_rename failed");
-    assert!(
-        response["result"]["range"].is_object(),
-        "No range in prepare_rename"
-    );
-    assert_eq!(
-        response["result"]["placeholder"].as_str(),
-        Some("section1"),
-        "Wrong placeholder for anchor"
-    );
+    assert!(response.is_some(), "prepare_rename failed");
+    let prepare_result = response.unwrap();
+    
+    match prepare_result {
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+            assert_eq!(placeholder, "section1", "Wrong placeholder for anchor");
+        }
+        _ => panic!("Expected RangeWithPlaceholder response"),
+    }
 
     println!("✅ Prepare rename on anchor definition test passed");
 }
@@ -280,9 +278,7 @@ async fn test_prepare_rename_on_anchor_long_form() {
         "Content here\n{@anchor section1}\nMore content\n",
     );
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri = workspace.get_uri("note_a.pn");
     client
@@ -295,19 +291,15 @@ async fn test_prepare_rename_on_anchor_long_form() {
     // Position cursor on {@anchor section1} (line 1, character 10 which is inside "section1")
     let response = client.prepare_rename(uri, 1, 10).await;
 
-    assert!(
-        response.get("result").is_some(),
-        "prepare_rename failed for long form anchor"
-    );
-    assert!(
-        response["result"]["range"].is_object(),
-        "No range in prepare_rename for long form"
-    );
-    assert_eq!(
-        response["result"]["placeholder"].as_str(),
-        Some("section1"),
-        "Wrong placeholder for long form anchor"
-    );
+    assert!(response.is_some(), "prepare_rename failed for long form anchor");
+    let prepare_result = response.unwrap();
+    
+    match prepare_result {
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+            assert_eq!(placeholder, "section1", "Wrong placeholder for long form anchor");
+        }
+        _ => panic!("Expected RangeWithPlaceholder response"),
+    }
 
     println!("✅ Prepare rename on long form anchor definition test passed");
 }
@@ -318,9 +310,7 @@ async fn test_rename_anchor_simple() {
     workspace.create_file("note_a.pn", "Content\n#old_anchor\nMore content\n");
     workspace.create_file("note_b.pn", "Link to [note_a#old_anchor]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_a = workspace.get_uri("note_a.pn");
     let uri_b = workspace.get_uri("note_b.pn");
@@ -336,17 +326,19 @@ async fn test_rename_anchor_simple() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Rename anchor: position on #old_anchor (line 1, char 1)
     let response = client.rename(uri_a, 1, 1, "new_anchor").await;
 
     assert!(
-        response.get("result").is_some(),
+        response.is_some(),
         "Rename failed: {:?}",
         response
     );
-    let doc_changes = &response["result"]["documentChanges"];
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify anchor definition is updated in note_a.pn
     assert!(
@@ -370,9 +362,7 @@ async fn test_rename_anchor_long_form() {
     workspace.create_file("note_a.pn", "Content\n{@anchor old_anchor}\nMore content\n");
     workspace.create_file("note_b.pn", "Link to [note_a#old_anchor]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_a = workspace.get_uri("note_a.pn");
     let uri_b = workspace.get_uri("note_b.pn");
@@ -388,17 +378,19 @@ async fn test_rename_anchor_long_form() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Rename anchor: position inside {@anchor old_anchor} (line 1, char 10 which is inside "old_anchor")
     let response = client.rename(uri_a, 1, 10, "new_anchor").await;
 
     assert!(
-        response.get("result").is_some(),
+        response.is_some(),
         "Rename failed: {:?}",
         response
     );
-    let doc_changes = &response["result"]["documentChanges"];
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify anchor definition is updated (should preserve long form)
     assert!(
@@ -426,9 +418,7 @@ async fn test_rename_anchor_multiple_references() {
     );
     workspace.create_file("ref3.pn", "Just [target] no anchor\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_target = workspace.get_uri("target.pn");
 
@@ -440,17 +430,19 @@ async fn test_rename_anchor_multiple_references() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Rename anchor
     let response = client.rename(uri_target, 1, 1, "renamed_anchor").await;
 
     assert!(
-        response.get("result").is_some(),
+        response.is_some(),
         "Rename failed: {:?}",
         response
     );
-    let doc_changes = &response["result"]["documentChanges"];
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify anchor definition updated
     assert!(
@@ -494,9 +486,7 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
     workspace.create_file("target.pn", "#anchor1\nContent\n#anchor2\n");
     workspace.create_file("ref.pn", "[target#anchor1]\n[target#anchor2]\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_target = workspace.get_uri("target.pn");
     let uri_ref = workspace.get_uri("ref.pn");
@@ -515,17 +505,19 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Rename only anchor1 (line 0, char 1)
     let response = client.rename(uri_target, 0, 1, "new_anchor1").await;
 
     assert!(
-        response.get("result").is_some(),
+        response.is_some(),
         "Rename failed: {:?}",
         response
     );
-    let doc_changes = &response["result"]["documentChanges"];
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify anchor1 is updated
     assert!(
@@ -565,9 +557,7 @@ async fn test_multibyte_note_and_anchor_rename() {
     workspace.create_file("リンク元.pn", "Link to [ノート#セクション]\n");
     workspace.create_file("ノート.pn", "Content\n#セクション\n");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_src = workspace.get_uri("リンク元.pn");
     let uri_note = workspace.get_uri("ノート.pn");
@@ -580,20 +570,17 @@ async fn test_multibyte_note_and_anchor_rename() {
         .await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // 1. Rename Note "ノート" -> "メモ" (from reference in リンク元.pn)
     // "Link to [ノート#セクション]"
     // "Link to [" is 9 characters (ASCII)
     let response = client.rename(uri_src.clone(), 0, 9, "メモ").await;
 
-    assert!(!response["result"].is_null(), "Note rename result is null");
-    assert!(
-        response.get("result").is_some(),
-        "Note rename failed: {:?}",
-        response
-    );
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Note rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify file rename
     assert!(
@@ -611,16 +598,10 @@ async fn test_multibyte_note_and_anchor_rename() {
     // "Content\n#セクション\n" -> Line 1, char 1 (after '#')
     let response = client.rename(uri_note.clone(), 1, 1, "部分").await;
 
-    assert!(
-        !response["result"].is_null(),
-        "Anchor rename result is null"
-    );
-    assert!(
-        response.get("result").is_some(),
-        "Anchor rename failed: {:?}",
-        response
-    );
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Anchor rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify definition update
     assert!(
@@ -655,9 +636,7 @@ async fn test_multibyte_long_rename() {
 
     assert!(note_path.exists(), "Note file was not created");
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_src = workspace.get_uri("source.pn");
     let uri_note = workspace.get_uri(&format!("{}.pn", note_name));
@@ -666,7 +645,7 @@ async fn test_multibyte_long_rename() {
     client.did_open(uri_note.clone(), content_b.clone()).await;
 
     // Wait for workspace scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // 1. Rename Note from "source.pn"
     // "Link to [" is 9 bytes/chars (ASCII)
@@ -675,16 +654,10 @@ async fn test_multibyte_long_rename() {
 
     let response = client.rename(uri_src.clone(), 0, 10, new_note_name).await;
 
-    assert!(
-        !response["result"].is_null(),
-        "Long note rename result is null"
-    );
-    assert!(
-        response.get("result").is_some(),
-        "Long note rename failed: {:?}",
-        response
-    );
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Long note rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify file rename
     assert!(
@@ -710,11 +683,10 @@ async fn test_multibyte_long_rename() {
     let new_anchor_name = "変更されたアンカー_truncated";
     let response = client.rename(uri_note.clone(), 1, 1, new_anchor_name).await;
 
-    assert!(
-        !response["result"].is_null(),
-        "Long anchor rename result is null"
-    );
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Long anchor rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify definition update
     assert!(
@@ -779,15 +751,13 @@ async fn test_multiline_content_rename() {
 
     workspace.create_file("source.pn", &src_content);
 
-    let mut client = LspTestClient::new(&workspace).await;
-    client.initialize().await;
-    client.initialized().await;
+    let mut client = InProcessLspClient::new(&workspace).await;
 
     let uri_src = workspace.get_uri("source.pn");
     client.did_open(uri_src.clone(), src_content).await;
 
     // Wait for scanning
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // 1. Rename the Note
     // Cursor position: Line 10 (0-indexed).
@@ -801,8 +771,10 @@ async fn test_multiline_content_rename() {
         .rename(uri_src.clone(), 10, rename_col as u32, new_note_name)
         .await;
 
-    assert!(!response["result"].is_null(), "Note rename result is null");
-    let doc_changes = &response["result"]["documentChanges"];
+    assert!(response.is_some(), "Note rename failed");
+    let workspace_edit = response.unwrap();
+    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes = &doc_changes_value;
 
     // Verify file rename
     assert!(
@@ -840,7 +812,7 @@ async fn test_multiline_content_rename() {
     let anchor_def_col = 1;
 
     // Wait a bit to ensure note is processed (though did_open should be fast)
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let response_anchor = client
         .rename(
@@ -851,11 +823,10 @@ async fn test_multiline_content_rename() {
         )
         .await;
 
-    assert!(
-        !response_anchor["result"].is_null(),
-        "Anchor rename result is null"
-    );
-    let doc_changes_anchor = &response_anchor["result"]["documentChanges"];
+    assert!(response_anchor.is_some(), "Anchor rename failed");
+    let workspace_edit_anchor = response_anchor.unwrap();
+    let doc_changes_anchor_value = serde_json::to_value(&workspace_edit_anchor.document_changes.unwrap()).unwrap();
+    let doc_changes_anchor = &doc_changes_anchor_value;
 
     // Verify definition update in note file
     assert!(

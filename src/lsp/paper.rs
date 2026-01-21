@@ -1,4 +1,4 @@
-use crate::lsp_config::{resolve_cache_file, PattoLspConfig};
+use super::lsp_config::{resolve_cache_file, PattoLspConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "zotero")]
@@ -281,7 +281,7 @@ struct ZoteroPaperProvider {
 
 #[cfg(feature = "zotero")]
 impl ZoteroPaperProvider {
-    fn new(credentials: crate::lsp_config::ZoteroCredentials) -> Result<Self, PaperProviderError> {
+    fn new(credentials: crate::lsp::lsp_config::ZoteroCredentials) -> Result<Self, PaperProviderError> {
         let mut client =
             zotero_rs::ZoteroAsync::user_lib(&credentials.user_id, &credentials.api_key)?;
         if let Some(endpoint) = credentials.endpoint.as_deref() {
