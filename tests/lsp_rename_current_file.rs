@@ -23,10 +23,15 @@ async fn test_prepare_rename_on_current_file() {
     // Should succeed and return the file name as placeholder
     assert!(response.is_some(), "prepare_rename failed");
     let prepare_result = response.unwrap();
-    
+
     match prepare_result {
-        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
-            assert_eq!(placeholder, "note_b", "Should return file name as placeholder");
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
+            placeholder, ..
+        } => {
+            assert_eq!(
+                placeholder, "note_b",
+                "Should return file name as placeholder"
+            );
         }
         _ => panic!("Expected RangeWithPlaceholder response"),
     }
@@ -53,7 +58,8 @@ async fn test_rename_current_file() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Should have file rename operation
@@ -120,7 +126,8 @@ async fn test_rename_current_file_with_anchors() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Should preserve anchors in text edits

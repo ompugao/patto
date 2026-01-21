@@ -8,4 +8,3 @@ pub mod renderer;
 pub mod repository;
 pub mod semantic_token;
 pub mod utils;
-

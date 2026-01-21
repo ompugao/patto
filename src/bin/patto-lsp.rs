@@ -5,7 +5,7 @@ use std::fs::File;
 use std::sync::{Arc, Mutex};
 use tower_lsp::{LspService, Server};
 
-use patto::lsp::{Backend, lsp_config::load_config, paper::PaperCatalog, PattoSettings};
+use patto::lsp::{lsp_config::load_config, paper::PaperCatalog, Backend, PattoSettings};
 
 #[derive(ClapParser)]
 #[command(version, about, long_about=None)]

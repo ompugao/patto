@@ -281,7 +281,9 @@ struct ZoteroPaperProvider {
 
 #[cfg(feature = "zotero")]
 impl ZoteroPaperProvider {
-    fn new(credentials: crate::lsp::lsp_config::ZoteroCredentials) -> Result<Self, PaperProviderError> {
+    fn new(
+        credentials: crate::lsp::lsp_config::ZoteroCredentials,
+    ) -> Result<Self, PaperProviderError> {
         let mut client =
             zotero_rs::ZoteroAsync::user_lib(&credentials.user_id, &credentials.api_key)?;
         if let Some(endpoint) = credentials.endpoint.as_deref() {

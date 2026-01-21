@@ -27,7 +27,8 @@ async fn test_anchor_preservation_simple() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify simple link
@@ -97,7 +98,8 @@ async fn test_anchor_preservation_multiple_anchors() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Check note_a.pn edits
@@ -159,7 +161,8 @@ async fn test_no_anchor_modification_in_simple_links() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify the edit doesn't have an anchor
@@ -215,7 +218,8 @@ async fn test_different_anchors_in_same_file() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // All three different anchors should be preserved
@@ -259,9 +263,11 @@ async fn test_prepare_rename_on_anchor_definition() {
 
     assert!(response.is_some(), "prepare_rename failed");
     let prepare_result = response.unwrap();
-    
+
     match prepare_result {
-        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
+            placeholder, ..
+        } => {
             assert_eq!(placeholder, "section1", "Wrong placeholder for anchor");
         }
         _ => panic!("Expected RangeWithPlaceholder response"),
@@ -291,12 +297,20 @@ async fn test_prepare_rename_on_anchor_long_form() {
     // Position cursor on {@anchor section1} (line 1, character 10 which is inside "section1")
     let response = client.prepare_rename(uri, 1, 10).await;
 
-    assert!(response.is_some(), "prepare_rename failed for long form anchor");
+    assert!(
+        response.is_some(),
+        "prepare_rename failed for long form anchor"
+    );
     let prepare_result = response.unwrap();
-    
+
     match prepare_result {
-        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
-            assert_eq!(placeholder, "section1", "Wrong placeholder for long form anchor");
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
+            placeholder, ..
+        } => {
+            assert_eq!(
+                placeholder, "section1",
+                "Wrong placeholder for long form anchor"
+            );
         }
         _ => panic!("Expected RangeWithPlaceholder response"),
     }
@@ -331,13 +345,10 @@ async fn test_rename_anchor_simple() {
     // Rename anchor: position on #old_anchor (line 1, char 1)
     let response = client.rename(uri_a, 1, 1, "new_anchor").await;
 
-    assert!(
-        response.is_some(),
-        "Rename failed: {:?}",
-        response
-    );
+    assert!(response.is_some(), "Rename failed: {:?}", response);
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify anchor definition is updated in note_a.pn
@@ -383,13 +394,10 @@ async fn test_rename_anchor_long_form() {
     // Rename anchor: position inside {@anchor old_anchor} (line 1, char 10 which is inside "old_anchor")
     let response = client.rename(uri_a, 1, 10, "new_anchor").await;
 
-    assert!(
-        response.is_some(),
-        "Rename failed: {:?}",
-        response
-    );
+    assert!(response.is_some(), "Rename failed: {:?}", response);
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify anchor definition is updated (should preserve long form)
@@ -435,13 +443,10 @@ async fn test_rename_anchor_multiple_references() {
     // Rename anchor
     let response = client.rename(uri_target, 1, 1, "renamed_anchor").await;
 
-    assert!(
-        response.is_some(),
-        "Rename failed: {:?}",
-        response
-    );
+    assert!(response.is_some(), "Rename failed: {:?}", response);
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify anchor definition updated
@@ -510,13 +515,10 @@ async fn test_rename_anchor_does_not_affect_other_anchors() {
     // Rename only anchor1 (line 0, char 1)
     let response = client.rename(uri_target, 0, 1, "new_anchor1").await;
 
-    assert!(
-        response.is_some(),
-        "Rename failed: {:?}",
-        response
-    );
+    assert!(response.is_some(), "Rename failed: {:?}", response);
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify anchor1 is updated
@@ -579,7 +581,8 @@ async fn test_multibyte_note_and_anchor_rename() {
 
     assert!(response.is_some(), "Note rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify file rename
@@ -600,7 +603,8 @@ async fn test_multibyte_note_and_anchor_rename() {
 
     assert!(response.is_some(), "Anchor rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify definition update
@@ -656,7 +660,8 @@ async fn test_multibyte_long_rename() {
 
     assert!(response.is_some(), "Long note rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify file rename
@@ -685,7 +690,8 @@ async fn test_multibyte_long_rename() {
 
     assert!(response.is_some(), "Long anchor rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify definition update
@@ -773,7 +779,8 @@ async fn test_multiline_content_rename() {
 
     assert!(response.is_some(), "Note rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Verify file rename
@@ -825,7 +832,8 @@ async fn test_multiline_content_rename() {
 
     assert!(response_anchor.is_some(), "Anchor rename failed");
     let workspace_edit_anchor = response_anchor.unwrap();
-    let doc_changes_anchor_value = serde_json::to_value(&workspace_edit_anchor.document_changes.unwrap()).unwrap();
+    let doc_changes_anchor_value =
+        serde_json::to_value(&workspace_edit_anchor.document_changes.unwrap()).unwrap();
     let doc_changes_anchor = &doc_changes_anchor_value;
 
     // Verify definition update in note file

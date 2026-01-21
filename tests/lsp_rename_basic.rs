@@ -34,10 +34,12 @@ async fn test_prepare_rename_on_wikilink() {
     // Should have a result with range and placeholder
     assert!(response.is_some(), "prepare_rename failed");
     let prepare_result = response.unwrap();
-    
+
     // Check that we got a range and placeholder (PrepareRenameResponse is an enum)
     match prepare_result {
-        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+        tower_lsp::lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
+            placeholder, ..
+        } => {
             assert_eq!(placeholder, "note_b", "Wrong placeholder");
         }
         _ => panic!("Expected RangeWithPlaceholder response"),
@@ -78,7 +80,8 @@ async fn test_rename_note_with_references() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value = serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value =
+        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Should have file rename operation

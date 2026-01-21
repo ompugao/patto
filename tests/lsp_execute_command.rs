@@ -7,14 +7,15 @@ async fn test_aggregate_tasks_empty() {
     let workspace = TestWorkspace::new();
     let mut client = InProcessLspClient::new(&workspace).await;
 
-
     let response = client.aggregate_tasks().await;
 
     // Should return empty array when no tasks
     assert!(response.is_some(), "No result in aggregate_tasks");
     let result = response.unwrap();
     assert!(
-        result.as_ref().map_or(true, |r| r.is_array() || r.is_null()),
+        result
+            .as_ref()
+            .map_or(true, |r| r.is_array() || r.is_null()),
         "Result should be array or null"
     );
 

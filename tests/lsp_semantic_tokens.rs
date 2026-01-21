@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use tower_lsp::lsp_types::{SemanticTokensResult, SemanticTokensRangeResult, Position, Range};
+use tower_lsp::lsp_types::{Position, Range, SemanticTokensRangeResult, SemanticTokensResult};
 
 #[tokio::test]
 async fn test_semantic_tokens_full() {
@@ -25,11 +25,14 @@ async fn test_semantic_tokens_full() {
     let result = client.semantic_tokens(uri).await;
 
     assert!(result.is_some(), "No result in semantic tokens");
-    
+
     match result.unwrap() {
         SemanticTokensResult::Tokens(tokens) => {
             // Should have tokens for wikilink, anchor, task, etc.
-            assert!(!tokens.data.is_empty(), "Semantic tokens data should not be empty");
+            assert!(
+                !tokens.data.is_empty(),
+                "Semantic tokens data should not be empty"
+            );
         }
         SemanticTokensResult::Partial(_) => {
             panic!("Unexpected partial result");
@@ -59,14 +62,20 @@ async fn test_semantic_tokens_range() {
 
     // Request tokens for lines 1-2 only
     let range = Range {
-        start: Position { line: 1, character: 0 },
-        end: Position { line: 2, character: 100 },
+        start: Position {
+            line: 1,
+            character: 0,
+        },
+        end: Position {
+            line: 2,
+            character: 100,
+        },
     };
-    
+
     let result = client.semantic_tokens_range(uri, range).await;
 
     assert!(result.is_some(), "No result in semantic tokens range");
-    
+
     match result.unwrap() {
         SemanticTokensRangeResult::Tokens(tokens) => {
             assert!(

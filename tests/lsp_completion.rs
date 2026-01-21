@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use tower_lsp::lsp_types::{CompletionResponse, CompletionItem};
+use tower_lsp::lsp_types::{CompletionItem, CompletionResponse};
 
 #[tokio::test]
 async fn test_completion_note_names() {
@@ -29,10 +29,7 @@ async fn test_completion_note_names() {
     assert!(!items.is_empty(), "No completion items");
 
     // Should suggest note_one and note_two (fuzzy match "no")
-    let labels: Vec<String> = items
-        .iter()
-        .map(|item| item.label.clone())
-        .collect();
+    let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
 
     assert!(
         labels.iter().any(|l| l.contains("note")),
@@ -67,10 +64,7 @@ async fn test_completion_anchors() {
         !items.is_empty(),
         "⚠️  No anchor completions (workspace scan may still be in progress)"
     );
-    let labels: Vec<String> = items
-        .iter()
-        .map(|item| item.label.clone())
-        .collect();
+    let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
 
     // Should suggest anchors with # prefix
     assert!(

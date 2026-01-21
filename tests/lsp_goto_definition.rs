@@ -57,13 +57,13 @@ async fn test_goto_definition_with_anchor() {
     let response = client.definition(source_uri, 0, 8).await;
 
     assert!(response.is_some(), "No result in definition");
-    
+
     let location = match response.unwrap() {
         GotoDefinitionResponse::Scalar(loc) => loc,
         GotoDefinitionResponse::Array(locs) => locs[0].clone(),
         GotoDefinitionResponse::Link(_) => panic!("Unexpected Link response"),
     };
-    
+
     assert!(location.uri.as_str().contains("target.pn"));
 
     // Should point to the line with section2 anchor
@@ -75,7 +75,7 @@ async fn test_goto_definition_with_anchor() {
     let start_line = location.range.start.line;
     // If workspace scan completed, should point to line 3
     assert_eq!(start_line, 3);
-    
+
     println!("✅ Goto definition with anchor test passed");
 }
 

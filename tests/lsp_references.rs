@@ -23,7 +23,7 @@ async fn test_find_references_single_file() {
 
     assert!(response.is_some(), "No result in references");
     let refs = response.unwrap();
-    
+
     // Should find 3 references
     assert_eq!(refs.len(), 3, "Expected 3 references");
 
