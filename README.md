@@ -171,6 +171,7 @@ rg --vimgrep '.*@task.*todo' . | \
 
 ## Recent Updates
 
+**v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
 **v0.3.0** - Complete Markdown export overhaul with 72 new tests  
 **v0.2.10** - Bump nextjs
 **v0.2.9** - Minor fix
