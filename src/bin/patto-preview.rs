@@ -684,7 +684,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     };
 
     if let Ok(json) = serde_json::to_string(&message) {
-        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
             eprintln!("Error sending initial file list: {}", e);
             return;
         }
@@ -761,7 +761,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         };
 
                         if let Ok(json) = serde_json::to_string(&ws_msg) {
-                            if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                            if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
                                 eprintln!("Error sending WebSocket message: {e}");
                                 break;
                             }
@@ -796,7 +796,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     };
 
                                     if let Ok(json) = serde_json::to_string(&message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
                                             eprintln!("Error sending file content: {}", e);
                                         }
                                     }
@@ -809,7 +809,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     };
 
                                     if let Ok(json) = serde_json::to_string(&back_links_message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
                                             eprintln!("Error sending back-links: {}", e);
                                         }
                                     }
@@ -822,7 +822,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     };
 
                                     if let Ok(json) = serde_json::to_string(&two_hop_message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json)).await {
+                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
                                             eprintln!("Error sending two-hop links: {}", e);
                                         }
                                     }
