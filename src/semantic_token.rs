@@ -20,14 +20,17 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
 
 // Token type indices (must match LEGEND_TYPE order)
 const TOKEN_TYPE_FUNCTION: u32 = 0;
+#[allow(unused)]
 const TOKEN_TYPE_VARIABLE: u32 = 1;
 const TOKEN_TYPE_STRING: u32 = 2;
 const TOKEN_TYPE_COMMENT: u32 = 3;
 const TOKEN_TYPE_KEYWORD: u32 = 4;
 const TOKEN_TYPE_OPERATOR: u32 = 5;
+#[allow(unused)]
 const TOKEN_TYPE_PARAMETER: u32 = 6;
 const TOKEN_TYPE_PROPERTY: u32 = 7;
 const TOKEN_TYPE_TYPE: u32 = 8;
+#[allow(unused)]
 const TOKEN_TYPE_METHOD: u32 = 9;
 const TOKEN_TYPE_ENUM: u32 = 10;
 const TOKEN_TYPE_MODIFIER: u32 = 11;

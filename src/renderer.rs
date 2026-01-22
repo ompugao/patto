@@ -377,18 +377,16 @@ impl HtmlRenderer {
         for child in children.iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
                 self.render_quote_content_html(child, output, indent_level + 1)?;
+            } else if indent_level > 0 {
+                write!(
+                    output,
+                    "<div style=\"margin-left: {}em\">",
+                    indent_level * 2
+                )?;
+                self._format_impl(child, output)?;
+                write!(output, "</div>")?;
             } else {
-                if indent_level > 0 {
-                    write!(
-                        output,
-                        "<div style=\"margin-left: {}em\">",
-                        indent_level * 2
-                    )?;
-                    self._format_impl(child, output)?;
-                    write!(output, "</div>")?;
-                } else {
-                    self._format_impl(child, output)?;
-                }
+                self._format_impl(child, output)?;
             }
         }
 

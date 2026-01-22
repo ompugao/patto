@@ -683,8 +683,8 @@ impl MarkdownImporter {
             .join("");
 
         // Check if it's a self-anchor link
-        if url.starts_with('#') {
-            return AstNode::wikilink("", line, None, "", Some(&url[1..]));
+        if let Some(stripped_url) = url.strip_prefix('#') {
+            return AstNode::wikilink("", line, None, "", Some(stripped_url));
         }
 
         // Check if it's an internal link (ends with .md or .pn)

@@ -1,6 +1,5 @@
 use clap::Parser as ClapParser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use simplelog;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 use tower_lsp::{LspService, Server};

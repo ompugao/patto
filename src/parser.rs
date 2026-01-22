@@ -569,8 +569,7 @@ fn find_parent_quote_content(quote: &AstNode, relative_indent: usize) -> AstNode
     let children = quote.value().children.lock().unwrap();
     if let Some(last_qc) = children
         .iter()
-        .filter(|c| matches!(c.kind(), AstNodeKind::QuoteContent { .. }))
-        .last()
+        .rfind(|c| matches!(c.kind(), AstNodeKind::QuoteContent { .. }))
     {
         find_parent_quote_content(last_qc, relative_indent - 1)
     } else {

@@ -1,17 +1,14 @@
-use std::fs::File;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use urlencoding::decode;
 
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
-use super::lsp_config::load_config;
 use super::paper::{PaperCatalog, PaperProviderError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp::{Client, LanguageServer};
 
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
@@ -650,7 +647,7 @@ impl Backend {
                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         new_text: format!("{} {}", paper.title, paper.link),
-                        range: range.clone(),
+                        range: *range,
                     })),
                     ..Default::default()
                 })

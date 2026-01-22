@@ -384,7 +384,7 @@ fn rule_display_name(rule: Rule) -> Cow<'static, str> {
         Rule::statement => Cow::Borrowed("line content"),
         Rule::statement_nestable => Cow::Borrowed("nested line content"),
         Rule::raw_sentence => Cow::Borrowed("plain text"),
-        _ => Cow::Owned(format!("{}", format!("{:?}", rule).replace('_', " "))),
+        _ => Cow::Owned(format!("{:?}", rule).replace('_', " ").to_string()),
     }
 }
 
