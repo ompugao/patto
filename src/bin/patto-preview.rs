@@ -684,7 +684,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     };
 
     if let Ok(json) = serde_json::to_string(&message) {
-        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
+        if let Err(e) = socket
+            .send(axum::extract::ws::Message::Text(json.into()))
+            .await
+        {
             eprintln!("Error sending initial file list: {}", e);
             return;
         }
