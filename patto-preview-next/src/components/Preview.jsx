@@ -1,7 +1,6 @@
-import parse from 'html-react-parser';
 import { useEffect, useCallback } from 'react';
 import styles from './Preview.module.css';
-import { useHtmlTransformer, escapeInvalidTags } from '../lib/useHtmlTransformer';
+import AstRenderer from './AstRenderer';
 import TwoHopLinks from './TwoHopLinks.jsx';
 import BackLinks from './BackLinks.jsx';
 import 'highlight.js/styles/github.min.css';
@@ -28,17 +27,14 @@ const mathJaxConfig = {
  * Preview component for rendering patto note content.
  * 
  * @param {Object} props
- * @param {string} props.html - Raw HTML content to render
+ * @param {Object} props.ast - AST object to render directly
  * @param {string|null} props.anchor - Anchor ID to scroll to
  * @param {Function} props.onSelectFile - Callback for navigating to a file
  * @param {string|null} props.currentNote - Currently selected note path
  * @param {Array} props.backLinks - Back-link data for the current note
  * @param {Array} props.twoHopLinks - Two-hop link data for the current note
  */
-export default function Preview({ html, anchor, onSelectFile, currentNote, backLinks, twoHopLinks }) {
-  // Get memoized transform options from hook
-  const transformOptions = useHtmlTransformer(onSelectFile);
-
+export default function Preview({ ast, anchor, onSelectFile, currentNote, backLinks, twoHopLinks }) {
   /**
    * Enhanced anchor scrolling with retry mechanism
    */
@@ -72,19 +68,19 @@ export default function Preview({ html, anchor, onSelectFile, currentNote, backL
 
   // Handle anchor scrolling when content or anchor changes
   useEffect(() => {
-    if (anchor && html) {
+    if (anchor && ast) {
       // Small delay to ensure content is rendered
       setTimeout(() => scrollToAnchor(anchor), 100);
     }
-  }, [html, anchor, scrollToAnchor]);
+  }, [ast, anchor, scrollToAnchor]);
 
   return (
     <MathJaxContext config={mathJaxConfig}>
       <div id="preview-content" className={styles.PreviewContent}>
-        {html ? (
+        {ast ? (
           <>
             <MathJax dynamic>
-              {parse(escapeInvalidTags(html), transformOptions)}
+              <AstRenderer ast={ast} onSelectFile={onSelectFile} />
             </MathJax>
             <BackLinks currentNote={currentNote} onSelectFile={onSelectFile} backLinks={backLinks} />
             <TwoHopLinks currentNote={currentNote} onSelectFile={onSelectFile} twoHopLinks={twoHopLinks} />

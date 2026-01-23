@@ -51,7 +51,7 @@ export const usePattoStore = create((set, get) => ({
     // === Data State ===
     files: [],
     fileMetadata: {},
-    previewHtml: '',
+    previewAst: null,
     backLinks: [],
     twoHopLinks: [],
 
@@ -91,7 +91,7 @@ export const usePattoStore = create((set, get) => ({
             case MessageTypes.FILE_CHANGED: {
                 const isCurrentFile = data.path === currentNote;
                 set(state => ({
-                    previewHtml: isCurrentFile ? (data.html || '') : state.previewHtml,
+                    previewAst: isCurrentFile ? (data.ast || null) : state.previewAst,
                     files: state.files.includes(data.path)
                         ? state.files
                         : [...state.files, data.path],
@@ -125,7 +125,7 @@ export const usePattoStore = create((set, get) => ({
                         files: newFiles,
                         fileMetadata: newMetadata,
                         // Clear preview if current file was removed
-                        previewHtml: isCurrentFile ? '' : state.previewHtml,
+                        previewAst: isCurrentFile ? null : state.previewAst,
                         backLinks: isCurrentFile ? [] : state.backLinks,
                         twoHopLinks: isCurrentFile ? [] : state.twoHopLinks,
                         // Also clear currentNote if the file was removed
@@ -174,7 +174,7 @@ export const usePattoStore = create((set, get) => ({
         if (typeof window === 'undefined') return;
 
         // Clear previous preview
-        set({ previewHtml: '', backLinks: [], twoHopLinks: [] });
+        set({ previewAst: null, backLinks: [], twoHopLinks: [] });
 
         // Update URL
         const url = new URL(window.location);

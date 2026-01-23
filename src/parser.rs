@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[grammar = "patto.pest"]
 struct PattoLineParser;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Span(pub usize, pub usize);
 
 impl ops::Add<usize> for Span {
@@ -102,6 +102,20 @@ impl Location {
 
     fn as_str(&self) -> &str {
         &self.input[self.span.0..self.span.1]
+    }
+}
+
+impl Serialize for Location {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("Location", 3)?;
+        state.serialize_field("row", &self.row)?;
+        state.serialize_field("span", &self.span)?;
+        state.serialize_field("text", self.as_str())?;
+        state.end()
     }
 }
 
@@ -188,14 +202,14 @@ impl Ord for Deadline {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub enum TaskStatus {
     Todo,
     Doing,
     Done,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum Property {
     Task {
         status: TaskStatus,
@@ -208,7 +222,7 @@ pub enum Property {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub enum AstNodeKind {
     Line {
         //indent: usize,
@@ -488,6 +502,58 @@ impl fmt::Display for AstNode {
             writeln!(f, "\t{i}child -- {:?}", child)?;
         }
         Ok(())
+    }
+}
+
+impl Serialize for AstNode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let internal = self.value();
+        let kind = &internal.kind;
+        let location = self.location();
+        let contents = internal.contents.lock().unwrap();
+        let children = internal.children.lock().unwrap();
+        let stable_id = internal.stable_id.lock().unwrap();
+
+        // Count fields dynamically based on what we need to serialize
+        let mut field_count = 3; // kind, contents, children are always present
+        if stable_id.is_some() {
+            field_count += 1;
+        }
+        // For Text, CodeContent, MathContent nodes, include the text
+        let text = match kind {
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
+                field_count += 1;
+                Some(location.as_str())
+            }
+            _ => None,
+        };
+        // Include location for nodes that need it
+        let include_location = matches!(
+            kind,
+            AstNodeKind::Line { .. } | AstNodeKind::QuoteContent { .. }
+        );
+        if include_location {
+            field_count += 1;
+        }
+
+        let mut state = serializer.serialize_struct("AstNode", field_count)?;
+        state.serialize_field("kind", kind)?;
+        if let Some(id) = *stable_id {
+            state.serialize_field("stableId", &id)?;
+        }
+        if let Some(t) = text {
+            state.serialize_field("text", t)?;
+        }
+        if include_location {
+            state.serialize_field("location", location)?;
+        }
+        state.serialize_field("contents", &*contents)?;
+        state.serialize_field("children", &*children)?;
+        state.end()
     }
 }
 

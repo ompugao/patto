@@ -234,7 +234,7 @@ enum WsMessage {
     FileChanged {
         path: String,
         metadata: FileMetadata,
-        html: String,
+        ast: serde_json::Value,
     },
     FileAdded {
         path: String,
@@ -376,9 +376,9 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
-        .route("/api/files/*path", get(user_files_handler))
-        .route("/_next/*path", get(nextjs_static_handler))
-        .route("/js/*path", get(nextjs_public_handler))
+        .route("/api/files/{*path}", get(user_files_handler))
+        .route("/_next/{*path}", get(nextjs_static_handler))
+        .route("/js/{*path}", get(nextjs_public_handler))
         .route("/favicon.ico", get(favicon_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
@@ -702,8 +702,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     Ok(msg) => {
                         let ws_msg = match msg {
                             RepositoryMessage::FileChanged(path, metadata, content) => {
-                                let Ok(html) =
-                                    render_patto_to_html(&content, &path.to_string_lossy(), &state).await else {
+                                let Ok(ast) =
+                                    render_patto_to_json(&content, &path.to_string_lossy(), &state).await else {
                                         continue;
                                 };
 
@@ -713,7 +713,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 WsMessage::FileChanged {
                                     path: rel_path.to_string_lossy().to_string(),
                                     metadata,
-                                    html,
+                                    ast,
                                 }
                             },
                             //RepositoryMessage::FileList(files) => {
@@ -790,12 +790,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 //TODO add function to retrieve metadata in crate::Repository
                                 let metadata = state.repository.collect_file_metadata(&file_path).unwrap();
 
-                                if let Ok(html) = render_patto_to_html(&content, &file_path.to_string_lossy(), &state).await {
-                                    // Send the rendered HTML to the client
+                                if let Ok(ast) = render_patto_to_json(&content, &file_path.to_string_lossy(), &state).await {
+                                    // Send the rendered AST to the client
                                     let message = WsMessage::FileChanged {
                                         path: path.clone(),
                                         metadata,
-                                        html,
+                                        ast,
                                     };
 
                                     if let Ok(json) = serde_json::to_string(&message) {
@@ -853,6 +853,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 }
 
 // Render patto content to HTML with persistent line tracking
+// NOTE: Kept for potential future uses (static site export, etc.)
+#[allow(dead_code)]
 async fn render_patto_to_html(
     content: &str,
     file_path: &str,
@@ -890,6 +892,37 @@ async fn render_patto_to_html(
     match html_output {
         Ok(output) => Ok(String::from_utf8(output)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
+        Err(e) => Err(std::io::Error::other(e)),
+    }
+}
+
+// Render patto content to JSON AST for direct frontend rendering
+async fn render_patto_to_json(
+    content: &str,
+    file_path: &str,
+    state: &AppState,
+) -> std::io::Result<serde_json::Value> {
+    let content = std::sync::Arc::new(content.to_string());
+    let file_path_buf = PathBuf::from(file_path);
+
+    let line_trackers = Arc::clone(&state.line_trackers);
+
+    let json_output = tokio::task::spawn_blocking(move || {
+        let mut trackers = line_trackers.lock().unwrap();
+        let line_tracker = trackers.entry(file_path_buf.clone()).or_insert_with(|| {
+            LineTracker::new().unwrap_or_else(|_| {
+                panic!();
+            })
+        });
+
+        let result = parser::parse_text_with_persistent_line_tracking(&content, line_tracker);
+        serde_json::to_value(&result.ast)
+    })
+    .await;
+
+    match json_output {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(e)) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
         Err(e) => Err(std::io::Error::other(e)),
     }
 }

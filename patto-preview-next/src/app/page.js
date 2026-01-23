@@ -9,7 +9,7 @@ export default function PattoApp() {
   // Select state and actions from Zustand store
   const files = usePattoStore(s => s.files);
   const fileMetadata = usePattoStore(s => s.fileMetadata);
-  const previewHtml = usePattoStore(s => s.previewHtml);
+  const previewAst = usePattoStore(s => s.previewAst);
   const backLinks = usePattoStore(s => s.backLinks);
   const twoHopLinks = usePattoStore(s => s.twoHopLinks);
   const currentNote = usePattoStore(s => s.currentNote);
@@ -97,7 +97,7 @@ export default function PattoApp() {
 
         <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
           <Preview
-            html={previewHtml}
+            ast={previewAst}
             anchor={anchor}
             onSelectFile={selectFile}
             currentNote={currentNote}
