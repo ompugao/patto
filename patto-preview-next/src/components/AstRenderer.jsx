@@ -80,7 +80,48 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
       case 'MathContent':
         return <>{text || ''}</>;
 
+      case 'Quote':
+        return (
+          <blockquote key={nodeKey}>
+            {contents && contents.length > 0 && renderContents(contents, nodeKey)}
+            {children && children.length > 0 && (
+              <ul className={styles.PattoList}>
+                {children.map((child, idx) => (
+                  <AstNodeRenderer
+                    key={`${nodeKey}-qchild-${idx}`}
+                    node={child}
+                    onSelectFile={onSelectFile}
+                    keyPrefix={`${nodeKey}-qchild-${idx}`}
+                  />
+                ))}
+              </ul>
+            )}
+          </blockquote>
+        );
+
+      case 'TableRow':
+        return (
+          <tr key={nodeKey}>
+            {contents?.map((col, idx) => (
+              <AstNodeRenderer
+                key={`${nodeKey}-col-${idx}`}
+                node={col}
+                onSelectFile={onSelectFile}
+                keyPrefix={`${nodeKey}-col-${idx}`}
+              />
+            ))}
+          </tr>
+        );
+
+      case 'TableColumn':
+        return (
+          <td key={nodeKey}>
+            {renderContents(contents, nodeKey)}
+          </td>
+        );
+
       default:
+        console.warn('Unknown simple AST node kind:', kind);
         return null;
     }
   }
@@ -111,14 +152,6 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
         );
       }
 
-      case 'Quote':
-        return (
-          <blockquote key={nodeKey}>
-            {renderContents(contents, nodeKey)}
-            {renderChildren(children, nodeKey)}
-          </blockquote>
-        );
-
       case 'QuoteContent': {
         const { properties = [] } = kindData || {};
         const anchor = properties.find(p => p.Anchor)?.Anchor;
@@ -136,7 +169,11 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
 
       case 'Code': {
         const { lang, inline } = kindData || {};
-        const codeContent = contents?.[0]?.text || '';
+        // Code content is in children as CodeContent nodes - join all of them
+        const codeLines = children?.map(c => c.text).filter(Boolean) || [];
+        const codeContent = codeLines.length > 0 
+          ? codeLines.join('\n') 
+          : (contents?.[0]?.text || '');
 
         // Check for mermaid diagrams
         if (lang === 'mermaid' && !inline) {
@@ -160,7 +197,13 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
 
       case 'Math': {
         const { inline } = kindData || {};
-        const mathContent = contents?.[0]?.text || '';
+        // Math content can be in children (MathContent) or contents (Text nodes)
+        const extractText = (nodes) => {
+          if (!nodes) return '';
+          return nodes.map(n => n.text || extractText(n.contents) || extractText(n.children)).join('');
+        };
+        // Try children first (for [@math] blocks), then contents (for inline [$ $])
+        const mathContent = extractText(children) || extractText(contents);
 
         if (inline) {
           return <span key={nodeKey}>{'\\(' + mathContent + '\\)'}</span>;
@@ -170,7 +213,20 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
 
       case 'WikiLink': {
         const { link, anchor: linkAnchor } = kindData || {};
-        const displayText = contents?.map(c => c.text).join('') || link;
+        const displayText = contents?.map(c => c.text).join('') || link || linkAnchor;
+
+        // Self-link: empty link with anchor - creates a link to anchor on same page
+        if (!link && linkAnchor) {
+          return (
+            <a 
+              key={nodeKey} 
+              className="patto-selflink" 
+              href={`#${linkAnchor}`}
+            >
+              #{linkAnchor}
+            </a>
+          );
+        }
 
         // Check if this is a special embed link
         if (link?.includes('twitter.com') || link?.includes('x.com')) {
@@ -274,7 +330,7 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
           <table key={nodeKey}>
             {caption && <caption>{caption}</caption>}
             <tbody>
-              {contents?.map((row, idx) => (
+              {children?.map((row, idx) => (
                 <AstNodeRenderer
                   key={`${nodeKey}-row-${idx}`}
                   node={row}
@@ -286,27 +342,6 @@ const AstNodeRenderer = memo(function AstNodeRenderer({ node, onSelectFile, keyP
           </table>
         );
       }
-
-      case 'TableRow':
-        return (
-          <tr key={nodeKey}>
-            {contents?.map((col, idx) => (
-              <AstNodeRenderer
-                key={`${nodeKey}-col-${idx}`}
-                node={col}
-                onSelectFile={onSelectFile}
-                keyPrefix={`${nodeKey}-col-${idx}`}
-              />
-            ))}
-          </tr>
-        );
-
-      case 'TableColumn':
-        return (
-          <td key={nodeKey}>
-            {renderContents(contents, nodeKey)}
-          </td>
-        );
 
       default:
         console.warn('Unknown AST node kind:', kindType, kindData);
