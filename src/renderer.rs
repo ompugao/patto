@@ -218,6 +218,13 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Link { link, title } => {
+                if let Some(title) = title {
+                    write!(output, "<a href=\"{}\">{}</a>", link, title)?;
+                } else {
+                    write!(output, "<a href=\"{}\">{}</a>", link, link)?;
+                }
+            }
+            AstNodeKind::Embed { link, title } => {
                 if let Some(youtube_id) = get_youtube_id(link) {
                     write!(
                         output,
@@ -687,6 +694,13 @@ impl MarkdownRenderer {
                 }
             }
             AstNodeKind::Link { link, title } => {
+                if let Some(title) = title {
+                    write!(output, "[{}]({})", title, link)?;
+                } else {
+                    write!(output, "[{}]({})", link, link)?;
+                }
+            }
+            AstNodeKind::Embed { link, title } => {
                 if let Some(youtube_id) = get_youtube_id(link) {
                     // YouTube embed as link (markdown doesn't support iframe)
                     write!(
@@ -1192,6 +1206,13 @@ impl PattoRenderer {
                     write!(output, "[{} {}]", t, link)?;
                 } else {
                     write!(output, "[{}]", link)?;
+                }
+            }
+            AstNodeKind::Embed { link, title } => {
+                if let Some(t) = title {
+                    write!(output, "[@embed {} {}]", link, t)?;
+                } else {
+                    write!(output, "[@embed {}]", link)?;
                 }
             }
             AstNodeKind::Image { src, alt } => {
