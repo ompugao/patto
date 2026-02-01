@@ -2083,7 +2083,10 @@ mod tests {
             assert_eq!(link, "https://example.com/embed");
             assert_eq!(title, &Some("title".to_string()));
         } else {
-            panic!("Expected AstNodeKind::Embed, got {:?}", nodes_url_title[0].kind());
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_title[0].kind()
+            );
         }
 
         let input_title_url = "[@embed title https://example.com/embed]";
@@ -2096,7 +2099,10 @@ mod tests {
             assert_eq!(link, "https://example.com/embed");
             assert_eq!(title, &Some("title".to_string()));
         } else {
-            panic!("Expected AstNodeKind::Embed, got {:?}", nodes_title_url[0].kind());
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_title_url[0].kind()
+            );
         }
 
         let input_url_url = "[@embed https://example.com/embed https://example.com/embed]";
@@ -2109,7 +2115,10 @@ mod tests {
             assert_eq!(link, "https://example.com/embed");
             assert_eq!(title, &Some("https://example.com/embed".to_string()));
         } else {
-            panic!("Expected AstNodeKind::Embed, got {:?}", nodes_url_url[0].kind());
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_url[0].kind()
+            );
         }
 
         let input_url_only = "[@embed https://example.com/embed]";
@@ -2122,7 +2131,10 @@ mod tests {
             assert_eq!(link, "https://example.com/embed");
             assert_eq!(title, &None);
         } else {
-            panic!("Expected AstNodeKind::Embed, got {:?}", nodes_url_only[0].kind());
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_only[0].kind()
+            );
         }
 
         Ok(())
