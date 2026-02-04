@@ -27,6 +27,7 @@ A **line-oriented** text format where newlines create lines and tabs create nest
 Plain text
 	Tab to nest
 		Tab twice for deeper nesting
+    Anchored text  #anchor
 
 [* bold]  [/ italic]  [` code `]
 ```
@@ -34,7 +35,7 @@ Plain text
 ### Links & Tasks
 ```txt
 [other note]                     Link to note
-[note#anchor]                    Link to section
+[note#anchor]                    Link to the anchored line in note
 [https://example.com Title]     External link
 
 !2024-12-31    Todo with deadline
@@ -56,6 +57,14 @@ Plain text
 
 [@math]
     \sum_{n=0}^{10} = 55
+```
+
+### Content embeddings
+```txt
+[@img http://example.com/img "image alt"]
+[@embed https://www.youtube.com/watch?v=dQw4w9WgXcQ Youtube Alt]
+[@embed https://twitter.com/... Tweet]
+[@embed https://speakerdeck.com/... Slide]
 ```
 
 <details>

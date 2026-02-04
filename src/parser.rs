@@ -244,6 +244,10 @@ pub enum AstNodeKind {
         link: String,
         title: Option<String>,
     },
+    Embed {
+        link: String,
+        title: Option<String>,
+    },
 
     //Bold {
     //    size: usize
@@ -442,6 +446,24 @@ impl AstNode {
     }
     pub fn tablecolumn(input: &str, row: usize, span: Option<Span>) -> Self {
         Self::new(input, row, span, Some(AstNodeKind::TableColumn))
+    }
+
+    pub fn embed(
+        input: &str,
+        row: usize,
+        span: Option<Span>,
+        link: &str,
+        title: Option<&str>,
+    ) -> Self {
+        Self::new(
+            input,
+            row,
+            span,
+            Some(AstNodeKind::Embed {
+                link: link.to_string(),
+                title: title.map(str::to_string),
+            }),
+        )
     }
 
     pub fn value(&self) -> &AstNodeInternal {
@@ -1400,6 +1422,62 @@ fn transform_mail_link<'a>(
     }
 }
 
+fn transform_embed<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> Option<AstNode> {
+    let inner = pair.into_inner().next().unwrap();
+    let span = Into::<Span>::into(inner.as_span()) + indent;
+    match inner.as_rule() {
+        Rule::embed_url_title => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            let title = inner2.next().unwrap();
+            Some(AstNode::embed(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(title.as_str()),
+            ))
+        }
+        Rule::embed_title_url => {
+            let mut inner2 = inner.into_inner();
+            let title = inner2.next().unwrap();
+            let url = inner2.next().unwrap();
+            Some(AstNode::embed(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(title.as_str()),
+            ))
+        }
+        Rule::embed_url_url => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            let url2 = inner2.next().unwrap();
+            Some(AstNode::embed(
+                line,
+                row,
+                Some(span),
+                url.as_str(),
+                Some(url2.as_str()),
+            ))
+        }
+        Rule::embed_url_only => {
+            let mut inner2 = inner.into_inner();
+            let url = inner2.next().unwrap();
+            Some(AstNode::embed(line, row, Some(span), url.as_str(), None))
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+}
+
 /// Helper to parse deadline strings
 fn parse_deadline(value: &str) -> Deadline {
     if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
@@ -1564,6 +1642,11 @@ fn transform_statement<'a>(
         match inner.as_rule() {
             Rule::expr_img => {
                 if let Some(node) = transform_img(inner, line, row, indent) {
+                    nodes.push(node);
+                }
+            }
+            Rule::expr_embed => {
+                if let Some(node) = transform_embed(inner, line, row, indent) {
                     nodes.push(node);
                 }
             }
@@ -1985,6 +2068,75 @@ mod tests {
             math.value().contents.lock().unwrap()[0].extract_str(),
             "math = a * b * c"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_embed() -> Result<(), Box<dyn std::error::Error>> {
+        let input_url_title = "[@embed https://example.com/embed title]";
+        let mut parsed_url_title = PattoLineParser::parse(Rule::statement, input_url_title)?;
+        let (nodes_url_title, _props_url_title) =
+            transform_statement(parsed_url_title.next().unwrap(), input_url_title, 0, 0);
+
+        assert_eq!(nodes_url_title.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes_url_title[0].kind() {
+            assert_eq!(link, "https://example.com/embed");
+            assert_eq!(title, &Some("title".to_string()));
+        } else {
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_title[0].kind()
+            );
+        }
+
+        let input_title_url = "[@embed title https://example.com/embed]";
+        let mut parsed_title_url = PattoLineParser::parse(Rule::statement, input_title_url)?;
+        let (nodes_title_url, _props_title_url) =
+            transform_statement(parsed_title_url.next().unwrap(), input_title_url, 0, 0);
+
+        assert_eq!(nodes_title_url.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes_title_url[0].kind() {
+            assert_eq!(link, "https://example.com/embed");
+            assert_eq!(title, &Some("title".to_string()));
+        } else {
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_title_url[0].kind()
+            );
+        }
+
+        let input_url_url = "[@embed https://example.com/embed https://example.com/embed]";
+        let mut parsed_url_url = PattoLineParser::parse(Rule::statement, input_url_url)?;
+        let (nodes_url_url, _props_url_url) =
+            transform_statement(parsed_url_url.next().unwrap(), input_url_url, 0, 0);
+
+        assert_eq!(nodes_url_url.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes_url_url[0].kind() {
+            assert_eq!(link, "https://example.com/embed");
+            assert_eq!(title, &Some("https://example.com/embed".to_string()));
+        } else {
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_url[0].kind()
+            );
+        }
+
+        let input_url_only = "[@embed https://example.com/embed]";
+        let mut parsed_url_only = PattoLineParser::parse(Rule::statement, input_url_only)?;
+        let (nodes_url_only, _props_url_only) =
+            transform_statement(parsed_url_only.next().unwrap(), input_url_only, 0, 0);
+
+        assert_eq!(nodes_url_only.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes_url_only[0].kind() {
+            assert_eq!(link, "https://example.com/embed");
+            assert_eq!(title, &None);
+        } else {
+            panic!(
+                "Expected AstNodeKind::Embed, got {:?}",
+                nodes_url_only[0].kind()
+            );
+        }
+
         Ok(())
     }
 

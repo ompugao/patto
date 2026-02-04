@@ -376,9 +376,9 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
-        .route("/api/files/*path", get(user_files_handler))
-        .route("/_next/*path", get(nextjs_static_handler))
-        .route("/js/*path", get(nextjs_public_handler))
+        .route("/api/files/{*path}", get(user_files_handler))
+        .route("/_next/{*path}", get(nextjs_static_handler))
+        .route("/js/{*path}", get(nextjs_public_handler))
         .route("/favicon.ico", get(favicon_handler))
         .fallback(get(index_handler)) // Serve SPA for all other routes
         .with_state(state);
