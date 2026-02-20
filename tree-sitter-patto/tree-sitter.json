@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for the Patto note-taking format",
+    "authors": [
+      {"name": "Patto contributors"}
+    ],
+    "links": {
+      "repository": "https://github.com/ompugao/patto"
+    }
+  },
+  "grammars": [
+    {
+      "name": "patto",
+      "scope": "source.patto",
+      "file-types": ["pn"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm",
+      "path": "."
+    }
+  ]
+}
