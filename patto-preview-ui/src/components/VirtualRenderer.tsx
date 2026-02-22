@@ -197,40 +197,40 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         }
 
         case 'HorizontalLine': {
-            return <hr className="my-4 border-slate-100" />;
+            return <div className="h-[1em] flex items-center"><hr className="w-full border-0 border-t border-slate-200 m-0" /></div>;
         }
 
         case 'Table': {
             return (
                 <div className="overflow-x-auto my-3">
-            { kind.caption && <p className="text-sm text-slate-500 mb-1">{kind.caption}</p> }
-            <table className="border-collapse w-full text-sm">
-                <tbody>
-                    {children.map((row, i) => (
-                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                            {(row.value?.children ?? []).map((col, j) => (
-                                <td key={j} className="border border-slate-200 px-3 py-1.5">
-                                    <InlineContents nodes={col.value?.contents ?? []} onWikiLinkClick={onWikiLinkClick} />
-                                </td>
+                    {kind.caption && <p className="text-sm text-slate-500 mb-1">{kind.caption}</p>}
+                    <table className="border-collapse w-full text-sm">
+                        <tbody>
+                            {children.map((row, i) => (
+                                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                    {(row.value?.children ?? []).map((col, j) => (
+                                        <td key={j} className="border border-slate-200 px-3 py-1.5">
+                                            <InlineContents nodes={col.value?.contents ?? []} onWikiLinkClick={onWikiLinkClick} />
+                                        </td>
+                                    ))}
+                                </tr>
                             ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
                 </div >
             );
         }
 
         case 'Dummy': {
-    return (
-        <>
-            {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
-        </>
-    );
-}
+            return (
+                <>
+                    {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
+                </>
+            );
+        }
 
         default:
-return null;
+            return null;
     }
 };
 
