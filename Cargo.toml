@@ -41,7 +41,7 @@ regex = "1.12.2"
 reqwest = { version = "0.13.1", features = ["blocking", "json"] }
 ropey = "1.6.1"
 rust-embed = { version = "8.11", features = ["include-exclude"] }
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 simplelog = "0.12.2"
 str_indices = "0.4.4"

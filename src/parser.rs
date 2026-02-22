@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[grammar = "patto.pest"]
 struct PattoLineParser;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Span(pub usize, pub usize);
 
 impl ops::Add<usize> for Span {
@@ -38,11 +38,19 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Location {
     pub row: usize,
+    #[serde(serialize_with = "serialize_arc_str")]
     pub input: Arc<str>,
     pub span: Span,
+}
+
+fn serialize_arc_str<S>(string: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(string)
 }
 
 impl fmt::Display for Location {
@@ -105,7 +113,7 @@ impl Location {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct Annotation<T> {
     pub value: T,
     pub location: Location,
@@ -120,15 +128,31 @@ pub struct Annotation<T> {
 //    }
 //}
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct AstNodeInternal {
+    #[serde(serialize_with = "serialize_mutex_vec")]
     pub contents: Mutex<Vec<AstNode>>,
+    #[serde(serialize_with = "serialize_mutex_vec")]
     pub children: Mutex<Vec<AstNode>>,
     pub kind: AstNodeKind,
+    #[serde(serialize_with = "serialize_mutex_opt_i64")]
     pub stable_id: Mutex<Option<i64>>,
-    // text will be the string matched with this AstNode.
-    // will be used when contents.len() == 0
-    // pub text: &'a str,
+}
+
+fn serialize_mutex_vec<S, T: Serialize>(mutex: &Mutex<Vec<T>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let vec = mutex.lock().unwrap();
+    vec.serialize(serializer)
+}
+
+fn serialize_mutex_opt_i64<S>(mutex: &Mutex<Option<i64>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let opt = mutex.lock().unwrap();
+    opt.serialize(serializer)
 }
 
 // impl<'a> fmt::Display for AstNodeInternal<'a> {
@@ -188,14 +212,14 @@ impl Ord for Deadline {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub enum TaskStatus {
     Todo,
     Doing,
     Done,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum Property {
     Task {
         status: TaskStatus,
@@ -208,7 +232,8 @@ pub enum Property {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
+#[serde(tag = "type")]
 pub enum AstNodeKind {
     Line {
         //indent: usize,
@@ -269,7 +294,8 @@ pub enum AstNodeKind {
 }
 
 type AstNodeImpl = Annotation<AstNodeInternal>;
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
 pub struct AstNode(Arc<Annotation<AstNodeInternal>>);
 
 impl AstNode {
