@@ -13,3 +13,11 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/*
+pre.hljs,
+.hljs {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+}
+*/

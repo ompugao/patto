@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Play } from 'lucide-react';
+import SpeakerDeckBlock from './SpeakerDeckBlock';
 
 interface EmbedBlockProps {
     link: string;
@@ -8,6 +9,10 @@ interface EmbedBlockProps {
 
 export default function EmbedBlock({ link, title }: EmbedBlockProps) {
     const [isLoaded, setIsLoaded] = useState(false);
+
+    if (link.includes('speakerdeck.com')) {
+        return <SpeakerDeckBlock url={link} />;
+    }
 
     // Naive iframe URL parser for youtube
     let iframeSrc = link;

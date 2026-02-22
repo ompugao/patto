@@ -1,6 +1,9 @@
 import React, { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import EmbedBlock from './EmbedBlock';
+import { MathJax } from 'better-react-mathjax';
+import CodeBlock from './CodeBlock';
+import 'highlight.js/styles/github.min.css';
 
 // Matches the actual JSON shape from the Rust backend:
 // AstNode is #[serde(transparent)] -> Annotation<AstNodeInternal>
@@ -108,25 +111,28 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
 
         case 'Code': {
             if (kind.inline) {
-                return <code className="bg-slate-100 text-rose-600 px-1 rounded text-sm font-mono">{nodeText(node)}</code>;
+                const innerText = contents.length > 0 ? contents.map(c => nodeText(c)).join('') : nodeText(node);
+                return <CodeBlock code={innerText} inline />;
             }
             const lines = children.map(c => nodeText(c)).join('\n');
-            return (
-                <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto text-sm my-3 font-mono">
-                    <code>{lines}</code>
-                </pre>
-            );
+            return <CodeBlock code={lines} language={kind.lang} />;
         }
 
         case 'Math': {
             if (kind.inline) {
-                return <code className="bg-amber-50 text-amber-800 px-1 rounded text-sm font-mono">{nodeText(node)}</code>;
+                const innerText = contents.length > 0 ? contents.map(c => nodeText(c)).join('') : nodeText(node);
+                return (
+                    <MathJax inline dynamic className="bg-amber-50 text-amber-800 px-1 rounded text-sm font-mono inline-block">
+                        {`\\(${innerText}\\)`}
+                    </MathJax>
+                );
             }
             const mathLines = children.map(c => nodeText(c)).join('\n');
+            const blockContent = mathLines || nodeText(node);
             return (
-                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg my-3 font-mono text-sm overflow-x-auto">
-                    {mathLines || nodeText(node)}
-                </div>
+                <MathJax dynamic className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg my-3 font-mono text-sm overflow-x-auto">
+                    {`$$ \n ${blockContent} \n $$`}
+                </MathJax>
             );
         }
 
