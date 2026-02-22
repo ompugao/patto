@@ -28,7 +28,7 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
     if (!isLoaded) {
         return (
             <div
-                className="w-full max-w-2xl h-64 bg-slate-800 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-700 transition my-4 shadow-md group relative overflow-hidden"
+                className="w-full max-w-2xl aspect-video bg-slate-800 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-700 transition my-4 shadow-md group relative overflow-hidden"
                 onClick={() => setIsLoaded(true)}
             >
                 {isYoutube && (
@@ -48,7 +48,7 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
     }
 
     return (
-        <div className="w-full max-w-2xl my-4 rounded-lg overflow-hidden shadow-lg border border-slate-200 bg-slate-50 relative pt-[56.25%]">
+        <div className="w-full max-w-2xl my-4 rounded-lg overflow-hidden shadow-lg border border-slate-200 bg-slate-50 relative aspect-video">
             <iframe
                 src={iframeSrc}
                 className="absolute inset-0 w-full h-full"

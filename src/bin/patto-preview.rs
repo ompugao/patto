@@ -92,6 +92,8 @@ impl PreviewLspBackend {
             return;
         };
 
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+
         if path.extension().and_then(|s| s.to_str()) != Some("pn") {
             return;
         }
@@ -123,7 +125,9 @@ impl LanguageServer for PreviewLspBackend {
                     TextDocumentSyncOptions {
                         open_close: Some(true),
                         change: Some(TextDocumentSyncKind::FULL),
-                        ..Default::default()
+                        will_save: Some(false),
+                        will_save_wait_until: Some(false),
+                        save: Some(tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true)),
                     },
                 )),
                 ..ServerCapabilities::default()

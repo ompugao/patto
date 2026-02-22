@@ -49,11 +49,18 @@ interface VirtualRendererProps {
     onWikiLinkClick: (link: string, anchor?: string) => void;
 }
 
+// Rust generates span offsets as raw UTF-8 byte offsets (not JS UTF-16 characters)
+// To extract the correct substring (especially necessary for Japanese CJK chars),
+// we must convert the string to a UTF-8 ArrayBuffer, slice the byte range, and decode.
+const decoder = new TextDecoder();
+const encoder = new TextEncoder();
+
 /** Extract raw text slice for a node */
 function nodeText(node: AstNode): string {
-    const { input, span } = node.location;
-    if (!input || !span) return '';
-    return input.substring(span[0], span[1]);
+    if (!node.location.span) return '';
+    const [start, end] = node.location.span;
+    const bytes = encoder.encode(node.location.input);
+    return decoder.decode(bytes.slice(start, end));
 }
 
 const InlineContents: React.FC<{ nodes: AstNode[]; onWikiLinkClick: (l: string, a?: string) => void }> = ({ nodes, onWikiLinkClick }) => (
