@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
-import { FileText, Folder, Signal, SignalZero, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface FileMetadata {
   modified: number;
@@ -130,11 +130,10 @@ function App() {
             Workspace
           </h2>
           <div className="flex items-center gap-2">
-            <div title={isConnected ? 'Connected' : 'Connecting...'}>
-              {isConnected
-                ? <Signal size={14} className="text-green-500" />
-                : <SignalZero size={14} className="text-slate-400 animate-pulse" />}
-            </div>
+            <div
+              title={isConnected ? 'Connected' : 'Reconnecting...'}
+              className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-amber-400 animate-pulse'}`}
+            />
             <button onClick={() => setSidebarOpen(false)} title="Close sidebar" className="text-slate-400 hover:text-slate-600">
               <PanelLeftClose size={16} />
             </button>
