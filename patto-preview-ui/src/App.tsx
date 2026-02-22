@@ -20,6 +20,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   // Use a ref for WS so handleSelectFile always has the live socket, no stale closure
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -113,9 +114,29 @@ function App() {
   const filteredFiles = useMemo(() => {
     if (!searchQuery.trim()) return files;
     const lowerQuery = searchQuery.toLowerCase();
-    // Simple substring fuzzy match (can be enhanced to subsequence if needed)
     return files.filter(f => f.path.toLowerCase().includes(lowerQuery));
   }, [files, searchQuery]);
+
+  // Reset highlight when query changes
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setHighlightedIndex(-1);
+  }, []);
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    const len = filteredFiles.length;
+    if (len === 0) return;
+    if (e.key === 'Tab' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(i => (i + 1) % len);
+    } else if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(i => (i - 1 + len) % len);
+    } else if (e.key === 'Enter') {
+      const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
+      handleSelectFile(filteredFiles[idx].path);
+    }
+  }, [filteredFiles, highlightedIndex, handleSelectFile]);
 
   return (
     <div className="flex h-screen w-screen bg-white overflow-hidden text-slate-800">
@@ -148,7 +169,8 @@ function App() {
               type="text"
               placeholder="Fuzzy find files..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
+              onKeyDown={handleSearchKeyDown}
               className="w-full pl-8 pr-3 py-1.5 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -160,19 +182,26 @@ function App() {
               {isConnected ? 'No files found' : 'Connecting...'}
             </div>
           ) : (
-            filteredFiles.map(file => (
-              <div
-                key={file.path}
-                onClick={() => handleSelectFile(file.path)}
-                className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-md transition-colors ${selectedFile === file.path
-                  ? 'bg-blue-100 text-blue-700 font-medium'
-                  : 'hover:bg-slate-200 text-slate-600'
-                  }`}
-              >
-                <FileText size={14} className={selectedFile === file.path ? 'text-blue-500' : 'text-slate-400 min-w-4 max-w-4'} />
-                <span className="truncate" title={file.path}>{file.path.split('/').pop()}</span>
-              </div>
-            ))
+            filteredFiles.map((file, idx) => {
+              const isHighlighted = idx === highlightedIndex;
+              const isSelected = selectedFile === file.path;
+              return (
+                <div
+                  key={file.path}
+                  ref={el => { if (isHighlighted && el) el.scrollIntoView({ block: 'nearest' }); }}
+                  onClick={() => handleSelectFile(file.path)}
+                  className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-md transition-colors ${isSelected
+                      ? 'bg-blue-100 text-blue-700 font-medium'
+                      : isHighlighted
+                        ? 'bg-slate-200 text-slate-800'
+                        : 'hover:bg-slate-200 text-slate-600'
+                    }`}
+                >
+                  <FileText size={14} className={isSelected ? 'text-blue-500' : 'text-slate-400 min-w-4 max-w-4'} />
+                  <span className="truncate" title={file.path}>{file.path.split('/').pop()}</span>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
