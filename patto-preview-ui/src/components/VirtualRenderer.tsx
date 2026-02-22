@@ -83,11 +83,18 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         case 'Line':
         case 'QuoteContent': {
             const isQuote = kind.type === 'QuoteContent';
+            const text = nodeText(node);
+            const isEmpty = contents.length === 0 && text.trim() === '' && children.length === 0;
+
+            if (isEmpty) {
+                return <div className="min-h-[1.5rem]">&nbsp;</div>;
+            }
+
             const inner = (
                 <div className={`leading-relaxed min-h-[1.5rem]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
                     {contents.length > 0
                         ? <InlineContents nodes={contents} onWikiLinkClick={onWikiLinkClick} />
-                        : <span className="whitespace-pre-wrap">{nodeText(node)}</span>
+                        : <span className="whitespace-pre-wrap">{text}</span>
                     }
                     {children.length > 0 && (
                         <div className="pl-5 border-l border-slate-100 ml-1 mt-0.5">
@@ -190,40 +197,40 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         }
 
         case 'HorizontalLine': {
-            return <hr className="my-4 border-slate-200" />;
+            return <hr className="my-4 border-slate-100" />;
         }
 
         case 'Table': {
             return (
                 <div className="overflow-x-auto my-3">
-                    {kind.caption && <p className="text-sm text-slate-500 mb-1">{kind.caption}</p>}
-                    <table className="border-collapse w-full text-sm">
-                        <tbody>
-                            {children.map((row, i) => (
-                                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                                    {(row.value?.children ?? []).map((col, j) => (
-                                        <td key={j} className="border border-slate-200 px-3 py-1.5">
-                                            <InlineContents nodes={col.value?.contents ?? []} onWikiLinkClick={onWikiLinkClick} />
-                                        </td>
-                                    ))}
-                                </tr>
+            { kind.caption && <p className="text-sm text-slate-500 mb-1">{kind.caption}</p> }
+            <table className="border-collapse w-full text-sm">
+                <tbody>
+                    {children.map((row, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            {(row.value?.children ?? []).map((col, j) => (
+                                <td key={j} className="border border-slate-200 px-3 py-1.5">
+                                    <InlineContents nodes={col.value?.contents ?? []} onWikiLinkClick={onWikiLinkClick} />
+                                </td>
                             ))}
-                        </tbody>
-                    </table>
-                </div>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+                </div >
             );
         }
 
         case 'Dummy': {
-            return (
-                <>
-                    {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
-                </>
-            );
-        }
+    return (
+        <>
+            {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
+        </>
+    );
+}
 
         default:
-            return null;
+return null;
     }
 };
 
