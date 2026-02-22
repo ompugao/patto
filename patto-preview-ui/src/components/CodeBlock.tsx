@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/github.css';
 import hljs from 'highlight.js';
 
 interface CodeBlockProps {
@@ -24,10 +24,7 @@ export default function CodeBlock({ code, language, inline = false }: CodeBlockP
     }
 
     return (
-        <pre
-            className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto text-sm my-3 font-mono hljs"
-            style={{ backgroundColor: '#0f172a', color: '#f1f5f9' }}
-        >
+        <pre className="hljs p-4 rounded-lg overflow-x-auto text-sm my-3 font-mono border border-slate-200">
             {highlightedHtml ? (
                 <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
             ) : (

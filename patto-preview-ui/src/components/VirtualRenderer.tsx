@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import EmbedBlock from './EmbedBlock';
 import { MathJax } from 'better-react-mathjax';
 import CodeBlock from './CodeBlock';
-import 'highlight.js/styles/github.min.css';
+import ImageLightbox from './ImageLightbox';
 
 // Matches the actual JSON shape from the Rust backend:
 // AstNode is #[serde(transparent)] -> Annotation<AstNodeInternal>
@@ -84,26 +84,26 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         case 'QuoteContent': {
             const isQuote = kind.type === 'QuoteContent';
             const inner = (
-                <div className={`leading-relaxed min-h-[1.5rem]${isQuote ? ' text-slate-600 italic' : ''}`} data-line={node.location.row}>
+                <div className={`leading-relaxed min-h-[1.5rem]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
                     {contents.length > 0
                         ? <InlineContents nodes={contents} onWikiLinkClick={onWikiLinkClick} />
                         : <span className="whitespace-pre-wrap">{nodeText(node)}</span>
                     }
                     {children.length > 0 && (
-                        <div className="pl-5 border-l-2 border-slate-200 ml-1 mt-0.5">
+                        <div className="pl-5 border-l border-slate-100 ml-1 mt-0.5">
                             {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
                         </div>
                     )}
                 </div>
             );
             return isQuote
-                ? <blockquote className="border-l-4 border-slate-300 pl-3 my-1">{inner}</blockquote>
+                ? <blockquote className="border-l-3 border-slate-200 pl-3 my-1 bg-slate-50/50 py-1 rounded-r">{inner}</blockquote>
                 : inner;
         }
 
         case 'Quote': {
             return (
-                <blockquote className="border-l-4 border-slate-300 pl-3 my-1 text-slate-600 italic">
+                <blockquote className="border-l-3 border-slate-200 pl-3 my-1 text-slate-500 bg-slate-50/50 py-1 rounded-r">
                     {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
                 </blockquote>
             );
@@ -141,12 +141,7 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
             if (src && !src.startsWith('http') && !src.startsWith('data:')) {
                 src = `/api/files/${encodeURIComponent(src)}`;
             }
-            return (
-                <figure className="my-3">
-                    <img src={src} alt={kind.alt || ''} className="max-w-full rounded-lg shadow-sm" loading="lazy" />
-                    {kind.alt && <figcaption className="text-xs text-slate-500 mt-1 text-center">{kind.alt}</figcaption>}
-                </figure>
-            );
+            return <ImageLightbox src={src} alt={kind.alt || undefined} />;
         }
 
         case 'WikiLink': {
