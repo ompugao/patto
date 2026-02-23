@@ -281,7 +281,7 @@ mod html_indentation {
         let output = render_html(input);
 
         assert!(
-            output.contains("<blockquote>"),
+            output.contains("<blockquote"),
             "Should have blockquote tag"
         );
         assert!(output.contains("Line 1"), "Should contain Line 1");
@@ -360,7 +360,7 @@ mod nested_quote_blocks {
         // <blockquote>...<blockquote>Inner line</blockquote>...</blockquote>
 
         // Count blockquote tags
-        let open_count = output.matches("<blockquote>").count();
+        let open_count = output.matches("<blockquote").count();
         let close_count = output.matches("</blockquote>").count();
 
         println!(
