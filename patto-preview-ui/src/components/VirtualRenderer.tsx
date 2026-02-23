@@ -176,8 +176,9 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         }
 
         case 'Decoration': {
-            const style: React.CSSProperties = {};
-            if (kind.fontsize && kind.fontsize !== 1) style.fontSize = `${kind.fontsize}em`;
+            const fs = kind.fontsize ?? 0;
+            const style: React.CSSProperties = { fontSize: `${100 + fs * 20}%` };
+            if (fs > 0) style.fontWeight = 'bold';
             let cls = '';
             if (kind.italic) cls += ' italic';
             if (kind.underline) cls += ' underline';
