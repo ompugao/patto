@@ -1,5 +1,5 @@
 [workspace]
-members = ["npm:./patto-preview-next", "cargo:."]
+members = ["npm:./patto-preview-ui", "cargo:."]
 
 # Config for 'dist'
 [dist]

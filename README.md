@@ -180,6 +180,7 @@ rg --vimgrep '.*@task.*todo' . | \
 
 ## Recent Updates
 
+**v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
 **v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
 **v0.3.0** - Complete Markdown export overhaul with 72 new tests  
 **v0.2.10** - Bump nextjs

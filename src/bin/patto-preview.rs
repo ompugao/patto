@@ -11,7 +11,6 @@ use clap::Parser;
 use patto::{
     line_tracker::LineTracker,
     parser,
-    renderer::{HtmlRenderer, HtmlRendererOptions, Renderer},
     repository::{BackLinkData, FileMetadata, Repository, RepositoryMessage},
 };
 use rust_embed::RustEmbed;
@@ -29,19 +28,10 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-// Embed Next.js static files
+// Embed the new Vite/React frontend (built with `npm run build` in patto-preview-ui/)
 #[derive(RustEmbed)]
-#[folder = "patto-preview-next/out/_next/"]
-struct NextJsAssets;
-
-#[derive(RustEmbed)]
-#[folder = "patto-preview-next/out/"]
-#[include = "*.html"]
-#[include = "*.ico"]
-#[include = "*.svg"]
-#[include = "*.txt"]
-#[include = "js/*.js"]
-struct NextJsRoot;
+#[folder = "patto-preview-ui/dist/"]
+struct ViteAssets;
 
 // CLI argument parsing
 #[derive(Parser, Debug)]
@@ -102,6 +92,8 @@ impl PreviewLspBackend {
             return;
         };
 
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+
         if path.extension().and_then(|s| s.to_str()) != Some("pn") {
             return;
         }
@@ -133,7 +125,11 @@ impl LanguageServer for PreviewLspBackend {
                     TextDocumentSyncOptions {
                         open_close: Some(true),
                         change: Some(TextDocumentSyncKind::FULL),
-                        ..Default::default()
+                        will_save: Some(false),
+                        will_save_wait_until: Some(false),
+                        save: Some(
+                            tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true),
+                        ),
                     },
                 )),
                 ..ServerCapabilities::default()
@@ -223,10 +219,10 @@ fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()>
     rx
 }
 
-// WebSocket messages
-#[derive(Serialize, Deserialize)]
+// WebSocket messages sent to client
+#[derive(Serialize)]
 #[serde(tag = "type", content = "data")]
-enum WsMessage {
+enum WsServerMessage {
     FileList {
         files: Vec<String>,
         metadata: HashMap<String, FileMetadata>,
@@ -234,16 +230,13 @@ enum WsMessage {
     FileChanged {
         path: String,
         metadata: FileMetadata,
-        html: String,
+        ast: patto::parser::AstNode,
     },
     FileAdded {
         path: String,
         metadata: FileMetadata,
     },
     FileRemoved {
-        path: String,
-    },
-    SelectFile {
         path: String,
     },
     BackLinksData {
@@ -254,6 +247,18 @@ enum WsMessage {
         path: String,
         two_hop_links: Vec<(String, Vec<String>)>,
     },
+    PinnedFiles {
+        pinned: Vec<String>,
+    },
+}
+
+// WebSocket messages received from client
+#[derive(Deserialize)]
+#[serde(tag = "type", content = "data")]
+enum WsClientMessage {
+    SelectFile { path: String },
+    PinFile { path: String },
+    UnpinFile { path: String },
 }
 
 // Helper function to get file extension
@@ -372,15 +377,11 @@ async fn main() {
 
     // Create router
     let app = Router::new()
-        .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/files/{*path}", get(user_files_handler))
-        .route("/_next/{*path}", get(nextjs_static_handler))
-        .route("/js/{*path}", get(nextjs_public_handler))
-        .route("/favicon.ico", get(favicon_handler))
-        .fallback(get(index_handler)) // Serve SPA for all other routes
+        .fallback(get(vite_static_handler)) // Serve Vite SPA for all other routes
         .with_state(state);
 
     // Start server
@@ -408,18 +409,53 @@ async fn main() {
     }
 }
 
-// Handler for the index page (Next.js app)
-async fn index_handler() -> impl IntoResponse {
-    match NextJsRoot::get("index.html") {
-        Some(content) => Response::builder()
+// Handler for Vite static assets — serves files from dist/, falls back to index.html for SPA
+async fn vite_static_handler(uri: axum::http::Uri) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+
+    // Helper to build a response
+    let serve_file = |data: Vec<u8>, content_type: &'static str| {
+        Response::builder()
             .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/html")
-            .body(Body::from(content.data))
-            .unwrap(),
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Index file not found"))
-            .unwrap(),
+            .header(header::CONTENT_TYPE, content_type)
+            .body(Body::from(data))
+            .unwrap()
+    };
+
+    // Try to serve the exact path; if not found (or empty path), serve index.html
+    if path.is_empty() {
+        // Root: always serve index.html
+        return match ViteAssets::get("index.html") {
+            Some(f) => serve_file(f.data.to_vec(), "text/html; charset=utf-8"),
+            None => Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(
+                    "UI not built — run `npm run build` in patto-preview-ui/",
+                ))
+                .unwrap(),
+        };
+    }
+
+    match ViteAssets::get(path) {
+        Some(f) => {
+            // Serve the exact asset with the correct content-type
+            let ct = if path.ends_with(".html") {
+                "text/html; charset=utf-8"
+            } else {
+                get_content_type_from_path(path)
+            };
+            serve_file(f.data.to_vec(), ct)
+        }
+        None => {
+            // SPA fallback: return index.html for client-side routing
+            match ViteAssets::get("index.html") {
+                Some(f) => serve_file(f.data.to_vec(), "text/html; charset=utf-8"),
+                None => Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Body::from("Not found"))
+                    .unwrap(),
+            }
+        }
     }
 }
 
@@ -570,63 +606,6 @@ async fn user_files_handler(
     }
 }
 
-// Handler for Next.js static assets
-async fn nextjs_static_handler(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
-    match NextJsAssets::get(&path) {
-        Some(content) => {
-            let content_type = get_content_type_from_path(&path);
-
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(Body::from(content.data))
-                .unwrap()
-        }
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Next.js asset not found"))
-            .unwrap(),
-    }
-}
-
-// Handler for Next.js public directory files (like /js/idiomorph.min.js)
-async fn nextjs_public_handler(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
-    // The path comes as "idiomorph.min.js" from "/js/idiomorph.min.js" route
-    let full_path = format!("js/{}", path);
-
-    // Try to get the file from the NextJsRoot embedded files
-    match NextJsRoot::get(&full_path) {
-        Some(content) => {
-            let content_type = get_content_type_from_path(&path);
-
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(Body::from(content.data))
-                .unwrap()
-        }
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!("Public file not found: {}", full_path)))
-            .unwrap(),
-    }
-}
-
-// Handler for favicon
-async fn favicon_handler() -> impl IntoResponse {
-    match NextJsRoot::get("favicon.ico") {
-        Some(content) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/x-icon")
-            .body(Body::from(content.data))
-            .unwrap(),
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Favicon not found"))
-            .unwrap(),
-    }
-}
-
 // Helper function to determine content type from path
 fn get_content_type_from_path(path: &str) -> &'static str {
     if path.ends_with(".js") {
@@ -664,21 +643,25 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Subscribe to broadcast channel
     let mut rx = state.repository.subscribe();
 
-    // Send initial file list immediately
-    let mut file_paths = Vec::new();
-    let mut file_metadata = HashMap::new();
+    // Send initial file list (use spawn_blocking to avoid blocking the async runtime
+    // with synchronous std::fs calls on a potentially large notes directory)
+    let repo_for_scan = state.repository.clone();
+    let (file_paths, file_metadata) = tokio::task::spawn_blocking(move || {
+        let mut file_paths = Vec::new();
+        let mut file_metadata = HashMap::new();
+        if repo_for_scan.root_dir.is_dir() {
+            repo_for_scan.collect_patto_files_with_metadata(
+                &repo_for_scan.root_dir,
+                &mut file_paths,
+                &mut file_metadata,
+            );
+        }
+        (file_paths, file_metadata)
+    })
+    .await
+    .unwrap_or_default();
 
-    // Collect files synchronously to avoid spawning tasks
-    if state.repository.root_dir.is_dir() {
-        state.repository.collect_patto_files_with_metadata(
-            &state.repository.root_dir,
-            &mut file_paths,
-            &mut file_metadata,
-        );
-    }
-
-    // Send initial file list
-    let message = WsMessage::FileList {
+    let message = WsServerMessage::FileList {
         files: file_paths,
         metadata: file_metadata,
     };
@@ -692,6 +675,25 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             return;
         }
     }
+
+    // Send initial pinned files list
+    let pinned = state
+        .repository
+        .workspace_config
+        .lock()
+        .unwrap()
+        .pinned_files
+        .clone();
+    let pinned_msg = WsServerMessage::PinnedFiles { pinned };
+    if let Ok(json) = serde_json::to_string(&pinned_msg) {
+        if let Err(e) = socket
+            .send(axum::extract::ws::Message::Text(json.into()))
+            .await
+        {
+            eprintln!("Error sending initial pinned files: {}", e);
+            return;
+        }
+    }
     //let root_dir = state.repository.root_dir.clone();
     // Main loop - handle both broadcast messages and websocket messages
     loop {
@@ -702,22 +704,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     Ok(msg) => {
                         let ws_msg = match msg {
                             RepositoryMessage::FileChanged(path, metadata, content) => {
-                                let Ok(html) =
-                                    render_patto_to_html(&content, &path.to_string_lossy(), &state).await else {
+                                let Ok(ast) =
+                                    parse_patto_ast(&content, &path.to_string_lossy(), &state).await else {
                                         continue;
                                 };
 
                                 let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
                                     continue;
                                 };
-                                WsMessage::FileChanged {
+                                WsServerMessage::FileChanged {
                                     path: rel_path.to_string_lossy().to_string(),
                                     metadata,
-                                    html,
+                                    ast,
                                 }
                             },
                             //RepositoryMessage::FileList(files) => {
-                            //    WsMessage::FileList {
+                            //    WsServerMessage::FileList {
                             //        files: files.iter().map(|p| p.to_string_lossy().to_string()).collect(),
                             //        metadata: HashMap::new(), // Empty metadata for now since FileList isn't used
                             //    }
@@ -726,14 +728,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
                                     continue;
                                 };
-                                WsMessage::FileAdded {
+                                WsServerMessage::FileAdded {
                                     path: rel_path.to_string_lossy().to_string(),
                                     metadata,
                                 }
                             },
                             RepositoryMessage::FileRemoved(path) => {
                                 // Note: path is already relative (stripped in repository.rs)
-                                WsMessage::FileRemoved {
+                                WsServerMessage::FileRemoved {
                                     path: path.to_string_lossy().to_string(),
                                 }
                             },
@@ -741,7 +743,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
                                     continue;
                                 };
-                                WsMessage::BackLinksData {
+                                WsServerMessage::BackLinksData {
                                     path: rel_path.to_string_lossy().to_string(),
                                     back_links,
                                 }
@@ -750,9 +752,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
                                     continue;
                                 };
-                                WsMessage::TwoHopLinksData {
+                                WsServerMessage::TwoHopLinksData {
                                     path: rel_path.to_string_lossy().to_string(),
                                     two_hop_links,
+                                }
+                            }
+                            RepositoryMessage::WorkspaceConfigChanged(cfg) => {
+                                WsServerMessage::PinnedFiles {
+                                    pinned: cfg.pinned_files,
                                 }
                             }
                             // Ignore scan progress messages in preview
@@ -781,7 +788,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
-                        if let Ok(WsMessage::SelectFile { path }) = serde_json::from_str(&text) {
+                        if let Ok(WsClientMessage::SelectFile { path }) = serde_json::from_str(&text) {
                             eprintln!("Client selected file: {}", path);
 
                             // Load and render the selected file
@@ -790,12 +797,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 //TODO add function to retrieve metadata in crate::Repository
                                 let metadata = state.repository.collect_file_metadata(&file_path).unwrap();
 
-                                if let Ok(html) = render_patto_to_html(&content, &file_path.to_string_lossy(), &state).await {
-                                    // Send the rendered HTML to the client
-                                    let message = WsMessage::FileChanged {
+                                if let Ok(ast) = parse_patto_ast(&content, &file_path.to_string_lossy(), &state).await {
+                                    // Send the parsed AST to the client
+                                    let message = WsServerMessage::FileChanged {
                                         path: path.clone(),
                                         metadata,
-                                        html,
+                                        ast,
                                     };
 
                                     if let Ok(json) = serde_json::to_string(&message) {
@@ -806,7 +813,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
                                     // Calculate and send back-links
                                     let back_links = state.repository.calculate_back_links(&file_path);
-                                    let back_links_message = WsMessage::BackLinksData {
+                                    let back_links_message = WsServerMessage::BackLinksData {
                                         path: path.clone(),
                                         back_links,
                                     };
@@ -819,7 +826,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
                                     // Calculate and send two-hop links
                                     let two_hop_links = state.repository.calculate_two_hop_links(&file_path).await;
-                                    let two_hop_message = WsMessage::TwoHopLinksData {
+                                    let two_hop_message = WsServerMessage::TwoHopLinksData {
                                         path: path.clone(),
                                         two_hop_links,
                                     };
@@ -834,6 +841,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 }
                             } else {
                                 eprintln!("Error reading file: {}", file_path.display());
+                            }
+                        } else if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
+                            match msg {
+                                WsClientMessage::PinFile { path } => {
+                                    if let Err(e) = state.repository.pin_file(&path) {
+                                        eprintln!("Error pinning file: {}", e);
+                                    }
+                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
+                                }
+                                WsClientMessage::UnpinFile { path } => {
+                                    if let Err(e) = state.repository.unpin_file(&path) {
+                                        eprintln!("Error unpinning file: {}", e);
+                                    }
+                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
+                                }
+                                _ => {}
                             }
                         }
                     },
@@ -852,12 +875,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-// Render patto content to HTML with persistent line tracking
-async fn render_patto_to_html(
+// Parse patto content to AST with persistent line tracking
+async fn parse_patto_ast(
     content: &str,
     file_path: &str,
     state: &AppState,
-) -> std::io::Result<String> {
+) -> std::io::Result<patto::parser::AstNode> {
     // Use Arc to avoid cloning large content
     let content = std::sync::Arc::new(content.to_string());
     let file_path_buf = PathBuf::from(file_path);
@@ -865,7 +888,7 @@ async fn render_patto_to_html(
     // Get or create line tracker for this file
     let line_trackers = Arc::clone(&state.line_trackers);
 
-    let html_output = tokio::task::spawn_blocking(move || {
+    let ast_output = tokio::task::spawn_blocking(move || {
         // Get or create line tracker for this file
         let mut trackers = line_trackers.lock().unwrap();
         let line_tracker = trackers.entry(file_path_buf.clone()).or_insert_with(|| {
@@ -875,21 +898,12 @@ async fn render_patto_to_html(
         });
 
         let result = parser::parse_text_with_persistent_line_tracking(&content, line_tracker);
-
-        // Pre-allocate buffer with estimated size to reduce reallocations
-        let estimated_size = content.len() * 2; // HTML is typically 2x larger than source
-        let mut html_output = Vec::with_capacity(estimated_size);
-
-        let renderer = HtmlRenderer::new(HtmlRendererOptions {});
-
-        let _ = renderer.format(&result.ast, &mut html_output);
-        html_output
+        result.ast
     })
     .await;
 
-    match html_output {
-        Ok(output) => Ok(String::from_utf8(output)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?),
+    match ast_output {
+        Ok(ast) => Ok(ast),
         Err(e) => Err(std::io::Error::other(e)),
     }
 }

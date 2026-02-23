@@ -259,22 +259,16 @@ impl HtmlRenderer {
                 underline,
                 deleted,
             } => {
-                let s = match fontsize {
-                    isize::MIN..=-3 => "xx-small",
-                    -2 => "x-small",
-                    -1 => "small",
-                    0 => "medium",
-                    1 => "large",
-                    2 => "x-large",
-                    3..=isize::MAX => "xx-large",
-                    _ => "",
-                };
+                let font_pct = 100isize + fontsize * 20;
                 let fontweight = if *fontsize > 0 {
                     " font-weight: bold;"
                 } else {
                     ""
                 };
-                write!(output, "<span style=\"font-size: {s};{fontweight}\">")?;
+                write!(
+                    output,
+                    "<span style=\"font-size: {font_pct}%;{fontweight}\">"
+                )?;
                 if *italic {
                     write!(output, "<i>")?;
                 }

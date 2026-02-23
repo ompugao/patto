@@ -2,7 +2,7 @@
   "name": "patto-language-server",
   "description": "Patto Note language server with preview support",
   "license": "MIT",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "ompugao",
   "displayName": "Patto Language Server",
   "categories": [
