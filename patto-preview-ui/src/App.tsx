@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
-import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
 
 interface FileMetadata {
   modified: number;
@@ -16,11 +16,13 @@ interface FileEntry {
 function App() {
   const [ast, setAst] = useState<AstNode | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
+  const [pinnedFiles, setPinnedFiles] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
+  const [hoveredFile, setHoveredFile] = useState<string | null>(null)
   // Use a ref for WS so handleSelectFile always has the live socket, no stale closure
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -84,6 +86,8 @@ function App() {
             if (data.path) {
               setFiles(prev => prev.filter(f => f.path !== data.path));
             }
+          } else if (msg.type === 'PinnedFiles') {
+            setPinnedFiles(data.pinned || []);
           }
         } catch (e) {
           console.error('[patto] Failed to parse websocket message', e, event.data);
@@ -136,6 +140,23 @@ function App() {
     return files.filter(f => f.path.toLowerCase().includes(lowerQuery));
   }, [files, searchQuery]);
 
+  // When no filter is active, show pinned files at the top
+  const displayFiles = useMemo(() => {
+    if (searchQuery.trim()) return filteredFiles;
+    const pinnedSet = new Set(pinnedFiles);
+    const pinned = filteredFiles.filter(f => pinnedSet.has(f.path));
+    const rest = filteredFiles.filter(f => !pinnedSet.has(f.path));
+    return [...pinned, ...rest];
+  }, [filteredFiles, pinnedFiles, searchQuery]);
+
+  const handleTogglePin = useCallback((e: React.MouseEvent, path: string) => {
+    e.stopPropagation();
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const isPinned = pinnedFiles.includes(path);
+    socket.send(JSON.stringify({ type: isPinned ? 'UnpinFile' : 'PinFile', data: { path } }));
+  }, [pinnedFiles]);
+
   // Reset highlight when query changes
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -143,7 +164,7 @@ function App() {
   }, []);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    const len = filteredFiles.length;
+    const len = displayFiles.length;
     if (len === 0) return;
     if (e.key === 'Tab' || e.key === 'ArrowDown') {
       e.preventDefault();
@@ -153,9 +174,9 @@ function App() {
       setHighlightedIndex(i => (i - 1 + len) % len);
     } else if (e.key === 'Enter') {
       const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
-      handleSelectFile(filteredFiles[idx].path);
+      handleSelectFile(displayFiles[idx].path);
     }
-  }, [filteredFiles, highlightedIndex, handleSelectFile]);
+  }, [displayFiles, highlightedIndex, handleSelectFile]);
 
   return (
     <div className="flex h-screen w-screen bg-white overflow-hidden text-slate-800">
@@ -196,19 +217,23 @@ function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-1 text-sm min-w-[17rem]">
-          {filteredFiles.length === 0 ? (
+          {displayFiles.length === 0 ? (
             <div className="p-4 text-slate-400 italic text-center text-xs">
               {isConnected ? 'No files found' : 'Connecting...'}
             </div>
           ) : (
-            filteredFiles.map((file, idx) => {
+            displayFiles.map((file, idx) => {
               const isHighlighted = idx === highlightedIndex;
               const isSelected = selectedFile === file.path;
+              const isPinned = pinnedFiles.includes(file.path);
+              const isHovered = hoveredFile === file.path;
               return (
                 <div
                   key={file.path}
                   ref={el => { if (isHighlighted && el) el.scrollIntoView({ block: 'nearest' }); }}
                   onClick={() => handleSelectFile(file.path)}
+                  onMouseEnter={() => setHoveredFile(file.path)}
+                  onMouseLeave={() => setHoveredFile(null)}
                   className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-md transition-colors ${isSelected
                       ? 'bg-blue-100 text-blue-700 font-medium'
                       : isHighlighted
@@ -217,7 +242,16 @@ function App() {
                     }`}
                 >
                   <FileText size={14} className={isSelected ? 'text-blue-500' : 'text-slate-400 min-w-4 max-w-4'} />
-                  <span className="truncate" title={file.path}>{file.path.split('/').pop()}</span>
+                  <span className="truncate flex-1" title={file.path}>{file.path.split('/').pop()}</span>
+                  {(isHovered || isPinned) && (
+                    <button
+                      onClick={e => handleTogglePin(e, file.path)}
+                      title={isPinned ? 'Unpin' : 'Pin to top'}
+                      className={`shrink-0 transition-colors ${isPinned ? 'text-blue-500 hover:text-slate-400' : 'text-slate-300 hover:text-slate-500'}`}
+                    >
+                      {isPinned ? <Pin size={12} /> : <PinOff size={12} />}
+                    </button>
+                  )}
                 </div>
               );
             })

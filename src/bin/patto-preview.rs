@@ -245,6 +245,9 @@ enum WsServerMessage {
         path: String,
         two_hop_links: Vec<(String, Vec<String>)>,
     },
+    PinnedFiles {
+        pinned: Vec<String>,
+    },
 }
 
 // WebSocket messages received from client
@@ -252,6 +255,12 @@ enum WsServerMessage {
 #[serde(tag = "type", content = "data")]
 enum WsClientMessage {
     SelectFile {
+        path: String,
+    },
+    PinFile {
+        path: String,
+    },
+    UnpinFile {
         path: String,
     },
 }
@@ -670,6 +679,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             return;
         }
     }
+
+    // Send initial pinned files list
+    let pinned = state.repository.workspace_config.lock().unwrap().pinned_files.clone();
+    let pinned_msg = WsServerMessage::PinnedFiles { pinned };
+    if let Ok(json) = serde_json::to_string(&pinned_msg) {
+        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
+            eprintln!("Error sending initial pinned files: {}", e);
+            return;
+        }
+    }
     //let root_dir = state.repository.root_dir.clone();
     // Main loop - handle both broadcast messages and websocket messages
     loop {
@@ -731,6 +750,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 WsServerMessage::TwoHopLinksData {
                                     path: rel_path.to_string_lossy().to_string(),
                                     two_hop_links,
+                                }
+                            }
+                            RepositoryMessage::WorkspaceConfigChanged(cfg) => {
+                                WsServerMessage::PinnedFiles {
+                                    pinned: cfg.pinned_files,
                                 }
                             }
                             // Ignore scan progress messages in preview
@@ -812,6 +836,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 }
                             } else {
                                 eprintln!("Error reading file: {}", file_path.display());
+                            }
+                        } else if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
+                            match msg {
+                                WsClientMessage::PinFile { path } => {
+                                    if let Err(e) = state.repository.pin_file(&path) {
+                                        eprintln!("Error pinning file: {}", e);
+                                    }
+                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
+                                }
+                                WsClientMessage::UnpinFile { path } => {
+                                    if let Err(e) = state.repository.unpin_file(&path) {
+                                        eprintln!("Error unpinning file: {}", e);
+                                    }
+                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
+                                }
+                                _ => {}
                             }
                         }
                     },

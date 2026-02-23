@@ -14,6 +14,35 @@ use urlencoding::encode;
 
 use crate::parser::{self, AstNode, Location};
 
+// ---------------------------------------------------------------------------
+// Workspace config (.patto.toml in notes directory)
+// ---------------------------------------------------------------------------
+
+pub const WORKSPACE_CONFIG_FILENAME: &str = ".patto.toml";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PattoWorkspaceConfig {
+    #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
+    pub pinned_files: Vec<String>,
+}
+
+pub fn load_workspace_config(dir: &Path) -> PattoWorkspaceConfig {
+    let path = dir.join(WORKSPACE_CONFIG_FILENAME);
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
+        Err(_) => PattoWorkspaceConfig::default(),
+    }
+}
+
+pub fn save_workspace_config(dir: &Path, config: &PattoWorkspaceConfig) -> anyhow::Result<()> {
+    let path = dir.join(WORKSPACE_CONFIG_FILENAME);
+    let contents = toml::to_string_pretty(config)?;
+    std::fs::write(path, contents)?;
+    Ok(())
+}
+
 /// Location information for a WikiLink
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkLocation {
@@ -71,6 +100,7 @@ pub enum RepositoryMessage {
     FileRemoved(PathBuf),
     BackLinksChanged(PathBuf, Vec<BackLinkData>),
     TwoHopLinksChanged(PathBuf, Vec<(String, Vec<String>)>),
+    WorkspaceConfigChanged(PattoWorkspaceConfig),
     ScanStarted { total_files: usize },
     ScanProgress { scanned: usize, total: usize },
     ScanCompleted { total_files: usize },
@@ -96,12 +126,16 @@ pub struct Repository {
 
     /// Document content cache
     pub document_map: Arc<DashMap<Url, ropey::Rope>>,
+
+    /// Workspace-level config (.patto.toml in notes directory)
+    pub workspace_config: Arc<Mutex<PattoWorkspaceConfig>>,
 }
 
 impl Repository {
     /// Create a new repository and build initial document graph
     pub fn new(root_dir: PathBuf) -> Self {
         let (tx, _) = broadcast::channel(100);
+        let workspace_config = load_workspace_config(&root_dir);
 
         let repo = Self {
             root_dir,
@@ -110,6 +144,7 @@ impl Repository {
             link_graph: Arc::new(Mutex::new(HashMap::new())),
             ast_map: Arc::new(DashMap::new()),
             document_map: Arc::new(DashMap::new()),
+            workspace_config: Arc::new(Mutex::new(workspace_config)),
         };
 
         // Spawn background task for initial scanning to avoid blocking
@@ -124,6 +159,32 @@ impl Repository {
     /// Subscribe to repository change notifications
     pub fn subscribe(&self) -> broadcast::Receiver<RepositoryMessage> {
         self.tx.subscribe()
+    }
+
+    /// Pin a file (relative path). Saves config and broadcasts WorkspaceConfigChanged.
+    pub fn pin_file(&self, path: &str) -> anyhow::Result<()> {
+        {
+            let mut cfg = self.workspace_config.lock().unwrap();
+            if !cfg.pinned_files.contains(&path.to_string()) {
+                cfg.pinned_files.push(path.to_string());
+            }
+            save_workspace_config(&self.root_dir, &cfg)?;
+        }
+        let cfg = self.workspace_config.lock().unwrap().clone();
+        let _ = self.tx.send(RepositoryMessage::WorkspaceConfigChanged(cfg));
+        Ok(())
+    }
+
+    /// Unpin a file (relative path). Saves config and broadcasts WorkspaceConfigChanged.
+    pub fn unpin_file(&self, path: &str) -> anyhow::Result<()> {
+        {
+            let mut cfg = self.workspace_config.lock().unwrap();
+            cfg.pinned_files.retain(|p| p != path);
+            save_workspace_config(&self.root_dir, &cfg)?;
+        }
+        let cfg = self.workspace_config.lock().unwrap().clone();
+        let _ = self.tx.send(RepositoryMessage::WorkspaceConfigChanged(cfg));
+        Ok(())
     }
 
     /// Gather wikilinks with their source locations
@@ -668,7 +729,23 @@ impl Repository {
                     continue;
                 }
                 for path in event.paths {
-                    if path.extension().and_then(|s| s.to_str()) != Some("pn") {
+                    let is_pn = path.extension().and_then(|s| s.to_str()) == Some("pn");
+                    let is_workspace_config = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        == Some(WORKSPACE_CONFIG_FILENAME);
+
+                    if !is_pn && !is_workspace_config {
+                        continue;
+                    }
+
+                    // Handle .patto.toml changes: reload config and broadcast
+                    if is_workspace_config {
+                        if event.kind.is_modify() || event.kind.is_create() {
+                            let new_cfg = load_workspace_config(&root_dir);
+                            *repository.workspace_config.lock().unwrap() = new_cfg.clone();
+                            let _ = repo_tx.send(RepositoryMessage::WorkspaceConfigChanged(new_cfg));
+                        }
                         continue;
                     }
 
