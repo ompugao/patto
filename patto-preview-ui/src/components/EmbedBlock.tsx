@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Play } from 'lucide-react';
 import SpeakerDeckBlock from './SpeakerDeckBlock';
+import TwitterBlock from './TwitterBlock';
 
 interface EmbedBlockProps {
     link: string;
@@ -12,6 +13,10 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
 
     if (link.includes('speakerdeck.com')) {
         return <SpeakerDeckBlock url={link} />;
+    }
+
+    if (link.includes('twitter.com') || link.includes('x.com')) {
+        return <TwitterBlock url={link} title={title} />;
     }
 
     // Naive iframe URL parser for youtube
