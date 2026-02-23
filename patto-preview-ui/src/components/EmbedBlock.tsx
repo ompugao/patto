@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Play } from 'lucide-react';
 import SpeakerDeckBlock from './SpeakerDeckBlock';
+import SlideShareBlock from './SlideShareBlock';
 import TwitterBlock from './TwitterBlock';
 
 interface EmbedBlockProps {
@@ -13,6 +14,10 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
 
     if (link.includes('speakerdeck.com')) {
         return <SpeakerDeckBlock url={link} />;
+    }
+
+    if (link.includes('slideshare.net')) {
+        return <SlideShareBlock url={link} />;
     }
 
     if (link.includes('twitter.com') || link.includes('x.com')) {
