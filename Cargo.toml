@@ -1,6 +1,6 @@
 [package]
 name = "patto"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "🪽 Yet another plain text format for quick note taking and task management"
