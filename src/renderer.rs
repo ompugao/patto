@@ -265,7 +265,10 @@ impl HtmlRenderer {
                 } else {
                     ""
                 };
-                write!(output, "<span style=\"font-size: {font_pct}%;{fontweight}\">")?;
+                write!(
+                    output,
+                    "<span style=\"font-size: {font_pct}%;{fontweight}\">"
+                )?;
                 if *italic {
                     write!(output, "<i>")?;
                 }

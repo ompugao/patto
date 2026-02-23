@@ -127,7 +127,9 @@ impl LanguageServer for PreviewLspBackend {
                         change: Some(TextDocumentSyncKind::FULL),
                         will_save: Some(false),
                         will_save_wait_until: Some(false),
-                        save: Some(tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true)),
+                        save: Some(
+                            tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true),
+                        ),
                     },
                 )),
                 ..ServerCapabilities::default()
@@ -254,15 +256,9 @@ enum WsServerMessage {
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "data")]
 enum WsClientMessage {
-    SelectFile {
-        path: String,
-    },
-    PinFile {
-        path: String,
-    },
-    UnpinFile {
-        path: String,
-    },
+    SelectFile { path: String },
+    PinFile { path: String },
+    UnpinFile { path: String },
 }
 
 // Helper function to get file extension
@@ -433,7 +429,9 @@ async fn vite_static_handler(uri: axum::http::Uri) -> impl IntoResponse {
             Some(f) => serve_file(f.data.to_vec(), "text/html; charset=utf-8"),
             None => Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::from("UI not built — run `npm run build` in patto-preview-ui/"))
+                .body(Body::from(
+                    "UI not built — run `npm run build` in patto-preview-ui/",
+                ))
                 .unwrap(),
         };
     }
@@ -608,8 +606,6 @@ async fn user_files_handler(
     }
 }
 
-
-
 // Helper function to determine content type from path
 fn get_content_type_from_path(path: &str) -> &'static str {
     if path.ends_with(".js") {
@@ -681,10 +677,19 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 
     // Send initial pinned files list
-    let pinned = state.repository.workspace_config.lock().unwrap().pinned_files.clone();
+    let pinned = state
+        .repository
+        .workspace_config
+        .lock()
+        .unwrap()
+        .pinned_files
+        .clone();
     let pinned_msg = WsServerMessage::PinnedFiles { pinned };
     if let Ok(json) = serde_json::to_string(&pinned_msg) {
-        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
+        if let Err(e) = socket
+            .send(axum::extract::ws::Message::Text(json.into()))
+            .await
+        {
             eprintln!("Error sending initial pinned files: {}", e);
             return;
         }

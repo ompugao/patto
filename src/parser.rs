@@ -139,7 +139,10 @@ pub struct AstNodeInternal {
     pub stable_id: Mutex<Option<i64>>,
 }
 
-fn serialize_mutex_vec<S, T: Serialize>(mutex: &Mutex<Vec<T>>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_mutex_vec<S, T: Serialize>(
+    mutex: &Mutex<Vec<T>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {

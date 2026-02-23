@@ -730,9 +730,7 @@ impl Repository {
                 }
                 for path in event.paths {
                     let is_pn = path.extension().and_then(|s| s.to_str()) == Some("pn");
-                    let is_workspace_config = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
+                    let is_workspace_config = path.file_name().and_then(|n| n.to_str())
                         == Some(WORKSPACE_CONFIG_FILENAME);
 
                     if !is_pn && !is_workspace_config {
@@ -744,7 +742,8 @@ impl Repository {
                         if event.kind.is_modify() || event.kind.is_create() {
                             let new_cfg = load_workspace_config(&root_dir);
                             *repository.workspace_config.lock().unwrap() = new_cfg.clone();
-                            let _ = repo_tx.send(RepositoryMessage::WorkspaceConfigChanged(new_cfg));
+                            let _ =
+                                repo_tx.send(RepositoryMessage::WorkspaceConfigChanged(new_cfg));
                         }
                         continue;
                     }
