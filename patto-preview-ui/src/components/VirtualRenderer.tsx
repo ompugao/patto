@@ -99,20 +99,21 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
 
             const inner = (
                 <div className={`leading-relaxed min-h-[1.5rem]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
-                    <span className="inline-flex items-baseline gap-1 flex-wrap">
+                    {/* Use div instead of span so block-level content nodes (e.g. HorizontalLine) render correctly */}
+                    <div className="flex items-baseline gap-1 flex-wrap">
                         {taskStatus && <TaskIcon status={taskStatus} />}
-                        <span className={isDone ? 'line-through text-slate-400' : ''}>
+                        <div className={`flex-1 ${isDone ? 'line-through text-slate-400' : ''}`}>
                             {contents.length > 0
                                 ? <InlineContents nodes={contents} onWikiLinkClick={onWikiLinkClick} />
                                 : <span className="whitespace-pre-wrap">{text}</span>
                             }
-                        </span>
+                        </div>
                         {due && !isDone && (
                             <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${deadlineChipClass(due)}`}>
                                 {deadlineText(due)}
                             </span>
                         )}
-                    </span>
+                    </div>
                     {children.length > 0 && (
                         <div className="pl-5 border-l border-slate-100 ml-1 mt-0.5">
                             {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
@@ -215,7 +216,7 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
         }
 
         case 'HorizontalLine': {
-            return <div className="h-[1em] flex items-center"><hr className="w-full border-0 border-t border-slate-200 m-0" /></div>;
+            return <hr className="w-full border-0 border-t border-slate-300 my-1" />;
         }
 
         case 'Table': {
