@@ -65,6 +65,25 @@ function App() {
           } else if (msg.type === 'FileChanged') {
             console.log('[patto] FileChanged ast:', JSON.stringify(data.ast).substring(0, 200));
             setAst(data.ast ?? null);
+            if (data.path && data.metadata) {
+              setFiles(prev => {
+                const updated = prev.map(f =>
+                  f.path === data.path ? { ...f, modified: data.metadata.modified } : f
+                );
+                return [...updated].sort((a, b) => b.modified - a.modified);
+              });
+            }
+          } else if (msg.type === 'FileAdded') {
+            if (data.path && data.metadata) {
+              setFiles(prev =>
+                [...prev, { path: data.path, modified: data.metadata.modified }]
+                  .sort((a, b) => b.modified - a.modified)
+              );
+            }
+          } else if (msg.type === 'FileRemoved') {
+            if (data.path) {
+              setFiles(prev => prev.filter(f => f.path !== data.path));
+            }
           }
         } catch (e) {
           console.error('[patto] Failed to parse websocket message', e, event.data);
