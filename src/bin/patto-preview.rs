@@ -380,6 +380,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
+        .route("/api/slideshare-embed", get(slideshare_embed_handler))
         .route("/api/files/{*path}", get(user_files_handler))
         .fallback(get(vite_static_handler)) // Serve Vite SPA for all other routes
         .with_state(state);
@@ -537,6 +538,47 @@ async fn speakerdeck_embed_handler(
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to fetch SpeakerDeck embed"})),
+        ),
+    }
+}
+
+// Handler for SlideShare embed proxy
+async fn slideshare_embed_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let url = match params.get("url") {
+        Some(url) => url,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Missing url parameter"})),
+            )
+        }
+    };
+
+    if !url.contains("slideshare.net") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid SlideShare URL"})),
+        );
+    }
+
+    let api_url = format!(
+        "https://www.slideshare.net/api/oembed/2?url={}&format=json",
+        urlencoding::encode(url)
+    );
+
+    match reqwest::get(&api_url).await {
+        Ok(response) => match response.json::<serde_json::Value>().await {
+            Ok(json) => (StatusCode::OK, Json(json)),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to parse SlideShare response"})),
+            ),
+        },
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to fetch SlideShare embed"})),
         ),
     }
 }

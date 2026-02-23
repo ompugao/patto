@@ -247,6 +247,14 @@ impl HtmlRenderer {
                         link,
                         title.as_deref().unwrap_or(link)
                     )?;
+                } else if link.contains("slideshare.net") {
+                    write!(
+                        output,
+                        "<div class=\"slideshare-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
+                        link,
+                        link,
+                        title.as_deref().unwrap_or(link)
+                    )?;
                 } else if let Some(title) = title {
                     write!(output, "<a href=\"{}\">{}</a>", link, title)?;
                 } else {
@@ -704,6 +712,12 @@ impl MarkdownRenderer {
                     )?;
                 } else if let Some(embed) = get_twitter_embed(link) {
                     write!(output, "{}", embed)?;
+                } else if link.contains("slideshare.net") {
+                    if let Some(title) = title {
+                        write!(output, "[{}]({})", title, link)?;
+                    } else {
+                        write!(output, "[{}]({})", link, link)?;
+                    }
                 } else if let Some(title) = title {
                     write!(output, "[{}]({})", title, link)?;
                 } else {
