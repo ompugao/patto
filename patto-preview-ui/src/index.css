@@ -21,3 +21,59 @@ pre.hljs,
   color: #f1f5f9 !important;
 }
 */
+
+/* PrintRenderer is hidden on screen, shown only in print */
+.print-renderer {
+  display: none;
+}
+
+/* Screen-only elements are hidden in print */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .screen-only {
+    display: none !important;
+  }
+
+  .print-renderer {
+    display: block !important;
+  }
+
+  /* Hide sidebar in print */
+  .flex.h-screen > div:first-child {
+    display: none !important;
+  }
+
+  /* Remove overflow constraints for print */
+  .flex.h-screen {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .flex-1.overflow-hidden {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  body {
+    background: white !important;
+    color: #1e293b !important;
+  }
+
+  /* Clean page margins */
+  @page {
+    margin: 1.5cm;
+  }
+
+  /* Prevent page breaks inside these elements */
+  pre, blockquote, table, figure {
+    page-break-inside: avoid;
+  }
+
+  img {
+    max-height: 20em;
+    page-break-inside: avoid;
+  }
+}

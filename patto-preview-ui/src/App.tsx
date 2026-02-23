@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
-import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
+import PrintRenderer from './components/PrintRenderer'
+import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Printer } from 'lucide-react'
 
 interface FileMetadata {
   modified: number;
@@ -261,23 +262,39 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden h-full relative">
-        {/* Toggle button — always visible */}
-        {!sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            title="Open sidebar"
-            className="absolute top-2 left-2 z-10 p-1.5 rounded-md bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 shadow-sm"
-          >
-            <PanelLeftOpen size={16} />
-          </button>
-        )}
+        {/* Toolbar — always visible */}
+        <div className="no-print absolute top-2 left-2 z-10 flex gap-1">
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              title="Open sidebar"
+              className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 shadow-sm"
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+          )}
+          {ast && (
+            <button
+              onClick={() => window.print()}
+              title="Print / Save as PDF"
+              className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 shadow-sm"
+            >
+              <Printer size={16} />
+            </button>
+          )}
+        </div>
         {!ast ? (
           <div className="flex items-center justify-center h-full flex-col text-slate-400 gap-3">
             <FileText size={48} className="opacity-30" />
             <p className="text-sm">{selectedFile ? 'Loading...' : (isConnected ? 'Select a file to preview' : 'Connecting to backend...')}</p>
           </div>
         ) : (
-          <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
+          <>
+            <div className="screen-only h-full">
+              <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
+            </div>
+            <PrintRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
+          </>
         )}
       </div>
     </div>

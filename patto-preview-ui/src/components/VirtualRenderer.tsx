@@ -73,7 +73,7 @@ const InlineContents: React.FC<{ nodes: AstNode[]; onWikiLinkClick: (l: string, 
     </>
 );
 
-const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: string) => void }> = ({ node, onWikiLinkClick }) => {
+export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: string) => void }> = ({ node, onWikiLinkClick }) => {
     const kind = node.value?.kind;
     const contents = node.value?.contents ?? [];
     const children = node.value?.children ?? [];
@@ -253,7 +253,7 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
     }
 };
 
-function flattenAst(node: AstNode): AstNode[] {
+export function flattenAst(node: AstNode): AstNode[] {
     if (!node) return [];
     if (node.value?.kind?.type === 'Dummy') {
         return node.value.children ?? [];
