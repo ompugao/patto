@@ -4,6 +4,7 @@ import EmbedBlock from './EmbedBlock';
 import { MathJax } from 'better-react-mathjax';
 import CodeBlock from './CodeBlock';
 import ImageLightbox from './ImageLightbox';
+import TaskIcon, { type Property, type TaskStatus, type Deadline, deadlineText, deadlineChipClass } from './TaskIcon';
 
 // Matches the actual JSON shape from the Rust backend:
 // AstNode is #[serde(transparent)] -> Annotation<AstNodeInternal>
@@ -12,7 +13,7 @@ import ImageLightbox from './ImageLightbox';
 export interface AstNodeKind {
     type: string;
     // Line / QuoteContent
-    properties?: any[];
+    properties?: Property[];
     // Math / Code
     inline?: boolean;
     lang?: string;
@@ -90,12 +91,28 @@ const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: str
                 return <div className="min-h-[1.5rem]">&nbsp;</div>;
             }
 
+            // Extract task property (first Task found in properties)
+            const taskProp = (kind.properties ?? []).find((p): p is { Task: { status: TaskStatus; due: Deadline } } => 'Task' in p);
+            const taskStatus = taskProp?.Task.status ?? null;
+            const isDone = taskStatus === 'Done';
+            const due = taskProp?.Task.due ?? null;
+
             const inner = (
                 <div className={`leading-relaxed min-h-[1.5rem]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
-                    {contents.length > 0
-                        ? <InlineContents nodes={contents} onWikiLinkClick={onWikiLinkClick} />
-                        : <span className="whitespace-pre-wrap">{text}</span>
-                    }
+                    <span className="inline-flex items-baseline gap-1 flex-wrap">
+                        {taskStatus && <TaskIcon status={taskStatus} />}
+                        <span className={isDone ? 'line-through text-slate-400' : ''}>
+                            {contents.length > 0
+                                ? <InlineContents nodes={contents} onWikiLinkClick={onWikiLinkClick} />
+                                : <span className="whitespace-pre-wrap">{text}</span>
+                            }
+                        </span>
+                        {due && !isDone && (
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${deadlineChipClass(due)}`}>
+                                {deadlineText(due)}
+                            </span>
+                        )}
+                    </span>
                     {children.length > 0 && (
                         <div className="pl-5 border-l border-slate-100 ml-1 mt-0.5">
                             {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
