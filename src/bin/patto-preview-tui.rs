@@ -575,12 +575,18 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         }
     }
 
-    // Pre-load images that will be visible
+    // Pre-load images that will be visible (only scan viewport-worth of elements)
+    let mut scan_rows = 0usize;
     let image_srcs: Vec<String> = app
         .rendered_doc
         .elements
         .iter()
         .skip(start_elem)
+        .take_while(|elem| {
+            let h = elem.height(img_h) as usize;
+            scan_rows += h;
+            scan_rows <= height + img_h as usize
+        })
         .filter_map(|elem| {
             if let DocElement::Image { src, .. } = elem {
                 Some(src.clone())
