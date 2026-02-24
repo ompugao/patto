@@ -4,6 +4,35 @@ use ratatui::text::{Line, Span};
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 use crate::utils::get_gyazo_img_src;
 
+/// Action to perform when a focusable item is activated.
+#[derive(Debug, Clone)]
+pub enum LinkAction {
+    /// Open a wiki-linked note, optionally jumping to an anchor.
+    OpenNote {
+        name: String,
+        anchor: Option<String>,
+    },
+    /// Open a URL in the system browser.
+    OpenUrl(String),
+    /// View an image fullscreen.
+    ViewImage(String),
+}
+
+/// A focusable item in the rendered document (link, image, etc.).
+#[derive(Debug, Clone)]
+pub struct FocusableItem {
+    /// Index into `RenderedDoc.elements` that contains this item.
+    pub elem_idx: usize,
+    /// Character offset where the focusable span starts within the text line.
+    /// For images, this is 0.
+    pub char_start: usize,
+    /// Character offset where the focusable span ends (exclusive).
+    /// For images, this equals 0.
+    pub char_end: usize,
+    /// Action to perform on Enter.
+    pub action: LinkAction,
+}
+
 /// A single element in the rendered document.
 #[derive(Debug, Clone)]
 pub enum DocElement {
@@ -36,6 +65,8 @@ impl DocElement {
 /// A fully rendered document ready for display.
 pub struct RenderedDoc {
     pub elements: Vec<DocElement>,
+    /// All focusable items (links, images) in document order.
+    pub focusables: Vec<FocusableItem>,
 }
 
 impl RenderedDoc {
@@ -51,8 +82,12 @@ impl RenderedDoc {
 /// Render an AST root node into a flat list of DocElements.
 pub fn render_ast(ast: &AstNode) -> RenderedDoc {
     let mut elements = Vec::new();
-    render_node(ast, &mut elements, 0);
-    RenderedDoc { elements }
+    let mut focusables = Vec::new();
+    render_node(ast, &mut elements, &mut focusables, 0);
+    RenderedDoc {
+        elements,
+        focusables,
+    }
 }
 
 /// Result of inline rendering — may contain image blocks that need to be
@@ -64,12 +99,17 @@ enum InlineResult {
     ImageBlock { src: String, alt: Option<String> },
 }
 
-fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
+fn render_node(
+    ast: &AstNode,
+    elements: &mut Vec<DocElement>,
+    focusables: &mut Vec<FocusableItem>,
+    indent: usize,
+) {
     match ast.kind() {
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, indent);
+                render_node(child, elements, focusables, indent);
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -121,7 +161,7 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
             let mut spans = prefix_spans.clone();
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                let result = render_inline(content, &mut spans, base_style);
+                let result = render_inline(content, &mut spans, base_style, focusables, elements.len());
                 if let InlineResult::ImageBlock { src, alt } = result {
                     // Flush accumulated text before the image
                     if spans.iter().any(|s| !s.content.is_empty()) {
@@ -129,6 +169,13 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
                             std::mem::take(&mut spans),
                         )));
                     }
+                    // Record image as focusable
+                    focusables.push(FocusableItem {
+                        elem_idx: elements.len(),
+                        char_start: 0,
+                        char_end: 0,
+                        action: LinkAction::ViewImage(src.clone()),
+                    });
                     elements.push(DocElement::Image { src, alt });
                     // Reset spans with indent prefix for continuation
                     spans = vec![Span::raw("  ".repeat(indent + 1))];
@@ -153,13 +200,13 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, indent + 1);
+                render_node(child, elements, focusables, indent + 1);
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, indent);
+                render_node(child, elements, focusables, indent);
             }
         }
         AstNodeKind::Math { inline } => {
@@ -219,6 +266,12 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
             if let Some(gyazo_src) = get_gyazo_img_src(src) {
                 src_resolved = gyazo_src;
             }
+            focusables.push(FocusableItem {
+                elem_idx: elements.len(),
+                char_start: 0,
+                char_end: 0,
+                action: LinkAction::ViewImage(src_resolved.clone()),
+            });
             elements.push(DocElement::Image {
                 src: src_resolved,
                 alt: alt.clone(),
@@ -259,7 +312,7 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
             }
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_table_row(child, elements, indent);
+                render_table_row(child, elements, focusables, indent);
             }
         }
         AstNodeKind::TableRow | AstNodeKind::TableColumn => {
@@ -268,7 +321,12 @@ fn render_node(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
     }
 }
 
-fn render_table_row(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize) {
+fn render_table_row(
+    ast: &AstNode,
+    elements: &mut Vec<DocElement>,
+    focusables: &mut Vec<FocusableItem>,
+    indent: usize,
+) {
     let mut spans: Vec<Span<'static>> = Vec::new();
     spans.push(Span::raw("  ".repeat(indent)));
     spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
@@ -280,14 +338,25 @@ fn render_table_row(ast: &AstNode, elements: &mut Vec<DocElement>, indent: usize
         }
         let col_contents = col.value().contents.lock().unwrap();
         for c in col_contents.iter() {
-            render_inline(c, &mut spans, Style::default());
+            render_inline(c, &mut spans, Style::default(), focusables, elements.len());
         }
     }
     spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
     elements.push(DocElement::TextLine(Line::from(spans)));
 }
 
-fn render_inline(ast: &AstNode, spans: &mut Vec<Span<'static>>, base_style: Style) -> InlineResult {
+/// Count total character width of accumulated spans.
+fn spans_char_width(spans: &[Span<'_>]) -> usize {
+    spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+fn render_inline(
+    ast: &AstNode,
+    spans: &mut Vec<Span<'static>>,
+    base_style: Style,
+    focusables: &mut Vec<FocusableItem>,
+    current_elem_idx: usize,
+) -> InlineResult {
     match ast.kind() {
         AstNodeKind::Text => {
             spans.push(Span::styled(ast.extract_str().to_string(), base_style));
@@ -302,24 +371,53 @@ fn render_inline(ast: &AstNode, spans: &mut Vec<Span<'static>>, base_style: Styl
             } else {
                 link.clone()
             };
+            let text = format!("[[{}]]", display);
+            let char_start = spans_char_width(spans);
+            let char_end = char_start + text.chars().count();
             spans.push(Span::styled(
-                format!("[[{}]]", display),
+                text,
                 base_style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED),
             ));
+            focusables.push(FocusableItem {
+                elem_idx: current_elem_idx,
+                char_start,
+                char_end,
+                action: LinkAction::OpenNote {
+                    name: link.clone(),
+                    anchor: anchor.clone(),
+                },
+            });
         }
         AstNodeKind::Link { link, title } => {
             let display = title.as_deref().unwrap_or(link.as_str());
+            let char_start = spans_char_width(spans);
+            let char_end = char_start + display.chars().count();
             spans.push(Span::styled(
                 display.to_string(),
                 base_style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
             ));
+            focusables.push(FocusableItem {
+                elem_idx: current_elem_idx,
+                char_start,
+                char_end,
+                action: LinkAction::OpenUrl(link.clone()),
+            });
         }
         AstNodeKind::Embed { link, title } => {
             let display = title.as_deref().unwrap_or(link.as_str());
+            let text = format!("[embed: {}]", display);
+            let char_start = spans_char_width(spans);
+            let char_end = char_start + text.chars().count();
             spans.push(Span::styled(
-                format!("[embed: {}]", display),
-                base_style.fg(Color::Blue),
+                text,
+                base_style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
             ));
+            focusables.push(FocusableItem {
+                elem_idx: current_elem_idx,
+                char_start,
+                char_end,
+                action: LinkAction::OpenUrl(link.clone()),
+            });
         }
         AstNodeKind::Code { inline: true, .. } => {
             let contents = ast.value().contents.lock().unwrap();
@@ -360,8 +458,7 @@ fn render_inline(ast: &AstNode, spans: &mut Vec<Span<'static>>, base_style: Styl
             }
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                // Propagate image blocks from decorated content
-                let result = render_inline(content, spans, style);
+                let result = render_inline(content, spans, style, focusables, current_elem_idx);
                 if matches!(result, InlineResult::ImageBlock { .. }) {
                     return result;
                 }
@@ -380,7 +477,7 @@ fn render_inline(ast: &AstNode, spans: &mut Vec<Span<'static>>, base_style: Styl
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_inline(child, spans, base_style.fg(Color::DarkGray));
+                render_inline(child, spans, base_style.fg(Color::DarkGray), focusables, current_elem_idx);
             }
         }
         _ => {

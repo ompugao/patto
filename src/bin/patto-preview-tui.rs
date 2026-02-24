@@ -9,7 +9,7 @@ use patto::{
     line_tracker::LineTracker,
     parser,
     repository::{BackLinkData, Repository, RepositoryMessage},
-    tui_renderer::{self, DocElement, RenderedDoc},
+    tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -39,8 +39,16 @@ struct Args {
 
 // --- App state ---
 
+/// Saved navigation state for back-navigation.
+struct NavigationEntry {
+    file_path: PathBuf,
+    scroll_offset: usize,
+}
+
 struct App {
     file_path: PathBuf,
+    /// Workspace root directory.
+    root_dir: PathBuf,
     rendered_doc: RenderedDoc,
     scroll_offset: usize,
     viewport_height: usize,
@@ -53,8 +61,12 @@ struct App {
     image_height_rows: u16,
     /// Source of the image currently shown fullscreen (None = normal view).
     fullscreen_image: Option<String>,
-    /// Element index of the currently focused image. None = no focus.
-    focused_image_elem: Option<usize>,
+    /// Index into `rendered_doc.focusables` of the currently focused item. None = no focus.
+    focused_item_idx: Option<usize>,
+    /// Navigation history for back-navigation.
+    nav_history: Vec<NavigationEntry>,
+    /// Cursor position within the backlinks popup. None = no selection.
+    backlink_cursor: Option<usize>,
 }
 
 enum CachedImage {
@@ -63,13 +75,15 @@ enum CachedImage {
 }
 
 impl App {
-    fn new(file_path: PathBuf) -> Self {
+    fn new(file_path: PathBuf, root_dir: PathBuf) -> Self {
         let picker = Picker::from_query_stdio().ok();
 
         Self {
             file_path,
+            root_dir,
             rendered_doc: RenderedDoc {
                 elements: Vec::new(),
+                focusables: Vec::new(),
             },
             scroll_offset: 0,
             viewport_height: 24,
@@ -81,7 +95,9 @@ impl App {
             line_tracker: LineTracker::new().expect("Failed to create line tracker"),
             image_height_rows: 10,
             fullscreen_image: None,
-            focused_image_elem: None,
+            focused_item_idx: None,
+            nav_history: Vec::new(),
+            backlink_cursor: None,
         }
     }
 
@@ -118,16 +134,41 @@ impl App {
         if self.image_cache.contains_key(src) || self.picker.is_none() {
             return;
         }
-        let path = if src.starts_with("http://") || src.starts_with("https://") {
-            // For remote images, store a placeholder — async fetch would be needed
-            self.image_cache.insert(
-                src.to_string(),
-                CachedImage::Failed("remote images not yet supported in TUI".to_string()),
-            );
+        if src.starts_with("http://") || src.starts_with("https://") {
+            match reqwest::blocking::get(src) {
+                Ok(resp) => match resp.bytes() {
+                    Ok(bytes) => match image::load_from_memory(&bytes) {
+                        Ok(img) => {
+                            let protocol =
+                                self.picker.as_mut().unwrap().new_resize_protocol(img);
+                            self.image_cache
+                                .insert(src.to_string(), CachedImage::Loaded(protocol));
+                        }
+                        Err(e) => {
+                            self.image_cache.insert(
+                                src.to_string(),
+                                CachedImage::Failed(format!("decode error: {}", e)),
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        self.image_cache.insert(
+                            src.to_string(),
+                            CachedImage::Failed(format!("fetch error: {}", e)),
+                        );
+                    }
+                },
+                Err(e) => {
+                    self.image_cache.insert(
+                        src.to_string(),
+                        CachedImage::Failed(format!("fetch error: {}", e)),
+                    );
+                }
+            }
             return;
-        } else {
-            root_dir.join(src)
-        };
+        }
+
+        let path = root_dir.join(src);
 
         match image::open(&path) {
             Ok(img) => {
@@ -156,92 +197,260 @@ impl App {
         self.image_cache.clear();
     }
 
-    /// Collect element indices of Image elements visible in the current viewport.
-    fn visible_image_elem_indices(&self) -> Vec<usize> {
+    /// Indices (into `rendered_doc.focusables`) of focusable items visible in the viewport.
+    fn visible_focusable_indices(&self) -> Vec<usize> {
         let img_h = self.image_height_rows;
+        // Build a set of visible element indices
         let mut row = 0usize;
-        let mut result = Vec::new();
+        let mut visible_elems = std::collections::HashSet::new();
         for (i, elem) in self.rendered_doc.elements.iter().enumerate() {
             let h = elem.height(img_h) as usize;
             let elem_top = row;
             let elem_bot = row + h;
             row = elem_bot;
-            // Element is visible if it overlaps [scroll_offset, scroll_offset + viewport_height)
             if elem_bot <= self.scroll_offset {
                 continue;
             }
             if elem_top >= self.scroll_offset + self.viewport_height {
                 break;
             }
-            if matches!(elem, DocElement::Image { .. }) {
-                result.push(i);
-            }
+            visible_elems.insert(i);
         }
-        result
+        self.rendered_doc
+            .focusables
+            .iter()
+            .enumerate()
+            .filter(|(_, fi)| visible_elems.contains(&fi.elem_idx))
+            .map(|(idx, _)| idx)
+            .collect()
     }
 
-    /// Focus the next visible image (wrap around within viewport).
-    fn focus_next_image(&mut self) {
-        let visible = self.visible_image_elem_indices();
+    /// Focus the next visible focusable item (wrap around).
+    fn focus_next_item(&mut self) {
+        let visible = self.visible_focusable_indices();
         if visible.is_empty() {
             return;
         }
-        let next = match self.focused_image_elem {
-            Some(cur) => {
-                // Find the next visible image after cur
-                visible
-                    .iter()
-                    .find(|&&ei| ei > cur)
-                    .copied()
-                    .unwrap_or(visible[0])
-            }
+        let next = match self.focused_item_idx {
+            Some(cur) => visible
+                .iter()
+                .find(|&&fi| fi > cur)
+                .copied()
+                .unwrap_or(visible[0]),
             None => visible[0],
         };
-        self.focused_image_elem = Some(next);
+        self.focused_item_idx = Some(next);
     }
 
-    /// Focus the previous visible image (wrap around within viewport).
-    fn focus_prev_image(&mut self) {
-        let visible = self.visible_image_elem_indices();
+    /// Focus the previous visible focusable item (wrap around).
+    fn focus_prev_item(&mut self) {
+        let visible = self.visible_focusable_indices();
         if visible.is_empty() {
             return;
         }
-        let prev = match self.focused_image_elem {
-            Some(cur) => {
-                visible
-                    .iter()
-                    .rev()
-                    .find(|&&ei| ei < cur)
-                    .copied()
-                    .unwrap_or(*visible.last().unwrap())
-            }
+        let prev = match self.focused_item_idx {
+            Some(cur) => visible
+                .iter()
+                .rev()
+                .find(|&&fi| fi < cur)
+                .copied()
+                .unwrap_or(*visible.last().unwrap()),
             None => *visible.last().unwrap(),
         };
-        self.focused_image_elem = Some(prev);
+        self.focused_item_idx = Some(prev);
     }
 
-    /// Return the src of the currently focused image, if any.
-    fn focused_image_src(&self) -> Option<String> {
-        let ei = self.focused_image_elem?;
-        if let Some(DocElement::Image { src, .. }) = self.rendered_doc.elements.get(ei) {
-            Some(src.clone())
-        } else {
-            None
-        }
+    /// Return a reference to the currently focused item, if any.
+    fn focused_item(&self) -> Option<&FocusableItem> {
+        self.focused_item_idx
+            .and_then(|idx| self.rendered_doc.focusables.get(idx))
     }
 
-    /// Clear focus if the focused image is no longer visible.
+    /// Clear focus if the focused item is no longer visible.
     fn clear_stale_focus(&mut self) {
-        if let Some(ei) = self.focused_image_elem {
-            let visible = self.visible_image_elem_indices();
-            if !visible.contains(&ei) {
-                self.focused_image_elem = None;
+        if let Some(idx) = self.focused_item_idx {
+            let visible = self.visible_focusable_indices();
+            if !visible.contains(&idx) {
+                self.focused_item_idx = None;
             }
         }
     }
-}
 
-// --- Drawing ---
+    /// Navigate to a wiki-linked note. Saves current state in history.
+    fn open_note(&mut self, name: &str, anchor: Option<&str>) -> bool {
+        // Resolve the note name to a file path
+        let target_path = if name.ends_with(".pn") {
+            self.root_dir.join(name)
+        } else {
+            self.root_dir.join(format!("{}.pn", name))
+        };
+
+        if !target_path.exists() || !target_path.is_file() {
+            return false;
+        }
+
+        let content = match std::fs::read_to_string(&target_path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        // Save current state
+        self.nav_history.push(NavigationEntry {
+            file_path: self.file_path.clone(),
+            scroll_offset: self.scroll_offset,
+        });
+
+        // Switch to new file
+        self.file_path = target_path;
+        self.scroll_offset = 0;
+        self.focused_item_idx = None;
+        self.fullscreen_image = None;
+        self.re_render(&content);
+
+        // If anchor specified, try to scroll to it
+        if let Some(anchor_text) = anchor {
+            self.scroll_to_anchor(anchor_text);
+        }
+
+        true
+    }
+
+    /// Navigate to a file by path. Saves current state in history.
+    #[allow(dead_code)]
+    fn open_file(&mut self, path: &Path) -> bool {
+        if !path.exists() || !path.is_file() {
+            return false;
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        self.nav_history.push(NavigationEntry {
+            file_path: self.file_path.clone(),
+            scroll_offset: self.scroll_offset,
+        });
+
+        self.file_path = path.to_path_buf();
+        self.scroll_offset = 0;
+        self.focused_item_idx = None;
+        self.fullscreen_image = None;
+        self.re_render(&content);
+        true
+    }
+
+    /// Go back in navigation history.
+    fn go_back(&mut self) -> bool {
+        if let Some(entry) = self.nav_history.pop() {
+            let content = match std::fs::read_to_string(&entry.file_path) {
+                Ok(c) => c,
+                Err(_) => return false,
+            };
+            self.file_path = entry.file_path;
+            self.scroll_offset = entry.scroll_offset;
+            self.focused_item_idx = None;
+            self.fullscreen_image = None;
+            self.re_render(&content);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Try to scroll to a heading/anchor matching the given text.
+    fn scroll_to_anchor(&mut self, anchor: &str) {
+        let anchor_lower = anchor.to_lowercase();
+        let img_h = self.image_height_rows;
+        let mut row = 0usize;
+        for elem in &self.rendered_doc.elements {
+            if let DocElement::TextLine(line) = elem {
+                let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                if text.to_lowercase().contains(&anchor_lower) {
+                    self.scroll_offset = row;
+                    return;
+                }
+            }
+            row += elem.height(img_h) as usize;
+        }
+    }
+
+    /// Scroll to a specific source line number (0-indexed).
+    fn scroll_to_line(&mut self, target_line: usize) {
+        let img_h = self.image_height_rows;
+        let mut row = 0usize;
+        let mut current_source_line = 0usize;
+        for elem in &self.rendered_doc.elements {
+            if current_source_line >= target_line {
+                self.scroll_offset = row;
+                return;
+            }
+            let h = elem.height(img_h) as usize;
+            if let DocElement::TextLine(_) = elem {
+                current_source_line += 1;
+            }
+            row += h;
+        }
+        // If target line beyond content, scroll to end
+        self.scroll_offset = row.saturating_sub(self.viewport_height);
+    }
+
+    /// Count total selectable entries in the backlinks popup.
+    fn backlink_entry_count(&self) -> usize {
+        let bl_count: usize = self.back_links.iter().map(|bl| bl.locations.len()).sum();
+        let th_count: usize = self.two_hop_links.iter().map(|(_, links)| links.len()).sum();
+        bl_count + th_count
+    }
+
+    /// Move the backlink cursor down.
+    fn backlink_cursor_down(&mut self) {
+        let total = self.backlink_entry_count();
+        if total == 0 {
+            return;
+        }
+        self.backlink_cursor = Some(match self.backlink_cursor {
+            Some(c) => (c + 1).min(total - 1),
+            None => 0,
+        });
+    }
+
+    /// Move the backlink cursor up.
+    fn backlink_cursor_up(&mut self) {
+        let total = self.backlink_entry_count();
+        if total == 0 {
+            return;
+        }
+        self.backlink_cursor = Some(match self.backlink_cursor {
+            Some(c) => c.saturating_sub(1),
+            None => 0,
+        });
+    }
+
+    /// Resolve the current backlink cursor to a navigation target (file_name, line).
+    fn resolve_backlink_cursor(&self) -> Option<(String, usize)> {
+        let cursor = self.backlink_cursor?;
+        let mut idx = 0;
+        // First: backlink entries
+        for bl in &self.back_links {
+            for loc in &bl.locations {
+                if idx == cursor {
+                    return Some((bl.source_file.clone(), loc.line));
+                }
+                idx += 1;
+            }
+        }
+        // Second: two-hop link entries
+        for (_via, links) in &self.two_hop_links {
+            for link_name in links {
+                if idx == cursor {
+                    return Some((link_name.clone(), 0));
+                }
+                idx += 1;
+            }
+        }
+        None
+    }
+}
 
 fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
     // Fullscreen image overlay
@@ -301,6 +510,49 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(title), area);
 }
 
+/// Produce a new Line with chars in [char_start, char_end) highlighted with reverse video.
+fn highlight_line_range(line: &Line<'static>, char_start: usize, char_end: usize) -> Line<'static> {
+    let mut new_spans: Vec<Span<'static>> = Vec::new();
+    let mut pos = 0usize;
+    for span in line.spans.iter() {
+        let span_len = span.content.chars().count();
+        let span_start = pos;
+        let span_end = pos + span_len;
+        pos = span_end;
+
+        if span_end <= char_start || span_start >= char_end {
+            // Entirely outside highlight range
+            new_spans.push(span.clone());
+        } else if span_start >= char_start && span_end <= char_end {
+            // Entirely inside highlight range
+            new_spans.push(Span::styled(
+                span.content.clone(),
+                span.style.bg(Color::Yellow).fg(Color::Black),
+            ));
+        } else {
+            // Partially overlapping — split the span
+            let chars: Vec<char> = span.content.chars().collect();
+            let hl_start = char_start.saturating_sub(span_start);
+            let hl_end = (char_end - span_start).min(span_len);
+
+            if hl_start > 0 {
+                let before: String = chars[..hl_start].iter().collect();
+                new_spans.push(Span::styled(before, span.style));
+            }
+            let mid: String = chars[hl_start..hl_end].iter().collect();
+            new_spans.push(Span::styled(
+                mid,
+                span.style.bg(Color::Yellow).fg(Color::Black),
+            ));
+            if hl_end < span_len {
+                let after: String = chars[hl_end..].iter().collect();
+                new_spans.push(Span::styled(after, span.style));
+            }
+        }
+    }
+    Line::from(new_spans)
+}
+
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.image_height_rows;
@@ -342,17 +594,31 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     }
 
     // Render visible elements
-    let focused_elem = app.focused_image_elem;
+    // Determine which element index is focused and get char range for text highlights
+    let (focused_elem_idx, focused_char_range) = match app.focused_item() {
+        Some(fi) => (Some(fi.elem_idx), Some((fi.char_start, fi.char_end))),
+        None => (None, None),
+    };
     let mut y = 0usize;
     for (elem_idx, elem) in app.rendered_doc.elements.iter().enumerate().skip(start_elem) {
         if y >= height {
             break;
         }
-        let is_focused = focused_elem == Some(elem_idx);
+        let is_focused = focused_elem_idx == Some(elem_idx);
         match elem {
             DocElement::TextLine(line) => {
                 let line_area = Rect::new(area.x, area.y + y as u16, area.width, 1);
-                frame.render_widget(Paragraph::new(line.clone()), line_area);
+                if is_focused {
+                    if let Some((cs, ce)) = focused_char_range {
+                        // Highlight the focused span within the line
+                        let highlighted = highlight_line_range(line, cs, ce);
+                        frame.render_widget(Paragraph::new(highlighted), line_area);
+                    } else {
+                        frame.render_widget(Paragraph::new(line.clone()), line_area);
+                    }
+                } else {
+                    frame.render_widget(Paragraph::new(line.clone()), line_area);
+                }
                 y += 1;
             }
             DocElement::Spacer => {
@@ -423,7 +689,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let on_image = app.focused_image_src().is_some();
+    let focused_action = app.focused_item().map(|fi| &fi.action);
     let mut hints = vec![
         Span::styled(" q", Style::default().fg(Color::Yellow)),
         Span::styled(":quit ", Style::default().fg(Color::DarkGray)),
@@ -438,15 +704,24 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             format!(":img({}rows) ", app.image_height_rows),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::styled("n/Tab", Style::default().fg(Color::Yellow)),
-        Span::styled(":sel img ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Tab", Style::default().fg(Color::Yellow)),
+        Span::styled(":focus ", Style::default().fg(Color::DarkGray)),
     ];
-    if on_image {
+    if let Some(action) = focused_action {
+        let action_hint = match action {
+            LinkAction::OpenNote { .. } => "Enter:open note ",
+            LinkAction::OpenUrl(_) => "Enter:open url ",
+            LinkAction::ViewImage(_) => "Enter:fullscreen ",
+        };
         hints.push(Span::styled("Enter", Style::default().fg(Color::Yellow)));
-        hints.push(Span::styled(":fullscreen ", Style::default().fg(Color::DarkGray)));
+        hints.push(Span::styled(action_hint, Style::default().fg(Color::DarkGray)));
     }
     hints.push(Span::styled("r", Style::default().fg(Color::Yellow)));
-    hints.push(Span::styled(":reload", Style::default().fg(Color::DarkGray)));
+    hints.push(Span::styled(":reload ", Style::default().fg(Color::DarkGray)));
+    if !app.nav_history.is_empty() {
+        hints.push(Span::styled("BS", Style::default().fg(Color::Yellow)));
+        hints.push(Span::styled(":back ", Style::default().fg(Color::DarkGray)));
+    }
 
     let status = Line::from(hints);
     frame.render_widget(
@@ -465,6 +740,8 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &App) {
 
     frame.render_widget(Clear, popup_area);
 
+    let cursor = app.backlink_cursor;
+    let mut entry_idx: usize = 0;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Backlinks section
@@ -483,21 +760,30 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &App) {
     } else {
         for bl in &app.back_links {
             for loc in &bl.locations {
-                let context = loc
-                    .context
-                    .as_deref()
-                    .unwrap_or("");
+                let context = loc.context.as_deref().unwrap_or("");
+                let is_selected = cursor == Some(entry_idx);
+                let (bullet_style, text_style, ctx_style) = if is_selected {
+                    (
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    )
+                } else {
+                    (
+                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(Color::White),
+                        Style::default().fg(Color::DarkGray),
+                    )
+                };
                 lines.push(Line::from(vec![
-                    Span::styled("  • ", Style::default().fg(Color::Yellow)),
+                    Span::styled("  • ", bullet_style),
                     Span::styled(
                         format!("{} (L{})", bl.source_file, loc.line + 1),
-                        Style::default().fg(Color::White),
+                        text_style,
                     ),
-                    Span::styled(
-                        format!("  {}", context),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    Span::styled(format!("  {}", context), ctx_style),
                 ]));
+                entry_idx += 1;
             }
         }
     }
@@ -525,17 +811,30 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &App) {
                 Span::styled(":", Style::default().fg(Color::DarkGray)),
             ]));
             for target in targets {
+                let is_selected = cursor == Some(entry_idx);
+                let (arrow_style, name_style) = if is_selected {
+                    (
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    )
+                } else {
+                    (
+                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(Color::White),
+                    )
+                };
                 lines.push(Line::from(vec![
-                    Span::styled("    → ", Style::default().fg(Color::Yellow)),
-                    Span::styled(target.clone(), Style::default().fg(Color::White)),
+                    Span::styled("    → ", arrow_style),
+                    Span::styled(target.clone(), name_style),
                 ]));
+                entry_idx += 1;
             }
         }
     }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        " Press b or Esc to close",
+        " j/k:select  Enter:jump  b/Esc:close",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -639,12 +938,12 @@ async fn main() -> anyhow::Result<()> {
     let initial_content = std::fs::read_to_string(&file_path)?;
 
     // Set up app
-    let mut app = App::new(file_path.clone());
+    let mut app = App::new(file_path.clone(), dir.clone());
     app.re_render(&initial_content);
 
     // Compute initial backlinks
-    app.back_links = repository.calculate_back_links(&file_path);
-    app.two_hop_links = repository.calculate_two_hop_links(&file_path).await;
+    app.back_links = repository.calculate_back_links(&app.file_path);
+    app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
 
     // Set up terminal
     enable_raw_mode()?;
@@ -663,12 +962,40 @@ async fn main() -> anyhow::Result<()> {
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(KeyEvent { code, modifiers, .. }))) => {
+                        // When backlinks popup is open, intercept navigation keys
+                        if app.show_backlinks {
+                            match (code, modifiers) {
+                                (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('b'), _) => {
+                                    app.show_backlinks = false;
+                                    app.backlink_cursor = None;
+                                }
+                                (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                                    app.backlink_cursor_down();
+                                }
+                                (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                                    app.backlink_cursor_up();
+                                }
+                                (KeyCode::Enter, _) => {
+                                    if let Some((name, line)) = app.resolve_backlink_cursor() {
+                                        app.show_backlinks = false;
+                                        app.backlink_cursor = None;
+                                        if app.open_note(&name, None) {
+                                            if line > 0 {
+                                                app.scroll_to_line(line);
+                                            }
+                                            app.back_links = repository.calculate_back_links(&app.file_path);
+                                            app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
+                                        }
+                                    }
+                                }
+                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
+                                _ => {}
+                            }
+                        } else {
                         match (code, modifiers) {
                             (KeyCode::Char('q'), _) => {
                                 if app.fullscreen_image.is_some() {
                                     app.fullscreen_image = None;
-                                } else if app.show_backlinks {
-                                    app.show_backlinks = false;
                                 } else {
                                     break;
                                 }
@@ -676,8 +1003,6 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::Esc, _) => {
                                 if app.fullscreen_image.is_some() {
                                     app.fullscreen_image = None;
-                                } else if app.show_backlinks {
-                                    app.show_backlinks = false;
                                 } else {
                                     break;
                                 }
@@ -696,12 +1021,11 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::Char('g'), _) | (KeyCode::Home, _) => app.scroll_to_top(),
                             (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
                             (KeyCode::Char('b'), _) => {
-                                app.show_backlinks = !app.show_backlinks;
-                                if app.show_backlinks {
-                                    // Refresh backlinks data
-                                    app.back_links = repository.calculate_back_links(&file_path);
-                                    app.two_hop_links = repository.calculate_two_hop_links(&file_path).await;
-                                }
+                                app.show_backlinks = true;
+                                app.backlink_cursor = None;
+                                // Refresh backlinks data
+                                app.back_links = repository.calculate_back_links(&app.file_path);
+                                app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
                             }
                             (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
                                 app.increase_image_height();
@@ -712,24 +1036,49 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::Enter, _) => {
                                 if app.fullscreen_image.is_some() {
                                     app.fullscreen_image = None;
-                                } else if let Some(src) = app.focused_image_src() {
-                                    app.fullscreen_image = Some(src);
+                                } else if let Some(fi) = app.focused_item().cloned() {
+                                    match &fi.action {
+                                        LinkAction::ViewImage(src) => {
+                                            app.fullscreen_image = Some(src.clone());
+                                        }
+                                        LinkAction::OpenNote { name, anchor } => {
+                                            if app.open_note(name, anchor.as_deref()) {
+                                                // Refresh backlinks for new file
+                                                app.back_links = repository.calculate_back_links(&app.file_path);
+                                                app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
+                                            }
+                                        }
+                                        LinkAction::OpenUrl(url) => {
+                                            let _ = std::process::Command::new("xdg-open")
+                                                .arg(url)
+                                                .stdout(std::process::Stdio::null())
+                                                .stderr(std::process::Stdio::null())
+                                                .spawn();
+                                        }
+                                    }
                                 }
                             }
-                            (KeyCode::Char('n'), _) | (KeyCode::Tab, KeyModifiers::NONE) => {
-                                app.focus_next_image();
+                            (KeyCode::Backspace, _) | (KeyCode::Char('H'), _) => {
+                                if app.go_back() {
+                                    app.back_links = repository.calculate_back_links(&app.file_path);
+                                    app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
+                                }
                             }
-                            (KeyCode::Char('N'), _) | (KeyCode::BackTab, _) => {
-                                app.focus_prev_image();
+                            (KeyCode::Tab, KeyModifiers::NONE) => {
+                                app.focus_next_item();
+                            }
+                            (KeyCode::BackTab, _) => {
+                                app.focus_prev_item();
                             }
                             (KeyCode::Char('r'), _) => {
                                 app.clear_image_cache();
-                                let content = std::fs::read_to_string(&file_path)
+                                let content = std::fs::read_to_string(&app.file_path)
                                     .unwrap_or_default();
                                 app.re_render(&content);
                             }
                             _ => {}
                         }
+                        } // end else (not show_backlinks)
                     }
                     Some(Ok(Event::Resize(_, _))) => {
                         // Terminal resized — redraw handled by the loop
@@ -742,11 +1091,11 @@ async fn main() -> anyhow::Result<()> {
             msg = rx.recv() => {
                 match msg {
                     Ok(RepositoryMessage::FileChanged(path, _metadata, content)) => {
-                        if path == file_path {
+                        if path == app.file_path {
                             app.re_render(&content);
                             // Refresh backlinks
-                            app.back_links = repository.calculate_back_links(&file_path);
-                            app.two_hop_links = repository.calculate_two_hop_links(&file_path).await;
+                            app.back_links = repository.calculate_back_links(&app.file_path);
+                            app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
                         }
                     }
                     Ok(_) => {
