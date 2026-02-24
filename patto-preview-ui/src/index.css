@@ -60,6 +60,7 @@ pre.hljs,
   body {
     background: white !important;
     color: #1e293b !important;
+    font-size: 11px;
   }
 
   /* Clean page margins */

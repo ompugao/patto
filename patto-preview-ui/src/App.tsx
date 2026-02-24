@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
 import PrintRenderer from './components/PrintRenderer'
-import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Printer } from 'lucide-react'
+import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
 
 interface FileMetadata {
   modified: number;
@@ -263,8 +263,8 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden h-full relative">
         {/* Toolbar — always visible */}
-        <div className="no-print absolute top-2 left-2 z-10 flex gap-1">
-          {!sidebarOpen && (
+        {!sidebarOpen && (
+          <div className="no-print absolute top-2 left-2 z-10">
             <button
               onClick={() => setSidebarOpen(true)}
               title="Open sidebar"
@@ -272,17 +272,8 @@ function App() {
             >
               <PanelLeftOpen size={16} />
             </button>
-          )}
-          {ast && (
-            <button
-              onClick={() => window.print()}
-              title="Print / Save as PDF"
-              className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 shadow-sm"
-            >
-              <Printer size={16} />
-            </button>
-          )}
-        </div>
+          </div>
+        )}
         {!ast ? (
           <div className="flex items-center justify-center h-full flex-col text-slate-400 gap-3">
             <FileText size={48} className="opacity-30" />
