@@ -236,21 +236,29 @@ fn render_node(
             if *inline {
                 // Handled as inline content in parent Line
             } else {
-                let mut spans = vec![Span::raw("  ".repeat(indent))];
-                spans.push(Span::styled(
-                    "  [math block]  ",
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::DIM),
-                ));
+                let math_style = Style::default().fg(Color::Magenta);
+                let prefix = if indent > 0 {
+                    "  ".repeat(indent)
+                } else {
+                    "  ".to_string()
+                };
+                elements.push(DocElement::TextLine(Line::from(vec![
+                    Span::raw(prefix.clone()),
+                    Span::styled(
+                        "  [math]  ",
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::DIM),
+                    ),
+                ])));
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    spans.push(Span::styled(
-                        child.extract_str().to_string(),
-                        Style::default().fg(Color::Magenta),
-                    ));
+                    let text = child.extract_str().replace('\t', "    ");
+                    elements.push(DocElement::TextLine(Line::from(vec![
+                        Span::raw(prefix.clone()),
+                        Span::styled(text, math_style),
+                    ])));
                 }
-                elements.push(DocElement::TextLine(Line::from(spans)));
             }
         }
         AstNodeKind::Code { lang, inline } => {
