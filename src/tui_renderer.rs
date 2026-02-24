@@ -39,10 +39,7 @@ pub enum DocElement {
     /// A styled text line.
     TextLine(Line<'static>),
     /// An image to render via kitty/sixel.
-    Image {
-        src: String,
-        alt: Option<String>,
-    },
+    Image { src: String, alt: Option<String> },
     /// A blank line.
     Spacer,
 }
@@ -157,10 +154,7 @@ fn render_node(
 
             // Quote prefix
             if is_quote {
-                prefix_spans.push(Span::styled(
-                    "│ ",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                prefix_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
             }
 
             // Task icon / bullet
@@ -191,13 +185,12 @@ fn render_node(
             let mut spans = prefix_spans.clone();
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                let result = render_inline(content, &mut spans, base_style, focusables, elements.len());
+                let result =
+                    render_inline(content, &mut spans, base_style, focusables, elements.len());
                 if let InlineResult::ImageBlock { src, alt } = result {
                     // Flush accumulated text before the image
                     if spans.iter().any(|s| !s.content.is_empty()) {
-                        elements.push(DocElement::TextLine(Line::from(
-                            std::mem::take(&mut spans),
-                        )));
+                        elements.push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
                     }
                     // Record image as focusable
                     focusables.push(FocusableItem {
@@ -277,7 +270,10 @@ fn render_node(
                         Span::raw(prefix.clone()),
                         Span::styled(
                             format!(" {} ", lang),
-                            Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .bg(Color::DarkGray)
+                                .add_modifier(Modifier::BOLD),
                         ),
                     ])));
                 }
@@ -335,10 +331,7 @@ fn render_node(
             if let Some(cap) = caption {
                 elements.push(DocElement::TextLine(Line::from(vec![
                     Span::raw("  ".repeat(indent)),
-                    Span::styled(
-                        cap.clone(),
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(cap.clone(), Style::default().add_modifier(Modifier::BOLD)),
                 ])));
             }
             let children = ast.value().children.lock().unwrap();
@@ -407,7 +400,9 @@ fn render_inline(
             let char_end = char_start + text.chars().count();
             spans.push(Span::styled(
                 text,
-                base_style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED),
+                base_style
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::UNDERLINED),
             ));
             focusables.push(FocusableItem {
                 elem_idx: current_elem_idx,
@@ -425,7 +420,9 @@ fn render_inline(
             let char_end = char_start + display.chars().count();
             spans.push(Span::styled(
                 display.to_string(),
-                base_style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
+                base_style
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::UNDERLINED),
             ));
             focusables.push(FocusableItem {
                 elem_idx: current_elem_idx,
@@ -441,7 +438,9 @@ fn render_inline(
             let char_end = char_start + text.chars().count();
             spans.push(Span::styled(
                 text,
-                base_style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
+                base_style
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::UNDERLINED),
             ));
             focusables.push(FocusableItem {
                 elem_idx: current_elem_idx,
@@ -508,7 +507,13 @@ fn render_inline(
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_inline(child, spans, base_style.fg(Color::DarkGray), focusables, current_elem_idx);
+                render_inline(
+                    child,
+                    spans,
+                    base_style.fg(Color::DarkGray),
+                    focusables,
+                    current_elem_idx,
+                );
             }
         }
         _ => {

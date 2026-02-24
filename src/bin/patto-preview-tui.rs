@@ -139,8 +139,7 @@ impl App {
                 Ok(resp) => match resp.bytes() {
                     Ok(bytes) => match image::load_from_memory(&bytes) {
                         Ok(img) => {
-                            let protocol =
-                                self.picker.as_mut().unwrap().new_resize_protocol(img);
+                            let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                             self.image_cache
                                 .insert(src.to_string(), CachedImage::Loaded(protocol));
                         }
@@ -398,7 +397,11 @@ impl App {
     /// Count total selectable entries in the backlinks popup.
     fn backlink_entry_count(&self) -> usize {
         let bl_count: usize = self.back_links.iter().map(|bl| bl.locations.len()).sum();
-        let th_count: usize = self.two_hop_links.iter().map(|(_, links)| links.len()).sum();
+        let th_count: usize = self
+            .two_hop_links
+            .iter()
+            .map(|(_, links)| links.len())
+            .sum();
         bl_count + th_count
     }
 
@@ -463,7 +466,7 @@ fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // title bar
-            Constraint::Min(1),   // content
+            Constraint::Min(1),    // content
             Constraint::Length(1), // status bar
         ])
         .split(frame.area());
@@ -502,10 +505,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(" "),
         Span::styled(file_name, Style::default().fg(Color::White)),
         Span::raw(" "),
-        Span::styled(
-            pos,
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(pos, Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(Paragraph::new(title), area);
 }
@@ -606,7 +606,13 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         None => (None, None),
     };
     let mut y = 0usize;
-    for (elem_idx, elem) in app.rendered_doc.elements.iter().enumerate().skip(start_elem) {
+    for (elem_idx, elem) in app
+        .rendered_doc
+        .elements
+        .iter()
+        .enumerate()
+        .skip(start_elem)
+    {
         if y >= height {
             break;
         }
@@ -641,7 +647,9 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                         .border_style(Style::default().fg(Color::Yellow))
                         .title(Span::styled(
                             " Enter:fullscreen ",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
                         ));
                     let inner = border.inner(img_area);
                     frame.render_widget(border, img_area);
@@ -720,10 +728,16 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             LinkAction::ViewImage(_) => "Enter:fullscreen ",
         };
         hints.push(Span::styled("Enter", Style::default().fg(Color::Yellow)));
-        hints.push(Span::styled(action_hint, Style::default().fg(Color::DarkGray)));
+        hints.push(Span::styled(
+            action_hint,
+            Style::default().fg(Color::DarkGray),
+        ));
     }
     hints.push(Span::styled("r/^L", Style::default().fg(Color::Yellow)));
-    hints.push(Span::styled(":reload ", Style::default().fg(Color::DarkGray)));
+    hints.push(Span::styled(
+        ":reload ",
+        Style::default().fg(Color::DarkGray),
+    ));
     if !app.nav_history.is_empty() {
         hints.push(Span::styled("BS/^O", Style::default().fg(Color::Yellow)));
         hints.push(Span::styled(":back ", Style::default().fg(Color::DarkGray)));
@@ -847,10 +861,16 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Backlinks & Two-hop Links ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .border_style(Style::default().fg(Color::Cyan));
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, popup_area);
 }
 
@@ -889,10 +909,7 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
     let hint = Line::from(vec![
         Span::styled(" Esc", Style::default().fg(Color::Yellow)),
         Span::styled(":close ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            src.to_string(),
-            Style::default().fg(Color::White),
-        ),
+        Span::styled(src.to_string(), Style::default().fg(Color::White)),
     ]);
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().bg(Color::DarkGray)),
