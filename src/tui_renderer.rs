@@ -223,10 +223,8 @@ fn render_node(
                 }
             }
 
-            // Flush remaining spans
-            if spans.iter().any(|s| !s.content.is_empty()) {
-                elements.push(DocElement::TextLine(Line::from(spans)));
-            }
+            // Flush remaining spans (always emit to preserve blank lines)
+            elements.push(DocElement::TextLine(Line::from(spans)));
 
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
