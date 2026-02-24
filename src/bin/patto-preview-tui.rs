@@ -722,10 +722,10 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         hints.push(Span::styled("Enter", Style::default().fg(Color::Yellow)));
         hints.push(Span::styled(action_hint, Style::default().fg(Color::DarkGray)));
     }
-    hints.push(Span::styled("r", Style::default().fg(Color::Yellow)));
+    hints.push(Span::styled("r/^L", Style::default().fg(Color::Yellow)));
     hints.push(Span::styled(":reload ", Style::default().fg(Color::DarkGray)));
     if !app.nav_history.is_empty() {
-        hints.push(Span::styled("BS", Style::default().fg(Color::Yellow)));
+        hints.push(Span::styled("BS/^O", Style::default().fg(Color::Yellow)));
         hints.push(Span::styled(":back ", Style::default().fg(Color::DarkGray)));
     }
 
@@ -1064,7 +1064,7 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                 }
                             }
-                            (KeyCode::Backspace, _) | (KeyCode::Char('H'), _) => {
+                            (KeyCode::Backspace, _) | (KeyCode::Char('H'), _) | (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
                                 if app.go_back() {
                                     app.back_links = repository.calculate_back_links(&app.file_path);
                                     app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
@@ -1076,7 +1076,7 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::BackTab, _) => {
                                 app.focus_prev_item();
                             }
-                            (KeyCode::Char('r'), _) => {
+                            (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                                 app.clear_image_cache();
                                 let content = std::fs::read_to_string(&app.file_path)
                                     .unwrap_or_default();
@@ -1120,5 +1120,6 @@ async fn main() -> anyhow::Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    Ok(())
+    // Force exit to stop background file watcher task
+    std::process::exit(0);
 }
