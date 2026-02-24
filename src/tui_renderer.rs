@@ -114,6 +114,32 @@ fn render_node(
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
             let is_quote = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
+
+            // Check if this line is a block container (only content is a block element)
+            let contents = ast.value().contents.lock().unwrap();
+            let is_block_container = contents.len() == 1
+                && matches!(
+                    contents[0].kind(),
+                    AstNodeKind::Quote
+                        | AstNodeKind::Code { inline: false, .. }
+                        | AstNodeKind::Math { inline: false }
+                        | AstNodeKind::Table { .. }
+                );
+
+            if is_block_container {
+                // Delegate to the block element renderer
+                let block_node = contents[0].clone();
+                drop(contents);
+                render_node(&block_node, elements, focusables, indent);
+                // Still render children (nested lines after the block)
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    render_node(child, elements, focusables, indent + 1);
+                }
+                return;
+            }
+            drop(contents);
+
             let mut task_status: Option<&TaskStatus> = None;
             for property in properties {
                 if let Property::Task { status, .. } = property {
@@ -137,7 +163,7 @@ fn render_node(
                 ));
             }
 
-            // Task icon
+            // Task icon / bullet
             if let Some(status) = task_status {
                 let (icon, color) = match status {
                     TaskStatus::Done => ("✓ ", Color::Green),
@@ -145,7 +171,7 @@ fn render_node(
                     _ => ("○ ", Color::White),
                 };
                 prefix_spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
-            } else {
+            } else if !is_quote {
                 prefix_spans.push(Span::raw("• "));
             }
 
@@ -154,6 +180,10 @@ fn render_node(
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::CROSSED_OUT)
+            } else if is_quote {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::ITALIC)
             } else {
                 Style::default()
             };
@@ -234,31 +264,32 @@ fn render_node(
             if *inline {
                 // Handled as inline content in parent Line
             } else {
-                let header = if lang.is_empty() {
-                    "```".to_string()
-                } else {
-                    format!("```{}", lang)
-                };
                 let code_style = Style::default().fg(Color::White).bg(Color::DarkGray);
-                let prefix = "  ".repeat(indent);
+                let prefix = if indent > 0 {
+                    "  ".repeat(indent)
+                } else {
+                    "  ".to_string()
+                };
 
-                elements.push(DocElement::TextLine(Line::from(vec![
-                    Span::raw(prefix.clone()),
-                    Span::styled(header, code_style),
-                ])));
-
-                let children = ast.value().children.lock().unwrap();
-                for child in children.iter() {
+                // Show language label if present
+                if !lang.is_empty() {
                     elements.push(DocElement::TextLine(Line::from(vec![
                         Span::raw(prefix.clone()),
-                        Span::styled(child.extract_str().to_string(), code_style),
+                        Span::styled(
+                            format!(" {} ", lang),
+                            Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                        ),
                     ])));
                 }
 
-                elements.push(DocElement::TextLine(Line::from(vec![
-                    Span::raw(prefix),
-                    Span::styled("```", code_style),
-                ])));
+                let children = ast.value().children.lock().unwrap();
+                for child in children.iter() {
+                    let code_text = child.extract_str().replace('\t', "    ");
+                    elements.push(DocElement::TextLine(Line::from(vec![
+                        Span::raw(prefix.clone()),
+                        Span::styled(code_text, code_style),
+                    ])));
+                }
             }
         }
         AstNodeKind::Image { src, alt } => {
@@ -371,7 +402,7 @@ fn render_inline(
             } else {
                 link.clone()
             };
-            let text = format!("[[{}]]", display);
+            let text = format!("[{}]", display);
             let char_start = spans_char_width(spans);
             let char_end = char_start + text.chars().count();
             spans.push(Span::styled(
