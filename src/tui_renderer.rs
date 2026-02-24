@@ -165,8 +165,17 @@ fn render_node(
                     _ => ("○ ", Color::White),
                 };
                 prefix_spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
-            } else if !is_quote {
-                prefix_spans.push(Span::raw("• "));
+            } else if !is_quote && indent > 0 {
+                let contents = ast.value().contents.lock().unwrap();
+                let is_blank = contents.is_empty()
+                    || contents.iter().all(|c| {
+                        matches!(c.kind(), AstNodeKind::Text)
+                            && c.extract_str().trim().is_empty()
+                    });
+                drop(contents);
+                if !is_blank {
+                    prefix_spans.push(Span::raw("• "));
+                }
             }
 
             // Inline contents — collect spans, breaking on images
