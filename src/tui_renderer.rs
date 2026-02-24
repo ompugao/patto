@@ -169,8 +169,7 @@ fn render_node(
                 let contents = ast.value().contents.lock().unwrap();
                 let is_blank = contents.is_empty()
                     || contents.iter().all(|c| {
-                        matches!(c.kind(), AstNodeKind::Text)
-                            && c.extract_str().trim().is_empty()
+                        matches!(c.kind(), AstNodeKind::Text) && c.extract_str().trim().is_empty()
                     });
                 drop(contents);
                 if !is_blank {
