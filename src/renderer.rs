@@ -43,80 +43,82 @@ impl HtmlRenderer {
     fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
-                write!(output, "<ul>")?;
+                write!(output, "<ul class=\"patto-document\">")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
-                    write!(
-                        output,
-                        "<li class=\"patto-line\" style=\"list-style-type: none; min-height: 1em;\"{}>",
-                        id_attr
-                    )?;
+                    write!(output, "<li class=\"patto-line\"{}>", id_attr)?;
                     self._format_impl(child, output)?;
                     write!(output, "</li>")?;
                 }
                 write!(output, "</ul>")?;
             }
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-                let mut isdone = false;
+                let is_quote = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
+                let mut task_status: Option<&TaskStatus> = None;
                 for property in properties {
                     if let Property::Task { status, .. } = property {
-                        match status {
-                            TaskStatus::Done => {
-                                isdone = true;
-                                write!(output, "<input type=\"checkbox\" checked disabled/>")?
-                            }
-                            _ => write!(output, "<input type=\"checkbox\" unchecked disabled/>")?,
-                        }
+                        task_status = Some(status);
                     }
                 }
+                let isdone = matches!(task_status, Some(TaskStatus::Done));
 
-                if isdone {
-                    write!(output, "<del>")?;
+                write!(output, "<div class=\"patto-task-row\">")?;
+                if let Some(status) = task_status {
+                    let (icon, cls) = match status {
+                        TaskStatus::Done => ("✓", "patto-task-icon-done"),
+                        TaskStatus::Doing => ("◑", "patto-task-icon-doing"),
+                        _ => ("○", "patto-task-icon-todo"),
+                    };
+                    write!(
+                        output,
+                        "<span class=\"patto-task-icon {}\">{}</span>",
+                        cls, icon
+                    )?;
                 }
+
+                let done_cls = if isdone { " patto-task-done-text" } else { "" };
+                let quote_cls = if is_quote { " text-quote" } else { "" };
+                write!(
+                    output,
+                    "<div class=\"patto-task-content{}{}\">",
+                    done_cls, quote_cls
+                )?;
                 let contents = ast.value().contents.lock().unwrap();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
                 }
-                if isdone {
-                    write!(output, "</del>")?;
-                }
-                if !properties.is_empty() {
-                    write!(
-                        output,
-                        "<aside style=\"float: right; width: 285px; text-align: right\">"
-                    )?;
-                    for property in properties {
-                        match property {
-                            Property::Anchor { name, .. } => {
+                write!(output, "</div>")?;
+
+                // Deadline chip
+                for property in properties {
+                    match property {
+                        Property::Anchor { name, .. } => {
+                            write!(
+                                output,
+                                "<span id=\"{}\" class=\"anchor\">{}</span>",
+                                name, name
+                            )?;
+                        }
+                        Property::Task { status, due, .. } => {
+                            if !matches!(status, TaskStatus::Done) {
                                 write!(
                                     output,
-                                    "<span id=\"{}\" class=\"anchor\">{}</span>",
-                                    name, name
+                                    "<span class=\"patto-deadline patto-deadline-default\">{}</span>",
+                                    due
                                 )?;
                             }
-                            Property::Task { status, due, .. } => match status {
-                                TaskStatus::Done => {
-                                    // do nothing
-                                }
-                                _ => {
-                                    write!(output, "<mark class=\"task-deadline\">{}</mark>", due)?
-                                }
-                            },
                         }
                     }
-                    write!(output, "</aside>")?;
                 }
+                write!(output, "</div>")?; // close patto-task-row
+
                 let children = ast.value().children.lock().unwrap();
                 if !children.is_empty() {
-                    write!(output, "<ul style=\"padding-left: 0rem;\">")?;
+                    write!(output, "<ul class=\"patto-children\">")?;
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
-                        write!(
-                            output,
-                            "<li class=\"patto-item\" style=\"min-height: 1em;\"{}>",
-                            id_attr
-                        )?;
+                        write!(output, "<li class=\"patto-item\"{}>", id_attr)?;
                         self._format_impl(child, output)?;
                         write!(output, "</li>")?;
                     }
@@ -124,7 +126,7 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Quote => {
-                write!(output, "<blockquote>")?;
+                write!(output, "<blockquote class=\"patto-quote\">")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     self.render_quote_content_html(child, output, 0)?;
@@ -133,11 +135,12 @@ impl HtmlRenderer {
             }
             AstNodeKind::Math { inline } => {
                 if *inline {
-                    write!(output, "\\(")?;
+                    write!(output, "<span class=\"patto-math-inline\">\\(")?;
                     let contents = ast.value().contents.lock().unwrap();
-                    write!(output, "{}", contents[0].extract_str())?; //TODO html escape?
-                    write!(output, "\\)")?;
+                    write!(output, "{}", contents[0].extract_str())?;
+                    write!(output, "\\)</span>")?;
                 } else {
+                    write!(output, "<div class=\"patto-math-block\">")?;
                     // see https://github.com/mathjax/MathJax/issues/2312
                     write!(output, "\\[\\displaylines{{")?;
                     let children = ast.value().children.lock().unwrap();
@@ -145,30 +148,32 @@ impl HtmlRenderer {
                         write!(output, "{}", child.extract_str())?;
                     }
                     write!(output, "}}\\]")?;
+                    write!(output, "</div>")?;
                 }
             }
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
-                    write!(output, "<code>")?;
+                    write!(output, "<code class=\"patto-inline-code\">")?;
                     let contents = ast.value().contents.lock().unwrap();
                     write!(output, "{}", encode_text(contents[0].extract_str()))?;
                     write!(output, "</code>")?;
                 } else {
-                    //TODO use syntext
                     if lang == "mermaid" {
-                        write!(output, "<pre class={}>", lang)?;
+                        write!(output, "<pre class=\"mermaid\">")?;
                         let children = ast.value().children.lock().unwrap();
                         for child in children.iter() {
                             writeln!(output, "{}", child.extract_str())?;
                         }
                         write!(output, "</pre>")?;
                     } else {
-                        write!(output, "<pre><code class={}>", lang)?;
+                        write!(
+                            output,
+                            "<pre class=\"hljs patto-code-block\"><code class=\"language-{}\">",
+                            lang
+                        )?;
                         let children = ast.value().children.lock().unwrap();
                         for child in children.iter() {
                             writeln!(output, "{}", encode_text(child.extract_str()))?;
-                            // TODO encode all at once?
-                            //write!(output, "<br/>")?;
                         }
                         write!(output, "</code></pre>")?;
                     }
@@ -179,12 +184,14 @@ impl HtmlRenderer {
                 if let Some(src) = get_gyazo_img_src(src) {
                     src_exported = src.clone();
                 }
+                write!(output, "<figure class=\"patto-figure\">")?;
                 if let Some(alt) = alt {
                     write!(
                         output,
                         "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
                         alt, src_exported
                     )?;
+                    write!(output, "<figcaption>{}</figcaption>", encode_text(alt))?;
                 } else {
                     write!(
                         output,
@@ -192,6 +199,7 @@ impl HtmlRenderer {
                         src_exported
                     )?;
                 }
+                write!(output, "</figure>")?;
             }
             AstNodeKind::WikiLink { link, anchor } => {
                 if let Some(anchor) = anchor {
@@ -219,16 +227,24 @@ impl HtmlRenderer {
             }
             AstNodeKind::Link { link, title } => {
                 if let Some(title) = title {
-                    write!(output, "<a href=\"{}\">{}</a>", link, title)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, title
+                    )?;
                 } else {
-                    write!(output, "<a href=\"{}\">{}</a>", link, link)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, link
+                    )?;
                 }
             }
             AstNodeKind::Embed { link, title } => {
                 if let Some(youtube_id) = get_youtube_id(link) {
                     write!(
                         output,
-                        "<div style=\"max-width: 90%; height: 30vw;\"><iframe class=\"videoContainer__video\" width=100% height=100% src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
+                        "<div class=\"patto-embed-youtube\"><iframe src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
                 } else if link.contains("twitter.com") || link.contains("x.com") {
                     // Render as placeholder that can be enhanced client-side
                     write!(
@@ -256,9 +272,17 @@ impl HtmlRenderer {
                         title.as_deref().unwrap_or(link)
                     )?;
                 } else if let Some(title) = title {
-                    write!(output, "<a href=\"{}\">{}</a>", link, title)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, title
+                    )?;
                 } else {
-                    write!(output, "<a href=\"{}\">{}</a>", link, link)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, link
+                    )?;
                 }
             }
             AstNodeKind::Decoration {
@@ -273,31 +297,24 @@ impl HtmlRenderer {
                 } else {
                     ""
                 };
-                write!(
-                    output,
-                    "<span style=\"font-size: {font_pct}%;{fontweight}\">"
-                )?;
+                let mut cls = String::new();
                 if *italic {
-                    write!(output, "<i>")?;
+                    cls.push_str(" italic");
                 }
                 if *underline {
-                    write!(output, "<u>")?;
+                    cls.push_str(" underline");
                 }
                 if *deleted {
-                    write!(output, "<del>")?;
+                    cls.push_str(" patto-deleted");
                 }
+                write!(
+                    output,
+                    "<span class=\"{}\" style=\"font-size: {font_pct}%;{fontweight}\">",
+                    cls.trim()
+                )?;
                 let contents = ast.value().contents.lock().unwrap();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
-                }
-                if *deleted {
-                    write!(output, "</del>")?;
-                }
-                if *underline {
-                    write!(output, "</u>")?;
-                }
-                if *italic {
-                    write!(output, "</i>")?;
                 }
                 write!(output, "</span>")?;
             }
@@ -305,19 +322,24 @@ impl HtmlRenderer {
                 write!(output, "{}", ast.extract_str())?;
             }
             AstNodeKind::HorizontalLine => {
-                write!(output, "<hr/>")?;
+                write!(output, "<hr class=\"patto-hr\"/>")?;
             }
             AstNodeKind::Table { caption } => {
-                write!(output, "<table>")?;
+                write!(output, "<div class=\"patto-table-wrapper\">")?;
                 if let Some(caption) = caption {
-                    write!(output, "<caption>{}</caption>", encode_text(caption))?;
+                    write!(
+                        output,
+                        "<p class=\"patto-table-caption\">{}</p>",
+                        encode_text(caption)
+                    )?;
                 }
+                write!(output, "<table class=\"patto-table\">")?;
                 write!(output, "<tbody>")?;
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     self._format_impl(child, output)?;
                 }
-                write!(output, "</tbody></table>")?;
+                write!(output, "</tbody></table></div>")?;
             }
             AstNodeKind::TableRow => {
                 write!(output, "<tr>")?;
