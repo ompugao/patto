@@ -1572,7 +1572,7 @@ fn transform_property(
                                 if key == "status" {
                                     status = match value {
                                         "todo" => TaskStatus::Todo,
-                                        "doing" => TaskStatus::Doing,
+                                        "doing" | "inprogress" | "wip" => TaskStatus::Doing,
                                         "done" => TaskStatus::Done,
                                         _ => {
                                             log::warn!(
