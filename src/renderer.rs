@@ -47,11 +47,7 @@ impl HtmlRenderer {
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
-                    write!(
-                        output,
-                        "<li class=\"patto-line\"{}>",
-                        id_attr
-                    )?;
+                    write!(output, "<li class=\"patto-line\"{}>", id_attr)?;
                     self._format_impl(child, output)?;
                     write!(output, "</li>")?;
                 }
@@ -81,11 +77,7 @@ impl HtmlRenderer {
                     )?;
                 }
 
-                let done_cls = if isdone {
-                    " patto-task-done-text"
-                } else {
-                    ""
-                };
+                let done_cls = if isdone { " patto-task-done-text" } else { "" };
                 let quote_cls = if is_quote { " text-quote" } else { "" };
                 write!(
                     output,
@@ -126,11 +118,7 @@ impl HtmlRenderer {
                     write!(output, "<ul class=\"patto-children\">")?;
                     for child in children.iter() {
                         let id_attr = self.get_stable_id_attr(child);
-                        write!(
-                            output,
-                            "<li class=\"patto-item\"{}>",
-                            id_attr
-                        )?;
+                        write!(output, "<li class=\"patto-item\"{}>", id_attr)?;
                         self._format_impl(child, output)?;
                         write!(output, "</li>")?;
                     }
@@ -203,11 +191,7 @@ impl HtmlRenderer {
                         "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
                         alt, src_exported
                     )?;
-                    write!(
-                        output,
-                        "<figcaption>{}</figcaption>",
-                        encode_text(alt)
-                    )?;
+                    write!(output, "<figcaption>{}</figcaption>", encode_text(alt))?;
                 } else {
                     write!(
                         output,
@@ -243,9 +227,17 @@ impl HtmlRenderer {
             }
             AstNodeKind::Link { link, title } => {
                 if let Some(title) = title {
-                    write!(output, "<a class=\"patto-link\" href=\"{}\">{}</a>", link, title)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, title
+                    )?;
                 } else {
-                    write!(output, "<a class=\"patto-link\" href=\"{}\">{}</a>", link, link)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, link
+                    )?;
                 }
             }
             AstNodeKind::Embed { link, title } => {
@@ -280,9 +272,17 @@ impl HtmlRenderer {
                         title.as_deref().unwrap_or(link)
                     )?;
                 } else if let Some(title) = title {
-                    write!(output, "<a class=\"patto-link\" href=\"{}\">{}</a>", link, title)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, title
+                    )?;
                 } else {
-                    write!(output, "<a class=\"patto-link\" href=\"{}\">{}</a>", link, link)?;
+                    write!(
+                        output,
+                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
+                        link, link
+                    )?;
                 }
             }
             AstNodeKind::Decoration {
