@@ -836,6 +836,7 @@ impl Repository {
                                     .handle_live_file_change(path_clone.clone(), content)
                                     .await;
 
+                                /*
                                 if let Ok(rel_path) =
                                     path_clone.strip_prefix(&repository_clone.root_dir)
                                 {
@@ -845,6 +846,7 @@ impl Repository {
                                         start.elapsed().as_millis()
                                     );
                                 }
+                                */
                             }
                         });
                     }
