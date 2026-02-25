@@ -1056,11 +1056,19 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
                             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.scroll_down(1),
                             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_up(1),
-                            (KeyCode::PageDown, _) | (KeyCode::Char(' '), _) => {
+                            (KeyCode::PageDown, _) | (KeyCode::Char(' '), _) | (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
+                                let full = terminal.size()?.height as usize;
+                                app.scroll_down(full);
+                            }
+                            (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
+                                let full = terminal.size()?.height as usize;
+                                app.scroll_up(full);
+                            }
+                            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                                 let half = (terminal.size()?.height as usize) / 2;
                                 app.scroll_down(half);
                             }
-                            (KeyCode::PageUp, _) => {
+                            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
                                 let half = (terminal.size()?.height as usize) / 2;
                                 app.scroll_up(half);
                             }
