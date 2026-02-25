@@ -1,0 +1,564 @@
+[
+  {
+    "type": "bare_param",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "param_word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bracket_content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bracket_decoration_markers",
+          "named": true
+        },
+        {
+          "type": "bracket_hash",
+          "named": true
+        },
+        {
+          "type": "bracket_local_file",
+          "named": true
+        },
+        {
+          "type": "bracket_mail",
+          "named": true
+        },
+        {
+          "type": "bracket_text",
+          "named": true
+        },
+        {
+          "type": "bracket_url",
+          "named": true
+        },
+        {
+          "type": "bracket_ws",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bracket_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "bracket_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "code_inline",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "code_inline_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "command_name",
+          "named": true
+        },
+        {
+          "type": "parameters",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "command_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "command",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "command_name",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "command_line",
+          "named": true
+        },
+        {
+          "type": "line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "embed",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "embed_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "embed_content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bracket_text",
+          "named": true
+        },
+        {
+          "type": "bracket_url",
+          "named": true
+        },
+        {
+          "type": "bracket_ws",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "escaped_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "string_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "image",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "image_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "image_content",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bracket_local_file",
+          "named": true
+        },
+        {
+          "type": "bracket_text",
+          "named": true
+        },
+        {
+          "type": "bracket_url",
+          "named": true
+        },
+        {
+          "type": "bracket_ws",
+          "named": true
+        },
+        {
+          "type": "escaped_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "key_value_param",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "escaped_string",
+          "named": true
+        },
+        {
+          "type": "param_word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "bracket_expr",
+          "named": true
+        },
+        {
+          "type": "code_inline",
+          "named": true
+        },
+        {
+          "type": "embed",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "image",
+          "named": true
+        },
+        {
+          "type": "math_inline",
+          "named": true
+        },
+        {
+          "type": "property",
+          "named": true
+        },
+        {
+          "type": "task",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "math_inline",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "math_inline_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "bare_param",
+          "named": true
+        },
+        {
+          "type": "escaped_string",
+          "named": true
+        },
+        {
+          "type": "key_value_param",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameters",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "property",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "property_kv",
+          "named": true
+        },
+        {
+          "type": "property_name",
+          "named": true
+        },
+        {
+          "type": "property_word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "property_kv",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "property_word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "text",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "text_segment",
+          "named": true
+        },
+        {
+          "type": "text_special",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "$]",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[$",
+    "named": false
+  },
+  {
+    "type": "[@",
+    "named": false
+  },
+  {
+    "type": "[@embed",
+    "named": false
+  },
+  {
+    "type": "[@img",
+    "named": false
+  },
+  {
+    "type": "[`",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "`]",
+    "named": false
+  },
+  {
+    "type": "anchor",
+    "named": true
+  },
+  {
+    "type": "bracket_decoration_markers",
+    "named": true
+  },
+  {
+    "type": "bracket_hash",
+    "named": true
+  },
+  {
+    "type": "bracket_local_file",
+    "named": true
+  },
+  {
+    "type": "bracket_mail",
+    "named": true
+  },
+  {
+    "type": "bracket_text",
+    "named": true
+  },
+  {
+    "type": "bracket_url",
+    "named": true
+  },
+  {
+    "type": "bracket_ws",
+    "named": true
+  },
+  {
+    "type": "code",
+    "named": false
+  },
+  {
+    "type": "code_inline_content",
+    "named": true
+  },
+  {
+    "type": "horizontal_rule",
+    "named": true
+  },
+  {
+    "type": "math",
+    "named": false
+  },
+  {
+    "type": "math_inline_content",
+    "named": true
+  },
+  {
+    "type": "param_word",
+    "named": true
+  },
+  {
+    "type": "property_name",
+    "named": true
+  },
+  {
+    "type": "property_word",
+    "named": true
+  },
+  {
+    "type": "quote",
+    "named": false
+  },
+  {
+    "type": "string_content",
+    "named": true
+  },
+  {
+    "type": "table",
+    "named": false
+  },
+  {
+    "type": "task",
+    "named": true
+  },
+  {
+    "type": "text_segment",
+    "named": true
+  },
+  {
+    "type": "text_special",
+    "named": true
+  },
+  {
+    "type": "{@",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]
