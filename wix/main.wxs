@@ -160,6 +160,14 @@
                                 Source='$(var.CargoTargetBinDir)\patto-preview.exe'
                                 KeyPath='yes'/>
                         </Component>
+                        <Component Id='binary5' Guid='*'>
+                            <File
+                                Id='exe5'
+                                Name='patto-preview-tui.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\patto-preview-tui.exe'
+                                KeyPath='yes'/>
+                        </Component>
                     </Directory>
                 </Directory>
             </Directory>
@@ -186,6 +194,7 @@
             <ComponentRef Id='binary2'/>
             <ComponentRef Id='binary3'/>
             <ComponentRef Id='binary4'/>
+            <ComponentRef Id='binary5'/>
 
             <Feature
                 Id='Environment'
