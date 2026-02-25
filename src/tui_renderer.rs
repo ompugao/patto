@@ -40,6 +40,8 @@ pub enum DocElement {
     TextLine(Line<'static>),
     /// An image to render via kitty/sixel.
     Image { src: String, alt: Option<String> },
+    /// Multiple images on the same line, rendered side by side.
+    ImageRow(Vec<(String, Option<String>)>),
     /// A blank line.
     Spacer,
 }
@@ -49,13 +51,13 @@ impl DocElement {
     pub fn height(&self, image_height_rows: u16) -> u16 {
         match self {
             DocElement::TextLine(_) | DocElement::Spacer => 1,
-            DocElement::Image { .. } => image_height_rows,
+            DocElement::Image { .. } | DocElement::ImageRow(_) => image_height_rows,
         }
     }
 
     /// Whether this element is an image.
     pub fn is_image(&self) -> bool {
-        matches!(self, DocElement::Image { .. })
+        matches!(self, DocElement::Image { .. } | DocElement::ImageRow(_))
     }
 }
 
@@ -177,7 +179,7 @@ fn render_node(
                 }
             }
 
-            // Inline contents — collect spans, breaking on images
+            // Inline contents — collect spans, grouping consecutive images into ImageRow
             let base_style = if is_done {
                 Style::default()
                     .fg(Color::DarkGray)
@@ -191,16 +193,25 @@ fn render_node(
             };
 
             let mut spans = prefix_spans.clone();
-            let contents = ast.value().contents.lock().unwrap();
-            for content in contents.iter() {
-                let result =
-                    render_inline(content, &mut spans, base_style, focusables, elements.len());
-                if let InlineResult::ImageBlock { src, alt } = result {
-                    // Flush accumulated text before the image
-                    if spans.iter().any(|s| !s.content.is_empty()) {
-                        elements.push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
-                    }
-                    // Record image as focusable
+            // Buffer for consecutive images (no non-whitespace text between them).
+            let mut image_row_buf: Vec<(String, Option<String>)> = Vec::new();
+
+            /// Returns true if spans contains any non-whitespace text beyond the prefix.
+            fn spans_have_content(spans: &[Span<'_>]) -> bool {
+                spans.iter().any(|s| !s.content.trim().is_empty())
+            }
+
+            /// Flush `image_row_buf` as a single Image or ImageRow element.
+            fn flush_image_row(
+                buf: &mut Vec<(String, Option<String>)>,
+                elements: &mut Vec<DocElement>,
+                focusables: &mut Vec<FocusableItem>,
+            ) {
+                if buf.is_empty() {
+                    return;
+                }
+                if buf.len() == 1 {
+                    let (src, alt) = buf.remove(0);
                     focusables.push(FocusableItem {
                         elem_idx: elements.len(),
                         char_start: 0,
@@ -208,10 +219,49 @@ fn render_node(
                         action: LinkAction::ViewImage(src.clone()),
                     });
                     elements.push(DocElement::Image { src, alt });
-                    // Reset spans with indent prefix for continuation
-                    spans = vec![Span::raw("  ".repeat(indent + 1))];
+                } else {
+                    for (src, _alt) in buf.iter() {
+                        focusables.push(FocusableItem {
+                            elem_idx: elements.len(),
+                            char_start: 0,
+                            char_end: 0,
+                            action: LinkAction::ViewImage(src.clone()),
+                        });
+                    }
+                    elements.push(DocElement::ImageRow(std::mem::take(buf)));
+                }
+                buf.clear();
+            }
+
+            let contents = ast.value().contents.lock().unwrap();
+            for content in contents.iter() {
+                let result =
+                    render_inline(content, &mut spans, base_style, focusables, elements.len());
+                match result {
+                    InlineResult::ImageBlock { src, alt } => {
+                        // If spans have real text, flush them before starting an image group
+                        if spans_have_content(&spans) {
+                            elements.push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
+                            // Also flush any existing image row — text breaks the group
+                            flush_image_row(&mut image_row_buf, elements, focusables);
+                        } else if !image_row_buf.is_empty() {
+                            // Consecutive image — keep accumulating (spans are only whitespace/indent)
+                            spans = vec![Span::raw("  ".repeat(indent + 1))];
+                        } else {
+                            spans = vec![Span::raw("  ".repeat(indent + 1))];
+                        }
+                        image_row_buf.push((src, alt));
+                    }
+                    InlineResult::Inline => {
+                        // Non-image content — flush any pending image row first
+                        if !image_row_buf.is_empty() {
+                            flush_image_row(&mut image_row_buf, elements, focusables);
+                        }
+                    }
                 }
             }
+            // Flush any trailing image row
+            flush_image_row(&mut image_row_buf, elements, focusables);
 
             // Deadline
             for property in properties {

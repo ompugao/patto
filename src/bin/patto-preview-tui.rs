@@ -664,13 +664,12 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             scan_rows += h;
             scan_rows <= height + img_h as usize
         })
-        .filter_map(|elem| {
-            if let DocElement::Image { src, .. } = elem {
-                Some(src.clone())
-            } else {
-                None
-            }
+        .filter_map(|elem| match elem {
+            DocElement::Image { src, .. } => Some(vec![src.clone()]),
+            DocElement::ImageRow(images) => Some(images.iter().map(|(s, _)| s.clone()).collect()),
+            _ => None,
         })
+        .flatten()
         .collect();
     for src in &image_srcs {
         app.load_image(src, root_dir);
@@ -770,6 +769,92 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                                 Style::default().fg(Color::DarkGray),
                             )]));
                             frame.render_widget(placeholder, img_area);
+                        }
+                    }
+                }
+                y += elem_h as usize;
+            }
+            DocElement::ImageRow(images) => {
+                let n = images.len() as u16;
+                let elem_h = elem.height(img_h).min((height - y) as u16);
+                let col_w = area.width / n;
+                // Determine which src the focused focusable points to (if focused on this row)
+                let focused_src: Option<String> = if is_focused {
+                    app.focused_item().and_then(|fi| {
+                        if let LinkAction::ViewImage(s) = &fi.action {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    })
+                } else {
+                    None
+                };
+                for (i, (src, alt)) in images.iter().enumerate() {
+                    let x_off = area.x + i as u16 * col_w;
+                    let w = if i as u16 == n - 1 { area.width - i as u16 * col_w } else { col_w };
+                    let cell_area = Rect::new(x_off, area.y + y as u16, w, elem_h);
+                    let this_focused = focused_src.as_deref() == Some(src.as_str());
+                    if this_focused && elem_h >= 3 {
+                        let border = Block::default()
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Yellow))
+                            .title(Span::styled(
+                                " Enter:fullscreen ",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
+                        let inner = border.inner(cell_area);
+                        frame.render_widget(border, cell_area);
+                        match app.image_cache.get_mut(src.as_str()) {
+                            Some(CachedImage::Loaded(protocol)) => {
+                                let image_widget = StatefulImage::default();
+                                frame.render_stateful_widget(image_widget, inner, protocol);
+                            }
+                            Some(CachedImage::Failed(err)) => {
+                                frame.render_widget(
+                                    Paragraph::new(Line::from(vec![Span::styled(
+                                        format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
+                                        Style::default().fg(Color::Red),
+                                    )])),
+                                    inner,
+                                );
+                            }
+                            None => {
+                                frame.render_widget(
+                                    Paragraph::new(Line::from(vec![Span::styled(
+                                        format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
+                                        Style::default().fg(Color::DarkGray),
+                                    )])),
+                                    inner,
+                                );
+                            }
+                        }
+                    } else {
+                        match app.image_cache.get_mut(src.as_str()) {
+                            Some(CachedImage::Loaded(protocol)) => {
+                                let image_widget = StatefulImage::default();
+                                frame.render_stateful_widget(image_widget, cell_area, protocol);
+                            }
+                            Some(CachedImage::Failed(err)) => {
+                                frame.render_widget(
+                                    Paragraph::new(Line::from(vec![Span::styled(
+                                        format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
+                                        Style::default().fg(Color::Red),
+                                    )])),
+                                    cell_area,
+                                );
+                            }
+                            None => {
+                                frame.render_widget(
+                                    Paragraph::new(Line::from(vec![Span::styled(
+                                        format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
+                                        Style::default().fg(Color::DarkGray),
+                                    )])),
+                                    cell_area,
+                                );
+                            }
                         }
                     }
                 }
