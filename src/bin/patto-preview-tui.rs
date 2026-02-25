@@ -18,7 +18,11 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame, Terminal,
 };
-use ratatui_image::{picker::{Picker, ProtocolType}, protocol::StatefulProtocol, StatefulImage};
+use ratatui_image::{
+    picker::{Picker, ProtocolType},
+    protocol::StatefulProtocol,
+    StatefulImage,
+};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -549,10 +553,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let right = Line::from(vec![
         Span::styled(pos, Style::default().fg(Color::DarkGray).bg(Color::Black)),
-        Span::styled(
-            "│",
-            Style::default().fg(Color::DarkGray).bg(Color::Black),
-        ),
+        Span::styled("│", Style::default().fg(Color::DarkGray).bg(Color::Black)),
         Span::styled(
             pct,
             Style::default()
@@ -791,17 +792,11 @@ fn key_badge(key: &str) -> Span<'static> {
 }
 
 fn hint_desc(desc: &str) -> Span<'static> {
-    Span::styled(
-        format!(" {} ", desc),
-        Style::default().fg(Color::White),
-    )
+    Span::styled(format!(" {} ", desc), Style::default().fg(Color::White))
 }
 
 fn hint_sep() -> Span<'static> {
-    Span::styled(
-        " │ ",
-        Style::default().fg(Color::DarkGray),
-    )
+    Span::styled(" │ ", Style::default().fg(Color::DarkGray))
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -833,8 +828,8 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(action) = focused_action {
         let (key, desc) = match action {
             LinkAction::OpenNote { .. } => ("↵", "open note"),
-            LinkAction::OpenUrl(_)     => ("↵", "open url"),
-            LinkAction::ViewImage(_)   => ("↵", "fullscreen"),
+            LinkAction::OpenUrl(_) => ("↵", "open url"),
+            LinkAction::ViewImage(_) => ("↵", "fullscreen"),
         };
         spans.push(key_badge(key));
         spans.push(hint_desc(desc));
