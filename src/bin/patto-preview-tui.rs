@@ -511,26 +511,79 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         .unwrap_or_default();
 
     let total = app.rendered_doc.total_height(app.image_height_rows);
-    let pos = if total > 0 {
-        format!("{}/{}", app.scroll_offset + 1, total)
+    let (pos, pct) = if total > 0 {
+        let p = ((app.scroll_offset + 1) * 100 / total).min(100);
+        (
+            format!(" {}:{} ", app.scroll_offset + 1, total),
+            format!(" {}% ", p),
+        )
     } else {
-        "0/0".to_string()
+        (" 0:0 ".to_string(), " 0% ".to_string())
     };
 
-    let title = Line::from(vec![
+    let left = Line::from(vec![
         Span::styled(
-            " patto-preview-tui ",
+            " ◉ patto ",
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" "),
-        Span::styled(file_name, Style::default().fg(Color::White)),
-        Span::raw(" "),
-        Span::styled(pos, Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "  │  ",
+            Style::default().fg(Color::DarkGray).bg(Color::Black),
+        ),
+        Span::styled(
+            format!(" {} ", file_name),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
-    frame.render_widget(Paragraph::new(title), area);
+
+    // Right-side: pos + percentage, right-aligned
+    let right_text = format!("{}│{}", pos, pct);
+    let right_len = right_text.chars().count() as u16;
+    let left_len = area.width.saturating_sub(right_len);
+
+    let right = Line::from(vec![
+        Span::styled(pos, Style::default().fg(Color::DarkGray).bg(Color::Black)),
+        Span::styled(
+            "│",
+            Style::default().fg(Color::DarkGray).bg(Color::Black),
+        ),
+        Span::styled(
+            pct,
+            Style::default()
+                .fg(Color::Cyan)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]);
+
+    // Render left block then right-aligned block via two overlapping areas
+    let left_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: left_len,
+        height: 1,
+    };
+    let right_area = Rect {
+        x: area.x + left_len,
+        y: area.y,
+        width: right_len,
+        height: 1,
+    };
+
+    frame.render_widget(
+        Paragraph::new(left).style(Style::default().bg(Color::Black)),
+        left_area,
+    );
+    frame.render_widget(
+        Paragraph::new(right).style(Style::default().bg(Color::Black)),
+        right_area,
+    );
 }
 
 /// Produce a new Line with chars in [char_start, char_end) highlighted with reverse video.
@@ -725,48 +778,86 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     }
 }
 
+// --- Status bar helpers ---
+
+fn key_badge(key: &str) -> Span<'static> {
+    Span::styled(
+        format!(" {} ", key),
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn hint_desc(desc: &str) -> Span<'static> {
+    Span::styled(
+        format!(" {} ", desc),
+        Style::default().fg(Color::White),
+    )
+}
+
+fn hint_sep() -> Span<'static> {
+    Span::styled(
+        " │ ",
+        Style::default().fg(Color::DarkGray),
+    )
+}
+
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let focused_action = app.focused_item().map(|fi| &fi.action);
-    let mut hints = vec![
-        Span::styled(" q", Style::default().fg(Color::Yellow)),
-        Span::styled(":quit ", Style::default().fg(Color::DarkGray)),
-        Span::styled("j/k", Style::default().fg(Color::Yellow)),
-        Span::styled(":scroll ", Style::default().fg(Color::DarkGray)),
-        Span::styled("PgDn/PgUp", Style::default().fg(Color::Yellow)),
-        Span::raw(" "),
-        Span::styled("b", Style::default().fg(Color::Yellow)),
-        Span::styled(":backlinks ", Style::default().fg(Color::DarkGray)),
-        Span::styled("+/-", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            format!(":img({}rows) ", app.image_height_rows),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled("Tab", Style::default().fg(Color::Yellow)),
-        Span::styled(":focus ", Style::default().fg(Color::DarkGray)),
-    ];
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+
+    // Group 1: Quit
+    spans.push(key_badge("q"));
+    spans.push(hint_desc("quit"));
+
+    spans.push(hint_sep());
+
+    // Group 2: Scroll
+    spans.push(key_badge("j/k"));
+    spans.push(hint_desc("↕1"));
+    spans.push(key_badge("^F/^B"));
+    spans.push(hint_desc("page"));
+    spans.push(key_badge("^D/^U"));
+    spans.push(hint_desc("½pg"));
+    spans.push(key_badge("g/G"));
+    spans.push(hint_desc("top/end"));
+
+    spans.push(hint_sep());
+
+    // Group 3: Focus / Action
+    spans.push(key_badge("Tab/S-Tab"));
+    spans.push(hint_desc("focus"));
     if let Some(action) = focused_action {
-        let action_hint = match action {
-            LinkAction::OpenNote { .. } => "Enter:open note ",
-            LinkAction::OpenUrl(_) => "Enter:open url ",
-            LinkAction::ViewImage(_) => "Enter:fullscreen ",
+        let (key, desc) = match action {
+            LinkAction::OpenNote { .. } => ("↵", "open note"),
+            LinkAction::OpenUrl(_)     => ("↵", "open url"),
+            LinkAction::ViewImage(_)   => ("↵", "fullscreen"),
         };
-        hints.push(Span::styled("Enter", Style::default().fg(Color::Yellow)));
-        hints.push(Span::styled(
-            action_hint,
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    hints.push(Span::styled("r/^L", Style::default().fg(Color::Yellow)));
-    hints.push(Span::styled(
-        ":reload ",
-        Style::default().fg(Color::DarkGray),
-    ));
-    if !app.nav_history.is_empty() {
-        hints.push(Span::styled("BS/^O", Style::default().fg(Color::Yellow)));
-        hints.push(Span::styled(":back ", Style::default().fg(Color::DarkGray)));
+        spans.push(key_badge(key));
+        spans.push(hint_desc(desc));
     }
 
-    let status = Line::from(hints);
+    spans.push(hint_sep());
+
+    // Group 4: Tools
+    spans.push(key_badge("b"));
+    spans.push(hint_desc("backlinks"));
+    spans.push(key_badge("+/-"));
+    spans.push(hint_desc(&format!("img({})", app.image_height_rows)));
+    spans.push(key_badge("r/^L"));
+    spans.push(hint_desc("reload"));
+
+    // Group 5: Back (conditional)
+    if !app.nav_history.is_empty() {
+        spans.push(hint_sep());
+        spans.push(key_badge("BS/^O"));
+        spans.push(hint_desc("back"));
+    }
+
+    let status = Line::from(spans);
     frame.render_widget(
         Paragraph::new(status).style(Style::default().bg(Color::DarkGray)),
         area,
