@@ -185,6 +185,8 @@ pre.mermaid {
 }
 
 figure.patto-figure {
+  display: inline-block;
+  vertical-align: top;
   margin: 0.75rem 0;
   width: fit-content;
 }

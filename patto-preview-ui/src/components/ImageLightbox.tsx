@@ -23,7 +23,7 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
 
     return (
         <>
-            <figure className="my-3 w-fit">
+            <figure className="inline-block align-top my-3 w-fit">
                 <img
                     src={src}
                     alt={alt || ''}
