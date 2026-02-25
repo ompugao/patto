@@ -98,6 +98,43 @@ enum InlineResult {
     ImageBlock { src: String, alt: Option<String> },
 }
 
+/// Returns true if `spans` contains any non-whitespace text.
+fn spans_have_content(spans: &[Span<'_>]) -> bool {
+    spans.iter().any(|s| !s.content.trim().is_empty())
+}
+
+/// Flush `buf` as a single `Image` (len == 1) or `ImageRow` (len > 1) element.
+fn flush_image_row(
+    buf: &mut Vec<(String, Option<String>)>,
+    elements: &mut Vec<DocElement>,
+    focusables: &mut Vec<FocusableItem>,
+) {
+    if buf.is_empty() {
+        return;
+    }
+    if buf.len() == 1 {
+        let (src, alt) = buf.remove(0);
+        focusables.push(FocusableItem {
+            elem_idx: elements.len(),
+            char_start: 0,
+            char_end: 0,
+            action: LinkAction::ViewImage(src.clone()),
+        });
+        elements.push(DocElement::Image { src, alt });
+    } else {
+        for (src, _alt) in buf.iter() {
+            focusables.push(FocusableItem {
+                elem_idx: elements.len(),
+                char_start: 0,
+                char_end: 0,
+                action: LinkAction::ViewImage(src.clone()),
+            });
+        }
+        elements.push(DocElement::ImageRow(std::mem::take(buf)));
+    }
+    buf.clear();
+}
+
 fn render_node(
     ast: &AstNode,
     elements: &mut Vec<DocElement>,
@@ -195,43 +232,6 @@ fn render_node(
             let mut spans = prefix_spans.clone();
             // Buffer for consecutive images (no non-whitespace text between them).
             let mut image_row_buf: Vec<(String, Option<String>)> = Vec::new();
-
-            /// Returns true if spans contains any non-whitespace text beyond the prefix.
-            fn spans_have_content(spans: &[Span<'_>]) -> bool {
-                spans.iter().any(|s| !s.content.trim().is_empty())
-            }
-
-            /// Flush `image_row_buf` as a single Image or ImageRow element.
-            fn flush_image_row(
-                buf: &mut Vec<(String, Option<String>)>,
-                elements: &mut Vec<DocElement>,
-                focusables: &mut Vec<FocusableItem>,
-            ) {
-                if buf.is_empty() {
-                    return;
-                }
-                if buf.len() == 1 {
-                    let (src, alt) = buf.remove(0);
-                    focusables.push(FocusableItem {
-                        elem_idx: elements.len(),
-                        char_start: 0,
-                        char_end: 0,
-                        action: LinkAction::ViewImage(src.clone()),
-                    });
-                    elements.push(DocElement::Image { src, alt });
-                } else {
-                    for (src, _alt) in buf.iter() {
-                        focusables.push(FocusableItem {
-                            elem_idx: elements.len(),
-                            char_start: 0,
-                            char_end: 0,
-                            action: LinkAction::ViewImage(src.clone()),
-                        });
-                    }
-                    elements.push(DocElement::ImageRow(std::mem::take(buf)));
-                }
-                buf.clear();
-            }
 
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {

@@ -213,6 +213,12 @@ impl App {
         self.image_cache.clear();
     }
 
+    /// Recompute backlinks and two-hop links for the current file.
+    async fn refresh_backlinks(&mut self, repository: &Repository) {
+        self.back_links = repository.calculate_back_links(&self.file_path);
+        self.two_hop_links = repository.calculate_two_hop_links(&self.file_path).await;
+    }
+
     fn increase_image_height(&mut self) {
         self.image_height_rows = (self.image_height_rows + 5).min(60);
         self.image_cache.clear();
@@ -480,6 +486,139 @@ impl App {
         }
         None
     }
+
+    /// Handle a key event while the backlinks popup is open.
+    /// Returns `true` if the app should quit.
+    async fn handle_backlinks_key(
+        &mut self,
+        repository: &Repository,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        match (code, modifiers) {
+            (KeyCode::Char('q'), _)
+            | (KeyCode::Esc, _)
+            | (KeyCode::Char('b'), _) => {
+                self.show_backlinks = false;
+                self.backlink_cursor = None;
+            }
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                self.backlink_cursor_down();
+            }
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                self.backlink_cursor_up();
+            }
+            (KeyCode::Enter, _) => {
+                if let Some((name, line)) = self.resolve_backlink_cursor() {
+                    self.show_backlinks = false;
+                    self.backlink_cursor = None;
+                    if self.open_note(&name, None) {
+                        if line > 0 {
+                            self.scroll_to_line(line);
+                        }
+                        self.refresh_backlinks(repository).await;
+                    }
+                }
+            }
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
+            _ => {}
+        }
+        false
+    }
+
+    /// Handle a key event in the normal (non-popup) view.
+    /// Returns `true` if the app should quit.
+    /// `viewport_height` is the current terminal height in rows.
+    async fn handle_normal_key(
+        &mut self,
+        repository: &Repository,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        viewport_height: usize,
+    ) -> bool {
+        match (code, modifiers) {
+            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
+                if self.fullscreen_image.is_some() {
+                    self.fullscreen_image = None;
+                } else {
+                    return true;
+                }
+            }
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => self.scroll_down(1),
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.scroll_up(1),
+            (KeyCode::PageDown, _)
+            | (KeyCode::Char(' '), _)
+            | (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
+                self.scroll_down(viewport_height);
+            }
+            (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
+                self.scroll_up(viewport_height);
+            }
+            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                self.scroll_down(viewport_height / 2);
+            }
+            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                self.scroll_up(viewport_height / 2);
+            }
+            (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.scroll_to_top(),
+            (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.scroll_to_bottom(),
+            (KeyCode::Char('b'), _) => {
+                self.show_backlinks = true;
+                self.backlink_cursor = None;
+                self.refresh_backlinks(repository).await;
+            }
+            (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
+                self.increase_image_height();
+            }
+            (KeyCode::Char('-'), _) => {
+                self.decrease_image_height();
+            }
+            (KeyCode::Enter, _) => {
+                if self.fullscreen_image.is_some() {
+                    self.fullscreen_image = None;
+                } else if let Some(fi) = self.focused_item().cloned() {
+                    match &fi.action {
+                        LinkAction::ViewImage(src) => {
+                            self.fullscreen_image = Some(src.clone());
+                        }
+                        LinkAction::OpenNote { name, anchor } => {
+                            if self.open_note(name, anchor.as_deref()) {
+                                self.refresh_backlinks(repository).await;
+                            }
+                        }
+                        LinkAction::OpenUrl(url) => {
+                            let _ = std::process::Command::new("xdg-open")
+                                .arg(url)
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .spawn();
+                        }
+                    }
+                }
+            }
+            (KeyCode::Backspace, _)
+            | (KeyCode::Char('H'), _)
+            | (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
+                if self.go_back() {
+                    self.refresh_backlinks(repository).await;
+                }
+            }
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                self.focus_next_item();
+            }
+            (KeyCode::BackTab, _) => {
+                self.focus_prev_item();
+            }
+            (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                self.clear_image_cache();
+                let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
+                self.re_render(&content);
+            }
+            _ => {}
+        }
+        false
+    }
 }
 
 fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
@@ -630,6 +769,64 @@ fn highlight_line_range(line: &Line<'static>, char_start: usize, char_end: usize
     Line::from(new_spans)
 }
 
+/// Render a single image cell into `area`.
+///
+/// If `focused` is true, draws a yellow border around the cell and renders the
+/// image (or placeholder) inside the inner area.  Otherwise renders directly
+/// into `area`.
+fn draw_image_cell(
+    frame: &mut Frame,
+    cache: &mut HashMap<String, CachedImage>,
+    src: &str,
+    alt: Option<&str>,
+    area: Rect,
+    focused: bool,
+) {
+    let render_area = if focused && area.height >= 3 {
+        let border = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .title(Span::styled(
+                " Enter:fullscreen ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        let inner = border.inner(area);
+        frame.render_widget(border, area);
+        inner
+    } else {
+        area
+    };
+
+    match cache.get_mut(src) {
+        Some(CachedImage::Loaded(protocol)) => {
+            let image_widget = StatefulImage::default();
+            frame.render_stateful_widget(image_widget, render_area, protocol);
+        }
+        Some(CachedImage::Failed(err)) => {
+            let label = format!("[Image: {} — {}]", alt.unwrap_or(src), err);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    label,
+                    Style::default().fg(Color::Red),
+                )])),
+                render_area,
+            );
+        }
+        None => {
+            let label = format!("[Image: {}]", alt.unwrap_or(src));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    label,
+                    Style::default().fg(Color::DarkGray),
+                )])),
+                render_area,
+            );
+        }
+    }
+}
+
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.image_height_rows;
@@ -715,70 +912,13 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             DocElement::Image { src, alt } => {
                 let elem_h = elem.height(img_h).min((height - y) as u16);
                 let img_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
-
-                if is_focused && elem_h >= 3 {
-                    // Draw a highlight border around the focused image
-                    let border = Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Yellow))
-                        .title(Span::styled(
-                            " Enter:fullscreen ",
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::BOLD),
-                        ));
-                    let inner = border.inner(img_area);
-                    frame.render_widget(border, img_area);
-
-                    match app.image_cache.get_mut(src.as_str()) {
-                        Some(CachedImage::Loaded(protocol)) => {
-                            let image_widget = StatefulImage::default();
-                            frame.render_stateful_widget(image_widget, inner, protocol);
-                        }
-                        Some(CachedImage::Failed(err)) => {
-                            let placeholder = Paragraph::new(Line::from(vec![Span::styled(
-                                format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
-                                Style::default().fg(Color::Red),
-                            )]));
-                            frame.render_widget(placeholder, inner);
-                        }
-                        None => {
-                            let placeholder = Paragraph::new(Line::from(vec![Span::styled(
-                                format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
-                                Style::default().fg(Color::DarkGray),
-                            )]));
-                            frame.render_widget(placeholder, inner);
-                        }
-                    }
-                } else {
-                    match app.image_cache.get_mut(src.as_str()) {
-                        Some(CachedImage::Loaded(protocol)) => {
-                            let image_widget = StatefulImage::default();
-                            frame.render_stateful_widget(image_widget, img_area, protocol);
-                        }
-                        Some(CachedImage::Failed(err)) => {
-                            let placeholder = Paragraph::new(Line::from(vec![Span::styled(
-                                format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
-                                Style::default().fg(Color::Red),
-                            )]));
-                            frame.render_widget(placeholder, img_area);
-                        }
-                        None => {
-                            let placeholder = Paragraph::new(Line::from(vec![Span::styled(
-                                format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
-                                Style::default().fg(Color::DarkGray),
-                            )]));
-                            frame.render_widget(placeholder, img_area);
-                        }
-                    }
-                }
+                draw_image_cell(frame, &mut app.image_cache, src, alt.as_deref(), img_area, is_focused);
                 y += elem_h as usize;
             }
             DocElement::ImageRow(images) => {
                 let n = images.len() as u16;
                 let elem_h = elem.height(img_h).min((height - y) as u16);
                 let col_w = area.width / n;
-                // Determine which src the focused focusable points to (if focused on this row)
                 let focused_src: Option<String> = if is_focused {
                     app.focused_item().and_then(|fi| {
                         if let LinkAction::ViewImage(s) = &fi.action {
@@ -799,76 +939,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     };
                     let cell_area = Rect::new(x_off, area.y + y as u16, w, elem_h);
                     let this_focused = focused_src.as_deref() == Some(src.as_str());
-                    if this_focused && elem_h >= 3 {
-                        let border = Block::default()
-                            .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Yellow))
-                            .title(Span::styled(
-                                " Enter:fullscreen ",
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            ));
-                        let inner = border.inner(cell_area);
-                        frame.render_widget(border, cell_area);
-                        match app.image_cache.get_mut(src.as_str()) {
-                            Some(CachedImage::Loaded(protocol)) => {
-                                let image_widget = StatefulImage::default();
-                                frame.render_stateful_widget(image_widget, inner, protocol);
-                            }
-                            Some(CachedImage::Failed(err)) => {
-                                frame.render_widget(
-                                    Paragraph::new(Line::from(vec![Span::styled(
-                                        format!(
-                                            "[Image: {} — {}]",
-                                            alt.as_deref().unwrap_or(src),
-                                            err
-                                        ),
-                                        Style::default().fg(Color::Red),
-                                    )])),
-                                    inner,
-                                );
-                            }
-                            None => {
-                                frame.render_widget(
-                                    Paragraph::new(Line::from(vec![Span::styled(
-                                        format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
-                                        Style::default().fg(Color::DarkGray),
-                                    )])),
-                                    inner,
-                                );
-                            }
-                        }
-                    } else {
-                        match app.image_cache.get_mut(src.as_str()) {
-                            Some(CachedImage::Loaded(protocol)) => {
-                                let image_widget = StatefulImage::default();
-                                frame.render_stateful_widget(image_widget, cell_area, protocol);
-                            }
-                            Some(CachedImage::Failed(err)) => {
-                                frame.render_widget(
-                                    Paragraph::new(Line::from(vec![Span::styled(
-                                        format!(
-                                            "[Image: {} — {}]",
-                                            alt.as_deref().unwrap_or(src),
-                                            err
-                                        ),
-                                        Style::default().fg(Color::Red),
-                                    )])),
-                                    cell_area,
-                                );
-                            }
-                            None => {
-                                frame.render_widget(
-                                    Paragraph::new(Line::from(vec![Span::styled(
-                                        format!("[Image: {}]", alt.as_deref().unwrap_or(src)),
-                                        Style::default().fg(Color::DarkGray),
-                                    )])),
-                                    cell_area,
-                                );
-                            }
-                        }
-                    }
+                    draw_image_cell(frame, &mut app.image_cache, src, alt.as_deref(), cell_area, this_focused);
                 }
                 y += elem_h as usize;
             }
@@ -1090,26 +1161,7 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
     // Load image if needed
     app.load_image(src, root_dir);
 
-    match app.image_cache.get_mut(src) {
-        Some(CachedImage::Loaded(protocol)) => {
-            let image_widget = StatefulImage::default();
-            frame.render_stateful_widget(image_widget, chunks[0], protocol);
-        }
-        Some(CachedImage::Failed(err)) => {
-            let msg = Paragraph::new(Line::from(vec![Span::styled(
-                format!("[Failed to load image: {}]", err),
-                Style::default().fg(Color::Red),
-            )]));
-            frame.render_widget(msg, chunks[0]);
-        }
-        None => {
-            let msg = Paragraph::new(Line::from(vec![Span::styled(
-                format!("[Loading: {}]", src),
-                Style::default().fg(Color::DarkGray),
-            )]));
-            frame.render_widget(msg, chunks[0]);
-        }
-    }
+    draw_image_cell(frame, &mut app.image_cache, src, None, chunks[0], false);
 
     // Status hint
     let hint = Line::from(vec![
@@ -1171,8 +1223,7 @@ async fn main() -> anyhow::Result<()> {
     app.re_render(&initial_content);
 
     // Compute initial backlinks
-    app.back_links = repository.calculate_back_links(&app.file_path);
-    app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
+    app.refresh_backlinks(&repository).await;
 
     // Set up terminal
     enable_raw_mode()?;
@@ -1191,131 +1242,13 @@ async fn main() -> anyhow::Result<()> {
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(KeyEvent { code, modifiers, .. }))) => {
-                        // When backlinks popup is open, intercept navigation keys
-                        if app.show_backlinks {
-                            match (code, modifiers) {
-                                (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('b'), _) => {
-                                    app.show_backlinks = false;
-                                    app.backlink_cursor = None;
-                                }
-                                (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                                    app.backlink_cursor_down();
-                                }
-                                (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                                    app.backlink_cursor_up();
-                                }
-                                (KeyCode::Enter, _) => {
-                                    if let Some((name, line)) = app.resolve_backlink_cursor() {
-                                        app.show_backlinks = false;
-                                        app.backlink_cursor = None;
-                                        if app.open_note(&name, None) {
-                                            if line > 0 {
-                                                app.scroll_to_line(line);
-                                            }
-                                            app.back_links = repository.calculate_back_links(&app.file_path);
-                                            app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
-                                        }
-                                    }
-                                }
-                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
-                                _ => {}
-                            }
+                        let vh = terminal.size()?.height as usize;
+                        let quit = if app.show_backlinks {
+                            app.handle_backlinks_key(&repository, code, modifiers).await
                         } else {
-                        match (code, modifiers) {
-                            (KeyCode::Char('q'), _) => {
-                                if app.fullscreen_image.is_some() {
-                                    app.fullscreen_image = None;
-                                } else {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Esc, _) => {
-                                if app.fullscreen_image.is_some() {
-                                    app.fullscreen_image = None;
-                                } else {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
-                            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.scroll_down(1),
-                            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_up(1),
-                            (KeyCode::PageDown, _) | (KeyCode::Char(' '), _) | (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
-                                let full = terminal.size()?.height as usize;
-                                app.scroll_down(full);
-                            }
-                            (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                                let full = terminal.size()?.height as usize;
-                                app.scroll_up(full);
-                            }
-                            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                                let half = (terminal.size()?.height as usize) / 2;
-                                app.scroll_down(half);
-                            }
-                            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                                let half = (terminal.size()?.height as usize) / 2;
-                                app.scroll_up(half);
-                            }
-                            (KeyCode::Char('g'), _) | (KeyCode::Home, _) => app.scroll_to_top(),
-                            (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
-                            (KeyCode::Char('b'), _) => {
-                                app.show_backlinks = true;
-                                app.backlink_cursor = None;
-                                // Refresh backlinks data
-                                app.back_links = repository.calculate_back_links(&app.file_path);
-                                app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
-                            }
-                            (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
-                                app.increase_image_height();
-                            }
-                            (KeyCode::Char('-'), _) => {
-                                app.decrease_image_height();
-                            }
-                            (KeyCode::Enter, _) => {
-                                if app.fullscreen_image.is_some() {
-                                    app.fullscreen_image = None;
-                                } else if let Some(fi) = app.focused_item().cloned() {
-                                    match &fi.action {
-                                        LinkAction::ViewImage(src) => {
-                                            app.fullscreen_image = Some(src.clone());
-                                        }
-                                        LinkAction::OpenNote { name, anchor } => {
-                                            if app.open_note(name, anchor.as_deref()) {
-                                                // Refresh backlinks for new file
-                                                app.back_links = repository.calculate_back_links(&app.file_path);
-                                                app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
-                                            }
-                                        }
-                                        LinkAction::OpenUrl(url) => {
-                                            let _ = std::process::Command::new("xdg-open")
-                                                .arg(url)
-                                                .stdout(std::process::Stdio::null())
-                                                .stderr(std::process::Stdio::null())
-                                                .spawn();
-                                        }
-                                    }
-                                }
-                            }
-                            (KeyCode::Backspace, _) | (KeyCode::Char('H'), _) | (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
-                                if app.go_back() {
-                                    app.back_links = repository.calculate_back_links(&app.file_path);
-                                    app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
-                                }
-                            }
-                            (KeyCode::Tab, KeyModifiers::NONE) => {
-                                app.focus_next_item();
-                            }
-                            (KeyCode::BackTab, _) => {
-                                app.focus_prev_item();
-                            }
-                            (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                                app.clear_image_cache();
-                                let content = std::fs::read_to_string(&app.file_path)
-                                    .unwrap_or_default();
-                                app.re_render(&content);
-                            }
-                            _ => {}
-                        }
-                        } // end else (not show_backlinks)
+                            app.handle_normal_key(&repository, code, modifiers, vh).await
+                        };
+                        if quit { break; }
                     }
                     Some(Ok(Event::Resize(_, _))) => {
                         // Terminal resized — redraw handled by the loop
@@ -1330,9 +1263,7 @@ async fn main() -> anyhow::Result<()> {
                     Ok(RepositoryMessage::FileChanged(path, _metadata, content)) => {
                         if path == app.file_path {
                             app.re_render(&content);
-                            // Refresh backlinks
-                            app.back_links = repository.calculate_back_links(&app.file_path);
-                            app.two_hop_links = repository.calculate_two_hop_links(&app.file_path).await;
+                            app.refresh_backlinks(&repository).await;
                         }
                     }
                     Ok(_) => {
