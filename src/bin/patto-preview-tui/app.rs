@@ -384,11 +384,7 @@ impl App {
                             }
                         }
                         LinkAction::OpenUrl(url) => {
-                            let _ = std::process::Command::new("xdg-open")
-                                .arg(url)
-                                .stdout(std::process::Stdio::null())
-                                .stderr(std::process::Stdio::null())
-                                .spawn();
+                            let _ = open::that_in_background(url);
                         }
                     }
                 }
