@@ -63,7 +63,7 @@ crossterm = { version = "0.29.0", features = ["event-stream"], optional = true }
 image = { version = "0.25.9", optional = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-ratatui-image = { version = "10.0.6", default-features = false, features = ["chafa-static"] }
+ratatui-image = { version = "10.0.6", default-features = false, features = ["chafa-static"], optional = true }
 
 [[bin]]
 name = "patto-preview-tui"
