@@ -129,6 +129,29 @@ Install from [VS Marketplace](https://marketplace.visualstudio.com/items?itemNam
 
 Commands: `:LspPattoTasks` or `:Trouble patto_tasks` ([trouble.nvim](https://github.com/folke/trouble.nvim))
 
+### Markdown Import
+```sh
+$ patto-markdown-importer -f note.md -o note.pn
+$ patto-markdown-importer -d path/to/markdown_dir -o path/to/patto_dir  # batch mode
+```
+### Markdown Export
+
+```sh
+$ patto-markdown-renderer -f note.pn -o note.md
+$ patto-markdown-renderer -f note.pn --flavor obsidian  # autodetect [[wikilinks]]
+$ patto-markdown-renderer -f note.pn --flavor github
+```
+
+### Zotero Integration
+
+Build with `--features zotero` (enabled by default) and configure `~/.config/patto/patto-lsp.toml`:
+```toml
+[zotero]
+user_id = "1234567"
+api_key = "your_key"
+endpoint = "http://127.0.0.1:23119/api/" # for communication with zotero on localhost
+```
+
 ### Terminal Preview (`patto-preview-tui`)
 
 A full-featured terminal UI preview — no browser needed.
@@ -182,32 +205,10 @@ Build:
 cargo build --release --features preview-tui
 ```
 
-### Markdown Import
-```sh
-$ patto-markdown-importer -f note.md -o note.pn
-$ patto-markdown-importer -d path/to/markdown_dir -o path/to/patto_dir  # batch mode
-```
-### Markdown Export
-
-```sh
-$ patto-markdown-renderer -f note.pn -o note.md
-$ patto-markdown-renderer -f note.pn --flavor obsidian  # autodetect [[wikilinks]]
-$ patto-markdown-renderer -f note.pn --flavor github
-```
-
-### Zotero Integration
-
-Build with `--features zotero` (enabled by default) and configure `~/.config/patto/patto-lsp.toml`:
-```toml
-[zotero]
-user_id = "1234567"
-api_key = "your_key"
-endpoint = "http://127.0.0.1:23119/api/" # for communication with zotero on localhost
-```
-
 ### Google Calendar Sync
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
+
 
 <details>
 <summary>FAQ & Tips</summary>
@@ -233,6 +234,7 @@ rg --vimgrep '.*@task.*todo' . | \
 
 ## Recent Updates
 
+**v0.4.1** - Add TUI previewer
 **v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
 **v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
 **v0.3.0** - Complete Markdown export overhaul with 72 new tests  
