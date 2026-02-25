@@ -51,17 +51,6 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
 
-      - name: Build and install chafa static lib (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install glib pkg-config automake autoconf libtool
-          git clone --depth=1 https://github.com/hpjansson/chafa.git /tmp/chafa
-          cd /tmp/chafa
-          ./autogen.sh
-          ./configure --enable-static --disable-shared --prefix=/usr/local
-          make -j$(sysctl -n hw.logicalcpu)
-          sudo make install
-
       - name: Build
         run: cargo build --verbose --features preview-tui
 
