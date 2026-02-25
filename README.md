@@ -129,6 +129,59 @@ Install from [VS Marketplace](https://marketplace.visualstudio.com/items?itemNam
 
 Commands: `:LspPattoTasks` or `:Trouble patto_tasks` ([trouble.nvim](https://github.com/folke/trouble.nvim))
 
+### Terminal Preview (`patto-preview-tui`)
+
+A full-featured terminal UI preview — no browser needed.
+
+```sh
+patto-preview-tui note.pn
+patto-preview-tui note.pn --dir /path/to/workspace
+```
+
+**Keybindings:**
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` or `↓` / `↑` | Scroll one line |
+| `Ctrl-F` / `Space` / `PageDown` | Page down |
+| `Ctrl-B` / `PageUp` | Page up |
+| `Ctrl-D` | Half-page down |
+| `Ctrl-U` | Half-page up |
+| `g` / `G` | Jump to top / bottom |
+| `Tab` / `Shift-Tab` | Cycle focus through links & images |
+| `Enter` | Open focused link / note / fullscreen image |
+| `b` | Toggle backlinks popup |
+| `+` / `-` | Increase / decrease image display height |
+| `r` / `Ctrl-L` | Reload file |
+| `Backspace` / `Ctrl-O` | Navigate back |
+| `q` / `Esc` | Quit (or close fullscreen image) |
+
+**Image protocol** is auto-detected (kitty, iTerm2, sixel, halfblocks). Override with `--protocol`:
+```sh
+patto-preview-tui note.pn --protocol iterm2   # force iTerm2 protocol
+patto-preview-tui note.pn --protocol kitty    # force kitty protocol
+```
+
+#### Build dependency: `libchafa`
+
+`patto-preview-tui` is built with `--features preview-tui`. It uses [chafa](https://hpjansson.org/chafa/) (via `ratatui-image`) for halfblocks image rendering as a fallback when no native image protocol is available. **`libchafa` must be installed before building.**
+
+```sh
+# Debian / Ubuntu
+sudo apt install libchafa-dev
+
+# Arch Linux
+sudo pacman -S chafa
+
+# macOS (Homebrew)
+brew install chafa
+```
+
+Build:
+```sh
+cargo build --release --features preview-tui
+```
+
 ### Markdown Import
 ```sh
 $ patto-markdown-importer -f note.md -o note.pn
