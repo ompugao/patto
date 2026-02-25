@@ -241,7 +241,8 @@ fn render_node(
                     InlineResult::ImageBlock { src, alt } => {
                         // If spans have real text, flush them before starting an image group
                         if spans_have_content(&spans) {
-                            elements.push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
+                            elements
+                                .push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
                             // Also flush any existing image row — text breaks the group
                             flush_image_row(&mut image_row_buf, elements, focusables);
                         } else if !image_row_buf.is_empty() {

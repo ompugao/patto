@@ -792,7 +792,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 };
                 for (i, (src, alt)) in images.iter().enumerate() {
                     let x_off = area.x + i as u16 * col_w;
-                    let w = if i as u16 == n - 1 { area.width - i as u16 * col_w } else { col_w };
+                    let w = if i as u16 == n - 1 {
+                        area.width - i as u16 * col_w
+                    } else {
+                        col_w
+                    };
                     let cell_area = Rect::new(x_off, area.y + y as u16, w, elem_h);
                     let this_focused = focused_src.as_deref() == Some(src.as_str());
                     if this_focused && elem_h >= 3 {
@@ -815,7 +819,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                             Some(CachedImage::Failed(err)) => {
                                 frame.render_widget(
                                     Paragraph::new(Line::from(vec![Span::styled(
-                                        format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
+                                        format!(
+                                            "[Image: {} — {}]",
+                                            alt.as_deref().unwrap_or(src),
+                                            err
+                                        ),
                                         Style::default().fg(Color::Red),
                                     )])),
                                     inner,
@@ -840,7 +848,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                             Some(CachedImage::Failed(err)) => {
                                 frame.render_widget(
                                     Paragraph::new(Line::from(vec![Span::styled(
-                                        format!("[Image: {} — {}]", alt.as_deref().unwrap_or(src), err),
+                                        format!(
+                                            "[Image: {} — {}]",
+                                            alt.as_deref().unwrap_or(src),
+                                            err
+                                        ),
                                         Style::default().fg(Color::Red),
                                     )])),
                                     cell_area,
