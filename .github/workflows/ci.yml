@@ -45,11 +45,28 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install chafa static lib (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
+
+      - name: Build and install chafa static lib (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install glib pkg-config automake autoconf libtool
+          git clone --depth=1 https://github.com/hpjansson/chafa.git /tmp/chafa
+          cd /tmp/chafa
+          ./autogen.sh
+          ./configure --enable-static --disable-shared --prefix=/usr/local
+          make -j$(sysctl -n hw.logicalcpu)
+          sudo make install
+
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose --features preview-tui
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --verbose --features preview-tui
 
   fmt:
     name: Rustfmt
