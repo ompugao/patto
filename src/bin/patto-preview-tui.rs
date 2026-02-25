@@ -18,7 +18,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame, Terminal,
 };
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol, StatefulImage};
+use ratatui_image::{picker::{Picker, ProtocolType}, protocol::StatefulProtocol, StatefulImage};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -35,6 +35,12 @@ struct Args {
     /// Workspace directory (defaults to file's parent directory)
     #[arg(short, long)]
     dir: Option<String>,
+
+    /// Force a specific image protocol (kitty, iterm2, sixel, halfblocks).
+    /// Overrides auto-detection. Useful when running inside tmux, over SSH,
+    /// or when auto-detection silently falls back to halfblocks.
+    #[arg(short = 'p', long, value_name = "PROTOCOL")]
+    protocol: Option<String>,
 }
 
 // --- App state ---
@@ -75,8 +81,25 @@ enum CachedImage {
 }
 
 impl App {
-    fn new(file_path: PathBuf, root_dir: PathBuf) -> Self {
-        let picker = Picker::from_query_stdio().ok();
+    fn new(file_path: PathBuf, root_dir: PathBuf, protocol_override: Option<&str>) -> Self {
+        let picker = Picker::from_query_stdio().ok().map(|mut p| {
+            if let Some(proto_str) = protocol_override {
+                let protocol_type = match proto_str.to_lowercase().as_str() {
+                    "kitty" => Some(ProtocolType::Kitty),
+                    "iterm2" => Some(ProtocolType::Iterm2),
+                    "sixel" => Some(ProtocolType::Sixel),
+                    "halfblocks" => Some(ProtocolType::Halfblocks),
+                    other => {
+                        eprintln!("Unknown protocol '{}', using auto-detected protocol", other);
+                        None
+                    }
+                };
+                if let Some(pt) = protocol_type {
+                    p.set_protocol_type(pt);
+                }
+            }
+            p
+        });
 
         Self {
             file_path,
@@ -961,7 +984,7 @@ async fn main() -> anyhow::Result<()> {
     let initial_content = std::fs::read_to_string(&file_path)?;
 
     // Set up app
-    let mut app = App::new(file_path.clone(), dir.clone());
+    let mut app = App::new(file_path.clone(), dir.clone(), args.protocol.as_deref());
     app.re_render(&initial_content);
 
     // Compute initial backlinks
