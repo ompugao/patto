@@ -147,11 +147,11 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
                         let (service, socket) =
                             LspService::new(|client| PreviewLspBackend::new(client, repo.clone()));
                         Server::new(reader, writer, socket).serve(service).await;
-                        eprintln!("Preview TUI LSP connection {} closed", addr);
+                        //eprintln!("Preview TUI LSP connection {} closed", addr);
                     });
                 }
                 Err(err) => {
-                    eprintln!("Preview TUI LSP accept error: {err}");
+                    //eprintln!("Preview TUI LSP accept error: {err}");
                 }
             }
         }
