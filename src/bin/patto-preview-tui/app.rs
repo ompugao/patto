@@ -301,10 +301,10 @@ impl App {
                 self.backlinks.close();
             }
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                self.backlinks.cursor_down();
+                self.backlinks.navigate_down();
             }
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                self.backlinks.cursor_up();
+                self.backlinks.navigate_up();
             }
             (KeyCode::Enter, _) => {
                 if let Some((name, line)) = self.backlinks.resolve_cursor() {
