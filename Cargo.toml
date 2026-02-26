@@ -1,6 +1,6 @@
 [package]
 name = "patto"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 description = "🪽 Yet another plain text format for quick note taking and task management"
@@ -74,6 +74,21 @@ features = ["preview-tui-chafa"]
 [dev-dependencies]
 tempfile = "3.24"
 tokio-util = { version = "0.7", features = ["codec"] }
+
+# Optimize pest parser even in debug builds for acceptable TUI performance
+[profile.dev.package.pest]
+opt-level = 2
+[profile.dev.package.pest_generator]
+opt-level = 2
+[profile.dev.package.pest_derive]
+opt-level = 2
+[profile.dev.package.pest_meta]
+opt-level = 2
+
+# Moderate optimization for the patto crate itself in dev builds,
+# keeping debuginfo for stack traces but improving parse speed for large files.
+[profile.dev]
+opt-level = 1
 
 # The profile that 'dist' will build with
 [profile.dist]
