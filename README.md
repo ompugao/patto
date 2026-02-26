@@ -94,8 +94,9 @@ Plug 'ompugao/patto'
 lua << EOF
   require('patto')
   vim.lsp.config('patto_lsp', {})
-  vim.lsp.config('patto_preview', {})
-  vim.lsp.enable({'patto_lsp', 'patto_preview'})
+  vim.lsp.config('patto_preview', {})        -- browser preview (optional)
+  vim.lsp.config('patto_preview_tui', {})    -- terminal preview live sync (optional)
+  vim.lsp.enable({'patto_lsp', 'patto_preview', 'patto_preview_tui'})
 EOF
 ```
 </details>
@@ -159,6 +160,7 @@ A full-featured terminal UI preview — no browser needed.
 ```sh
 patto-preview-tui note.pn
 patto-preview-tui note.pn --dir /path/to/workspace
+patto-preview-tui note.pn --lsp-port 9527   # override TCP LSP port (default: 9527)
 ```
 
 **Keybindings:**
@@ -184,6 +186,35 @@ patto-preview-tui note.pn --dir /path/to/workspace
 patto-preview-tui note.pn --protocol iterm2   # force iTerm2 protocol
 patto-preview-tui note.pn --protocol kitty    # force kitty protocol
 ```
+
+#### Live sync with Neovim
+
+`patto-preview-tui` starts a TCP LSP bridge (port 9527 by default) so the preview reflects unsaved buffer changes in real time.
+
+Enable in Neovim alongside `patto_lsp`:
+
+```lua
+require('patto')
+vim.lsp.config('patto_lsp', {})
+vim.lsp.config('patto_preview', {})          -- browser preview (optional)
+vim.lsp.config('patto_preview_tui', {})      -- terminal preview live sync
+vim.lsp.enable({'patto_lsp', 'patto_preview', 'patto_preview_tui'})
+```
+
+Then open the TUI first, then edit in Neovim:
+```sh
+patto-preview-tui note.pn
+```
+
+To use a different port:
+```lua
+vim.g.patto_preview_tui_port = 9528
+```
+```sh
+patto-preview-tui note.pn --lsp-port 9528
+```
+
+If the TUI is not running, Neovim shows a one-time warning and continues normally.
 
 #### Building from source
 
