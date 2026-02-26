@@ -11,6 +11,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 use std::path::Path;
 use tui_widget_list::{ListBuilder, ListView};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
@@ -221,19 +222,135 @@ fn draw_image_cell(
     }
 }
 
+/// Split a styled `Line` into visual rows that each fit within `col_width` display columns.
+///
+/// - Row 0 uses the full `col_width`.
+/// - Rows 1+ are prefixed with a dim `showbreak` span; their content uses `col_width − showbreak_width` columns.
+/// - If `showbreak` is empty, or the terminal is too narrow, every row uses `col_width` columns.
+fn manual_wrap<'a>(line: &Line<'a>, col_width: usize, showbreak: &str) -> Vec<Line<'static>> {
+    let sb_width = showbreak.width();
+    let cont_cols = if sb_width > 0 && col_width > sb_width {
+        col_width - sb_width
+    } else {
+        col_width
+    };
+    let sb_style = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::DIM);
+
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    let mut cur_spans: Vec<Span<'static>> = Vec::new();
+    let mut cur_buf = String::new();
+    let mut cur_style = Style::default();
+    let mut col_used = 0usize;
+    let mut is_first_row = true;
+
+    let avail = |first: bool| -> usize { if first { col_width } else { cont_cols } };
+
+    let flush_row = |cur_spans: &mut Vec<Span<'static>>,
+                     cur_buf: &mut String,
+                     cur_style: Style,
+                     rows: &mut Vec<Line<'static>>,
+                     is_first_row: &mut bool,
+                     showbreak: &str,
+                     sb_style: Style| {
+        if !cur_buf.is_empty() {
+            cur_spans.push(Span::styled(cur_buf.clone(), cur_style));
+            cur_buf.clear();
+        }
+        rows.push(Line::from(cur_spans.clone()));
+        cur_spans.clear();
+        *is_first_row = false;
+        if !showbreak.is_empty() {
+            cur_spans.push(Span::styled(showbreak.to_string(), sb_style));
+        }
+    };
+
+    for span in &line.spans {
+        let style = span.style;
+        // If the style changed, flush the char buffer as a span
+        if style != cur_style && !cur_buf.is_empty() {
+            cur_spans.push(Span::styled(cur_buf.clone(), cur_style));
+            cur_buf.clear();
+        }
+        cur_style = style;
+
+        for ch in span.content.chars() {
+            let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+            let row_avail = avail(is_first_row);
+
+            // Use >= so the last column is always reserved for the ↩ indicator:
+            // when col_used + ch_w == row_avail the char moves to the next row,
+            // leaving col[row_avail-1] empty so ↩ never overwrites content.
+            if col_used + ch_w >= row_avail && row_avail > 0 {
+                flush_row(
+                    &mut cur_spans,
+                    &mut cur_buf,
+                    cur_style,
+                    &mut rows,
+                    &mut is_first_row,
+                    showbreak,
+                    sb_style,
+                );
+                col_used = 0;
+            }
+
+            cur_buf.push(ch);
+            col_used += ch_w;
+        }
+    }
+
+    // Flush the last row
+    if !cur_buf.is_empty() {
+        cur_spans.push(Span::styled(cur_buf, cur_style));
+    }
+    rows.push(Line::from(cur_spans));
+    rows
+}
+
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.images.height_rows;
-
-    // Update viewport height for visible-image logic
+    let wrap = app.wrap;
+    let showbreak = app.showbreak.clone();
+    // Update viewport dimensions (used by wrap-aware scroll calculations)
+    app.viewport_width = area.width;
     app.viewport_height = height;
     app.clear_stale_focus();
+
+    // Closure: display height of an element (mirrors manual_wrap row-counting exactly)
+    let sb_width = showbreak.width();
+    let elem_h = |elem: &DocElement| -> usize {
+        if wrap && area.width > 0 {
+            if let DocElement::TextLine(line) = elem {
+                let col = area.width as usize;
+                let cont_cols = if sb_width > 0 && col > sb_width { col - sb_width } else { col };
+                let mut rows = 1usize;
+                let mut col_used = 0usize;
+                let mut is_first = true;
+                for span in &line.spans {
+                    for ch in span.content.chars() {
+                        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+                        let avail = if is_first { col } else { cont_cols };
+                        if col_used + ch_w >= avail && avail > 0 {
+                            rows += 1;
+                            is_first = false;
+                            col_used = 0;
+                        }
+                        col_used += ch_w;
+                    }
+                }
+                return rows;
+            }
+        }
+        elem.height(img_h) as usize
+    };
 
     // Skip elements until we reach scroll_offset rows
     let mut skip_rows = app.scroll_offset;
     let mut start_elem = 0usize;
     for (i, elem) in app.rendered_doc.elements.iter().enumerate() {
-        let h = elem.height(img_h) as usize;
+        let h = elem_h(elem);
         if skip_rows >= h {
             skip_rows -= h;
             start_elem = i + 1;
@@ -251,7 +368,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         .iter()
         .skip(start_elem)
         .take_while(|elem| {
-            let h = elem.height(img_h) as usize;
+            let h = elem_h(elem);
             scan_rows += h;
             scan_rows <= height + img_h as usize
         })
@@ -286,19 +403,58 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         let is_focused = focused_elem_idx == Some(elem_idx);
         match elem {
             DocElement::TextLine(line) => {
-                let line_area = Rect::new(area.x, area.y + y as u16, area.width, 1);
-                if is_focused {
-                    if let Some((cs, ce)) = focused_char_range {
-                        // Highlight the focused span within the line
-                        let highlighted = highlight_line_range(line, cs, ce);
-                        frame.render_widget(Paragraph::new(highlighted), line_area);
+                let true_lh = elem_h(elem);
+                let lh = true_lh.min(height - y) as u16;
+                let line_area = Rect::new(area.x, area.y + y as u16, area.width, lh);
+
+                if wrap {
+                    // Manual wrapping with showbreak prefix on continuation rows
+                    let base_line = if is_focused {
+                        if let Some((cs, ce)) = focused_char_range {
+                            highlight_line_range(line, cs, ce)
+                        } else {
+                            line.clone()
+                        }
                     } else {
-                        frame.render_widget(Paragraph::new(line.clone()), line_area);
+                        line.clone()
+                    };
+                    let sub_rows = manual_wrap(&base_line, area.width as usize, &showbreak);
+                    for (row_i, sub_row) in sub_rows.iter().enumerate().take(lh as usize) {
+                        let row_area =
+                            Rect::new(area.x, area.y + y as u16 + row_i as u16, area.width, 1);
+                        frame.render_widget(Paragraph::new(sub_row.clone()), row_area);
                     }
                 } else {
-                    frame.render_widget(Paragraph::new(line.clone()), line_area);
+                    let para = if is_focused {
+                        if let Some((cs, ce)) = focused_char_range {
+                            Paragraph::new(highlight_line_range(line, cs, ce))
+                        } else {
+                            Paragraph::new(line.clone())
+                        }
+                    } else {
+                        Paragraph::new(line.clone())
+                    };
+                    frame.render_widget(para, line_area);
                 }
-                y += 1;
+
+                // Overlay ↩ at the right edge of every wrapped row that has more content.
+                // The last column is always empty (manual_wrap uses >= threshold to reserve it).
+                if wrap && lh > 1 {
+                    let indicator_style = Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM);
+                    let indicator_count =
+                        if lh < true_lh as u16 { lh } else { lh.saturating_sub(1) };
+                    let ind_x = area.x + area.width - 1;
+                    for row_i in 0..indicator_count {
+                        let ind_y = area.y + y as u16 + row_i;
+                        if let Some(c) = frame.buffer_mut().cell_mut((ind_x, ind_y)) {
+                            c.set_symbol("↩");
+                            c.set_style(indicator_style);
+                        }
+                    }
+                }
+                y += lh as usize;
             }
             DocElement::Spacer => {
                 y += 1;
@@ -416,6 +572,8 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(hint_desc("backlinks"));
     spans.push(key_badge("+/-"));
     spans.push(hint_desc(&format!("img({})", app.images.height_rows)));
+    spans.push(key_badge("w"));
+    spans.push(hint_desc(if app.wrap { "wrap[on]" } else { "wrap[off]" }));
     spans.push(key_badge("r/^L"));
     spans.push(hint_desc("reload"));
 

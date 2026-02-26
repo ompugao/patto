@@ -37,6 +37,15 @@ struct Args {
     #[arg(short = 'p', long, value_name = "PROTOCOL")]
     protocol: Option<String>,
 
+    /// Start with word-wrap disabled (wrap is on by default; press 'w' to toggle)
+    #[arg(long)]
+    no_wrap: bool,
+
+    /// String prepended to continuation rows when wrap is on (vim showbreak).
+    /// Default: "↪ ". Set to "" to disable.
+    #[arg(long, default_value = "↪ ")]
+    showbreak: String,
+
     /// TCP port for the preview LSP bridge (enabled by default)
     #[arg(long, default_value_t = 9527)]
     lsp_port: u16,
@@ -206,6 +215,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Set up app
     let mut app = App::new(file_path.clone(), dir.clone(), args.protocol.as_deref());
+    if args.no_wrap {
+        app.wrap = false;
+    }
+    app.showbreak = args.showbreak.clone();
     app.re_render(&initial_content);
 
     // Compute initial backlinks
