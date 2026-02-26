@@ -144,9 +144,8 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
                     let repo = repository.clone();
                     tokio::spawn(async move {
                         let (reader, writer) = tokio::io::split(stream);
-                        let (service, socket) = LspService::new(|client| {
-                            PreviewLspBackend::new(client, repo.clone())
-                        });
+                        let (service, socket) =
+                            LspService::new(|client| PreviewLspBackend::new(client, repo.clone()));
                         Server::new(reader, writer, socket).serve(service).await;
                         eprintln!("Preview TUI LSP connection {} closed", addr);
                     });
