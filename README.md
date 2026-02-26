@@ -94,8 +94,9 @@ Plug 'ompugao/patto'
 lua << EOF
   require('patto')
   vim.lsp.config('patto_lsp', {})
-  vim.lsp.config('patto_preview', {})
-  vim.lsp.enable({'patto_lsp', 'patto_preview'})
+  vim.lsp.config('patto_preview', {})        -- browser preview (optional)
+  vim.lsp.config('patto_preview_tui', {})    -- terminal preview live sync (optional)
+  vim.lsp.enable({'patto_lsp', 'patto_preview', 'patto_preview_tui'})
 EOF
 ```
 </details>
@@ -159,6 +160,7 @@ A full-featured terminal UI preview — no browser needed.
 ```sh
 patto-preview-tui note.pn
 patto-preview-tui note.pn --dir /path/to/workspace
+patto-preview-tui note.pn --lsp-port 9527   # override TCP LSP port (default: 9527)
 ```
 
 **Keybindings:**
