@@ -15,6 +15,9 @@ use ratatui::Terminal;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{jsonrpc, Client, LanguageServer, LspService, Server};
+use url::Url;
 
 use app::App;
 
@@ -33,6 +36,129 @@ struct Args {
     /// or when auto-detection silently falls back to halfblocks.
     #[arg(short = 'p', long, value_name = "PROTOCOL")]
     protocol: Option<String>,
+
+    /// TCP port for the preview LSP bridge (enabled by default)
+    #[arg(long, default_value_t = 9527)]
+    lsp_port: u16,
+}
+
+struct PreviewLspBackend {
+    client: Client,
+    repository: Arc<Repository>,
+}
+
+impl PreviewLspBackend {
+    fn new(client: Client, repository: Arc<Repository>) -> Self {
+        Self { client, repository }
+    }
+
+    async fn handle_text_change(&self, uri: Url, text: String) {
+        let normalized = Repository::normalize_url_percent_encoding(&uri);
+        let Ok(path) = normalized.to_file_path() else {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!("Preview LSP ignoring non-file URI: {}", normalized),
+                )
+                .await;
+            return;
+        };
+
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+
+        if path.extension().and_then(|s| s.to_str()) != Some("pn") {
+            return;
+        }
+
+        if !path.starts_with(&self.repository.root_dir) {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!(
+                        "Preview LSP ignoring file outside workspace: {}",
+                        path.display()
+                    ),
+                )
+                .await;
+            return;
+        }
+
+        self.repository.handle_live_file_change(path, text).await;
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for PreviewLspBackend {
+    async fn initialize(&self, _: InitializeParams) -> jsonrpc::Result<InitializeResult> {
+        Ok(InitializeResult {
+            server_info: None,
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        will_save: Some(false),
+                        will_save_wait_until: Some(false),
+                        save: Some(
+                            tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true),
+                        ),
+                    },
+                )),
+                ..ServerCapabilities::default()
+            },
+            ..InitializeResult::default()
+        })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        self.client
+            .log_message(MessageType::INFO, "Preview TUI LSP bridge connected")
+            .await;
+    }
+
+    async fn shutdown(&self) -> jsonrpc::Result<()> {
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        self.handle_text_change(params.text_document.uri, params.text_document.text)
+            .await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        if let Some(change) = params.content_changes.into_iter().last() {
+            self.handle_text_change(params.text_document.uri, change.text)
+                .await;
+        }
+    }
+}
+
+async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std::io::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    eprintln!("Preview TUI LSP server listening on 127.0.0.1:{}", port);
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, addr)) => {
+                    let repo = repository.clone();
+                    tokio::spawn(async move {
+                        let (reader, writer) = tokio::io::split(stream);
+                        let (service, socket) = LspService::new(|client| {
+                            PreviewLspBackend::new(client, repo.clone())
+                        });
+                        Server::new(reader, writer, socket).serve(service).await;
+                        eprintln!("Preview TUI LSP connection {} closed", addr);
+                    });
+                }
+                Err(err) => {
+                    eprintln!("Preview TUI LSP accept error: {err}");
+                }
+            }
+        }
+    });
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -72,6 +198,9 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Failed to start file watcher: {}", e);
         }
     });
+
+    // Start preview LSP server
+    start_preview_lsp_server(repository.clone(), args.lsp_port).await?;
 
     // Read initial content
     let initial_content = std::fs::read_to_string(&file_path)?;
