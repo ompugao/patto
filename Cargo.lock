@@ -2443,6 +2443,7 @@ dependencies = [
  "log",
  "notify",
  "open",
+ "patto-chafa-bridge",
  "pest",
  "pest_derive",
  "pulldown-cmark",
@@ -2467,6 +2468,13 @@ dependencies = [
  "url",
  "urlencoding",
  "zotero-rs",
+]
+
+[[package]]
+name = "patto-chafa-bridge"
+version = "0.0.0"
+dependencies = [
+ "ratatui-image",
 ]
 
 [[package]]

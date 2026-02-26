@@ -1,0 +1,9 @@
+[package]
+name = "patto-chafa-bridge"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Internal bridge crate to enable ratatui-image's chafa-static feature on Linux via Cargo feature unification"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ratatui-image = { version = "10.0.6", default-features = false, features = ["crossterm", "chafa-static"] }

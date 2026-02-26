@@ -20,6 +20,7 @@ eula = false
 default = ["zotero"]
 zotero = ["dep:zotero-rs"]
 preview-tui = ["dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open"]
+preview-tui-chafa = ["preview-tui", "dep:patto-chafa-bridge"]
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws"] }
@@ -61,16 +62,14 @@ ratatui = { version = "0.30.0", features = ["crossterm"], optional = true }
 ratatui-image = { version = "10.0.6", default-features = false, features = ["crossterm"], optional = true }
 crossterm = { version = "0.29.0", features = ["event-stream"], optional = true }
 image = { version = "0.25.9", optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-ratatui-image = { version = "10.0.6", default-features = false, features = ["chafa-static"], optional = true }
+patto-chafa-bridge = { path = "patto-chafa-bridge", optional = true }
 
 [[bin]]
 name = "patto-preview-tui"
 required-features = ["preview-tui"]
 
 [package.metadata.dist]
-features = ["preview-tui"]
+features = ["preview-tui-chafa"]
 
 [dev-dependencies]
 tempfile = "3.24"
