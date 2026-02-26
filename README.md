@@ -152,9 +152,61 @@ api_key = "your_key"
 endpoint = "http://127.0.0.1:23119/api/" # for communication with zotero on localhost
 ```
 
+### Terminal Preview (`patto-preview-tui`)
+
+A full-featured terminal UI preview — no browser needed.
+
+```sh
+patto-preview-tui note.pn
+patto-preview-tui note.pn --dir /path/to/workspace
+```
+
+**Keybindings:**
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` or `↓` / `↑` | Scroll one line |
+| `Ctrl-F` / `Space` / `PageDown` | Page down |
+| `Ctrl-B` / `PageUp` | Page up |
+| `Ctrl-D` | Half-page down |
+| `Ctrl-U` | Half-page up |
+| `g` / `G` | Jump to top / bottom |
+| `Tab` / `Shift-Tab` | Cycle focus through links & images |
+| `Enter` | Open focused link / note / fullscreen image |
+| `b` | Toggle backlinks popup |
+| `+` / `-` | Increase / decrease image display height |
+| `r` / `Ctrl-L` | Reload file |
+| `Backspace` / `Ctrl-O` | Navigate back |
+| `q` / `Esc` | Quit (or close fullscreen image) |
+
+**Image protocol** is auto-detected (kitty, iTerm2, sixel, halfblocks). Override with `--protocol`:
+```sh
+patto-preview-tui note.pn --protocol iterm2   # force iTerm2 protocol
+patto-preview-tui note.pn --protocol kitty    # force kitty protocol
+```
+
+#### Building from source
+
+Basic build (no native image-library dependencies):
+```sh
+cargo build --release --features preview-tui
+```
+
+Image display uses auto-detected terminal protocols (kitty, iTerm2, sixel, halfblocks). Pre-built Linux binaries from [GitHub Releases](https://github.com/ompugao/patto/releases) include [chafa](https://hpjansson.org/chafa/) statically linked for improved halfblocks rendering.
+
+To build with static chafa yourself (Linux only):
+```sh
+# Install build dependencies
+sudo apt install libchafa-dev libsysprof-capture-4-dev   # Debian / Ubuntu
+
+# Build with chafa-static
+cargo build --release --features preview-tui-chafa
+```
+
 ### Google Calendar Sync
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
+
 
 <details>
 <summary>FAQ & Tips</summary>
@@ -180,6 +232,7 @@ rg --vimgrep '.*@task.*todo' . | \
 
 ## Recent Updates
 
+**v0.4.1** - Add TUI previewer
 **v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
 **v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
 **v0.3.0** - Complete Markdown export overhaul with 72 new tests  

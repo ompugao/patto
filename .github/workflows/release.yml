@@ -144,6 +144,11 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      - name: Install chafa static lib (Linux)
+        if: contains(join(matrix.targets, ','), 'linux')
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot

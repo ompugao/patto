@@ -46,10 +46,10 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose --features preview-tui
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --verbose --features preview-tui
 
   fmt:
     name: Rustfmt
@@ -97,6 +97,11 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-clippy-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install chafa static lib (for --all-features)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features
