@@ -24,7 +24,10 @@ pub(crate) enum FlatEntry {
 impl FlatEntry {
     /// Returns true if this entry can be jumped to (i.e. is a navigable target).
     pub(crate) fn is_selectable(&self) -> bool {
-        matches!(self, FlatEntry::BacklinkItem { .. } | FlatEntry::TwoHopItem(_))
+        matches!(
+            self,
+            FlatEntry::BacklinkItem { .. } | FlatEntry::TwoHopItem(_)
+        )
     }
 }
 
@@ -152,9 +155,9 @@ impl BacklinksPanel {
     pub(crate) fn resolve_cursor(&self) -> Option<(String, usize)> {
         let idx = self.list_state.selected?;
         match self.entries.get(idx)? {
-            FlatEntry::BacklinkItem { source_file, line, .. } => {
-                Some((source_file.clone(), *line))
-            }
+            FlatEntry::BacklinkItem {
+                source_file, line, ..
+            } => Some((source_file.clone(), *line)),
             FlatEntry::TwoHopItem(name) => Some((name.clone(), 0)),
             _ => None,
         }

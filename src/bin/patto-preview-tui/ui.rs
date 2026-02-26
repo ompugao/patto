@@ -8,9 +8,9 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
     Frame,
 };
-use tui_widget_list::{ListBuilder, ListView};
 use ratatui_image::StatefulImage;
 use std::path::Path;
+use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
@@ -483,7 +483,11 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &mut App) {
                     ))
                 }
             }
-            FlatEntry::BacklinkItem { source_file, line, context } => {
+            FlatEntry::BacklinkItem {
+                source_file,
+                line,
+                context,
+            } => {
                 let ctx_text = context.as_deref().unwrap_or("");
                 let (bullet_style, text_style, ctx_style) = if is_selected {
                     (
@@ -500,10 +504,7 @@ fn draw_backlinks_popup(frame: &mut Frame, app: &mut App) {
                 };
                 Line::from(vec![
                     Span::styled("  • ", bullet_style),
-                    Span::styled(
-                        format!("{} (L{})", source_file, line + 1),
-                        text_style,
-                    ),
+                    Span::styled(format!("{} (L{})", source_file, line + 1), text_style),
                     Span::styled(format!("  {}", ctx_text), ctx_style),
                 ])
             }
