@@ -185,24 +185,22 @@ patto-preview-tui note.pn --protocol iterm2   # force iTerm2 protocol
 patto-preview-tui note.pn --protocol kitty    # force kitty protocol
 ```
 
-#### Build dependency: `libchafa`
+#### Building from source
 
-`patto-preview-tui` is built with `--features preview-tui`. It uses [chafa](https://hpjansson.org/chafa/) (via `ratatui-image`) for halfblocks image rendering as a fallback when no native image protocol is available. **`libchafa` must be installed before building.**
-
-```sh
-# Debian / Ubuntu
-sudo apt install libchafa-dev
-
-# Arch Linux
-sudo pacman -S chafa
-
-# macOS (Homebrew)
-brew install chafa
-```
-
-Build:
+Basic build (no native image-library dependencies):
 ```sh
 cargo build --release --features preview-tui
+```
+
+Image display uses auto-detected terminal protocols (kitty, iTerm2, sixel, halfblocks). Pre-built Linux binaries from [GitHub Releases](https://github.com/ompugao/patto/releases) include [chafa](https://hpjansson.org/chafa/) statically linked for improved halfblocks rendering.
+
+To build with static chafa yourself (Linux only):
+```sh
+# Install build dependencies
+sudo apt install libchafa-dev libsysprof-capture-4-dev   # Debian / Ubuntu
+
+# Build with chafa-static
+cargo build --release --features preview-tui-chafa
 ```
 
 ### Google Calendar Sync
