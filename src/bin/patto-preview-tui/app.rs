@@ -1,3 +1,6 @@
+use crate::backlinks::BacklinksPanel;
+use crate::image_cache::ImageCache;
+use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
 use patto::{
     line_tracker::LineTracker,
@@ -6,9 +9,6 @@ use patto::{
     tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
 };
 use std::path::{Path, PathBuf};
-use crate::backlinks::BacklinksPanel;
-use crate::image_cache::ImageCache;
-use crate::wrap::{elem_height, total_height, WrapConfig};
 
 /// Saved navigation state for back-navigation.
 pub(crate) struct NavigationEntry {
@@ -71,7 +71,10 @@ impl App {
     /// `WrapConfig` derived from the current app state.
     pub(crate) fn wrap_config(&self) -> Option<WrapConfig> {
         if self.wrap && self.viewport_width > 0 {
-            Some(WrapConfig::new(self.viewport_width as usize, &self.showbreak))
+            Some(WrapConfig::new(
+                self.viewport_width as usize,
+                &self.showbreak,
+            ))
         } else {
             None
         }

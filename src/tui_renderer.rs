@@ -60,8 +60,7 @@ pub struct RenderedDoc {
     pub focusables: Vec<FocusableItem>,
 }
 
-impl RenderedDoc {
-}
+impl RenderedDoc {}
 
 /// Render an AST root node into a flat list of DocElements.
 pub fn render_ast(ast: &AstNode) -> RenderedDoc {

@@ -240,7 +240,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     // Pre-build WrapConfig so we don't rebuild it per element.
     let wrap_cfg = WrapConfig::new(area.width as usize, showbreak.as_str());
     let elem_h = |elem: &DocElement| -> usize {
-        let cfg_opt = if wrap && area.width > 0 { Some(&wrap_cfg) } else { None };
+        let cfg_opt = if wrap && area.width > 0 {
+            Some(&wrap_cfg)
+        } else {
+            None
+        };
         elem_height(elem, cfg_opt, img_h)
     };
 
@@ -316,7 +320,10 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     } else {
                         line.clone()
                     };
-                    let sub_rows = wrap_line(&base_line, &WrapConfig::new(area.width as usize, &showbreak));
+                    let sub_rows = wrap_line(
+                        &base_line,
+                        &WrapConfig::new(area.width as usize, &showbreak),
+                    );
                     for (row_i, sub_row) in sub_rows.iter().enumerate().take(lh as usize) {
                         let row_area =
                             Rect::new(area.x, area.y + y as u16 + row_i as u16, area.width, 1);
@@ -341,8 +348,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     let indicator_style = Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::DIM);
-                    let indicator_count =
-                        if lh < true_lh as u16 { lh } else { lh.saturating_sub(1) };
+                    let indicator_count = if lh < true_lh as u16 {
+                        lh
+                    } else {
+                        lh.saturating_sub(1)
+                    };
                     let ind_x = area.x + area.width - 1;
                     for row_i in 0..indicator_count {
                         let ind_y = area.y + y as u16 + row_i;

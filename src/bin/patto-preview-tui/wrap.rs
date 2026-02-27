@@ -166,8 +166,7 @@ impl RowBuilder {
     /// Finalise all remaining content as the last row and return all rows.
     fn finish(mut self, cur_style: Style) -> Vec<Line<'static>> {
         if !self.cur_buf.is_empty() {
-            self.cur_spans
-                .push(Span::styled(self.cur_buf, cur_style));
+            self.cur_spans.push(Span::styled(self.cur_buf, cur_style));
         }
         self.rows.push(Line::from(self.cur_spans));
         self.rows
