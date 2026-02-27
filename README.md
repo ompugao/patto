@@ -205,7 +205,12 @@ sudo apt install libchafa-dev libsysprof-capture-4-dev   # Debian / Ubuntu
 cargo build --release --features preview-tui-chafa
 ```
 
-### Google Calendar Sync
+### File Browser Integration
+
+`patto-cli-renderer` renders a `.pn` file as ANSI-colored text to stdout. Use it as a preview backend inside any file browser — fzf, yazi, lf, ranger, and others.
+See [ompugao/patto.yazi](https://github.com/ompugao/patto.yazi) for details.
+
+### Calendar Integration
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
 

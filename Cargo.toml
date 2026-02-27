@@ -21,6 +21,7 @@ default = ["zotero"]
 zotero = ["dep:zotero-rs"]
 preview-tui = ["dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list"]
 preview-tui-chafa = ["preview-tui", "dep:patto-chafa-bridge"]
+cli-renderer = ["preview-tui"]
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws"] }
@@ -69,6 +70,10 @@ patto-chafa-bridge = { path = "patto-chafa-bridge", optional = true }
 [[bin]]
 name = "patto-preview-tui"
 required-features = ["preview-tui"]
+
+[[bin]]
+name = "patto-cli-renderer"
+required-features = ["cli-renderer"]
 
 [package.metadata.dist]
 features = ["preview-tui-chafa"]
