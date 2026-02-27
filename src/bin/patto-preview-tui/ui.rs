@@ -11,10 +11,10 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 use std::path::Path;
 use tui_widget_list::{ListBuilder, ListView};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
+use crate::wrap::{elem_height, wrap_line, WrapConfig};
 
 pub(crate) fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
     // Fullscreen image overlay
@@ -48,7 +48,11 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let total = app.rendered_doc.total_height(app.images.height_rows);
+    let total = crate::wrap::total_height(
+        &app.rendered_doc.elements,
+        app.wrap_config().as_ref(),
+        app.images.height_rows,
+    );
     let (pos, pct) = if total > 0 {
         let p = ((app.scroll_offset + 1) * 100 / total).min(100);
         (
@@ -222,92 +226,6 @@ fn draw_image_cell(
     }
 }
 
-/// Split a styled `Line` into visual rows that each fit within `col_width` display columns.
-///
-/// - Row 0 uses the full `col_width`.
-/// - Rows 1+ are prefixed with a dim `showbreak` span; their content uses `col_width − showbreak_width` columns.
-/// - If `showbreak` is empty, or the terminal is too narrow, every row uses `col_width` columns.
-fn manual_wrap<'a>(line: &Line<'a>, col_width: usize, showbreak: &str) -> Vec<Line<'static>> {
-    let sb_width = showbreak.width();
-    let cont_cols = if sb_width > 0 && col_width > sb_width {
-        col_width - sb_width
-    } else {
-        col_width
-    };
-    let sb_style = Style::default()
-        .fg(Color::DarkGray)
-        .add_modifier(Modifier::DIM);
-
-    let mut rows: Vec<Line<'static>> = Vec::new();
-    let mut cur_spans: Vec<Span<'static>> = Vec::new();
-    let mut cur_buf = String::new();
-    let mut cur_style = Style::default();
-    let mut col_used = 0usize;
-    let mut is_first_row = true;
-
-    let avail = |first: bool| -> usize { if first { col_width } else { cont_cols } };
-
-    let flush_row = |cur_spans: &mut Vec<Span<'static>>,
-                     cur_buf: &mut String,
-                     cur_style: Style,
-                     rows: &mut Vec<Line<'static>>,
-                     is_first_row: &mut bool,
-                     showbreak: &str,
-                     sb_style: Style| {
-        if !cur_buf.is_empty() {
-            cur_spans.push(Span::styled(cur_buf.clone(), cur_style));
-            cur_buf.clear();
-        }
-        rows.push(Line::from(cur_spans.clone()));
-        cur_spans.clear();
-        *is_first_row = false;
-        if !showbreak.is_empty() {
-            cur_spans.push(Span::styled(showbreak.to_string(), sb_style));
-        }
-    };
-
-    for span in &line.spans {
-        let style = span.style;
-        // If the style changed, flush the char buffer as a span
-        if style != cur_style && !cur_buf.is_empty() {
-            cur_spans.push(Span::styled(cur_buf.clone(), cur_style));
-            cur_buf.clear();
-        }
-        cur_style = style;
-
-        for ch in span.content.chars() {
-            let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
-            let row_avail = avail(is_first_row);
-
-            // Use >= so the last column is always reserved for the ↩ indicator:
-            // when col_used + ch_w == row_avail the char moves to the next row,
-            // leaving col[row_avail-1] empty so ↩ never overwrites content.
-            if col_used + ch_w >= row_avail && row_avail > 0 {
-                flush_row(
-                    &mut cur_spans,
-                    &mut cur_buf,
-                    cur_style,
-                    &mut rows,
-                    &mut is_first_row,
-                    showbreak,
-                    sb_style,
-                );
-                col_used = 0;
-            }
-
-            cur_buf.push(ch);
-            col_used += ch_w;
-        }
-    }
-
-    // Flush the last row
-    if !cur_buf.is_empty() {
-        cur_spans.push(Span::styled(cur_buf, cur_style));
-    }
-    rows.push(Line::from(cur_spans));
-    rows
-}
-
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.images.height_rows;
@@ -318,32 +236,12 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     app.viewport_height = height;
     app.clear_stale_focus();
 
-    // Closure: display height of an element (mirrors manual_wrap row-counting exactly)
-    let sb_width = showbreak.width();
+    // Closure: display height of an element.
+    // Pre-build WrapConfig so we don't rebuild it per element.
+    let wrap_cfg = WrapConfig::new(area.width as usize, showbreak.as_str());
     let elem_h = |elem: &DocElement| -> usize {
-        if wrap && area.width > 0 {
-            if let DocElement::TextLine(line) = elem {
-                let col = area.width as usize;
-                let cont_cols = if sb_width > 0 && col > sb_width { col - sb_width } else { col };
-                let mut rows = 1usize;
-                let mut col_used = 0usize;
-                let mut is_first = true;
-                for span in &line.spans {
-                    for ch in span.content.chars() {
-                        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
-                        let avail = if is_first { col } else { cont_cols };
-                        if col_used + ch_w >= avail && avail > 0 {
-                            rows += 1;
-                            is_first = false;
-                            col_used = 0;
-                        }
-                        col_used += ch_w;
-                    }
-                }
-                return rows;
-            }
-        }
-        elem.height(img_h) as usize
+        let cfg_opt = if wrap && area.width > 0 { Some(&wrap_cfg) } else { None };
+        elem_height(elem, cfg_opt, img_h)
     };
 
     // Skip elements until we reach scroll_offset rows
@@ -418,7 +316,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     } else {
                         line.clone()
                     };
-                    let sub_rows = manual_wrap(&base_line, area.width as usize, &showbreak);
+                    let sub_rows = wrap_line(&base_line, &WrapConfig::new(area.width as usize, &showbreak));
                     for (row_i, sub_row) in sub_rows.iter().enumerate().take(lh as usize) {
                         let row_area =
                             Rect::new(area.x, area.y + y as u16 + row_i as u16, area.width, 1);
@@ -438,7 +336,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 }
 
                 // Overlay ↩ at the right edge of every wrapped row that has more content.
-                // The last column is always empty (manual_wrap uses >= threshold to reserve it).
+                // The last column is always empty (WrapConfig::needs_break uses >= to reserve it).
                 if wrap && lh > 1 {
                     let indicator_style = Style::default()
                         .fg(Color::DarkGray)
@@ -460,7 +358,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += 1;
             }
             DocElement::Image { src, alt } => {
-                let elem_h = elem.height(img_h).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
                 let img_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
                 draw_image_cell(
                     frame,
@@ -474,7 +372,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::ImageRow(images) => {
                 let n = images.len() as u16;
-                let elem_h = elem.height(img_h).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
                 let col_w = area.width / n;
                 let focused_src: Option<String> = if is_focused {
                     app.focused_item().and_then(|fi| {

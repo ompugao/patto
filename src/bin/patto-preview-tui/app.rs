@@ -6,10 +6,9 @@ use patto::{
     tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
 };
 use std::path::{Path, PathBuf};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
 use crate::backlinks::BacklinksPanel;
 use crate::image_cache::ImageCache;
+use crate::wrap::{elem_height, total_height, WrapConfig};
 
 /// Saved navigation state for back-navigation.
 pub(crate) struct NavigationEntry {
@@ -69,42 +68,27 @@ impl App {
 
     // --- Wrap-aware height ---
 
+    /// `WrapConfig` derived from the current app state.
+    pub(crate) fn wrap_config(&self) -> Option<WrapConfig> {
+        if self.wrap && self.viewport_width > 0 {
+            Some(WrapConfig::new(self.viewport_width as usize, &self.showbreak))
+        } else {
+            None
+        }
+    }
+
     /// Display height of one element, accounting for soft-wrap and showbreak.
     pub(crate) fn elem_display_height(&self, elem: &DocElement) -> usize {
-        if self.wrap && self.viewport_width > 0 {
-            if let DocElement::TextLine(line) = elem {
-                let col = self.viewport_width as usize;
-                let sw = self.showbreak.width();
-                let cont_cols = if sw > 0 && col > sw { col - sw } else { col };
-                let mut rows = 1usize;
-                let mut col_used = 0usize;
-                let mut is_first = true;
-                for span in &line.spans {
-                    for ch in span.content.chars() {
-                        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
-                        let avail = if is_first { col } else { cont_cols };
-                        // Mirror manual_wrap's >= threshold (reserves last col for ↩)
-                        if col_used + ch_w >= avail && avail > 0 {
-                            rows += 1;
-                            is_first = false;
-                            col_used = 0;
-                        }
-                        col_used += ch_w;
-                    }
-                }
-                return rows;
-            }
-        }
-        elem.height(self.images.height_rows) as usize
+        elem_height(elem, self.wrap_config().as_ref(), self.images.height_rows)
     }
 
     /// Total display height of the document, accounting for soft-wrap.
     pub(crate) fn total_display_height(&self) -> usize {
-        self.rendered_doc
-            .elements
-            .iter()
-            .map(|e| self.elem_display_height(e))
-            .sum()
+        total_height(
+            &self.rendered_doc.elements,
+            self.wrap_config().as_ref(),
+            self.images.height_rows,
+        )
     }
 
     // --- Scrolling ---

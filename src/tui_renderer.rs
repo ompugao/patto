@@ -47,14 +47,6 @@ pub enum DocElement {
 }
 
 impl DocElement {
-    /// Height in terminal rows.
-    pub fn height(&self, image_height_rows: u16) -> u16 {
-        match self {
-            DocElement::TextLine(_) | DocElement::Spacer => 1,
-            DocElement::Image { .. } | DocElement::ImageRow(_) => image_height_rows,
-        }
-    }
-
     /// Whether this element is an image.
     pub fn is_image(&self) -> bool {
         matches!(self, DocElement::Image { .. } | DocElement::ImageRow(_))
@@ -69,13 +61,6 @@ pub struct RenderedDoc {
 }
 
 impl RenderedDoc {
-    /// Total height in terminal rows.
-    pub fn total_height(&self, image_height_rows: u16) -> usize {
-        self.elements
-            .iter()
-            .map(|e| e.height(image_height_rows) as usize)
-            .sum()
-    }
 }
 
 /// Render an AST root node into a flat list of DocElements.

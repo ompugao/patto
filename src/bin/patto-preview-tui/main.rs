@@ -2,6 +2,7 @@ mod app;
 mod backlinks;
 mod image_cache;
 mod ui;
+mod wrap;
 
 use clap::Parser;
 use crossterm::{
