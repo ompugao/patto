@@ -1,3 +1,6 @@
+use crate::backlinks::BacklinksPanel;
+use crate::image_cache::ImageCache;
+use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
 use patto::{
     line_tracker::LineTracker,
@@ -6,9 +9,6 @@ use patto::{
     tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
 };
 use std::path::{Path, PathBuf};
-
-use crate::backlinks::BacklinksPanel;
-use crate::image_cache::ImageCache;
 
 /// Saved navigation state for back-navigation.
 pub(crate) struct NavigationEntry {
@@ -23,6 +23,12 @@ pub(crate) struct App {
     pub(crate) rendered_doc: RenderedDoc,
     pub(crate) scroll_offset: usize,
     pub(crate) viewport_height: usize,
+    /// Terminal width in columns, updated each frame by `draw_content`.
+    pub(crate) viewport_width: u16,
+    /// Whether long lines are soft-wrapped.
+    pub(crate) wrap: bool,
+    /// String prepended to continuation rows when wrap is on (vim `showbreak`).
+    pub(crate) showbreak: String,
     pub(crate) line_tracker: LineTracker,
     /// Index into `rendered_doc.focusables` of the currently focused item. None = no focus.
     pub(crate) focused_item_idx: Option<usize>,
@@ -49,6 +55,9 @@ impl App {
             },
             scroll_offset: 0,
             viewport_height: 24,
+            viewport_width: 0,
+            wrap: true,
+            showbreak: "↪ ".to_string(),
             line_tracker: LineTracker::new().expect("Failed to create line tracker"),
             focused_item_idx: None,
             nav_history: Vec::new(),
@@ -57,13 +66,38 @@ impl App {
         }
     }
 
+    // --- Wrap-aware height ---
+
+    /// `WrapConfig` derived from the current app state.
+    pub(crate) fn wrap_config(&self) -> Option<WrapConfig> {
+        if self.wrap && self.viewport_width > 0 {
+            Some(WrapConfig::new(
+                self.viewport_width as usize,
+                &self.showbreak,
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Display height of one element, accounting for soft-wrap and showbreak.
+    pub(crate) fn elem_display_height(&self, elem: &DocElement) -> usize {
+        elem_height(elem, self.wrap_config().as_ref(), self.images.height_rows)
+    }
+
+    /// Total display height of the document, accounting for soft-wrap.
+    pub(crate) fn total_display_height(&self) -> usize {
+        total_height(
+            &self.rendered_doc.elements,
+            self.wrap_config().as_ref(),
+            self.images.height_rows,
+        )
+    }
+
     // --- Scrolling ---
 
     pub(crate) fn scroll_down(&mut self, amount: usize) {
-        let max = self
-            .rendered_doc
-            .total_height(self.images.height_rows)
-            .saturating_sub(1);
+        let max = self.total_display_height().saturating_sub(1);
         self.scroll_offset = (self.scroll_offset + amount).min(max);
     }
 
@@ -76,10 +110,7 @@ impl App {
     }
 
     pub(crate) fn scroll_to_bottom(&mut self) {
-        self.scroll_offset = self
-            .rendered_doc
-            .total_height(self.images.height_rows)
-            .saturating_sub(1);
+        self.scroll_offset = self.total_display_height().saturating_sub(1);
     }
 
     // --- Rendering ---
@@ -100,11 +131,10 @@ impl App {
 
     /// Indices (into `rendered_doc.focusables`) of focusable items visible in the viewport.
     fn visible_focusable_indices(&self) -> Vec<usize> {
-        let img_h = self.images.height_rows;
         let mut row = 0usize;
         let mut visible_elems = std::collections::HashSet::new();
         for (i, elem) in self.rendered_doc.elements.iter().enumerate() {
-            let h = elem.height(img_h) as usize;
+            let h = self.elem_display_height(elem);
             let elem_top = row;
             let elem_bot = row + h;
             row = elem_bot;
@@ -253,7 +283,6 @@ impl App {
     /// Try to scroll to a heading/anchor matching the given text.
     fn scroll_to_anchor(&mut self, anchor: &str) {
         let anchor_lower = anchor.to_lowercase();
-        let img_h = self.images.height_rows;
         let mut row = 0usize;
         for elem in &self.rendered_doc.elements {
             if let DocElement::TextLine(line) = elem {
@@ -263,13 +292,12 @@ impl App {
                     return;
                 }
             }
-            row += elem.height(img_h) as usize;
+            row += self.elem_display_height(elem);
         }
     }
 
     /// Scroll to a specific source line number (0-indexed).
     fn scroll_to_line(&mut self, target_line: usize) {
-        let img_h = self.images.height_rows;
         let mut row = 0usize;
         let mut current_source_line = 0usize;
         for elem in &self.rendered_doc.elements {
@@ -277,7 +305,7 @@ impl App {
                 self.scroll_offset = row;
                 return;
             }
-            let h = elem.height(img_h) as usize;
+            let h = self.elem_display_height(elem);
             if let DocElement::TextLine(_) = elem {
                 current_source_line += 1;
             }
@@ -406,6 +434,9 @@ impl App {
                 self.images.clear();
                 let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
                 self.re_render(&content);
+            }
+            (KeyCode::Char('w'), _) => {
+                self.wrap = !self.wrap;
             }
             _ => {}
         }

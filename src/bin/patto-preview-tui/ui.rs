@@ -14,6 +14,7 @@ use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
+use crate::wrap::{elem_height, wrap_line, WrapConfig};
 
 pub(crate) fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
     // Fullscreen image overlay
@@ -47,7 +48,11 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let total = app.rendered_doc.total_height(app.images.height_rows);
+    let total = crate::wrap::total_height(
+        &app.rendered_doc.elements,
+        app.wrap_config().as_ref(),
+        app.images.height_rows,
+    );
     let (pos, pct) = if total > 0 {
         let p = ((app.scroll_offset + 1) * 100 / total).min(100);
         (
@@ -224,16 +229,30 @@ fn draw_image_cell(
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.images.height_rows;
-
-    // Update viewport height for visible-image logic
+    let wrap = app.wrap;
+    let showbreak = app.showbreak.clone();
+    // Update viewport dimensions (used by wrap-aware scroll calculations)
+    app.viewport_width = area.width;
     app.viewport_height = height;
     app.clear_stale_focus();
+
+    // Closure: display height of an element.
+    // Pre-build WrapConfig so we don't rebuild it per element.
+    let wrap_cfg = WrapConfig::new(area.width as usize, showbreak.as_str());
+    let elem_h = |elem: &DocElement| -> usize {
+        let cfg_opt = if wrap && area.width > 0 {
+            Some(&wrap_cfg)
+        } else {
+            None
+        };
+        elem_height(elem, cfg_opt, img_h)
+    };
 
     // Skip elements until we reach scroll_offset rows
     let mut skip_rows = app.scroll_offset;
     let mut start_elem = 0usize;
     for (i, elem) in app.rendered_doc.elements.iter().enumerate() {
-        let h = elem.height(img_h) as usize;
+        let h = elem_h(elem);
         if skip_rows >= h {
             skip_rows -= h;
             start_elem = i + 1;
@@ -251,7 +270,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         .iter()
         .skip(start_elem)
         .take_while(|elem| {
-            let h = elem.height(img_h) as usize;
+            let h = elem_h(elem);
             scan_rows += h;
             scan_rows <= height + img_h as usize
         })
@@ -286,25 +305,70 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         let is_focused = focused_elem_idx == Some(elem_idx);
         match elem {
             DocElement::TextLine(line) => {
-                let line_area = Rect::new(area.x, area.y + y as u16, area.width, 1);
-                if is_focused {
-                    if let Some((cs, ce)) = focused_char_range {
-                        // Highlight the focused span within the line
-                        let highlighted = highlight_line_range(line, cs, ce);
-                        frame.render_widget(Paragraph::new(highlighted), line_area);
+                let true_lh = elem_h(elem);
+                let lh = true_lh.min(height - y) as u16;
+                let line_area = Rect::new(area.x, area.y + y as u16, area.width, lh);
+
+                if wrap {
+                    // Manual wrapping with showbreak prefix on continuation rows
+                    let base_line = if is_focused {
+                        if let Some((cs, ce)) = focused_char_range {
+                            highlight_line_range(line, cs, ce)
+                        } else {
+                            line.clone()
+                        }
                     } else {
-                        frame.render_widget(Paragraph::new(line.clone()), line_area);
+                        line.clone()
+                    };
+                    let sub_rows = wrap_line(
+                        &base_line,
+                        &WrapConfig::new(area.width as usize, &showbreak),
+                    );
+                    for (row_i, sub_row) in sub_rows.iter().enumerate().take(lh as usize) {
+                        let row_area =
+                            Rect::new(area.x, area.y + y as u16 + row_i as u16, area.width, 1);
+                        frame.render_widget(Paragraph::new(sub_row.clone()), row_area);
                     }
                 } else {
-                    frame.render_widget(Paragraph::new(line.clone()), line_area);
+                    let para = if is_focused {
+                        if let Some((cs, ce)) = focused_char_range {
+                            Paragraph::new(highlight_line_range(line, cs, ce))
+                        } else {
+                            Paragraph::new(line.clone())
+                        }
+                    } else {
+                        Paragraph::new(line.clone())
+                    };
+                    frame.render_widget(para, line_area);
                 }
-                y += 1;
+
+                // Overlay ↩ at the right edge of every wrapped row that has more content.
+                // The last column is always empty (WrapConfig::needs_break uses >= to reserve it).
+                if wrap && lh > 1 {
+                    let indicator_style = Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM);
+                    let indicator_count = if lh < true_lh as u16 {
+                        lh
+                    } else {
+                        lh.saturating_sub(1)
+                    };
+                    let ind_x = area.x + area.width - 1;
+                    for row_i in 0..indicator_count {
+                        let ind_y = area.y + y as u16 + row_i;
+                        if let Some(c) = frame.buffer_mut().cell_mut((ind_x, ind_y)) {
+                            c.set_symbol("↩");
+                            c.set_style(indicator_style);
+                        }
+                    }
+                }
+                y += lh as usize;
             }
             DocElement::Spacer => {
                 y += 1;
             }
             DocElement::Image { src, alt } => {
-                let elem_h = elem.height(img_h).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
                 let img_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
                 draw_image_cell(
                     frame,
@@ -318,7 +382,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::ImageRow(images) => {
                 let n = images.len() as u16;
-                let elem_h = elem.height(img_h).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
                 let col_w = area.width / n;
                 let focused_src: Option<String> = if is_focused {
                     app.focused_item().and_then(|fi| {
@@ -416,6 +480,8 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(hint_desc("backlinks"));
     spans.push(key_badge("+/-"));
     spans.push(hint_desc(&format!("img({})", app.images.height_rows)));
+    spans.push(key_badge("w"));
+    spans.push(hint_desc(if app.wrap { "wrap[on]" } else { "wrap[off]" }));
     spans.push(key_badge("r/^L"));
     spans.push(hint_desc("reload"));
 
