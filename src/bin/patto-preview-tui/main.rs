@@ -175,8 +175,17 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
     Ok(())
 }
 
-/// Build the shell command string from the editor config, substituting `{file}` and `{line}`.
-fn build_editor_cmd(editor: &config::EditorConfig, file: &str, line: usize) -> String {
+/// Build the shell command string from the editor config, substituting `{file}`, `{line}`,
+/// and `{top_line}`.
+///
+/// - `{line}`     — source line of the focused item (Tab-selected), or `top_line` if nothing focused.
+/// - `{top_line}` — first visible source line of the viewport.
+fn build_editor_cmd(
+    editor: &config::EditorConfig,
+    file: &str,
+    line: usize,
+    top_line: usize,
+) -> String {
     let template = editor.cmd.as_deref().unwrap_or_else(|| {
         // Checked at call time via env var; return a static placeholder
         ""
@@ -193,6 +202,7 @@ fn build_editor_cmd(editor: &config::EditorConfig, file: &str, line: usize) -> S
     template
         .replace("{file}", file)
         .replace("{line}", &line.to_string())
+        .replace("{top_line}", &top_line.to_string())
 }
 
 #[tokio::main]
@@ -289,11 +299,12 @@ async fn main() -> anyhow::Result<()> {
                             && code == crossterm::event::KeyCode::Char('e')
                             && modifiers == crossterm::event::KeyModifiers::NONE
                         {
-                            let source_line = app.source_line_at_offset();
+                            let top_line = app.source_line_at_offset();
+                            let line = app.source_line_of_focused_item().unwrap_or(top_line);
                             let file_str = app.file_path.display().to_string();
 
                             // Build the shell command string
-                            let cmd = build_editor_cmd(&tui_config.editor, &file_str, source_line);
+                            let cmd = build_editor_cmd(&tui_config.editor, &file_str, line, top_line);
 
                             use config::EditorAction;
                             match tui_config.editor.action {

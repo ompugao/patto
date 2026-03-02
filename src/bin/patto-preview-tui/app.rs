@@ -332,7 +332,7 @@ impl App {
     }
 
     /// Return the 1-indexed source line number visible at the current scroll position.
-    /// Used to populate `{line}` in editor launch commands.
+    /// This is the viewport's top line, used for `{top_line}` in editor commands.
     pub(crate) fn source_line_at_offset(&self) -> usize {
         let mut display_row = 0usize;
         let mut last_source_row = 0usize;
@@ -346,6 +346,19 @@ impl App {
             display_row += self.elem_display_height(elem);
         }
         last_source_row + 1 // convert to 1-indexed
+    }
+
+    /// Return the 1-indexed source line of the currently focused item (Tab-selected link/image),
+    /// or `None` if nothing is focused. Used for `{line}` in editor commands.
+    pub(crate) fn source_line_of_focused_item(&self) -> Option<usize> {
+        let fi = self.focused_item()?;
+        if let Some(DocElement::TextLine(_, source_row)) =
+            self.rendered_doc.elements.get(fi.elem_idx)
+        {
+            Some(source_row + 1)
+        } else {
+            None
+        }
     }
 
     // --- Input handling ---

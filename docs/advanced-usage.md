@@ -64,8 +64,12 @@ Press `e` to open the current file at the current line in your editor. Behaviour
 
 ```toml
 [editor]
-# Shell command to run. {file} and {line} are substituted at runtime.
-# Omit to fall back to $EDITOR +{line} {file}.
+# Shell command to run. Placeholders substituted at runtime:
+#   {file}     – absolute path to the current file
+#   {line}     – source line of the focused item (Tab-selected link/image), or the
+#                first visible line of the viewport if nothing is focused
+#   {top_line} – first visible source line of the viewport (always)
+# Omit cmd to fall back to $EDITOR +{line} {file}.
 cmd = 'nvim +{line} "{file}"'
 
 # What the TUI does after launching the command:
@@ -85,39 +89,22 @@ action = "suspend"
 ```
 Press `e` → TUI hides, Neovim opens at the right line. Quit Neovim → TUI resumes.
 
-*Tmux + Neovim RPC (single-pane toggle):*
+*Tmux + Neovim (single-pane toggle with viewport sync):*
 
-Launch the TUI from Neovim in a zoomed split pane (e.g. `tmux split-window -Z`).
 ```toml
 [editor]
-cmd    = 'nvim --server "$NVIM" --remote-send "<cmd>e +{line} {file}<CR>"'
+cmd = '''nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
 action = "quit"
 ```
-Press `e` → tells the existing Neovim server to jump to the file/line, then the TUI quits. Because the pane was zoomed, Tmux automatically returns focus to the Neovim pane behind it.
 
-Add this to your `init.lua` to bind a key that opens the TUI for the current buffer:
+The toggle logic lives in `lua/patto_preview_toggle.lua`. Bind it:
 
 ```lua
--- Open patto-preview-tui for the current file in a zoomed tmux pane.
--- Press <leader>p to toggle; press 'e' inside the TUI to jump back here.
-vim.keymap.set("n", "<leader>p", function()
-  local file = vim.fn.expand("%:p")
-  local line = vim.fn.line("w0")  -- first line of the current viewport
-  -- Build the patto-preview-tui command, starting at the top of the viewport.
-  local tui_cmd = string.format("patto-preview-tui %q --goto-line %d", file, line)
-  -- Open a new zoomed pane in the current tmux window.
-  -- -Z  zooms the pane so the TUI fills the terminal; when it quits,
-  --     tmux automatically returns focus to this Neovim pane.
-  -- -e  passes $NVIM so the TUI's 'e' binding can reach back via RPC.
-  vim.fn.system({
-    "tmux", "split-window", "-Z",
-    "-e", "NVIM=" .. vim.v.servername,
-    tui_cmd,
-  })
-end, { desc = "Open patto-preview-tui for current file" })
+vim.keymap.set("n", "<leader>p", require("patto_preview_toggle").toggle,
+  { desc = "Toggle patto-preview-tui" })
 ```
 
-Or with **lazy.nvim**, add the keymap inside the patto plugin spec:
+Or with **lazy.nvim**:
 
 ```lua
 {
@@ -126,32 +113,33 @@ Or with **lazy.nvim**, add the keymap inside the patto plugin spec:
   keys = {
     {
       "<leader>p",
-      function()
-        local file = vim.fn.expand("%:p")
-        local line = vim.fn.line("w0")  -- first line of the current viewport
-        local tui_cmd = string.format("patto-preview-tui %q --goto-line %d", file, line)
-        vim.fn.system({
-          "tmux", "split-window", "-Z",
-          "-e", "NVIM=" .. vim.v.servername,
-          tui_cmd,
-        })
-      end,
-      desc = "Open patto-preview-tui for current file",
+      function() require("patto_preview_toggle").toggle() end,
+      desc = "Toggle patto-preview-tui",
+      ft = "patto",
     },
   },
-  config = function()
-    require("patto")
-    vim.lsp.config("patto_lsp", {})
-    vim.lsp.config("patto_preview_tui", {})
-    vim.lsp.enable({ "patto_lsp", "patto_preview_tui" })
-  end,
 }
+```
 
-With the config above (`action = "quit"`), the full round-trip is:
-1. `<leader>p` → Neovim spawns a zoomed Tmux pane running `patto-preview-tui`, scrolled to the top of the current viewport.
+<details>
+<summary>Why is the configuration complicated?</summary>
+Launch the TUI from Neovim in a zoomed split pane.
+When `e` is pressed, the TUI's editor command calls `--remote-expr` to schedule a viewport restore via a one-shot `VimResized` autocmd.
+When tmux unzooms, the resize event fires the autocmd and `winrestview` snaps the viewport to the exact position.
+</details>
+
+Customisable via `vim.g` variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `g:patto_preview_tui_binary` | `"patto-preview-tui"` | Path to the binary |
+| `g:patto_preview_tui_extra_args` | `{}` | Extra CLI arguments (list) |
+
+The full round-trip:
+1. `<leader>p` → Neovim launches the TUI in a zoomed Tmux pane, scrolled to the current viewport top.
 2. Browse the preview (follow links, check backlinks, etc.).
-3. Press `e` → TUI sends an RPC command to the Neovim server to jump to the viewed line, then exits.
-4. Tmux unzooms and Neovim is back in focus at the target line.
+3. Press `e` → TUI runs the editor command (`--remote-expr` schedules a `VimResized` autocmd) and exits.
+4. Tmux unzooms → `VimResized` fires → `winrestview` (scrolloff-safe) snaps the viewport.
 
 *VS Code (or any GUI editor):*
 ```toml
