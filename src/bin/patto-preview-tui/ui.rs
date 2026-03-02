@@ -280,7 +280,9 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         })
         .filter_map(|elem| match elem {
             DocElement::Image { src, .. } => Some(vec![src.clone()]),
-            DocElement::ImageRow(images) => Some(images.iter().map(|(s, _)| s.clone()).collect()),
+            DocElement::ImageRow(images, ..) => {
+                Some(images.iter().map(|(s, _)| s.clone()).collect())
+            }
             _ => None,
         })
         .flatten()
@@ -303,7 +305,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
         })
         .filter_map(|elem| {
-            if let DocElement::Math { content } = elem {
+            if let DocElement::Math { content, .. } = elem {
                 Some(content.clone())
             } else {
                 None
@@ -396,9 +398,15 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             DocElement::Spacer => {
                 y += 1;
             }
-            DocElement::Image { src, alt } => {
+            DocElement::Image { src, alt, indent } => {
                 let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
-                let img_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
+                let indent_w = (*indent as u16) * 2;
+                let img_area = Rect::new(
+                    area.x + indent_w,
+                    area.y + y as u16,
+                    area.width.saturating_sub(indent_w),
+                    elem_h,
+                );
                 draw_image_cell(
                     frame,
                     &mut app.images,
@@ -409,10 +417,12 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 );
                 y += elem_h as usize;
             }
-            DocElement::ImageRow(images) => {
+            DocElement::ImageRow(images, indent) => {
                 let n = images.len() as u16;
                 let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
-                let col_w = area.width / n;
+                let indent_w = (*indent as u16) * 2;
+                let row_width = area.width.saturating_sub(indent_w);
+                let col_w = row_width / n;
                 let focused_src: Option<String> = if is_focused {
                     app.focused_item().and_then(|fi| {
                         if let LinkAction::ViewImage(s) = &fi.action {
@@ -425,9 +435,9 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     None
                 };
                 for (i, (src, alt)) in images.iter().enumerate() {
-                    let x_off = area.x + i as u16 * col_w;
+                    let x_off = area.x + indent_w + i as u16 * col_w;
                     let w = if i as u16 == n - 1 {
-                        area.width - i as u16 * col_w
+                        row_width - i as u16 * col_w
                     } else {
                         col_w
                     };
@@ -444,10 +454,16 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 }
                 y += elem_h as usize;
             }
-            DocElement::Math { content } => {
+            DocElement::Math { content, indent } => {
                 let elem_h = (elem_height(elem, None, img_h, Some(&elem_heights)) as u16)
                     .min((height - y) as u16);
-                let math_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
+                let indent_w = (*indent as u16) * 2;
+                let math_area = Rect::new(
+                    area.x + indent_w,
+                    area.y + y as u16,
+                    area.width.saturating_sub(indent_w),
+                    elem_h,
+                );
                 match app.images.get_mut(content) {
                     Some(_) => {
                         // Image already in cache (Loaded or Failed) — render as image cell
