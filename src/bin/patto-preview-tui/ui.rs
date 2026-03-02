@@ -280,7 +280,9 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         })
         .filter_map(|elem| match elem {
             DocElement::Image { src, .. } => Some(vec![src.clone()]),
-            DocElement::ImageRow(images, ..) => Some(images.iter().map(|(s, _)| s.clone()).collect()),
+            DocElement::ImageRow(images, ..) => {
+                Some(images.iter().map(|(s, _)| s.clone()).collect())
+            }
             _ => None,
         })
         .flatten()
