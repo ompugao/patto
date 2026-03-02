@@ -36,8 +36,8 @@ pub struct FocusableItem {
 /// A single element in the rendered document.
 #[derive(Debug, Clone)]
 pub enum DocElement {
-    /// A styled text line.
-    TextLine(Line<'static>),
+    /// A styled text line. The `usize` is the 0-indexed source row from the AST.
+    TextLine(Line<'static>, usize),
     /// An image to render via kitty/sixel.
     Image { src: String, alt: Option<String> },
     /// Multiple images on the same line, rendered side by side.
@@ -225,8 +225,10 @@ fn render_node(
                     InlineResult::ImageBlock { src, alt } => {
                         // If spans have real text, flush them before starting an image group
                         if spans_have_content(&spans) {
-                            elements
-                                .push(DocElement::TextLine(Line::from(std::mem::take(&mut spans))));
+                            elements.push(DocElement::TextLine(
+                                Line::from(std::mem::take(&mut spans)),
+                                ast.location().row,
+                            ));
                             // Also flush any existing image row — text breaks the group
                             flush_image_row(&mut image_row_buf, elements, focusables);
                         } else if !image_row_buf.is_empty() {
@@ -259,7 +261,7 @@ fn render_node(
             }
 
             // Flush remaining spans (always emit to preserve blank lines)
-            elements.push(DocElement::TextLine(Line::from(spans)));
+            elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
 
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
@@ -283,22 +285,28 @@ fn render_node(
                 } else {
                     "  ".to_string()
                 };
-                elements.push(DocElement::TextLine(Line::from(vec![
-                    Span::raw(prefix.clone()),
-                    Span::styled(
-                        "  [math]  ",
-                        Style::default()
-                            .fg(Color::Magenta)
-                            .add_modifier(Modifier::DIM),
-                    ),
-                ])));
+                elements.push(DocElement::TextLine(
+                    Line::from(vec![
+                        Span::raw(prefix.clone()),
+                        Span::styled(
+                            "  [math]  ",
+                            Style::default()
+                                .fg(Color::Magenta)
+                                .add_modifier(Modifier::DIM),
+                        ),
+                    ]),
+                    ast.location().row,
+                ));
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let text = child.extract_str().replace('\t', "    ");
-                    elements.push(DocElement::TextLine(Line::from(vec![
-                        Span::raw(prefix.clone()),
-                        Span::styled(text, math_style),
-                    ])));
+                    elements.push(DocElement::TextLine(
+                        Line::from(vec![
+                            Span::raw(prefix.clone()),
+                            Span::styled(text, math_style),
+                        ]),
+                        ast.location().row,
+                    ));
                 }
             }
         }
@@ -315,25 +323,31 @@ fn render_node(
 
                 // Show language label if present
                 if !lang.is_empty() {
-                    elements.push(DocElement::TextLine(Line::from(vec![
-                        Span::raw(prefix.clone()),
-                        Span::styled(
-                            format!(" {} ", lang),
-                            Style::default()
-                                .fg(Color::Cyan)
-                                .bg(Color::DarkGray)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ])));
+                    elements.push(DocElement::TextLine(
+                        Line::from(vec![
+                            Span::raw(prefix.clone()),
+                            Span::styled(
+                                format!(" {} ", lang),
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .bg(Color::DarkGray)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        ast.location().row,
+                    ));
                 }
 
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
                     let code_text = child.extract_str().replace('\t', "    ");
-                    elements.push(DocElement::TextLine(Line::from(vec![
-                        Span::raw(prefix.clone()),
-                        Span::styled(code_text, code_style),
-                    ])));
+                    elements.push(DocElement::TextLine(
+                        Line::from(vec![
+                            Span::raw(prefix.clone()),
+                            Span::styled(code_text, code_style),
+                        ]),
+                        ast.location().row,
+                    ));
                 }
             }
         }
@@ -353,12 +367,15 @@ fn render_node(
                 alt: alt.clone(),
             });
             if let Some(alt_text) = alt {
-                elements.push(DocElement::TextLine(Line::from(vec![Span::styled(
-                    format!("  {}", alt_text),
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
-                )])));
+                elements.push(DocElement::TextLine(
+                    Line::from(vec![Span::styled(
+                        format!("  {}", alt_text),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    )]),
+                    ast.location().row,
+                ));
             }
         }
         AstNodeKind::WikiLink { .. }
@@ -371,21 +388,27 @@ fn render_node(
             // These are inline — rendered by render_inline when inside a Line
         }
         AstNodeKind::HorizontalLine => {
-            elements.push(DocElement::TextLine(Line::from(vec![Span::styled(
-                "─".repeat(40),
-                Style::default().fg(Color::DarkGray),
-            )])));
+            elements.push(DocElement::TextLine(
+                Line::from(vec![Span::styled(
+                    "─".repeat(40),
+                    Style::default().fg(Color::DarkGray),
+                )]),
+                ast.location().row,
+            ));
         }
         AstNodeKind::Table { caption } => {
             if let Some(cap) = caption {
-                elements.push(DocElement::TextLine(Line::from(vec![
-                    Span::raw("  ".repeat(indent)),
-                    Span::styled(cap.clone(), Style::default().add_modifier(Modifier::BOLD)),
-                ])));
+                elements.push(DocElement::TextLine(
+                    Line::from(vec![
+                        Span::raw("  ".repeat(indent)),
+                        Span::styled(cap.clone(), Style::default().add_modifier(Modifier::BOLD)),
+                    ]),
+                    ast.location().row,
+                ));
             }
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_table_row(child, elements, focusables, indent);
+                render_table_row(child, elements, focusables, indent, child.location().row);
             }
         }
         AstNodeKind::TableRow | AstNodeKind::TableColumn => {
@@ -399,6 +422,7 @@ fn render_table_row(
     elements: &mut Vec<DocElement>,
     focusables: &mut Vec<FocusableItem>,
     indent: usize,
+    source_row: usize,
 ) {
     let mut spans: Vec<Span<'static>> = Vec::new();
     spans.push(Span::raw("  ".repeat(indent)));
@@ -415,7 +439,7 @@ fn render_table_row(
         }
     }
     spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
-    elements.push(DocElement::TextLine(Line::from(spans)));
+    elements.push(DocElement::TextLine(Line::from(spans), source_row));
 }
 
 /// Count total character width of accumulated spans.

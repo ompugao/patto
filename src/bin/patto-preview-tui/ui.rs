@@ -304,7 +304,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         }
         let is_focused = focused_elem_idx == Some(elem_idx);
         match elem {
-            DocElement::TextLine(line) => {
+            DocElement::TextLine(line, _) => {
                 let true_lh = elem_h(elem);
                 let lh = true_lh.min(height - y) as u16;
                 let line_area = Rect::new(area.x, area.y + y as u16, area.width, lh);
