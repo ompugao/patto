@@ -11,6 +11,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 
 /// Parameters that control how lines are soft-wrapped.
@@ -100,8 +101,15 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 /// - Pass a `WrapConfig` to get soft-wrap–aware height for `TextLine` elements.
 /// - Pass `None` (or a zero-width config) to get the unwarpped height (always 1
 ///   for `TextLine` / `Spacer`).
-/// - `img_h` is the configured image height in terminal rows.
-pub fn elem_height(elem: &DocElement, cfg: Option<&WrapConfig>, img_h: u16) -> usize {
+/// - `img_h` is the configured default height in terminal rows (fallback).
+/// - `elem_heights` maps cache key → actual row height for each loaded element;
+///   both images (stored at `height_rows`) and math (pixel-computed) live here.
+pub fn elem_height(
+    elem: &DocElement,
+    cfg: Option<&WrapConfig>,
+    img_h: u16,
+    elem_heights: Option<&HashMap<String, u16>>,
+) -> usize {
     if let Some(cfg) = cfg {
         if cfg.col_width > 0 {
             if let DocElement::TextLine(line, _) = elem {
@@ -111,13 +119,35 @@ pub fn elem_height(elem: &DocElement, cfg: Option<&WrapConfig>, img_h: u16) -> u
     }
     match elem {
         DocElement::TextLine(_, _) | DocElement::Spacer => 1,
-        DocElement::Image { .. } | DocElement::ImageRow(_) => img_h as usize,
+        DocElement::Image { src, .. } => elem_heights
+            .and_then(|m| m.get(src.as_str()).copied())
+            .unwrap_or(img_h) as usize,
+        DocElement::ImageRow(images) => elem_heights
+            .map(|m| {
+                images
+                    .iter()
+                    .filter_map(|(src, _)| m.get(src.as_str()).copied())
+                    .max()
+                    .unwrap_or(img_h)
+            })
+            .unwrap_or(img_h) as usize,
+        DocElement::Math { content } => elem_heights
+            .and_then(|m| m.get(content.as_str()).copied())
+            .unwrap_or(img_h) as usize,
     }
 }
 
 /// Total height of a slice of elements in terminal rows.
-pub fn total_height(elements: &[DocElement], cfg: Option<&WrapConfig>, img_h: u16) -> usize {
-    elements.iter().map(|e| elem_height(e, cfg, img_h)).sum()
+pub fn total_height(
+    elements: &[DocElement],
+    cfg: Option<&WrapConfig>,
+    img_h: u16,
+    elem_heights: Option<&HashMap<String, u16>>,
+) -> usize {
+    elements
+        .iter()
+        .map(|e| elem_height(e, cfg, img_h, elem_heights))
+        .sum()
 }
 
 // ---------------------------------------------------------------------------

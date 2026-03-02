@@ -82,7 +82,7 @@ impl App {
 
     /// Display height of one element, accounting for soft-wrap and showbreak.
     pub(crate) fn elem_display_height(&self, elem: &DocElement) -> usize {
-        elem_height(elem, self.wrap_config().as_ref(), self.images.height_rows)
+        elem_height(elem, self.wrap_config().as_ref(), self.images.height_rows, Some(&self.images.elem_heights))
     }
 
     /// Total display height of the document, accounting for soft-wrap.
@@ -91,6 +91,7 @@ impl App {
             &self.rendered_doc.elements,
             self.wrap_config().as_ref(),
             self.images.height_rows,
+            Some(&self.images.elem_heights),
         )
     }
 

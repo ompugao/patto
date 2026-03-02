@@ -42,6 +42,8 @@ pub enum DocElement {
     Image { src: String, alt: Option<String> },
     /// Multiple images on the same line, rendered side by side.
     ImageRow(Vec<(String, Option<String>)>),
+    /// A math block to render as an image (LaTeX source).
+    Math { content: String },
     /// A blank line.
     Spacer,
 }
@@ -279,35 +281,14 @@ fn render_node(
             if *inline {
                 // Handled as inline content in parent Line
             } else {
-                let math_style = Style::default().fg(Color::Magenta);
-                let prefix = if indent > 0 {
-                    "  ".repeat(indent)
-                } else {
-                    "  ".to_string()
-                };
-                elements.push(DocElement::TextLine(
-                    Line::from(vec![
-                        Span::raw(prefix.clone()),
-                        Span::styled(
-                            "  [math]  ",
-                            Style::default()
-                                .fg(Color::Magenta)
-                                .add_modifier(Modifier::DIM),
-                        ),
-                    ]),
-                    ast.location().row,
-                ));
                 let children = ast.value().children.lock().unwrap();
-                for child in children.iter() {
-                    let text = child.extract_str().replace('\t', "    ");
-                    elements.push(DocElement::TextLine(
-                        Line::from(vec![
-                            Span::raw(prefix.clone()),
-                            Span::styled(text, math_style),
-                        ]),
-                        ast.location().row,
-                    ));
-                }
+                let content: String = children
+                    .iter()
+                    .map(|c| c.extract_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                drop(children);
+                elements.push(DocElement::Math { content });
             }
         }
         AstNodeKind::Code { lang, inline } => {

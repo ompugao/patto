@@ -2,6 +2,7 @@ mod app;
 mod backlinks;
 mod config;
 mod image_cache;
+mod math_render;
 mod ui;
 mod wrap;
 

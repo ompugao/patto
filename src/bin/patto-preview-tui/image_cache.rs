@@ -5,6 +5,8 @@ use ratatui_image::{
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::math_render;
+
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
     Failed(String),
@@ -17,7 +19,11 @@ pub(crate) enum CachedImage {
 pub(crate) struct ImageCache {
     cache: HashMap<String, CachedImage>,
     picker: Option<Picker>,
+    /// Default image height in terminal rows (user-configurable via +/-).
     pub(crate) height_rows: u16,
+    /// Per-element row heights keyed by cache key (image src or math content).
+    /// Images store `height_rows`; math stores the tight pixel-computed height.
+    pub(crate) elem_heights: HashMap<String, u16>,
     /// Source of the image currently shown fullscreen (None = normal view).
     pub(crate) fullscreen_src: Option<String>,
 }
@@ -47,6 +53,7 @@ impl ImageCache {
             cache: HashMap::new(),
             picker,
             height_rows: 10,
+            elem_heights: HashMap::new(),
             fullscreen_src: None,
         }
     }
@@ -62,6 +69,7 @@ impl ImageCache {
                     Ok(bytes) => match image::load_from_memory(&bytes) {
                         Ok(img) => {
                             let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
+                            self.elem_heights.insert(src.to_string(), self.height_rows);
                             self.cache
                                 .insert(src.to_string(), CachedImage::Loaded(protocol));
                         }
@@ -94,6 +102,7 @@ impl ImageCache {
         match image::open(&path) {
             Ok(img) => {
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
+                self.elem_heights.insert(src.to_string(), self.height_rows);
                 self.cache
                     .insert(src.to_string(), CachedImage::Loaded(protocol));
             }
@@ -109,9 +118,10 @@ impl ImageCache {
         self.cache.get_mut(src)
     }
 
-    /// Clear all cached images.
+    /// Clear all cached images and their stored heights.
     pub(crate) fn clear(&mut self) {
         self.cache.clear();
+        self.elem_heights.clear();
     }
 
     pub(crate) fn increase_height(&mut self) {
@@ -122,5 +132,33 @@ impl ImageCache {
     pub(crate) fn decrease_height(&mut self) {
         self.height_rows = (self.height_rows.saturating_sub(5)).max(5);
         self.cache.clear();
+    }
+
+    /// Render a LaTeX math expression to an image and cache it.
+    ///
+    /// The cache key is the raw LaTeX content string. Does nothing when there
+    /// is no image protocol picker (text-only terminal).
+    pub(crate) fn load_math(&mut self, content: &str) {
+        if self.cache.contains_key(content) || self.picker.is_none() {
+            return;
+        }
+        match math_render::render_latex_to_image(content) {
+            Ok(img) => {
+                // Compute the exact terminal rows this image occupies so we
+                // can allocate a tight rect (no blank padding below the formula).
+                let (_, cell_h) = self.picker.as_ref().unwrap().font_size();
+                let rows_needed = if cell_h > 0 {
+                    ((img.height() as f32 / cell_h as f32).ceil() as u16).max(1)
+                } else {
+                    self.height_rows
+                };
+                self.elem_heights.insert(content.to_string(), rows_needed);
+                let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
+                self.cache.insert(content.to_string(), CachedImage::Loaded(protocol));
+            }
+            Err(e) => {
+                self.cache.insert(content.to_string(), CachedImage::Failed(e));
+            }
+        }
     }
 }
