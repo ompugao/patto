@@ -52,6 +52,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         &app.rendered_doc.elements,
         app.wrap_config().as_ref(),
         app.images.height_rows,
+        Some(&app.images.elem_heights),
     );
     let (pos, pct) = if total > 0 {
         let p = ((app.scroll_offset + 1) * 100 / total).min(100);
@@ -231,6 +232,9 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let img_h = app.images.height_rows;
     let wrap = app.wrap;
     let showbreak = app.showbreak.clone();
+    // Snapshot elem_heights so the closure doesn't hold a borrow on app.images
+    // while we later call app.images.load() / load_math() mutably.
+    let elem_heights = app.images.elem_heights.clone();
     // Update viewport dimensions (used by wrap-aware scroll calculations)
     app.viewport_width = area.width;
     app.viewport_height = height;
@@ -245,7 +249,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         } else {
             None
         };
-        elem_height(elem, cfg_opt, img_h)
+        elem_height(elem, cfg_opt, img_h, Some(&elem_heights))
     };
 
     // Skip elements until we reach scroll_offset rows
@@ -283,6 +287,31 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         .collect();
     for src in &image_srcs {
         app.images.load(src, root_dir);
+    }
+
+    // Pre-load math blocks in the viewport
+    let math_contents: Vec<String> = app
+        .rendered_doc
+        .elements
+        .iter()
+        .skip(start_elem)
+        .take_while({
+            let mut rows = 0usize;
+            move |elem| {
+                rows += elem_h(elem);
+                rows <= height + img_h as usize
+            }
+        })
+        .filter_map(|elem| {
+            if let DocElement::Math { content } = elem {
+                Some(content.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for content in &math_contents {
+        app.images.load_math(content);
     }
 
     // Render visible elements
@@ -368,7 +397,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += 1;
             }
             DocElement::Image { src, alt } => {
-                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let img_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
                 draw_image_cell(
                     frame,
@@ -382,7 +411,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::ImageRow(images) => {
                 let n = images.len() as u16;
-                let elem_h = (elem_height(elem, None, img_h) as u16).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let col_w = area.width / n;
                 let focused_src: Option<String> = if is_focused {
                     app.focused_item().and_then(|fi| {
@@ -412,6 +441,40 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                         cell_area,
                         this_focused,
                     );
+                }
+                y += elem_h as usize;
+            }
+            DocElement::Math { content } => {
+                let elem_h = (elem_height(elem, None, img_h, Some(&elem_heights)) as u16)
+                    .min((height - y) as u16);
+                let math_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
+                match app.images.get_mut(content) {
+                    Some(_) => {
+                        // Image already in cache (Loaded or Failed) — render as image cell
+                        draw_image_cell(frame, &mut app.images, content, None, math_area, false);
+                    }
+                    None => {
+                        // No picker or not yet loaded — text fallback
+                        let prefix = "  ".to_string();
+                        let lines: Vec<Line<'static>> = std::iter::once(Line::from(vec![
+                            Span::raw(prefix.clone()),
+                            Span::styled(
+                                "  [math]  ",
+                                Style::default()
+                                    .fg(Color::Magenta)
+                                    .add_modifier(Modifier::DIM),
+                            ),
+                        ]))
+                        .chain(content.lines().map(|l| {
+                            Line::from(vec![
+                                Span::raw(prefix.clone()),
+                                Span::styled(l.to_string(), Style::default().fg(Color::Magenta)),
+                            ])
+                        }))
+                        .take(elem_h as usize)
+                        .collect();
+                        frame.render_widget(Paragraph::new(lines), math_area);
+                    }
                 }
                 y += elem_h as usize;
             }
