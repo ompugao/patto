@@ -39,11 +39,16 @@ pub enum DocElement {
     /// A styled text line. The `usize` is the 0-indexed source row from the AST.
     TextLine(Line<'static>, usize),
     /// An image to render via kitty/sixel.
-    Image { src: String, alt: Option<String> },
+    Image {
+        src: String,
+        alt: Option<String>,
+        indent: usize,
+    },
     /// Multiple images on the same line, rendered side by side.
-    ImageRow(Vec<(String, Option<String>)>),
+    /// The second field is the indentation level.
+    ImageRow(Vec<(String, Option<String>)>, usize),
     /// A math block to render as an image (LaTeX source).
-    Math { content: String },
+    Math { content: String, indent: usize },
     /// A blank line.
     Spacer,
 }
@@ -51,7 +56,7 @@ pub enum DocElement {
 impl DocElement {
     /// Whether this element is an image.
     pub fn is_image(&self) -> bool {
-        matches!(self, DocElement::Image { .. } | DocElement::ImageRow(_))
+        matches!(self, DocElement::Image { .. } | DocElement::ImageRow(..))
     }
 }
 
@@ -94,6 +99,7 @@ fn flush_image_row(
     buf: &mut Vec<(String, Option<String>)>,
     elements: &mut Vec<DocElement>,
     focusables: &mut Vec<FocusableItem>,
+    indent: usize,
 ) {
     if buf.is_empty() {
         return;
@@ -106,7 +112,7 @@ fn flush_image_row(
             char_end: 0,
             action: LinkAction::ViewImage(src.clone()),
         });
-        elements.push(DocElement::Image { src, alt });
+        elements.push(DocElement::Image { src, alt, indent });
     } else {
         for (src, _alt) in buf.iter() {
             focusables.push(FocusableItem {
@@ -116,7 +122,7 @@ fn flush_image_row(
                 action: LinkAction::ViewImage(src.clone()),
             });
         }
-        elements.push(DocElement::ImageRow(std::mem::take(buf)));
+        elements.push(DocElement::ImageRow(std::mem::take(buf), indent));
     }
     buf.clear();
 }
@@ -232,7 +238,7 @@ fn render_node(
                                 ast.location().row,
                             ));
                             // Also flush any existing image row — text breaks the group
-                            flush_image_row(&mut image_row_buf, elements, focusables);
+                            flush_image_row(&mut image_row_buf, elements, focusables, indent);
                         } else if !image_row_buf.is_empty() {
                             // Consecutive image — keep accumulating (spans are only whitespace/indent)
                             spans = vec![Span::raw("  ".repeat(indent + 1))];
@@ -244,13 +250,13 @@ fn render_node(
                     InlineResult::Inline => {
                         // Non-image content — flush any pending image row first
                         if !image_row_buf.is_empty() {
-                            flush_image_row(&mut image_row_buf, elements, focusables);
+                            flush_image_row(&mut image_row_buf, elements, focusables, indent);
                         }
                     }
                 }
             }
             // Flush any trailing image row
-            flush_image_row(&mut image_row_buf, elements, focusables);
+            flush_image_row(&mut image_row_buf, elements, focusables, indent);
 
             // Deadline
             for property in properties {
@@ -288,7 +294,7 @@ fn render_node(
                     .collect::<Vec<_>>()
                     .join("\n");
                 drop(children);
-                elements.push(DocElement::Math { content });
+                elements.push(DocElement::Math { content, indent });
             }
         }
         AstNodeKind::Code { lang, inline } => {
@@ -346,6 +352,7 @@ fn render_node(
             elements.push(DocElement::Image {
                 src: src_resolved,
                 alt: alt.clone(),
+                indent,
             });
             if let Some(alt_text) = alt {
                 elements.push(DocElement::TextLine(

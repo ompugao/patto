@@ -122,7 +122,7 @@ pub fn elem_height(
         DocElement::Image { src, .. } => elem_heights
             .and_then(|m| m.get(src.as_str()).copied())
             .unwrap_or(img_h) as usize,
-        DocElement::ImageRow(images) => elem_heights
+        DocElement::ImageRow(images, ..) => elem_heights
             .map(|m| {
                 images
                     .iter()
@@ -131,7 +131,7 @@ pub fn elem_height(
                     .unwrap_or(img_h)
             })
             .unwrap_or(img_h) as usize,
-        DocElement::Math { content } => elem_heights
+        DocElement::Math { content, .. } => elem_heights
             .and_then(|m| m.get(content.as_str()).copied())
             .unwrap_or(img_h) as usize,
     }
