@@ -124,113 +124,12 @@ Install from [VS Marketplace](https://marketplace.visualstudio.com/items?itemNam
 
 ## Advanced
 
-### Task Management
-
-![tasks](https://github.com/user-attachments/assets/e9945524-b430-496e-ae56-6a68bfd7c390)
-
-Commands: `:LspPattoTasks` or `:Trouble patto_tasks` ([trouble.nvim](https://github.com/folke/trouble.nvim))
-
-### Markdown Import
-```sh
-$ patto-markdown-importer -f note.md -o note.pn
-$ patto-markdown-importer -d path/to/markdown_dir -o path/to/patto_dir  # batch mode
-```
-### Markdown Export
-
-```sh
-$ patto-markdown-renderer -f note.pn -o note.md
-$ patto-markdown-renderer -f note.pn --flavor obsidian  # autodetect [[wikilinks]]
-$ patto-markdown-renderer -f note.pn --flavor github
-```
-
-### Zotero Integration
-
-Build with `--features zotero` (enabled by default) and configure `~/.config/patto/patto-lsp.toml`:
-```toml
-[zotero]
-user_id = "1234567"
-api_key = "your_key"
-endpoint = "http://127.0.0.1:23119/api/" # for communication with zotero on localhost
-```
-
-### Terminal Preview (`patto-preview-tui`)
-
-A full-featured terminal UI preview — no browser needed.
-
-```sh
-patto-preview-tui note.pn
-patto-preview-tui note.pn --dir /path/to/workspace
-patto-preview-tui note.pn --lsp-port 9527   # override TCP LSP port (default: 9527)
-```
-
-**Keybindings:**
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` or `↓` / `↑` | Scroll one line |
-| `Ctrl-F` / `Space` / `PageDown` | Page down |
-| `Ctrl-B` / `PageUp` | Page up |
-| `Ctrl-D` | Half-page down |
-| `Ctrl-U` | Half-page up |
-| `g` / `G` | Jump to top / bottom |
-| `Tab` / `Shift-Tab` | Cycle focus through links & images |
-| `Enter` | Open focused link / note / fullscreen image |
-| `b` | Toggle backlinks popup |
-| `+` / `-` | Increase / decrease image display height |
-| `r` / `Ctrl-L` | Reload file |
-| `Backspace` / `Ctrl-O` | Navigate back |
-| `q` / `Esc` | Quit (or close fullscreen image) |
-
-**Image protocol** is auto-detected (kitty, iTerm2, sixel, halfblocks). Override with `--protocol`:
-```sh
-patto-preview-tui note.pn --protocol iterm2   # force iTerm2 protocol
-patto-preview-tui note.pn --protocol kitty    # force kitty protocol
-```
-
-#### Building from source
-
-Basic build (no native image-library dependencies):
-```sh
-cargo build --release --features preview-tui
-```
-
-Image display uses auto-detected terminal protocols (kitty, iTerm2, sixel, halfblocks). Pre-built Linux binaries from [GitHub Releases](https://github.com/ompugao/patto/releases) include [chafa](https://hpjansson.org/chafa/) statically linked for improved halfblocks rendering.
-
-To build with static chafa yourself (Linux only):
-```sh
-# Install build dependencies
-sudo apt install libchafa-dev libsysprof-capture-4-dev   # Debian / Ubuntu
-
-# Build with chafa-static
-cargo build --release --features preview-tui-chafa
-```
-
-### Google Calendar Sync
-
-Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
-
-
-<details>
-<summary>FAQ & Tips</summary>
-
-**Why not Markdown?** Different parsers behave inconsistently (e.g., code fences in lists work in GitHub but not Obsidian).
-
-
-- item
-- ```python
-  print('hello')
-  ```
-- item3
-
-**Templates?** Use your editor's snippet engine ([LuaSnip](https://github.com/L3MON4D3/LuaSnip), [vim-vsnip](https://github.com/hrsh7th/vim-vsnip), etc.)
-
-**CLI task search:**
-```sh
-rg --vimgrep '.*@task.*todo' . | \
-  awk '{match($0, /due=([0-9:\-T]+)/, m); print (RLENGTH>0 ? m[1] : "9999-99-99"), $0}' | \
-  sort | cut -d' ' -f2-
-```
-</details>
+See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed documentation on:
+- Task management
+- Markdown import / export
+- Zotero integration
+- Terminal preview (`patto-preview-tui`) — keybindings, editor integration, image protocols
+- Google Calendar sync
 
 ## Recent Updates
 

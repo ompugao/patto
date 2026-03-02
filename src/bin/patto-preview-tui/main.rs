@@ -1,5 +1,6 @@
 mod app;
 mod backlinks;
+mod config;
 mod image_cache;
 mod ui;
 mod wrap;
@@ -50,6 +51,10 @@ struct Args {
     /// TCP port for the preview LSP bridge (enabled by default)
     #[arg(long, default_value_t = 9527)]
     lsp_port: u16,
+
+    /// Jump to this line on startup (1-indexed). Useful when launched from an editor.
+    #[arg(short = 'g', long, value_name = "LINE")]
+    goto_line: Option<usize>,
 }
 
 struct PreviewLspBackend {
@@ -170,9 +175,30 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
     Ok(())
 }
 
+/// Build the shell command string from the editor config, substituting `{file}` and `{line}`.
+fn build_editor_cmd(editor: &config::EditorConfig, file: &str, line: usize) -> String {
+    let template = editor.cmd.as_deref().unwrap_or_else(|| {
+        // Checked at call time via env var; return a static placeholder
+        ""
+    });
+
+    if template.is_empty() {
+        // Fall back to $EDITOR or $VISUAL
+        let editor_bin = std::env::var("EDITOR")
+            .or_else(|_| std::env::var("VISUAL"))
+            .unwrap_or_else(|_| "vi".to_string());
+        return format!("{} +{} \"{}\"", editor_bin, line, file);
+    }
+
+    template
+        .replace("{file}", file)
+        .replace("{line}", &line.to_string())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let tui_config = config::TuiConfig::load();
 
     let file_path = std::fs::canonicalize(PathBuf::from(&args.file)).unwrap_or_else(|_| {
         eprintln!("Cannot find file: {}", args.file);
@@ -222,6 +248,22 @@ async fn main() -> anyhow::Result<()> {
     app.showbreak = args.showbreak.clone();
     app.re_render(&initial_content);
 
+    // Query the terminal size now (crossterm works without raw mode) so that
+    // wrap-aware element heights are correct when computing the initial scroll
+    // position. Without this, viewport_width = 0, wrap is effectively off, and
+    // scroll_to_source_line counts every element as height 1 — causing up to
+    // ~30-line drift when there are long wrapped lines above the target.
+    if let Ok((cols, rows)) = crossterm::terminal::size() {
+        app.viewport_width = cols;
+        // Content area is rows minus title bar (1) and status bar (1).
+        app.viewport_height = (rows as usize).saturating_sub(2);
+    }
+
+    // Jump to the requested line if --goto-line was supplied
+    if let Some(line) = args.goto_line {
+        app.scroll_to_source_line(line);
+    }
+
     // Compute initial backlinks
     app.backlinks.refresh(&repository, &app.file_path).await;
 
@@ -242,6 +284,51 @@ async fn main() -> anyhow::Result<()> {
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(KeyEvent { code, modifiers, .. }))) => {
+                        // Intercept 'e' to launch editor before normal key handling
+                        if !app.backlinks.visible
+                            && code == crossterm::event::KeyCode::Char('e')
+                            && modifiers == crossterm::event::KeyModifiers::NONE
+                        {
+                            let source_line = app.source_line_at_offset();
+                            let file_str = app.file_path.display().to_string();
+
+                            // Build the shell command string
+                            let cmd = build_editor_cmd(&tui_config.editor, &file_str, source_line);
+
+                            use config::EditorAction;
+                            match tui_config.editor.action {
+                                EditorAction::Suspend => {
+                                    disable_raw_mode()?;
+                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    let _ = std::process::Command::new("sh")
+                                        .arg("-c")
+                                        .arg(&cmd)
+                                        .spawn()
+                                        .and_then(|mut c| c.wait());
+                                    enable_raw_mode()?;
+                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                    terminal.clear()?;
+                                }
+                                EditorAction::Quit => {
+                                    disable_raw_mode()?;
+                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    terminal.show_cursor()?;
+                                    let _ = std::process::Command::new("sh")
+                                        .arg("-c")
+                                        .arg(&cmd)
+                                        .spawn();
+                                    std::process::exit(0);
+                                }
+                                EditorAction::Background => {
+                                    let _ = tokio::process::Command::new("sh")
+                                        .arg("-c")
+                                        .arg(&cmd)
+                                        .spawn();
+                                }
+                            }
+                            continue;
+                        }
+
                         let vh = terminal.size()?.height as usize;
                         let quit = if app.backlinks.visible {
                             app.handle_backlinks_key(&repository, code, modifiers).await

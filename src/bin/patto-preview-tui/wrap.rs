@@ -104,13 +104,13 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 pub fn elem_height(elem: &DocElement, cfg: Option<&WrapConfig>, img_h: u16) -> usize {
     if let Some(cfg) = cfg {
         if cfg.col_width > 0 {
-            if let DocElement::TextLine(line) = elem {
+            if let DocElement::TextLine(line, _) = elem {
                 return count_wrap_rows(line, cfg);
             }
         }
     }
     match elem {
-        DocElement::TextLine(_) | DocElement::Spacer => 1,
+        DocElement::TextLine(_, _) | DocElement::Spacer => 1,
         DocElement::Image { .. } | DocElement::ImageRow(_) => img_h as usize,
     }
 }

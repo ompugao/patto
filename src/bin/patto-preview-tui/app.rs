@@ -285,7 +285,7 @@ impl App {
         let anchor_lower = anchor.to_lowercase();
         let mut row = 0usize;
         for elem in &self.rendered_doc.elements {
-            if let DocElement::TextLine(line) = elem {
+            if let DocElement::TextLine(line, _) = elem {
                 let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
                 if text.to_lowercase().contains(&anchor_lower) {
                     self.scroll_offset = row;
@@ -296,8 +296,8 @@ impl App {
         }
     }
 
-    /// Scroll to a specific source line number (0-indexed).
-    fn scroll_to_line(&mut self, target_line: usize) {
+    /// Scroll to a specific source line number (0-indexed TextLine count).
+    pub(crate) fn scroll_to_line(&mut self, target_line: usize) {
         let mut row = 0usize;
         let mut current_source_line = 0usize;
         for elem in &self.rendered_doc.elements {
@@ -306,12 +306,46 @@ impl App {
                 return;
             }
             let h = self.elem_display_height(elem);
-            if let DocElement::TextLine(_) = elem {
+            if let DocElement::TextLine(_, _) = elem {
                 current_source_line += 1;
             }
             row += h;
         }
         self.scroll_offset = row.saturating_sub(self.viewport_height);
+    }
+
+    /// Scroll to the element whose stored source row matches the given 1-indexed line number.
+    /// Used for `--goto-line` (user-facing, 1-indexed).
+    pub(crate) fn scroll_to_source_line(&mut self, line: usize) {
+        let target_row = line.saturating_sub(1); // convert to 0-indexed
+        let mut display_row = 0usize;
+        for elem in &self.rendered_doc.elements {
+            if let DocElement::TextLine(_, source_row) = elem {
+                if *source_row >= target_row {
+                    self.scroll_offset = display_row;
+                    return;
+                }
+            }
+            display_row += self.elem_display_height(elem);
+        }
+        self.scroll_offset = display_row.saturating_sub(self.viewport_height);
+    }
+
+    /// Return the 1-indexed source line number visible at the current scroll position.
+    /// Used to populate `{line}` in editor launch commands.
+    pub(crate) fn source_line_at_offset(&self) -> usize {
+        let mut display_row = 0usize;
+        let mut last_source_row = 0usize;
+        for elem in &self.rendered_doc.elements {
+            if display_row > self.scroll_offset {
+                break;
+            }
+            if let DocElement::TextLine(_, source_row) = elem {
+                last_source_row = *source_row;
+            }
+            display_row += self.elem_display_height(elem);
+        }
+        last_source_row + 1 // convert to 1-indexed
     }
 
     // --- Input handling ---
