@@ -445,19 +445,13 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += elem_h as usize;
             }
             DocElement::Math { content } => {
-                let elem_h = (elem_height(elem, None, img_h, Some(&elem_heights)) as u16).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, Some(&elem_heights)) as u16)
+                    .min((height - y) as u16);
                 let math_area = Rect::new(area.x, area.y + y as u16, area.width, elem_h);
                 match app.images.get_mut(content) {
                     Some(_) => {
                         // Image already in cache (Loaded or Failed) — render as image cell
-                        draw_image_cell(
-                            frame,
-                            &mut app.images,
-                            content,
-                            None,
-                            math_area,
-                            false,
-                        );
+                        draw_image_cell(frame, &mut app.images, content, None, math_area, false);
                     }
                     None => {
                         // No picker or not yet loaded — text fallback
@@ -474,18 +468,12 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                         .chain(content.lines().map(|l| {
                             Line::from(vec![
                                 Span::raw(prefix.clone()),
-                                Span::styled(
-                                    l.to_string(),
-                                    Style::default().fg(Color::Magenta),
-                                ),
+                                Span::styled(l.to_string(), Style::default().fg(Color::Magenta)),
                             ])
                         }))
                         .take(elem_h as usize)
                         .collect();
-                        frame.render_widget(
-                            Paragraph::new(lines),
-                            math_area,
-                        );
+                        frame.render_widget(Paragraph::new(lines), math_area);
                     }
                 }
                 y += elem_h as usize;

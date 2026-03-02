@@ -125,8 +125,7 @@ pub fn render_typst_to_image(typst_math: &str) -> Result<DynamicImage, String> {
 /// [`render_typst_to_image`]. This split enables future callers to pass
 /// native Typst math directly without going through the converter.
 pub fn render_latex_to_image(latex: &str) -> Result<DynamicImage, String> {
-    let typst_math = tex2typst_rs::tex2typst(latex)
-        .map_err(|e| format!("tex2typst conversion failed: {e}"))?;
+    let typst_math =
+        tex2typst_rs::tex2typst(latex).map_err(|e| format!("tex2typst conversion failed: {e}"))?;
     render_typst_to_image(&typst_math)
 }
-

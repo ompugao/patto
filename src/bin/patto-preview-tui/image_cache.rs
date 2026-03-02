@@ -154,10 +154,12 @@ impl ImageCache {
                 };
                 self.elem_heights.insert(content.to_string(), rows_needed);
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                self.cache.insert(content.to_string(), CachedImage::Loaded(protocol));
+                self.cache
+                    .insert(content.to_string(), CachedImage::Loaded(protocol));
             }
             Err(e) => {
-                self.cache.insert(content.to_string(), CachedImage::Failed(e));
+                self.cache
+                    .insert(content.to_string(), CachedImage::Failed(e));
             }
         }
     }
