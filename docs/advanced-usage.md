@@ -91,9 +91,14 @@ Press `e` → TUI hides, Neovim opens at the right line. Quit Neovim → TUI res
 
 *Tmux + Neovim (single-pane toggle with viewport sync):*
 
+Since users can follow links to other notes in the previewer, the editor
+command must also open the current file in Neovim (not just restore the
+viewport). The `--remote` flag opens `{file}`, then `--remote-expr`
+schedules the viewport restore:
+
 ```toml
 [editor]
-cmd = '''nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
+cmd = '''nvim --server "$NVIM" --remote "{file}" && nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
 action = "quit"
 ```
 

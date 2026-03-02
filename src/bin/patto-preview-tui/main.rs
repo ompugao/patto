@@ -327,7 +327,8 @@ async fn main() -> anyhow::Result<()> {
                                     let _ = std::process::Command::new("sh")
                                         .arg("-c")
                                         .arg(&cmd)
-                                        .spawn();
+                                        .spawn()
+                                        .and_then(|mut c| c.wait());
                                     std::process::exit(0);
                                 }
                                 EditorAction::Background => {

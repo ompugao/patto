@@ -5,7 +5,7 @@
 ---
 --- For viewport sync, set this in patto-preview-tui.toml:
 ---   [editor]
----   cmd = '''nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
+---   cmd = '''nvim --server "$NVIM" --remote "{file}" && nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
 ---   action = "quit"
 
 local M = {}
