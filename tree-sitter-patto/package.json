@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-patto",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Patto note-taking format",
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "parser", "patto"],
+  "license": "MIT",
+  "tree-sitter": [
+    {
+      "scope": "source.patto",
+      "file-types": ["pn"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm"
+    }
+  ],
+  "dependencies": {
+    "nan": "^2.18.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.0"
+  },
+  "scripts": {
+    "build": "tree-sitter generate && node-gyp rebuild",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  }
+}
