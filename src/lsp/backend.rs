@@ -1810,9 +1810,8 @@ mod tests {
     #[test]
     fn test_multiple_invalid_commands_on_one_line() {
         // Two bad commands on the same line — both should produce diagnostics
-        let (_ast, diags) = parse_text(
-            "see [@embed docs/a.pdf] and [@img assets/b.png] for details",
-        );
+        let (_ast, diags) =
+            parse_text("see [@embed docs/a.pdf] and [@img assets/b.png] for details");
         let invalid_embed = diags
             .iter()
             .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
@@ -1828,9 +1827,7 @@ mod tests {
     #[test]
     fn test_multiple_same_invalid_commands_on_one_line() {
         // Two bad @embed on the same line — both should produce diagnostics
-        let (_ast, diags) = parse_text(
-            "[@embed docs/a.pdf] and [@embed docs/b.pdf]",
-        );
+        let (_ast, diags) = parse_text("[@embed docs/a.pdf] and [@embed docs/b.pdf]");
         let count = diags
             .iter()
             .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
