@@ -137,7 +137,9 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
             if !line.contains(prefix) {
                 continue;
             }
-            if let Some(start) = line.find(prefix) {
+            let mut search_start = 0;
+            while let Some(rel) = line[search_start..].find(prefix) {
+                let start = search_start + rel;
                 let rest = &line[start..];
                 if let Some(end_rel) = rest.find(']') {
                     let expr = &rest[..=end_rel];
@@ -165,6 +167,9 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
                             ..Diagnostic::default()
                         });
                     }
+                    search_start = start + end_rel + 1;
+                } else {
+                    break; // no closing ] found, stop scanning
                 }
             }
         }
@@ -1800,5 +1805,36 @@ mod tests {
                 .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)),
             "unquoted alt before ./ path should not warn"
         );
+    }
+
+    #[test]
+    fn test_multiple_invalid_commands_on_one_line() {
+        // Two bad commands on the same line — both should produce diagnostics
+        let (_ast, diags) = parse_text(
+            "see [@embed docs/a.pdf] and [@img assets/b.png] for details",
+        );
+        let invalid_embed = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
+            .count();
+        let invalid_img = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-img".into())))
+            .count();
+        assert_eq!(invalid_embed, 1, "should warn about bare embed path");
+        assert_eq!(invalid_img, 1, "should warn about bare img path");
+    }
+
+    #[test]
+    fn test_multiple_same_invalid_commands_on_one_line() {
+        // Two bad @embed on the same line — both should produce diagnostics
+        let (_ast, diags) = parse_text(
+            "[@embed docs/a.pdf] and [@embed docs/b.pdf]",
+        );
+        let count = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
+            .count();
+        assert_eq!(count, 2, "should warn about both bare embed paths");
     }
 }
