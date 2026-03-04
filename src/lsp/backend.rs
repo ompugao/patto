@@ -111,14 +111,18 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     (ast, diagnostics)
 }
 
-/// Returns true if a local file path looks like it has an accidental title prefix.
-/// Heuristic: the first path segment (before the first `/`) contains a space,
-/// and the part before that space has no `.` (so it looks like plain words, not a filename).
+/// Returns true if a local file path looks like it has an accidental title/alt prefix.
+/// Heuristic: the part before the first space contains no `/` (so it's a single leading word,
+/// not a mid-path segment), AND the part after the first space looks like an independent path
+/// (starts with `./`, `../`, or contains `/`).
 fn local_path_has_suspicious_space(path: &str) -> bool {
-    let first_segment = path.splitn(2, '/').next().unwrap_or("");
-    if let Some(space_pos) = first_segment.find(' ') {
-        // The text before the space should look like plain words (no dots = not a filename)
-        !first_segment[..space_pos].contains('.')
+    if let Some(space_pos) = path.find(' ') {
+        let before = &path[..space_pos];
+        let after = &path[space_pos + 1..];
+        !before.contains('/')
+            && (after.starts_with("./")
+                || after.starts_with("../")
+                || after.contains('/'))
     } else {
         false
     }
@@ -1748,21 +1752,26 @@ mod tests {
 
     #[test]
     fn test_suspicious_path_heuristic() {
-        // Ambiguous: "word path/to/file" — first segment "word path" has space before "path"
+        // Suspicious: leading word (no slash) followed by an independent-looking path
         assert!(local_path_has_suspicious_space("title docs/report.pdf"));
-        assert!(local_path_has_suspicious_space(
-            "My Caption path/to/img.jpg"
-        ));
+        assert!(local_path_has_suspicious_space("My Caption path/to/img.jpg"));
         assert!(local_path_has_suspicious_space("alt subdir/image.png"));
+        // Filename-as-alt followed by path — the failing real-world case
+        assert!(local_path_has_suspicious_space(
+            "2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png"
+        ));
+        assert!(local_path_has_suspicious_space(
+            "2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png"
+        ));
 
-        // Not suspicious: path starts with "." or has no space in first segment
+        // Not suspicious: no space at all
         assert!(!local_path_has_suspicious_space("docs/report.pdf"));
         assert!(!local_path_has_suspicious_space("./docs/report.pdf"));
         assert!(!local_path_has_suspicious_space("path/to/file.pdf"));
-        // First segment "path with spaces" has a dot? No, but "my.dir/file.pdf" has dot → not suspicious
+        // Space is mid-path (before-space part contains '/') — legitimate spaced directory
         assert!(!local_path_has_suspicious_space(
-            "my.dir with space/file.pdf"
-        )); // has dot before space
+            "path/with spaces/file.pdf"
+        ));
     }
 
     #[test]
@@ -1805,5 +1814,25 @@ mod tests {
         assert_eq!(suspicious.len(), 1);
         assert_eq!(suspicious[0].severity, Some(DiagnosticSeverity::WARNING));
         assert!(suspicious[0].message.contains("quote it"));
+
+        // Real-world case: filename-as-alt before path
+        let (_ast2, diags2) = parse_text(
+            "[@img 2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png]",
+        );
+        assert!(
+            diags2
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("ambiguous-img-path".into()))),
+            "filename-as-alt before path should warn"
+        );
+        let (_ast3, diags3) = parse_text(
+            "[@img 2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png]",
+        );
+        assert!(
+            diags3
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("ambiguous-img-path".into()))),
+            "filename-as-alt before ./path should warn"
+        );
     }
 }
