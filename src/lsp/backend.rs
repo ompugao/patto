@@ -12,11 +12,13 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
-use crate::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus};
-use pest::Parser as _;
+use crate::parser::{
+    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
+};
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
 use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
+use pest::Parser as _;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -120,8 +122,17 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
 
     for (row, line) in text.lines().enumerate() {
         for (prefix, rule, err_fn) in [
-            ("[@embed ", Rule::expr_embed, DiagnosticTranslator::embed_error as fn(&DiagnosticTranslator) -> FriendlyDiagnostic),
-            ("[@img ",   Rule::expr_img,   DiagnosticTranslator::img_error   as fn(&DiagnosticTranslator) -> FriendlyDiagnostic),
+            (
+                "[@embed ",
+                Rule::expr_embed,
+                DiagnosticTranslator::embed_error
+                    as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
+            ),
+            (
+                "[@img ",
+                Rule::expr_img,
+                DiagnosticTranslator::img_error as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
+            ),
         ] {
             if !line.contains(prefix) {
                 continue;
@@ -131,7 +142,12 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
                 if let Some(end_rel) = rest.find(']') {
                     let expr = &rest[..=end_rel];
                     if PattoLineParser::parse(rule, expr).is_err() {
-                        let FriendlyDiagnostic { message, code, code_description_uri, severity } = err_fn(&translator);
+                        let FriendlyDiagnostic {
+                            message,
+                            code,
+                            code_description_uri,
+                            severity,
+                        } = err_fn(&translator);
                         let col_start = utf16_from_byte_idx(line, start) as u32;
                         let col_end = utf16_from_byte_idx(line, start + end_rel + 1) as u32;
                         diags.push(Diagnostic {
@@ -1731,15 +1747,21 @@ mod tests {
     fn test_embed_valid_no_diagnostic() {
         // Valid URL embed — no warnings
         let (_ast, diags) = parse_text("[@embed https://example.com/video]");
-        assert!(diags.iter().all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
 
         // Valid local embed with ./
         let (_ast, diags) = parse_text("[@embed ./docs/report.pdf]");
-        assert!(diags.iter().all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
 
         // Valid title + local path — unquoted is fine now because ./ is unambiguous
         let (_ast, diags) = parse_text("[@embed My Title ./docs/report.pdf]");
-        assert!(diags.iter().all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
     }
 
     #[test]
@@ -1747,7 +1769,9 @@ mod tests {
         // Bare path without ./ → parse error → @embed diagnostic
         let (_ast, diags) = parse_text("[@embed docs/report.pdf]");
         assert!(
-            diags.iter().any(|d| d.code == Some(NumberOrString::String("invalid-embed".into()))),
+            diags
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("invalid-embed".into()))),
             "bare path without ./ should produce invalid-embed diagnostic"
         );
     }
@@ -1755,11 +1779,12 @@ mod tests {
     #[test]
     fn test_img_ambiguous_produces_error() {
         // filename-as-alt before bare path (no ./) → parse error → @img diagnostic
-        let (_ast, diags) = parse_text(
-            "[@img 2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png]",
-        );
+        let (_ast, diags) =
+            parse_text("[@img 2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png]");
         assert!(
-            diags.iter().any(|d| d.code == Some(NumberOrString::String("invalid-img".into()))),
+            diags
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("invalid-img".into()))),
             "filename-as-alt before bare path should produce invalid-img diagnostic"
         );
     }
@@ -1767,11 +1792,12 @@ mod tests {
     #[test]
     fn test_img_unquoted_alt_dotslash_path_valid() {
         // unquoted alt before ./ path — now valid and unambiguous
-        let (_ast, diags) = parse_text(
-            "[@img 2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png]",
-        );
+        let (_ast, diags) =
+            parse_text("[@img 2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png]");
         assert!(
-            diags.iter().all(|d| d.severity != Some(DiagnosticSeverity::WARNING)),
+            diags
+                .iter()
+                .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)),
             "unquoted alt before ./ path should not warn"
         );
     }

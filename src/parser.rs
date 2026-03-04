@@ -2265,7 +2265,9 @@ mod tests {
         let mut parsed3 = PattoLineParser::parse(Rule::statement, input3).unwrap();
         let (nodes3, _) = transform_statement(parsed3.next().unwrap(), input3, 0, 0);
         assert!(
-            nodes3.iter().all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
+            nodes3
+                .iter()
+                .all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
             "bare path without ./ should not parse as Embed"
         );
 
@@ -2316,7 +2318,9 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input).unwrap();
         let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         assert!(
-            nodes.iter().all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
+            nodes
+                .iter()
+                .all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
             "bare filename should not parse as Embed"
         );
 
@@ -2325,7 +2329,9 @@ mod tests {
         let mut parsed2 = PattoLineParser::parse(Rule::statement, input2).unwrap();
         let (nodes2, _) = transform_statement(parsed2.next().unwrap(), input2, 0, 0);
         assert!(
-            nodes2.iter().all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
+            nodes2
+                .iter()
+                .all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
             "path without ./ should not parse as Embed"
         );
     }
