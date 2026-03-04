@@ -20,7 +20,8 @@ eula = false
 default = ["zotero"]
 zotero = ["dep:zotero-rs"]
 preview-tui = ["dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list", "dep:tex2typst-rs", "dep:typst", "dep:typst-library", "dep:typst-render", "dep:typst-kit"]
-preview-tui-chafa = ["preview-tui", "dep:patto-chafa-bridge"]
+preview-tui-chafa-dyn = ["preview-tui", "ratatui-image?/chafa-dyn"]
+preview-tui-chafa-static = ["preview-tui", "dep:patto-chafa-bridge"]
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws"] }
@@ -76,7 +77,7 @@ name = "patto-preview-tui"
 required-features = ["preview-tui"]
 
 [package.metadata.dist]
-features = ["preview-tui-chafa"]
+features = ["preview-tui-chafa-static"]
 
 [dev-dependencies]
 tempfile = "3.24"

@@ -15,9 +15,15 @@ Patto is a plain-text note format (`.pn` files) with LSP support, task managemen
 cargo build                     # Also triggers patto-preview-ui frontend build via build.rs
 cargo test                      # Run all tests
 cargo test <test_name>          # Run a single test by name (substring match)
-cargo test --test lsp_rename    # Run a specific test file
+cargo test --test lsp_completion # Run a specific test file (e.g. tests/lsp_completion.rs)
 cargo fmt --all                 # Format
 cargo clippy --all-targets --all-features  # Lint
+
+# Feature-gated binaries
+cargo build --features preview-tui              # Builds patto-preview-tui (no chafa)
+cargo build --features preview-tui-chafa-dyn    # Builds patto-preview-tui with chafa dynamically linked
+cargo build --features preview-tui-chafa-static # Builds patto-preview-tui with chafa statically linked (Linux only)
+cargo build --no-default-features          # Builds without Zotero integration
 ```
 
 ### VS Code Extension
@@ -92,3 +98,8 @@ tests/
 - **Serde tags**: WebSocket messages use `#[serde(tag = "type", content = "data")]` — the frontend expects `{ type: "...", data: { ... } }`.
 - **VS Code extension entry**: `client/src/extension.ts` — spawns `patto-lsp` and `patto-preview` as child processes.
 - **`patto-preview-next/`**: A legacy Next.js preview (superseded by the Vite UI in `patto-preview-ui/`). Not embedded in the binary.
+- **`patto-preview-tui`**: Terminal UI preview binary with three feature tiers: `preview-tui` (no chafa), `preview-tui-chafa-dyn` (chafa via dynamic linking, requires libchafa on system), `preview-tui-chafa-static` (chafa statically bundled, Linux only — used for release builds). The `chafa-dyn`/`chafa-static` features of `ratatui-image` are mutually exclusive; both are opted out by default via `default-features = false`. `preview-tui-chafa-static` activates static chafa via `patto-chafa-bridge`, a code-free crate that exists purely for Cargo feature unification.
+- **LSP custom commands**: Backend exposes `experimental/aggregate_tasks`, `experimental/retrieve_two_hop_notes`, and `experimental/scan_workspace` via `workspace/executeCommand`. Editors call these to show task lists and 2-hop note graphs.
+- **Markdown flavors**: `MarkdownFlavor` has three variants — `Standard`, `Obsidian`, and `GitHub`. Configured per-client via LSP `workspace/configuration` (`patto.markdown.defaultFlavor`). Implemented in `src/markdown/flavor.rs`.
+- **LSP config file**: `patto-lsp.toml` (searched in XDG config dirs under namespace `patto`) configures Zotero credentials. Fields: `[zotero] user_id`, `api_key`, `endpoint` — also accepted as top-level keys with `ZOTERO_*` aliases.
+- **`stable_id` on `AstNode`**: A `Mutex<Option<i64>>` assigned at parse time. Used by the WebSocket preview to identify lines across incremental updates (rendered as `data-line-id` attributes in HTML).

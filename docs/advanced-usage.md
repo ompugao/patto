@@ -181,13 +181,16 @@ cargo build --release --features preview-tui
 
 Image display uses auto-detected terminal protocols (kitty, iTerm2, sixel, halfblocks). Pre-built Linux binaries from [GitHub Releases](https://github.com/ompugao/patto/releases) include [chafa](https://hpjansson.org/chafa/) statically linked for improved halfblocks rendering.
 
-To build with static chafa yourself (Linux only):
+To build with chafa yourself:
 ```sh
 # Install build dependencies
 sudo apt install libchafa-dev libsysprof-capture-4-dev   # Debian / Ubuntu
 
-# Build with chafa-static
-cargo build --release --features preview-tui-chafa
+# Dynamic linking — links against system libchafa.so (must be present at runtime)
+cargo build --release --features preview-tui-chafa-dyn
+
+# Static linking — bundles chafa into the binary (Linux only, no runtime dependency)
+cargo build --release --features preview-tui-chafa-static
 ```
 
 ### Google Calendar Sync
