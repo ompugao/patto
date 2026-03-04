@@ -1501,6 +1501,23 @@ fn transform_embed<'a>(
             let url = inner2.next().unwrap();
             Some(AstNode::embed(line, row, Some(span), url.as_str(), None))
         }
+        Rule::embed_local_only => {
+            let mut inner2 = inner.into_inner();
+            let path = inner2.next().unwrap();
+            Some(AstNode::embed(line, row, Some(span), path.as_str(), None))
+        }
+        Rule::embed_local_title => {
+            let mut inner2 = inner.into_inner();
+            let path = inner2.next().unwrap();
+            let title = inner2.next().unwrap();
+            Some(AstNode::embed(
+                line,
+                row,
+                Some(span),
+                path.as_str(),
+                Some(title.as_str()),
+            ))
+        }
         _ => {
             unreachable!();
         }
@@ -2170,6 +2187,37 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_embed_local_pdf() -> Result<(), Box<dyn std::error::Error>> {
+        // local path only
+        let input = "[@embed docs/report.pdf]";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+        let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        assert_eq!(nodes.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes[0].kind() {
+            assert_eq!(link, "docs/report.pdf");
+            assert_eq!(title, &None);
+        } else {
+            panic!("Expected AstNodeKind::Embed, got {:?}", nodes[0].kind());
+        }
+
+        // local path with title (path first)
+        let input2 = "[@embed docs/report.pdf My PDF]";
+        let mut parsed2 = PattoLineParser::parse(Rule::statement, input2)?;
+        let (nodes2, _) = transform_statement(parsed2.next().unwrap(), input2, 0, 0);
+        assert_eq!(nodes2.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes2[0].kind() {
+            assert_eq!(link, "docs/report.pdf");
+            assert_eq!(title, &Some("My PDF".to_string()));
+        } else {
+            panic!("Expected AstNodeKind::Embed, got {:?}", nodes2[0].kind());
+        }
+
+        // title then local path is not supported (ambiguous grammar — title consumes greedily)
+
+        Ok(())
+    }
+
+    #[test]
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
         assert!(
@@ -2625,5 +2673,21 @@ mod tab_indentation_tests {
             children.len() > 0,
             "Should have at least one top-level line"
         );
+    }
+}
+
+#[cfg(test)]
+mod embed_local_title_check {
+    use super::*;
+    #[test]
+    fn test_embed_local_title_with_spaces() {
+        let input = "[@embed docs/report.pdf My Title]";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input).unwrap();
+        let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        println!("nodes: {:?}", nodes.iter().map(|n| n.kind()).collect::<Vec<_>>());
+        assert_eq!(nodes.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes[0].kind() {
+            println!("link={link:?} title={title:?}");
+        }
     }
 }

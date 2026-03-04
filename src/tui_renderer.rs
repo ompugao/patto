@@ -493,16 +493,25 @@ fn render_inline(
             });
         }
         AstNodeKind::Embed { link, title } => {
+            let is_pdf = link.to_lowercase().ends_with(".pdf");
             let display = title.as_deref().unwrap_or(link.as_str());
-            let text = format!("[embed: {}]", display);
+            let text = if is_pdf {
+                format!("[PDF: {}]", display)
+            } else {
+                format!("[embed: {}]", display)
+            };
             let char_start = spans_char_width(spans);
             let char_end = char_start + text.chars().count();
-            spans.push(Span::styled(
-                text,
+            let style = if is_pdf {
+                base_style
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::UNDERLINED)
+            } else {
                 base_style
                     .fg(Color::Blue)
-                    .add_modifier(Modifier::UNDERLINED),
-            ));
+                    .add_modifier(Modifier::UNDERLINED)
+            };
+            spans.push(Span::styled(text, style));
             focusables.push(FocusableItem {
                 elem_idx: current_elem_idx,
                 char_start,

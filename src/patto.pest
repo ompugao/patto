@@ -78,11 +78,13 @@ mail_only = ${MAIL}
 MAIL = @{ "mailto:" ~ MAIL_CHAR+ ~ "@" ~ (MAIL_CHAR+ ~ ".")+ ~ MAIL_CHAR+}
 MAIL_CHAR = _{ ASCII_ALPHANUMERIC | "-" | "_" | "+" }
 
-expr_embed = ${ "[@embed" ~ WHITE_SPACE_INLINE+ ~ (embed_title_url | embed_url_title | embed_url_url | embed_url_only) ~ "]"}
+expr_embed = ${ "[@embed" ~ WHITE_SPACE_INLINE+ ~ (embed_title_url | embed_url_title | embed_url_url | embed_local_title | embed_url_only | embed_local_only) ~ "]"}
 embed_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
 embed_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 embed_url_url = ${URL ~ WHITE_SPACE_INLINE+ ~ URL}
 embed_url_only = ${URL}
+embed_local_title = ${local_file ~ WHITE_SPACE_INLINE+ ~ url_title}
+embed_local_only = ${local_file}
 
 expr_command_line = ${ expr_command ~ trailing_properties? }
 expr_command = ${ "[@" ~ builtin_commands ~ (WHITE_SPACE_INLINE+ ~ parameter)* ~ WHITE_SPACE_INLINE* ~ "]"}

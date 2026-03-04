@@ -241,7 +241,23 @@ impl HtmlRenderer {
                 }
             }
             AstNodeKind::Embed { link, title } => {
-                if let Some(youtube_id) = get_youtube_id(link) {
+                let is_pdf = link.to_lowercase().ends_with(".pdf");
+                if is_pdf {
+                    let is_local = !link.contains("://");
+                    let (data_attr, href) = if is_local {
+                        (
+                            format!("data-src=\"{}\"", link),
+                            format!("/api/files/{}", link),
+                        )
+                    } else {
+                        (format!("data-url=\"{}\"", link), link.to_string())
+                    };
+                    write!(
+                        output,
+                        "<div class=\"patto-embed-pdf\" {data_attr}><a href=\"{href}\">{}</a></div>",
+                        title.as_deref().unwrap_or(link)
+                    )?;
+                } else if let Some(youtube_id) = get_youtube_id(link) {
                     write!(
                         output,
                         "<div class=\"patto-embed-youtube\"><iframe src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;

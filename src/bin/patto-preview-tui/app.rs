@@ -465,7 +465,14 @@ impl App {
                             }
                         }
                         LinkAction::OpenUrl(url) => {
-                            let _ = open::that_in_background(url);
+                            let target = if url.contains("://") {
+                                url.clone()
+                            } else {
+                                // Local file path — resolve to an absolute file:// URI
+                                let abs = self.root_dir.join(url.as_str());
+                                format!("file://{}", abs.to_string_lossy())
+                            };
+                            let _ = open::that_detached(&target);
                         }
                     }
                 }
