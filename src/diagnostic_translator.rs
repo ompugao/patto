@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::parser::{ParserError, PestErrorInfo, PestErrorVariantInfo, Rule};
 
@@ -9,6 +10,7 @@ pub struct FriendlyDiagnostic {
     pub message: String,
     pub code: Option<String>,
     pub code_description_uri: Option<String>,
+    pub severity: DiagnosticSeverity,
 }
 
 #[derive(Debug)]
@@ -45,6 +47,8 @@ impl DiagnosticTranslator {
         match &info.variant {
             PestErrorVariantInfo::ParsingError { positives, .. } => {
                 match ErrorCategory::from_rules(positives) {
+                    Some(ErrorCategory::Embed) => self.embed_error(),
+                    Some(ErrorCategory::Img) => self.img_error(),
                     Some(ErrorCategory::Link) => self.link_error(),
                     Some(ErrorCategory::Command) => self.command_error(),
                     Some(ErrorCategory::Property) => self.property_error(),
@@ -62,6 +66,47 @@ impl DiagnosticTranslator {
                 FriendlyDiagnostic::new(composed, Some("syntax-error"), self.docs_base_url)
             }
         }
+    }
+
+    fn embed_error(&self) -> FriendlyDiagnostic {
+        let primary = "Invalid embed syntax";
+        let help = "Use [@embed ...] with a URL or local file path. \
+            When the title comes before a local file path, it must be quoted.\n\
+            Note: bare filenames need a directory prefix: use ./file.pdf or subdir/file.pdf";
+        let examples = [
+            "[@embed https://example.com/video]",
+            "[@embed https://example.com/video My Title]",
+            "[@embed My Title https://example.com/video]",
+            "[@embed path/to/file.pdf]",
+            "[@embed path/to/file.pdf My Title]",
+            r#"[@embed "My Title" path/to/file.pdf]   ← quotes required before local path"#,
+        ];
+        FriendlyDiagnostic::new_with_severity(
+            compose_message(primary, help, &examples),
+            Some("invalid-embed"),
+            self.docs_base_url,
+            DiagnosticSeverity::WARNING,
+        )
+    }
+
+    fn img_error(&self) -> FriendlyDiagnostic {
+        let primary = "Invalid image syntax";
+        let help = "Use [@img ...] with a URL or local file path and an optional alt text. \
+            When the alt text comes before a local file path, it must be quoted.";
+        let examples = [
+            "[@img https://example.com/photo.jpg]",
+            "[@img https://example.com/photo.jpg My Caption]",
+            "[@img My Caption https://example.com/photo.jpg]",
+            "[@img path/to/image.jpg]",
+            "[@img path/to/image.jpg My Caption]",
+            r#"[@img "My Caption" path/to/image.jpg]   ← quotes required before local path"#,
+        ];
+        FriendlyDiagnostic::new_with_severity(
+            compose_message(primary, help, &examples),
+            Some("invalid-img"),
+            self.docs_base_url,
+            DiagnosticSeverity::WARNING,
+        )
     }
 
     fn link_error(&self) -> FriendlyDiagnostic {
@@ -217,6 +262,15 @@ impl Default for DiagnosticTranslator {
 
 impl FriendlyDiagnostic {
     fn new(message: String, code: Option<&str>, docs_base_url: &str) -> Self {
+        Self::new_with_severity(message, code, docs_base_url, DiagnosticSeverity::ERROR)
+    }
+
+    fn new_with_severity(
+        message: String,
+        code: Option<&str>,
+        docs_base_url: &str,
+        severity: DiagnosticSeverity,
+    ) -> Self {
         let normalized_base = docs_base_url.trim_end_matches('/');
         let code_owned = code.map(|value| value.to_string());
         let code_description_uri = code_owned
@@ -226,11 +280,14 @@ impl FriendlyDiagnostic {
             message,
             code: code_owned,
             code_description_uri,
+            severity,
         }
     }
 }
 
 enum ErrorCategory {
+    Embed,
+    Img,
     Link,
     Command,
     Property,
@@ -246,6 +303,12 @@ impl ErrorCategory {
     fn from_rules(rules: &[Rule]) -> Option<Self> {
         if rules.is_empty() {
             return None;
+        }
+        if rules.iter().any(|rule| is_embed_rule(*rule)) {
+            return Some(ErrorCategory::Embed);
+        }
+        if rules.iter().any(|rule| is_img_rule(*rule)) {
+            return Some(ErrorCategory::Img);
         }
         if rules.iter().any(|rule| is_link_rule(*rule)) {
             return Some(ErrorCategory::Link);
@@ -296,6 +359,34 @@ impl ErrorCategory {
     }
 }
 
+fn is_embed_rule(rule: Rule) -> bool {
+    matches!(
+        rule,
+        Rule::expr_embed
+            | Rule::embed_url_only
+            | Rule::embed_url_title
+            | Rule::embed_title_url
+            | Rule::embed_url_url
+            | Rule::embed_local_only
+            | Rule::embed_local_title
+            | Rule::embed_title_local
+    )
+}
+
+fn is_img_rule(rule: Rule) -> bool {
+    matches!(
+        rule,
+        Rule::expr_img
+            | Rule::img_alt_path_opts
+            | Rule::img_path_alt_opts
+            | Rule::img_path_unquoted_alt_opts
+            | Rule::img_unquoted_alt_url_opts
+            | Rule::img_path_opts
+            | Rule::img_path
+            | Rule::alt_img
+    )
+}
+
 fn is_link_rule(rule: Rule) -> bool {
     matches!(
         rule,
@@ -306,7 +397,6 @@ fn is_link_rule(rule: Rule) -> bool {
             | Rule::expr_url_link
             | Rule::expr_local_file_link
             | Rule::expr_mail_link
-            | Rule::expr_img
     )
 }
 
@@ -370,6 +460,7 @@ fn rule_display_name(rule: Rule) -> Cow<'static, str> {
         Rule::expr_url_link => Cow::Borrowed("URL link"),
         Rule::expr_local_file_link => Cow::Borrowed("local file link"),
         Rule::expr_mail_link => Cow::Borrowed("email link"),
+        Rule::expr_embed => Cow::Borrowed("embed command"),
         Rule::expr_img => Cow::Borrowed("image command"),
         Rule::expr_code_inline => Cow::Borrowed("inline code"),
         Rule::expr_math_inline => Cow::Borrowed("inline math"),

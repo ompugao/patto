@@ -1226,6 +1226,30 @@ fn transform_img<'a>(
                 Some(alt_img),
             ))
         }
+        Rule::img_path_unquoted_alt_opts => {
+            let mut inner2 = inner.into_inner();
+            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
+            let alt_img = inner2.next().unwrap().as_str(); // url_title
+            Some(AstNode::image(
+                line,
+                row,
+                Some(span),
+                img_path,
+                Some(alt_img),
+            ))
+        }
+        Rule::img_unquoted_alt_url_opts => {
+            let mut inner2 = inner.into_inner();
+            let alt_img = inner2.next().unwrap().as_str(); // url_title
+            let img_path = inner2.next().unwrap().as_str(); // URL
+            Some(AstNode::image(
+                line,
+                row,
+                Some(span),
+                img_path,
+                Some(alt_img),
+            ))
+        }
         Rule::img_path_opts => {
             let mut inner2 = inner.into_inner();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
@@ -1505,6 +1529,19 @@ fn transform_embed<'a>(
             let mut inner2 = inner.into_inner();
             let path = inner2.next().unwrap();
             Some(AstNode::embed(line, row, Some(span), path.as_str(), None))
+        }
+        Rule::embed_title_local => {
+            let mut inner2 = inner.into_inner();
+            let escaped = inner2.next().unwrap(); // escaped_string
+            let path = inner2.next().unwrap(); // local_file
+            let title = escaped.into_inner().next().unwrap().as_str(); // inner_string
+            Some(AstNode::embed(
+                line,
+                row,
+                Some(span),
+                path.as_str(),
+                Some(title),
+            ))
         }
         Rule::embed_local_title => {
             let mut inner2 = inner.into_inner();
@@ -2218,6 +2255,174 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_embed_title_local() -> Result<(), Box<dyn std::error::Error>> {
+        // quoted title then local path
+        for (input, exp_link, exp_title) in [
+            (
+                r#"[@embed "My PDF" docs/report.pdf]"#,
+                "docs/report.pdf",
+                Some("My PDF"),
+            ),
+            (
+                r#"[@embed "My PDF Report" docs/report.pdf]"#,
+                "docs/report.pdf",
+                Some("My PDF Report"),
+            ),
+            (
+                r#"[@embed "Title" subdir/nested/file.pdf]"#,
+                "subdir/nested/file.pdf",
+                Some("Title"),
+            ),
+        ] {
+            let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
+            let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+            assert_eq!(nodes.len(), 1, "input: {input}");
+            if let AstNodeKind::Embed { link, title } = nodes[0].kind() {
+                assert_eq!(link, exp_link, "link mismatch for: {input}");
+                assert_eq!(
+                    title,
+                    &exp_title.map(|s| s.to_string()),
+                    "title mismatch for: {input}"
+                );
+            } else {
+                panic!("Expected Embed, got {:?} for: {input}", nodes[0].kind());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_embed_ambiguous_not_parsed() {
+        // bare filename (no slash) → becomes raw text, not Embed
+        let input = "[@embed report.pdf]";
+        let mut parsed = PattoLineParser::parse(Rule::statement, input).unwrap();
+        let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
+        assert!(
+            nodes
+                .iter()
+                .all(|n| !matches!(n.kind(), AstNodeKind::Embed { .. })),
+            "bare filename should not parse as Embed"
+        );
+
+        // "title docs/report.pdf" has a slash so local_file (which allows spaces) consumes the
+        // whole string. The result is an embed with link="title docs/report.pdf" and no title.
+        // This is the documented grammar behavior; users wanting a real title must quote it:
+        //   [@embed "title" docs/report.pdf]
+        let input2 = "[@embed title docs/report.pdf]";
+        let mut parsed2 = PattoLineParser::parse(Rule::statement, input2).unwrap();
+        let (nodes2, _) = transform_statement(parsed2.next().unwrap(), input2, 0, 0);
+        assert_eq!(nodes2.len(), 1);
+        if let AstNodeKind::Embed { link, title } = nodes2[0].kind() {
+            // Entire "title docs/report.pdf" treated as a space-containing local path
+            assert_eq!(link, "title docs/report.pdf");
+            assert_eq!(title, &None);
+        } else {
+            panic!("Expected Embed, got {:?}", nodes2[0].kind());
+        }
+    }
+
+    #[test]
+    fn test_parse_img_unquoted_alt() -> Result<(), Box<dyn std::error::Error>> {
+        for (input, exp_src, exp_alt) in [
+            // unquoted alt after URL
+            (
+                "[@img https://example.com/photo.jpg My Caption]",
+                "https://example.com/photo.jpg",
+                Some("My Caption"),
+            ),
+            // unquoted multi-word alt after URL
+            (
+                "[@img https://example.com/photo.jpg A nice photo]",
+                "https://example.com/photo.jpg",
+                Some("A nice photo"),
+            ),
+            // unquoted alt before URL
+            (
+                "[@img My Caption https://example.com/photo.jpg]",
+                "https://example.com/photo.jpg",
+                Some("My Caption"),
+            ),
+            // unquoted multi-word alt before URL
+            (
+                "[@img A nice photo https://example.com/photo.jpg]",
+                "https://example.com/photo.jpg",
+                Some("A nice photo"),
+            ),
+            // unquoted alt after local path
+            (
+                "[@img path/to/image.png My Caption]",
+                "path/to/image.png",
+                Some("My Caption"),
+            ),
+            // unquoted multi-word alt after local path
+            (
+                "[@img ./path/to/image.jpg Photo of cat]",
+                "./path/to/image.jpg",
+                Some("Photo of cat"),
+            ),
+            // quoted alt variants still work (backward compat)
+            (
+                r#"[@img "My Caption" https://example.com/photo.jpg]"#,
+                "https://example.com/photo.jpg",
+                Some("My Caption"),
+            ),
+            (
+                r#"[@img https://example.com/photo.jpg "My Caption"]"#,
+                "https://example.com/photo.jpg",
+                Some("My Caption"),
+            ),
+            (
+                r#"[@img path/to/img.jpg "Quoted alt"]"#,
+                "path/to/img.jpg",
+                Some("Quoted alt"),
+            ),
+        ] {
+            match PattoLineParser::parse(Rule::expr_img, input) {
+                Ok(mut parsed) => {
+                    let node = transform_img(parsed.next().unwrap(), input, 0, 0)
+                        .ok_or("transform_img failed")?;
+                    if let AstNodeKind::Image { src, alt } = node.kind() {
+                        assert_eq!(src, exp_src, "src mismatch for: {input}");
+                        assert_eq!(
+                            *alt,
+                            exp_alt.map(|s| s.to_string()),
+                            "alt mismatch for: {input}"
+                        );
+                    } else {
+                        panic!("Expected Image, got {:?} for: {input}", node.kind());
+                    }
+                }
+                Err(e) => {
+                    return Err(format!("Parse failed for '{input}': {e}").into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_img_quoted_alt_required_before_local() {
+        // "alt path/to/image.jpg" has slashes, so local_file (which allows spaces) consumes the
+        // whole string. The result is an image with src="alt path/to/image.jpg" and no alt.
+        // This is the documented grammar behavior; users wanting a real alt must quote it:
+        //   [@img "alt" path/to/image.jpg]
+        let input = "[@img alt path/to/image.jpg]";
+        match PattoLineParser::parse(Rule::expr_img, input) {
+            Ok(mut parsed) => {
+                let node = transform_img(parsed.next().unwrap(), input, 0, 0).unwrap();
+                if let AstNodeKind::Image { src, alt } = node.kind() {
+                    // Entire "alt path/to/image.jpg" treated as a space-containing local path
+                    assert_eq!(src, "alt path/to/image.jpg");
+                    assert_eq!(*alt, None);
+                } else {
+                    panic!("Expected Image");
+                }
+            }
+            Err(e) => panic!("Expected parse to succeed: {e}"),
+        }
+    }
+
+    #[test]
     fn test_parse_unknown_command() {
         let input = "[@unknown rust]";
         assert!(
@@ -2673,21 +2878,5 @@ mod tab_indentation_tests {
             children.len() > 0,
             "Should have at least one top-level line"
         );
-    }
-}
-
-#[cfg(test)]
-mod embed_local_title_check {
-    use super::*;
-    #[test]
-    fn test_embed_local_title_with_spaces() {
-        let input = "[@embed docs/report.pdf My Title]";
-        let mut parsed = PattoLineParser::parse(Rule::statement, input).unwrap();
-        let (nodes, _) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        println!("nodes: {:?}", nodes.iter().map(|n| n.kind()).collect::<Vec<_>>());
-        assert_eq!(nodes.len(), 1);
-        if let AstNodeKind::Embed { link, title } = nodes[0].kind() {
-            println!("link={link:?} title={title:?}");
-        }
     }
 }

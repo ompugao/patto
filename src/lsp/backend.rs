@@ -76,7 +76,7 @@ fn get_node_range(from: &AstNode) -> Range {
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
     let translator = DiagnosticTranslator::default();
-    let diagnostics: Vec<Diagnostic> = parse_errors
+    let mut diagnostics: Vec<Diagnostic> = parse_errors
         .into_iter()
         .map(|error| {
             let location = error.location().clone();
@@ -84,6 +84,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
                 message,
                 code,
                 code_description_uri,
+                severity,
             } = translator.translate(&error);
 
             let code_value = code.map(NumberOrString::String);
@@ -96,7 +97,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
                     Position::new(location.row as u32, location.span.0 as u32),
                     Position::new(location.row as u32, location.span.1 as u32),
                 ),
-                severity: Some(DiagnosticSeverity::ERROR),
+                severity: Some(severity),
                 code: code_value,
                 code_description,
                 source: Some("patto".into()),
@@ -105,7 +106,73 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
             }
         })
         .collect();
+
+    gather_suspicious_path_diagnostics(&ast, &mut diagnostics);
     (ast, diagnostics)
+}
+
+/// Returns true if a local file path looks like it has an accidental title prefix.
+/// Heuristic: the first path segment (before the first `/`) contains a space,
+/// and the part before that space has no `.` (so it looks like plain words, not a filename).
+fn local_path_has_suspicious_space(path: &str) -> bool {
+    let first_segment = path.splitn(2, '/').next().unwrap_or("");
+    if let Some(space_pos) = first_segment.find(' ') {
+        // The text before the space should look like plain words (no dots = not a filename)
+        !first_segment[..space_pos].contains('.')
+    } else {
+        false
+    }
+}
+
+fn gather_suspicious_path_diagnostics(parent: &AstNode, diagnostics: &mut Vec<Diagnostic>) {
+    let loc = parent.location();
+
+    match parent.kind() {
+        AstNodeKind::Embed { link, .. } if local_path_has_suspicious_space(link) => {
+            diagnostics.push(Diagnostic {
+                range: Range::new(
+                    Position::new(loc.row as u32, loc.span.0 as u32),
+                    Position::new(loc.row as u32, loc.span.1 as u32),
+                ),
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(NumberOrString::String("ambiguous-embed-path".into())),
+                source: Some("patto".into()),
+                message: format!(
+                    "Ambiguous embed: \"{link}\" looks like a title followed by a path.\n\
+                     If you intended a title, quote it:\n  \
+                     [@embed \"title\" path/to/file]"
+                ),
+                ..Diagnostic::default()
+            });
+            return; // no need to recurse into inline content
+        }
+        AstNodeKind::Image { src, .. } if local_path_has_suspicious_space(src) => {
+            diagnostics.push(Diagnostic {
+                range: Range::new(
+                    Position::new(loc.row as u32, loc.span.0 as u32),
+                    Position::new(loc.row as u32, loc.span.1 as u32),
+                ),
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(NumberOrString::String("ambiguous-img-path".into())),
+                source: Some("patto".into()),
+                message: format!(
+                    "Ambiguous image: \"{src}\" looks like an alt text followed by a path.\n\
+                     If you intended alt text, quote it:\n  \
+                     [@img \"alt text\" path/to/image.jpg]"
+                ),
+                ..Diagnostic::default()
+            });
+            return;
+        }
+        _ => {}
+    }
+
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_suspicious_path_diagnostics(child, diagnostics);
+    }
+    for content in parent.value().contents.lock().unwrap().iter() {
+        gather_suspicious_path_diagnostics(content, diagnostics);
+    }
 }
 
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
@@ -1672,5 +1739,71 @@ impl LanguageServer for Backend {
         }
 
         Ok(rename_result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_suspicious_path_heuristic() {
+        // Ambiguous: "word path/to/file" — first segment "word path" has space before "path"
+        assert!(local_path_has_suspicious_space("title docs/report.pdf"));
+        assert!(local_path_has_suspicious_space(
+            "My Caption path/to/img.jpg"
+        ));
+        assert!(local_path_has_suspicious_space("alt subdir/image.png"));
+
+        // Not suspicious: path starts with "." or has no space in first segment
+        assert!(!local_path_has_suspicious_space("docs/report.pdf"));
+        assert!(!local_path_has_suspicious_space("./docs/report.pdf"));
+        assert!(!local_path_has_suspicious_space("path/to/file.pdf"));
+        // First segment "path with spaces" has a dot? No, but "my.dir/file.pdf" has dot → not suspicious
+        assert!(!local_path_has_suspicious_space(
+            "my.dir with space/file.pdf"
+        )); // has dot before space
+    }
+
+    #[test]
+    fn test_suspicious_embed_produces_diagnostic() {
+        let (_ast, diags) = parse_text("[@embed title docs/report.pdf]");
+        let suspicious: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("ambiguous-embed-path".into())))
+            .collect();
+        assert_eq!(suspicious.len(), 1);
+        assert_eq!(suspicious[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(suspicious[0].message.contains("quote it"));
+    }
+
+    #[test]
+    fn test_clean_embed_no_diagnostic() {
+        // Properly quoted title — no warning
+        let (_ast, diags) = parse_text(r#"[@embed "My Title" docs/report.pdf]"#);
+        assert!(
+            diags
+                .iter()
+                .all(|d| d.code != Some(NumberOrString::String("ambiguous-embed-path".into()))),
+            "quoted embed should produce no ambiguity warning"
+        );
+
+        // Plain URL — no warning
+        let (_ast, diags2) = parse_text("[@embed https://example.com/video]");
+        assert!(diags2
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+    }
+
+    #[test]
+    fn test_suspicious_img_produces_diagnostic() {
+        let (_ast, diags) = parse_text("[@img alt path/to/image.jpg]");
+        let suspicious: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("ambiguous-img-path".into())))
+            .collect();
+        assert_eq!(suspicious.len(), 1);
+        assert_eq!(suspicious[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(suspicious[0].message.contains("quote it"));
     }
 }
