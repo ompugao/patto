@@ -12,10 +12,13 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
-use crate::parser::{self, AstNode, AstNodeKind, Deadline, ParserResult, Property, TaskStatus};
+use crate::parser::{
+    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
+};
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
 use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
+use pest::Parser as _;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -76,7 +79,7 @@ fn get_node_range(from: &AstNode) -> Range {
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
     let translator = DiagnosticTranslator::default();
-    let diagnostics: Vec<Diagnostic> = parse_errors
+    let mut diagnostics: Vec<Diagnostic> = parse_errors
         .into_iter()
         .map(|error| {
             let location = error.location().clone();
@@ -84,6 +87,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
                 message,
                 code,
                 code_description_uri,
+                severity,
             } = translator.translate(&error);
 
             let code_value = code.map(NumberOrString::String);
@@ -96,7 +100,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
                     Position::new(location.row as u32, location.span.0 as u32),
                     Position::new(location.row as u32, location.span.1 as u32),
                 ),
-                severity: Some(DiagnosticSeverity::ERROR),
+                severity: Some(severity),
                 code: code_value,
                 code_description,
                 source: Some("patto".into()),
@@ -105,7 +109,72 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
             }
         })
         .collect();
+
+    diagnostics.extend(gather_malformed_command_diagnostics(text));
     (ast, diagnostics)
+}
+
+/// Scan raw text for `[@embed ...]` / `[@img ...]` patterns that failed to parse
+/// (i.e. fell through to raw_sentence). Emit WARNING diagnostics for each.
+fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
+    let translator = DiagnosticTranslator::default();
+    let mut diags = Vec::new();
+
+    for (row, line) in text.lines().enumerate() {
+        for (prefix, rule, err_fn) in [
+            (
+                "[@embed ",
+                Rule::expr_embed,
+                DiagnosticTranslator::embed_error
+                    as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
+            ),
+            (
+                "[@img ",
+                Rule::expr_img,
+                DiagnosticTranslator::img_error as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
+            ),
+        ] {
+            if !line.contains(prefix) {
+                continue;
+            }
+            let mut search_start = 0;
+            while let Some(rel) = line[search_start..].find(prefix) {
+                let start = search_start + rel;
+                let rest = &line[start..];
+                if let Some(end_rel) = rest.find(']') {
+                    let expr = &rest[..=end_rel];
+                    if PattoLineParser::parse(rule, expr).is_err() {
+                        let FriendlyDiagnostic {
+                            message,
+                            code,
+                            code_description_uri,
+                            severity,
+                        } = err_fn(&translator);
+                        let col_start = utf16_from_byte_idx(line, start) as u32;
+                        let col_end = utf16_from_byte_idx(line, start + end_rel + 1) as u32;
+                        diags.push(Diagnostic {
+                            range: Range::new(
+                                Position::new(row as u32, col_start),
+                                Position::new(row as u32, col_end),
+                            ),
+                            severity: Some(severity),
+                            code: code.map(NumberOrString::String),
+                            code_description: code_description_uri
+                                .and_then(|href| Url::parse(&href).ok())
+                                .map(|href| CodeDescription { href }),
+                            source: Some("patto".into()),
+                            message,
+                            ..Diagnostic::default()
+                        });
+                    }
+                    search_start = start + end_rel + 1;
+                } else {
+                    break; // no closing ] found, stop scanning
+                }
+            }
+        }
+    }
+    diags
 }
 
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
@@ -1672,5 +1741,97 @@ impl LanguageServer for Backend {
         }
 
         Ok(rename_result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_embed_valid_no_diagnostic() {
+        // Valid URL embed — no warnings
+        let (_ast, diags) = parse_text("[@embed https://example.com/video]");
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+
+        // Valid local embed with ./
+        let (_ast, diags) = parse_text("[@embed ./docs/report.pdf]");
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+
+        // Valid title + local path — unquoted is fine now because ./ is unambiguous
+        let (_ast, diags) = parse_text("[@embed My Title ./docs/report.pdf]");
+        assert!(diags
+            .iter()
+            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
+    }
+
+    #[test]
+    fn test_embed_bare_path_produces_error() {
+        // Bare path without ./ → parse error → @embed diagnostic
+        let (_ast, diags) = parse_text("[@embed docs/report.pdf]");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("invalid-embed".into()))),
+            "bare path without ./ should produce invalid-embed diagnostic"
+        );
+    }
+
+    #[test]
+    fn test_img_ambiguous_produces_error() {
+        // filename-as-alt before bare path (no ./) → parse error → @img diagnostic
+        let (_ast, diags) =
+            parse_text("[@img 2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png]");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.code == Some(NumberOrString::String("invalid-img".into()))),
+            "filename-as-alt before bare path should produce invalid-img diagnostic"
+        );
+    }
+
+    #[test]
+    fn test_img_unquoted_alt_dotslash_path_valid() {
+        // unquoted alt before ./ path — now valid and unambiguous
+        let (_ast, diags) =
+            parse_text("[@img 2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png]");
+        assert!(
+            diags
+                .iter()
+                .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)),
+            "unquoted alt before ./ path should not warn"
+        );
+    }
+
+    #[test]
+    fn test_multiple_invalid_commands_on_one_line() {
+        // Two bad commands on the same line — both should produce diagnostics
+        let (_ast, diags) =
+            parse_text("see [@embed docs/a.pdf] and [@img assets/b.png] for details");
+        let invalid_embed = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
+            .count();
+        let invalid_img = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-img".into())))
+            .count();
+        assert_eq!(invalid_embed, 1, "should warn about bare embed path");
+        assert_eq!(invalid_img, 1, "should warn about bare img path");
+    }
+
+    #[test]
+    fn test_multiple_same_invalid_commands_on_one_line() {
+        // Two bad @embed on the same line — both should produce diagnostics
+        let (_ast, diags) = parse_text("[@embed docs/a.pdf] and [@embed docs/b.pdf]");
+        let count = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
+            .count();
+        assert_eq!(count, 2, "should warn about both bare embed paths");
     }
 }

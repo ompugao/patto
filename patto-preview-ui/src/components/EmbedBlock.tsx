@@ -3,6 +3,7 @@ import { Play } from 'lucide-react';
 import SpeakerDeckBlock from './SpeakerDeckBlock';
 import SlideShareBlock from './SlideShareBlock';
 import TwitterBlock from './TwitterBlock';
+import PdfBlock from './PdfBlock';
 
 interface EmbedBlockProps {
     link: string;
@@ -11,6 +12,13 @@ interface EmbedBlockProps {
 
 export default function EmbedBlock({ link, title }: EmbedBlockProps) {
     const [isLoaded, setIsLoaded] = useState(false);
+
+    const isPdf = link.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
+        const isLocal = !link.includes('://');
+        const resolvedSrc = isLocal ? `/api/files/${link}` : link;
+        return <PdfBlock src={resolvedSrc} title={title} />;
+    }
 
     if (link.includes('speakerdeck.com')) {
         return <SpeakerDeckBlock url={link} />;
