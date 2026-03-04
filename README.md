@@ -61,10 +61,12 @@ Plain text
 
 ### Content embeddings
 ```txt
-[@img http://example.com/img "image alt"]
+[@img http://example.com/img "image alt"]    Remote image
+[@img ./local-image.png "image alt"]         Local image (must use ./ prefix)
 [@embed https://www.youtube.com/watch?v=dQw4w9WgXcQ Youtube Alt]
 [@embed https://twitter.com/... Tweet]
 [@embed https://speakerdeck.com/... Slide]
+[@embed ./document.pdf PDF Title]            Local PDF embedding (must use ./ prefix)
 ```
 
 <details>
@@ -133,6 +135,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+**v0.4.2** - patto-preview-tui enhancements: math rendering via typst, text wrapping, TCP LSP backend, extensible editor integration with Neovim viewport sync, tui-widget-list for backlinks panel; PDF embedding via `@embed ./file.pdf`; `@embed`/`@img` syntax unification with LSP diagnostics (local paths now require `./` prefix)
 **v0.4.1** - Add TUI previewer
 **v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
 **v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
