@@ -98,10 +98,10 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-clippy-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install chafa static lib (for --all-features)
+      - name: Install chafa static lib (for preview-tui-chafa-static)
         run: |
           sudo apt-get update -y
           sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --features zotero,preview-tui-chafa-static
