@@ -68,18 +68,18 @@ impl DiagnosticTranslator {
         }
     }
 
-    fn embed_error(&self) -> FriendlyDiagnostic {
+    pub fn embed_error(&self) -> FriendlyDiagnostic {
         let primary = "Invalid embed syntax";
         let help = "Use [@embed ...] with a URL or local file path. \
-            When the title comes before a local file path, it must be quoted.\n\
-            Note: bare filenames need a directory prefix: use ./file.pdf or subdir/file.pdf";
+            Local paths must start with ./ or ../\n\
+            Note: bare filenames like file.pdf are not valid; use ./file.pdf";
         let examples = [
             "[@embed https://example.com/video]",
             "[@embed https://example.com/video My Title]",
             "[@embed My Title https://example.com/video]",
-            "[@embed path/to/file.pdf]",
-            "[@embed path/to/file.pdf My Title]",
-            r#"[@embed "My Title" path/to/file.pdf]   ← quotes required before local path"#,
+            "[@embed ./path/to/file.pdf]",
+            "[@embed ./path/to/file.pdf My Title]",
+            r#"[@embed My Title ./path/to/file.pdf]   ← local paths require ./"#,
         ];
         FriendlyDiagnostic::new_with_severity(
             compose_message(primary, help, &examples),
@@ -89,17 +89,17 @@ impl DiagnosticTranslator {
         )
     }
 
-    fn img_error(&self) -> FriendlyDiagnostic {
+    pub fn img_error(&self) -> FriendlyDiagnostic {
         let primary = "Invalid image syntax";
         let help = "Use [@img ...] with a URL or local file path and an optional alt text. \
-            When the alt text comes before a local file path, it must be quoted.";
+            Local paths must start with ./ or ../";
         let examples = [
             "[@img https://example.com/photo.jpg]",
             "[@img https://example.com/photo.jpg My Caption]",
             "[@img My Caption https://example.com/photo.jpg]",
-            "[@img path/to/image.jpg]",
-            "[@img path/to/image.jpg My Caption]",
-            r#"[@img "My Caption" path/to/image.jpg]   ← quotes required before local path"#,
+            "[@img ./path/to/image.jpg]",
+            "[@img ./path/to/image.jpg My Caption]",
+            r#"[@img My Caption ./path/to/image.jpg]   ← local paths require ./"#,
         ];
         FriendlyDiagnostic::new_with_severity(
             compose_message(primary, help, &examples),

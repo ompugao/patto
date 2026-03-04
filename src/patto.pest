@@ -19,9 +19,10 @@ symbol_italic = @{"/"}
 symbol_underline = @{"_"}
 symbol_deleted = @{"-"}
 
-expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_alt_path_opts|img_path_alt_opts|img_path_unquoted_alt_opts|img_unquoted_alt_url_opts|img_path_opts) ~ "]"}
+expr_img = ${ "[@img" ~ WHITE_SPACE_INLINE+ ~(img_alt_path_opts|img_path_alt_opts|img_unquoted_alt_path_opts|img_path_unquoted_alt_opts|img_unquoted_alt_url_opts|img_path_opts) ~ "]"}
 img_alt_path_opts = ${ alt_img ~ WHITE_SPACE_INLINE+ ~ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
 img_path_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ alt_img} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
+img_unquoted_alt_path_opts = ${ url_title_before_local ~ WHITE_SPACE_INLINE+ ~ local_file }
 img_path_unquoted_alt_opts = ${ img_path ~ WHITE_SPACE_INLINE+ ~ url_title }
 img_unquoted_alt_url_opts  = ${ url_title ~ WHITE_SPACE_INLINE+ ~ URL }
 img_path_opts = ${ img_path} // ~ (WHITE_SPACE_INLINE+ ~ img_opt_keyword_arg ~ "=" ~ img_opt_keyword_value)*}
@@ -41,7 +42,7 @@ img_opt_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
 img_opt_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 //local_file = @{ (ASCII_ALPHANUMERIC|CJK)+ ~ ("/"+))* ~ (ASCII_ALPHANUMERIC|CJK|"."|"_"|"-"|":"|"("|")")+}
 //local_file = @{"./" ~ (!"]" ~ !("\"") ~ ANY)*}
-local_file = @{((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")+ ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|" ")+ ~ ("." ~ LETTER+)+}
+local_file = @{ ("../"|"./") ~ ((ASCII_ALPHANUMERIC|CJK|"_"|"-"|"."|" ")+ ~ "/")* ~ (ASCII_ALPHANUMERIC|CJK|"_"|"-"|" ")+ ~ ("." ~ LETTER+)+}
 // /([\w_\-\s0-9\.]+\/)+([\w_\-\s0-9\.]+)\.([^\s\]]*)/u
 
 
@@ -57,6 +58,8 @@ expr_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 expr_url_only = ${url_only}
 expr_url_url = ${url_only ~ WHITE_SPACE_INLINE+ ~ url_only}
 url_title = @{ ((non_url_like_char_except_space)+ ~ (" "+))* ~ (non_url_like_char_except_space+)}
+// Like url_title but stops before ./ or ../ so it can precede a local_file
+url_title_before_local = @{ (non_url_like_char_except_space+ ~ " "+ ~ !("./"|"../"))* ~ non_url_like_char_except_space+}
 non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
 // non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
@@ -85,7 +88,7 @@ embed_title_url = ${url_title ~ WHITE_SPACE_INLINE+ ~ URL}
 embed_url_title = ${URL ~ WHITE_SPACE_INLINE+ ~ url_title}
 embed_url_url = ${URL ~ WHITE_SPACE_INLINE+ ~ URL}
 embed_url_only = ${URL}
-embed_title_local = ${escaped_string ~ WHITE_SPACE_INLINE+ ~ local_file}
+embed_title_local = ${url_title_before_local ~ WHITE_SPACE_INLINE+ ~ local_file}
 embed_local_title = ${local_file ~ WHITE_SPACE_INLINE+ ~ url_title}
 embed_local_only = ${local_file}
 
