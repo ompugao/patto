@@ -257,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
         app.wrap = false;
     }
     app.showbreak = args.showbreak.clone();
+    app.syntax_theme = tui_config.syntax_theme.clone();
     app.re_render(&initial_content);
 
     // Query the terminal size now (crossterm works without raw mode) so that

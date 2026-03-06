@@ -38,6 +38,8 @@ pub(crate) struct App {
     pub(crate) images: ImageCache,
     /// Backlinks/two-hop-links panel.
     pub(crate) backlinks: BacklinksPanel,
+    /// syntect theme name for code block syntax highlighting.
+    pub(crate) syntax_theme: String,
 }
 
 impl App {
@@ -63,6 +65,7 @@ impl App {
             nav_history: Vec::new(),
             images: ImageCache::new(protocol_override),
             backlinks: BacklinksPanel::new(),
+            syntax_theme: String::new(),
         }
     }
 
@@ -124,7 +127,7 @@ impl App {
     pub(crate) fn re_render(&mut self, content: &str) {
         let result =
             parser::parse_text_with_persistent_line_tracking(content, &mut self.line_tracker);
-        self.rendered_doc = tui_renderer::render_ast(&result.ast);
+        self.rendered_doc = tui_renderer::render_ast(&result.ast, Some(self.syntax_theme.as_str()));
     }
 
     /// Return a reference to the currently focused item, if any.
