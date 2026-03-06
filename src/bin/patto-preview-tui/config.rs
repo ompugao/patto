@@ -24,11 +24,28 @@ pub struct EditorConfig {
     pub action: EditorAction,
 }
 
+fn default_syntax_theme() -> String {
+    "base16-ocean.dark".to_string()
+}
+
 /// Top-level TUI configuration (`~/.config/patto/patto-preview-tui.toml`).
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TuiConfig {
     #[serde(default)]
     pub editor: EditorConfig,
+    /// syntect theme name for code block syntax highlighting.
+    /// Defaults to `"base16-ocean.dark"` when not set.
+    #[serde(default = "default_syntax_theme")]
+    pub syntax_theme: String,
+}
+
+impl Default for TuiConfig {
+    fn default() -> Self {
+        Self {
+            editor: EditorConfig::default(),
+            syntax_theme: default_syntax_theme(),
+        }
+    }
 }
 
 impl TuiConfig {

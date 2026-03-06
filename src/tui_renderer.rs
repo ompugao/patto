@@ -70,10 +70,10 @@ pub struct RenderedDoc {
 impl RenderedDoc {}
 
 /// Render an AST root node into a flat list of DocElements.
-pub fn render_ast(ast: &AstNode) -> RenderedDoc {
+pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
-    render_node(ast, &mut elements, &mut focusables, 0);
+    render_node(ast, &mut elements, &mut focusables, 0, syntax_theme);
     RenderedDoc {
         elements,
         focusables,
@@ -132,12 +132,13 @@ fn render_node(
     elements: &mut Vec<DocElement>,
     focusables: &mut Vec<FocusableItem>,
     indent: usize,
+    syntax_theme: Option<&str>,
 ) {
     match ast.kind() {
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent);
+                render_node(child, elements, focusables, indent, syntax_theme);
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -158,11 +159,11 @@ fn render_node(
                 // Delegate to the block element renderer
                 let block_node = contents[0].clone();
                 drop(contents);
-                render_node(&block_node, elements, focusables, indent);
+                render_node(&block_node, elements, focusables, indent, syntax_theme);
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    render_node(child, elements, focusables, indent + 1);
+                    render_node(child, elements, focusables, indent + 1, syntax_theme);
                 }
                 return;
             }
@@ -274,13 +275,13 @@ fn render_node(
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent + 1);
+                render_node(child, elements, focusables, indent + 1, syntax_theme);
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent);
+                render_node(child, elements, focusables, indent, syntax_theme);
             }
         }
         AstNodeKind::Math { inline } => {
@@ -301,7 +302,6 @@ fn render_node(
             if *inline {
                 // Handled as inline content in parent Line
             } else {
-                let code_style = Style::default().fg(Color::White).bg(Color::DarkGray);
                 let prefix = if indent > 0 {
                     "  ".repeat(indent)
                 } else {
@@ -326,15 +326,23 @@ fn render_node(
                 }
 
                 let children = ast.value().children.lock().unwrap();
-                for child in children.iter() {
-                    let code_text = child.extract_str().replace('\t', "    ");
-                    elements.push(DocElement::TextLine(
-                        Line::from(vec![
-                            Span::raw(prefix.clone()),
-                            Span::styled(code_text, code_style),
-                        ]),
-                        ast.location().row,
-                    ));
+                let raw_lines: Vec<String> = children
+                    .iter()
+                    .map(|c| c.extract_str().replace('\t', "    "))
+                    .collect();
+                drop(children);
+                let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
+                let highlighted =
+                    crate::syntax_highlight::highlight_code(lang, &raw_refs, syntax_theme);
+                for (line_spans, _raw) in highlighted.into_iter().zip(raw_lines.iter()) {
+                    let mut spans = vec![Span::raw(prefix.clone())];
+                    if line_spans.is_empty() {
+                        // empty line — push a blank styled span to preserve height
+                        spans.push(Span::raw(""));
+                    } else {
+                        spans.extend(line_spans);
+                    }
+                    elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
                 }
             }
         }
