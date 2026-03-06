@@ -1,5 +1,7 @@
 use crate::backlinks::BacklinksPanel;
+use crate::config;
 use crate::image_cache::ImageCache;
+use crate::search::{SearchDirection, SearchState};
 use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
 use patto::{
@@ -9,6 +11,23 @@ use patto::{
     tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
 };
 use std::path::{Path, PathBuf};
+
+/// Action returned by `App::handle_key()` to signal side-effects to the caller.
+///
+/// Follows an Elm-like command pattern: `App` mutates its own state and returns
+/// a command; `main` executes the side-effecting part (terminal manipulation,
+/// spawning processes).
+pub(crate) enum AppAction {
+    /// No side-effect needed; continue the event loop.
+    None,
+    /// Exit the event loop.
+    Quit,
+    /// Launch an external editor. The caller handles terminal suspend/quit/bg.
+    LaunchEditor {
+        cmd: String,
+        action: config::EditorAction,
+    },
+}
 
 /// Saved navigation state for back-navigation.
 pub(crate) struct NavigationEntry {
@@ -40,6 +59,8 @@ pub(crate) struct App {
     pub(crate) backlinks: BacklinksPanel,
     /// syntect theme name for code block syntax highlighting.
     pub(crate) syntax_theme: String,
+    /// Active incremental search state. `None` when no search is active.
+    pub(crate) search: Option<SearchState>,
 }
 
 impl App {
@@ -66,6 +87,7 @@ impl App {
             images: ImageCache::new(protocol_override),
             backlinks: BacklinksPanel::new(),
             syntax_theme: String::new(),
+            search: None,
         }
     }
 
@@ -370,16 +392,82 @@ impl App {
         }
     }
 
+    // --- Search ---
+
+    /// Compute per-element cumulative display row offsets.
+    /// `result[i]` = display row at which element `i` starts.
+    fn elem_display_offsets(&self) -> Vec<usize> {
+        let mut offsets = Vec::with_capacity(self.rendered_doc.elements.len());
+        let mut row = 0usize;
+        for elem in &self.rendered_doc.elements {
+            offsets.push(row);
+            row += self.elem_display_height(elem);
+        }
+        offsets
+    }
+
+    /// Recompute search matches and jump scroll to the current match.
+    fn refresh_search(&mut self) {
+        let offsets = self.elem_display_offsets();
+        if let Some(search) = &mut self.search {
+            search.update_matches(&self.rendered_doc.elements, self.scroll_offset, &offsets);
+        }
+        self.jump_to_current_match();
+    }
+
+    /// Scroll the viewport so the current search match is visible near the top.
+    fn jump_to_current_match(&mut self) {
+        let match_elem_idx = self
+            .search
+            .as_ref()
+            .and_then(|s| s.current_match())
+            .map(|m| m.elem_idx);
+
+        if let Some(elem_idx) = match_elem_idx {
+            let offsets = self.elem_display_offsets();
+            if let Some(&display_row) = offsets.get(elem_idx) {
+                self.scroll_offset = display_row;
+            }
+        }
+    }
+
     // --- Input handling ---
 
-    /// Handle a key event while the backlinks popup is open.
-    /// Returns `true` if the app should quit.
-    pub(crate) async fn handle_backlinks_key(
+    /// Unified key dispatcher (Elm-like update function).
+    ///
+    /// Dispatches to the appropriate sub-handler based on current mode and returns
+    /// an `AppAction` describing any side-effect (`main` should perform.
+    pub(crate) async fn handle_key(
         &mut self,
         repository: &Repository,
         code: KeyCode,
         modifiers: KeyModifiers,
-    ) -> bool {
+        viewport_height: usize,
+        tui_config: &config::TuiConfig,
+    ) -> AppAction {
+        // Mode priority: backlinks popup > search input > normal
+        if self.backlinks.visible {
+            return self
+                .handle_backlinks_key(repository, code, modifiers)
+                .await;
+        }
+
+        if self.search.as_ref().map(|s| s.typing) == Some(true) {
+            self.handle_search_key(code, modifiers);
+            return AppAction::None;
+        }
+
+        self.handle_normal_key(repository, code, modifiers, viewport_height, tui_config)
+            .await
+    }
+
+    /// Handle a key event while the backlinks popup is open.
+    async fn handle_backlinks_key(
+        &mut self,
+        repository: &Repository,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> AppAction {
         match (code, modifiers) {
             (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('b'), _) => {
                 self.backlinks.close();
@@ -401,31 +489,89 @@ impl App {
                     }
                 }
             }
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return AppAction::Quit,
             _ => {}
         }
-        false
+        AppAction::None
     }
 
-    /// Handle a key event in the normal (non-popup) view.
-    /// Returns `true` if the app should quit.
-    /// `viewport_height` is the current terminal height in rows.
-    pub(crate) async fn handle_normal_key(
+    /// Handle a key event while the user is typing a search query.
+    fn handle_search_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        match (code, modifiers) {
+            (KeyCode::Esc, _) => {
+                self.search = None;
+            }
+            (KeyCode::Enter, _) => {
+                if let Some(search) = &mut self.search {
+                    search.confirm();
+                }
+                self.jump_to_current_match();
+            }
+            (KeyCode::Backspace, _) => {
+                if let Some(search) = &mut self.search {
+                    search.query.pop();
+                }
+                self.refresh_search();
+            }
+            (KeyCode::Down, _) => {
+                if let Some(search) = &mut self.search {
+                    search.next_match();
+                }
+                self.jump_to_current_match();
+            }
+            (KeyCode::Up, _) => {
+                if let Some(search) = &mut self.search {
+                    search.prev_match();
+                }
+                self.jump_to_current_match();
+            }
+            (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                if let Some(search) = &mut self.search {
+                    search.query.push(c);
+                }
+                self.refresh_search();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle a key event in normal (non-popup, non-search-input) mode.
+    /// Returns an `AppAction` describing any required side-effect.
+    async fn handle_normal_key(
         &mut self,
         repository: &Repository,
         code: KeyCode,
         modifiers: KeyModifiers,
         viewport_height: usize,
-    ) -> bool {
+        tui_config: &config::TuiConfig,
+    ) -> AppAction {
         match (code, modifiers) {
+            // --- Editor shortcut (moved here from main.rs) ---
+            (KeyCode::Char('e'), KeyModifiers::NONE) if !self.backlinks.visible => {
+                let top_line = self.source_line_at_offset();
+                let line = self.source_line_of_focused_item().unwrap_or(top_line);
+                let file_str = self.file_path.display().to_string();
+                let cmd = crate::build_editor_cmd(&tui_config.editor, &file_str, line, top_line);
+                return AppAction::LaunchEditor {
+                    cmd,
+                    action: tui_config.editor.action.clone(),
+                };
+            }
+
+            // --- Quit / Esc ---
             (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
                 if self.images.fullscreen_src.is_some() {
                     self.images.fullscreen_src = None;
+                } else if self.search.is_some() {
+                    // Esc clears active search results
+                    self.search = None;
                 } else {
-                    return true;
+                    return AppAction::Quit;
                 }
             }
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return AppAction::Quit,
+
+            // --- Scrolling ---
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => self.scroll_down(1),
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.scroll_up(1),
             (KeyCode::PageDown, _)
@@ -444,16 +590,42 @@ impl App {
             }
             (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.scroll_to_top(),
             (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.scroll_to_bottom(),
+
+            // --- Search ---
+            (KeyCode::Char('/'), KeyModifiers::NONE) => {
+                self.search = Some(SearchState::new(SearchDirection::Forward));
+            }
+            (KeyCode::Char('?'), _) => {
+                self.search = Some(SearchState::new(SearchDirection::Backward));
+            }
+            (KeyCode::Char('n'), KeyModifiers::NONE) => {
+                if let Some(search) = &mut self.search {
+                    search.next_match();
+                }
+                self.jump_to_current_match();
+            }
+            (KeyCode::Char('N'), _) => {
+                if let Some(search) = &mut self.search {
+                    search.prev_match();
+                }
+                self.jump_to_current_match();
+            }
+
+            // --- Backlinks ---
             (KeyCode::Char('b'), _) => {
                 self.backlinks.open();
                 self.backlinks.refresh(repository, &self.file_path).await;
             }
+
+            // --- Image size ---
             (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
                 self.images.increase_height();
             }
             (KeyCode::Char('-'), _) => {
                 self.images.decrease_height();
             }
+
+            // --- Enter: activate focused item or close fullscreen ---
             (KeyCode::Enter, _) => {
                 if self.images.fullscreen_src.is_some() {
                     self.images.fullscreen_src = None;
@@ -471,7 +643,6 @@ impl App {
                             let target = if url.contains("://") {
                                 url.clone()
                             } else {
-                                // Local file path — resolve to an absolute file:// URI
                                 let abs = self.root_dir.join(url.as_str());
                                 format!("file://{}", abs.to_string_lossy())
                             };
@@ -480,6 +651,8 @@ impl App {
                     }
                 }
             }
+
+            // --- Back navigation ---
             (KeyCode::Backspace, _)
             | (KeyCode::Char('H'), _)
             | (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
@@ -487,12 +660,16 @@ impl App {
                     self.backlinks.refresh(repository, &self.file_path).await;
                 }
             }
+
+            // --- Focus ---
             (KeyCode::Tab, KeyModifiers::NONE) => {
                 self.focus_next_item();
             }
             (KeyCode::BackTab, _) => {
                 self.focus_prev_item();
             }
+
+            // --- Reload / wrap ---
             (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                 self.images.clear();
                 let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
@@ -503,6 +680,6 @@ impl App {
             }
             _ => {}
         }
-        false
+        AppAction::None
     }
 }
