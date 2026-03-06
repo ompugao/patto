@@ -627,50 +627,131 @@ fn hint_sep() -> Span<'static> {
     Span::styled(" │ ", Style::default().fg(Color::DarkGray))
 }
 
+/// Build right-aligned search status spans and their display width.
+///
+/// Returns `None` when there is no active search to display.
+fn search_right_status(app: &App) -> Option<(Vec<Span<'static>>, u16)> {
+    let search = app.search.as_ref()?;
+
+    let dir_char = match search.direction {
+        SearchDirection::Forward => "/",
+        SearchDirection::Backward => "?",
+    };
+
+    if search.typing {
+        // While typing: show match count on the right only when there are results.
+        if search.query.is_empty() {
+            return None;
+        }
+        let count_text = if search.matches.is_empty() {
+            " no match ".to_string()
+        } else {
+            let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
+            format!(" {}/{} ", cur, search.matches.len())
+        };
+        let width = count_text.chars().count() as u16;
+        Some((
+            vec![Span::styled(
+                count_text,
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            )],
+            width,
+        ))
+    } else {
+        // Confirmed search: show  / query  cur/total  at the right.
+        if search.query.is_empty() {
+            return None;
+        }
+        let (count_text, count_style) = if search.matches.is_empty() {
+            (
+                " no match ".to_string(),
+                Style::default().fg(Color::Red).bg(Color::Black),
+            )
+        } else {
+            let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
+            (
+                format!(" {}/{} ", cur, search.matches.len()),
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            )
+        };
+        let query_text = format!(" {} ", search.query);
+        let dir_width = 1u16;
+        let query_width = query_text.chars().count() as u16;
+        let count_width = count_text.chars().count() as u16;
+        let sep_width = 1u16;
+        let total_width = sep_width + dir_width + query_width + count_width;
+        Some((
+            vec![
+                Span::styled(
+                    "│",
+                    Style::default().fg(Color::DarkGray).bg(Color::DarkGray),
+                ),
+                Span::styled(
+                    dir_char,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .bg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    query_text,
+                    Style::default().fg(Color::White).bg(Color::Black),
+                ),
+                Span::styled(count_text, count_style),
+            ],
+            total_width,
+        ))
+    }
+}
+
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    // Search input mode: show the search prompt instead of the normal status hints.
+    let right = search_right_status(app);
+    let right_width = right.as_ref().map(|(_, w)| *w).unwrap_or(0);
+    let left_width = area.width.saturating_sub(right_width);
+
+    let left_area = Rect { width: left_width, ..area };
+    let right_area = Rect {
+        x: area.x + left_width,
+        y: area.y,
+        width: right_width,
+        height: 1,
+    };
+
+    // Render right-side search status (if any).
+    if let Some((spans, _)) = right {
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black)),
+            right_area,
+        );
+    }
+
+    // Search input mode: show the search prompt on the left instead of hints.
     if let Some(search) = &app.search {
         if search.typing {
             let dir_char = match search.direction {
                 SearchDirection::Forward => "/",
                 SearchDirection::Backward => "?",
             };
-            let match_info = if search.query.is_empty() {
-                String::new()
-            } else if search.matches.is_empty() {
-                "  [no match]".to_string()
-            } else {
-                let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
-                format!("  [{}/{}]", cur, search.matches.len())
-            };
-            let spans = vec![
+            let prompt_spans = vec![
                 Span::styled(
                     dir_char,
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    search.query.clone(),
-                    Style::default().fg(Color::White),
-                ),
-                Span::styled(
-                    "█",
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled(
-                    match_info,
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(search.query.clone(), Style::default().fg(Color::White)),
+                Span::styled("█", Style::default().fg(Color::Yellow)),
             ];
             frame.render_widget(
-                Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black)),
-                area,
+                Paragraph::new(Line::from(prompt_spans))
+                    .style(Style::default().bg(Color::Black)),
+                left_area,
             );
             return;
         }
     }
 
+    // Normal mode: render hint bar on the left.
     let focused_action = app.focused_item().map(|fi| &fi.action);
 
     let mut spans: Vec<Span<'static>> = vec![
@@ -696,9 +777,8 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(hint_desc("search"));
     if let Some(search) = &app.search {
         if !search.matches.is_empty() {
-            let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
             spans.push(key_badge("n/N"));
-            spans.push(hint_desc(&format!("[{}/{}]", cur, search.matches.len())));
+            spans.push(hint_desc("next"));
         }
     }
 
@@ -736,10 +816,9 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         spans.push(hint_desc("back"));
     }
 
-    let status = Line::from(spans);
     frame.render_widget(
-        Paragraph::new(status).style(Style::default().bg(Color::DarkGray)),
-        area,
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray)),
+        left_area,
     );
 }
 
