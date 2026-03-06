@@ -507,11 +507,69 @@ impl App {
                 }
                 self.jump_to_current_match();
             }
-            (KeyCode::Backspace, _) => {
+            // Delete char before cursor: Backspace or C-h
+            (KeyCode::Backspace, _) | (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
                 if let Some(search) = &mut self.search {
-                    search.query.pop();
+                    search.delete_before_cursor();
                 }
                 self.refresh_search();
+            }
+            // Delete char at cursor
+            (KeyCode::Delete, _) => {
+                if let Some(search) = &mut self.search {
+                    search.delete_after_cursor();
+                }
+                self.refresh_search();
+            }
+            // Delete word before cursor (C-w)
+            (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+                if let Some(search) = &mut self.search {
+                    search.delete_word_before_cursor();
+                }
+                self.refresh_search();
+            }
+            // Delete to start of query (C-u)
+            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                if let Some(search) = &mut self.search {
+                    search.delete_to_start();
+                }
+                self.refresh_search();
+            }
+            // Move cursor left one char
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                if let Some(search) = &mut self.search {
+                    search.move_left();
+                }
+            }
+            // Move cursor right one char
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                if let Some(search) = &mut self.search {
+                    search.move_right();
+                }
+            }
+            // Move cursor left one WORD (C-Left or S-Left)
+            (KeyCode::Left, KeyModifiers::CONTROL) | (KeyCode::Left, KeyModifiers::SHIFT) => {
+                if let Some(search) = &mut self.search {
+                    search.move_word_left();
+                }
+            }
+            // Move cursor right one WORD (C-Right or S-Right)
+            (KeyCode::Right, KeyModifiers::CONTROL) | (KeyCode::Right, KeyModifiers::SHIFT) => {
+                if let Some(search) = &mut self.search {
+                    search.move_word_right();
+                }
+            }
+            // Move to start of query (C-b or Home)
+            (KeyCode::Char('b'), KeyModifiers::CONTROL) | (KeyCode::Home, _) => {
+                if let Some(search) = &mut self.search {
+                    search.move_to_start();
+                }
+            }
+            // Move to end of query (C-e or End)
+            (KeyCode::Char('e'), KeyModifiers::CONTROL) | (KeyCode::End, _) => {
+                if let Some(search) = &mut self.search {
+                    search.move_to_end();
+                }
             }
             (KeyCode::Down, _) => {
                 if let Some(search) = &mut self.search {
@@ -527,7 +585,7 @@ impl App {
             }
             (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                 if let Some(search) = &mut self.search {
-                    search.query.push(c);
+                    search.insert_at_cursor(c);
                 }
                 self.refresh_search();
             }

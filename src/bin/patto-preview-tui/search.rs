@@ -26,12 +26,15 @@ pub(crate) struct SearchMatch {
 /// Self-contained search state.
 ///
 /// Separation of concerns (tui-react props/state pattern):
-/// - **State** (persists across renders): `query`, `matches`, `match_idx`, `typing`
+/// - **State** (persists across renders): `query`, `cursor`, `matches`, `match_idx`, `typing`
 /// - **Props** (read by rendering code): all public fields
 pub(crate) struct SearchState {
     pub direction: SearchDirection,
     /// The query string the user is typing.
     pub query: String,
+    /// Cursor position as a **byte offset** into `query` (always on a char boundary).
+    /// Ranges from `0` (before first char) to `query.len()` (after last char).
+    pub cursor: usize,
     /// All matches found in the document.
     pub matches: Vec<SearchMatch>,
     /// Index into `matches` of the current (highlighted) match.
@@ -47,6 +50,7 @@ impl SearchState {
         Self {
             direction,
             query: String::new(),
+            cursor: 0,
             matches: Vec::new(),
             match_idx: None,
             typing: true,
@@ -143,6 +147,140 @@ impl SearchState {
             }
             None => self.matches.len().saturating_sub(1),
         });
+    }
+
+    /// Insert a character at the cursor position and advance the cursor.
+    pub(crate) fn insert_at_cursor(&mut self, c: char) {
+        self.query.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
+    }
+
+    /// Delete the character immediately before the cursor (Backspace / C-h).
+    pub(crate) fn delete_before_cursor(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        // Walk back to the start of the previous char.
+        let prev = self.query[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.query.remove(prev);
+        self.cursor = prev;
+    }
+
+    /// Delete the character at the cursor position (Delete key).
+    pub(crate) fn delete_after_cursor(&mut self) {
+        if self.cursor >= self.query.len() {
+            return;
+        }
+        self.query.remove(self.cursor);
+        // cursor byte position stays the same (now points to next char).
+    }
+
+    /// Delete from the cursor back to the start of the previous WORD (C-w).
+    ///
+    /// Mirrors vim's `c_CTRL-W`: skip trailing whitespace, then delete the
+    /// preceding non-whitespace word.
+    pub(crate) fn delete_word_before_cursor(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let before = &self.query[..self.cursor];
+        // Find start of the word to delete: skip whitespace, then skip non-whitespace.
+        let new_end = before.len();
+        let chars: Vec<(usize, char)> = before.char_indices().collect();
+        let mut i = chars.len();
+        // Skip trailing whitespace.
+        while i > 0 && chars[i - 1].1.is_whitespace() {
+            i -= 1;
+        }
+        // Skip non-whitespace word.
+        while i > 0 && !chars[i - 1].1.is_whitespace() {
+            i -= 1;
+        }
+        let new_cursor = if i == 0 { 0 } else { chars[i].0 };
+        self.query.drain(new_cursor..new_end);
+        self.cursor = new_cursor;
+    }
+
+    /// Delete everything from the start of the query to the cursor (C-u).
+    pub(crate) fn delete_to_start(&mut self) {
+        self.query.drain(..self.cursor);
+        self.cursor = 0;
+    }
+
+    /// Move cursor one character to the left.
+    pub(crate) fn move_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.cursor = self.query[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+    }
+
+    /// Move cursor one character to the right.
+    pub(crate) fn move_right(&mut self) {
+        if self.cursor >= self.query.len() {
+            return;
+        }
+        let c = self.query[self.cursor..].chars().next().unwrap();
+        self.cursor += c.len_utf8();
+    }
+
+    /// Move cursor one WORD to the left (C-Left / S-Left).
+    ///
+    /// Mirrors vim `c_<C-Left>`: skip whitespace backwards, then skip
+    /// non-whitespace backwards.
+    pub(crate) fn move_word_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let chars: Vec<(usize, char)> = self.query[..self.cursor].char_indices().collect();
+        let mut i = chars.len();
+        // Skip whitespace.
+        while i > 0 && chars[i - 1].1.is_whitespace() {
+            i -= 1;
+        }
+        // Skip non-whitespace word.
+        while i > 0 && !chars[i - 1].1.is_whitespace() {
+            i -= 1;
+        }
+        self.cursor = if i == 0 { 0 } else { chars[i].0 };
+    }
+
+    /// Move cursor one WORD to the right (C-Right / S-Right).
+    ///
+    /// Mirrors vim `c_<C-Right>`: skip non-whitespace, then skip whitespace.
+    pub(crate) fn move_word_right(&mut self) {
+        if self.cursor >= self.query.len() {
+            return;
+        }
+        let chars: Vec<(usize, char)> = self.query[self.cursor..].char_indices().collect();
+        let mut i = 0;
+        // Skip non-whitespace.
+        while i < chars.len() && !chars[i].1.is_whitespace() {
+            i += 1;
+        }
+        // Skip whitespace.
+        while i < chars.len() && chars[i].1.is_whitespace() {
+            i += 1;
+        }
+        self.cursor += if i < chars.len() { chars[i].0 } else { self.query.len() - self.cursor };
+    }
+
+    /// Move cursor to the start of the query (C-b / Home).
+    pub(crate) fn move_to_start(&mut self) {
+        self.cursor = 0;
+    }
+
+    /// Move cursor to the end of the query (C-e / End).
+    pub(crate) fn move_to_end(&mut self) {
+        self.cursor = self.query.len();
     }
 
     /// Confirm the search: stop typing, keep results for `n`/`N` navigation.

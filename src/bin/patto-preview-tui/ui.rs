@@ -732,16 +732,32 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                 SearchDirection::Forward => "/",
                 SearchDirection::Backward => "?",
             };
-            let prompt_spans = vec![
+            // Split query at cursor: before | cursor_char_or_block | after
+            let before = search.query[..search.cursor].to_string();
+            let cursor_style = Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD);
+            let (cursor_span, after) = if search.cursor < search.query.len() {
+                let c = search.query[search.cursor..].chars().next().unwrap();
+                let after = search.query[search.cursor + c.len_utf8()..].to_string();
+                (Span::styled(c.to_string(), cursor_style), after)
+            } else {
+                (Span::styled(" ", cursor_style), String::new())
+            };
+            let mut prompt_spans = vec![
                 Span::styled(
                     dir_char,
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(search.query.clone(), Style::default().fg(Color::White)),
-                Span::styled("█", Style::default().fg(Color::Yellow)),
+                Span::styled(before, Style::default().fg(Color::White)),
+                cursor_span,
             ];
+            if !after.is_empty() {
+                prompt_spans.push(Span::styled(after, Style::default().fg(Color::White)));
+            }
             frame.render_widget(
                 Paragraph::new(Line::from(prompt_spans))
                     .style(Style::default().bg(Color::Black)),
