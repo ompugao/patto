@@ -447,9 +447,7 @@ impl App {
     ) -> AppAction {
         // Mode priority: backlinks popup > search input > normal
         if self.backlinks.visible {
-            return self
-                .handle_backlinks_key(repository, code, modifiers)
-                .await;
+            return self.handle_backlinks_key(repository, code, modifiers).await;
         }
 
         if self.search.as_ref().map(|s| s.typing) == Some(true) {

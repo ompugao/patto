@@ -270,7 +270,11 @@ impl SearchState {
         while i < chars.len() && chars[i].1.is_whitespace() {
             i += 1;
         }
-        self.cursor += if i < chars.len() { chars[i].0 } else { self.query.len() - self.cursor };
+        self.cursor += if i < chars.len() {
+            chars[i].0
+        } else {
+            self.query.len() - self.cursor
+        };
     }
 
     /// Move cursor to the start of the query (C-b / Home).

@@ -178,10 +178,7 @@ fn highlight_line_range(line: &Line<'static>, char_start: usize, char_end: usize
 ///
 /// Ranges must not overlap. They are sorted by `char_start` before processing.
 /// Handles syntect's many small fg-only spans correctly by splitting at boundaries.
-fn highlight_line_multi(
-    line: &Line<'static>,
-    ranges: &[(usize, usize, bool)],
-) -> Line<'static> {
+fn highlight_line_multi(line: &Line<'static>, ranges: &[(usize, usize, bool)]) -> Line<'static> {
     if ranges.is_empty() {
         return line.clone();
     }
@@ -229,8 +226,9 @@ fn highlight_line_multi(
                     } else if hl_start > cursor {
                         // Unstyled section before range starts
                         let end = hl_start.min(span_end);
-                        let text: String =
-                            chars[cursor - span_start..end - span_start].iter().collect();
+                        let text: String = chars[cursor - span_start..end - span_start]
+                            .iter()
+                            .collect();
                         if !text.is_empty() {
                             new_spans.push(Span::styled(text, span.style));
                         }
@@ -238,8 +236,9 @@ fn highlight_line_multi(
                     } else {
                         // Highlighted section
                         let end = hl_end.min(span_end);
-                        let text: String =
-                            chars[cursor - span_start..end - span_start].iter().collect();
+                        let text: String = chars[cursor - span_start..end - span_start]
+                            .iter()
+                            .collect();
                         if !text.is_empty() {
                             let hl_style = if is_current {
                                 span.style.bg(Color::Yellow).fg(Color::Black)
@@ -709,7 +708,10 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let right_width = right.as_ref().map(|(_, w)| *w).unwrap_or(0);
     let left_width = area.width.saturating_sub(right_width);
 
-    let left_area = Rect { width: left_width, ..area };
+    let left_area = Rect {
+        width: left_width,
+        ..area
+    };
     let right_area = Rect {
         x: area.x + left_width,
         y: area.y,
@@ -759,8 +761,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                 prompt_spans.push(Span::styled(after, Style::default().fg(Color::White)));
             }
             frame.render_widget(
-                Paragraph::new(Line::from(prompt_spans))
-                    .style(Style::default().bg(Color::Black)),
+                Paragraph::new(Line::from(prompt_spans)).style(Style::default().bg(Color::Black)),
                 left_area,
             );
             return;
