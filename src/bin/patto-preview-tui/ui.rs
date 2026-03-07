@@ -14,6 +14,7 @@ use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
+use crate::search::SearchDirection;
 use crate::wrap::{elem_height, wrap_line, WrapConfig};
 
 pub(crate) fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
@@ -169,7 +170,96 @@ fn highlight_line_range(line: &Line<'static>, char_start: usize, char_end: usize
     Line::from(new_spans)
 }
 
-/// Render a single image cell into `area`.
+/// Produce a new `Line` with multiple character ranges highlighted.
+///
+/// Each entry in `ranges` is `(char_start, char_end, is_current)`:
+/// - `is_current = true`  → current search match: Yellow BG + Black FG
+/// - `is_current = false` → other matches: Magenta BG + Black FG (subtle)
+///
+/// Ranges must not overlap. They are sorted by `char_start` before processing.
+/// Handles syntect's many small fg-only spans correctly by splitting at boundaries.
+fn highlight_line_multi(line: &Line<'static>, ranges: &[(usize, usize, bool)]) -> Line<'static> {
+    if ranges.is_empty() {
+        return line.clone();
+    }
+
+    let mut sorted_ranges = ranges.to_vec();
+    sorted_ranges.sort_by_key(|(s, _, _)| *s);
+
+    // Collect all span boundaries from the source line.
+    let mut new_spans: Vec<Span<'static>> = Vec::new();
+    let mut char_pos = 0usize;
+    let mut range_iter = sorted_ranges.iter().peekable();
+
+    for span in line.spans.iter() {
+        let span_len = span.content.chars().count();
+        let span_start = char_pos;
+        let span_end = char_pos + span_len;
+        char_pos = span_end;
+
+        let mut cursor = span_start;
+        let chars: Vec<char> = span.content.chars().collect();
+
+        while cursor < span_end {
+            // Skip ranges that end before cursor
+            while range_iter.peek().map(|&&(_, e, _)| e <= cursor) == Some(true) {
+                range_iter.next();
+            }
+
+            match range_iter.peek().map(|&&(s, e, c)| (s, e, c)) {
+                None => {
+                    // No more ranges — emit the rest of this span unstyled
+                    let text: String = chars[cursor - span_start..].iter().collect();
+                    if !text.is_empty() {
+                        new_spans.push(Span::styled(text, span.style));
+                    }
+                    cursor = span_end;
+                }
+                Some((hl_start, hl_end, is_current)) => {
+                    if hl_start >= span_end {
+                        // Range starts after this span — emit rest of span unstyled
+                        let text: String = chars[cursor - span_start..].iter().collect();
+                        if !text.is_empty() {
+                            new_spans.push(Span::styled(text, span.style));
+                        }
+                        cursor = span_end;
+                    } else if hl_start > cursor {
+                        // Unstyled section before range starts
+                        let end = hl_start.min(span_end);
+                        let text: String = chars[cursor - span_start..end - span_start]
+                            .iter()
+                            .collect();
+                        if !text.is_empty() {
+                            new_spans.push(Span::styled(text, span.style));
+                        }
+                        cursor = end;
+                    } else {
+                        // Highlighted section
+                        let end = hl_end.min(span_end);
+                        let text: String = chars[cursor - span_start..end - span_start]
+                            .iter()
+                            .collect();
+                        if !text.is_empty() {
+                            let hl_style = if is_current {
+                                span.style.bg(Color::Yellow).fg(Color::Black)
+                            } else {
+                                span.style.bg(Color::Magenta).fg(Color::Black)
+                            };
+                            new_spans.push(Span::styled(text, hl_style));
+                        }
+                        cursor = end;
+                        // If the range ends within this span, consume it
+                        if hl_end <= span_end {
+                            range_iter.next();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Line::from(new_spans)
+}
 ///
 /// If `focused` is true, draws a yellow border around the cell and renders the
 /// image (or placeholder) inside the inner area.  Otherwise renders directly
@@ -322,6 +412,19 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         Some(fi) => (Some(fi.elem_idx), Some((fi.char_start, fi.char_end))),
         None => (None, None),
     };
+    // Snapshot search state for the render pass (avoid repeated borrows of app).
+    let search_matches_snapshot: Vec<(usize, usize, usize, bool)> = app
+        .search
+        .as_ref()
+        .map(|s| {
+            s.matches
+                .iter()
+                .enumerate()
+                .map(|(i, m)| (m.elem_idx, m.char_start, m.char_end, Some(i) == s.match_idx))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let mut y = 0usize;
     for (elem_idx, elem) in app
         .rendered_doc
@@ -340,17 +443,33 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 let lh = true_lh.min(height - y) as u16;
                 let line_area = Rect::new(area.x, area.y + y as u16, area.width, lh);
 
-                if wrap {
-                    // Manual wrapping with showbreak prefix on continuation rows
-                    let base_line = if is_focused {
+                // Build search highlight ranges for this element.
+                let search_ranges: Vec<(usize, usize, bool)> = search_matches_snapshot
+                    .iter()
+                    .filter(|(eidx, _, _, _)| *eidx == elem_idx)
+                    .map(|(_, cs, ce, cur)| (*cs, *ce, *cur))
+                    .collect();
+
+                // Compose highlights: search first, then focus on top.
+                let base_line = {
+                    let after_search = if search_ranges.is_empty() {
+                        line.clone()
+                    } else {
+                        highlight_line_multi(line, &search_ranges)
+                    };
+                    if is_focused {
                         if let Some((cs, ce)) = focused_char_range {
-                            highlight_line_range(line, cs, ce)
+                            highlight_line_range(&after_search, cs, ce)
                         } else {
-                            line.clone()
+                            after_search
                         }
                     } else {
-                        line.clone()
-                    };
+                        after_search
+                    }
+                };
+
+                if wrap {
+                    // Manual wrapping with showbreak prefix on continuation rows
                     let sub_rows = wrap_line(
                         &base_line,
                         &WrapConfig::new(area.width as usize, &showbreak),
@@ -361,16 +480,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                         frame.render_widget(Paragraph::new(sub_row.clone()), row_area);
                     }
                 } else {
-                    let para = if is_focused {
-                        if let Some((cs, ce)) = focused_char_range {
-                            Paragraph::new(highlight_line_range(line, cs, ce))
-                        } else {
-                            Paragraph::new(line.clone())
-                        }
-                    } else {
-                        Paragraph::new(line.clone())
-                    };
-                    frame.render_widget(para, line_area);
+                    frame.render_widget(Paragraph::new(base_line), line_area);
                 }
 
                 // Overlay ↩ at the right edge of every wrapped row that has more content.
@@ -516,30 +626,182 @@ fn hint_sep() -> Span<'static> {
     Span::styled(" │ ", Style::default().fg(Color::DarkGray))
 }
 
+/// Build right-aligned search status spans and their display width.
+///
+/// Returns `None` when there is no active search to display.
+fn search_right_status(app: &App) -> Option<(Vec<Span<'static>>, u16)> {
+    let search = app.search.as_ref()?;
+
+    let dir_char = match search.direction {
+        SearchDirection::Forward => "/",
+        SearchDirection::Backward => "?",
+    };
+
+    if search.typing {
+        // While typing: show match count on the right only when there are results.
+        if search.query.is_empty() {
+            return None;
+        }
+        let count_text = if search.matches.is_empty() {
+            " no match ".to_string()
+        } else {
+            let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
+            format!(" {}/{} ", cur, search.matches.len())
+        };
+        let width = count_text.chars().count() as u16;
+        Some((
+            vec![Span::styled(
+                count_text,
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            )],
+            width,
+        ))
+    } else {
+        // Confirmed search: show  / query  cur/total  at the right.
+        if search.query.is_empty() {
+            return None;
+        }
+        let (count_text, count_style) = if search.matches.is_empty() {
+            (
+                " no match ".to_string(),
+                Style::default().fg(Color::Red).bg(Color::Black),
+            )
+        } else {
+            let cur = search.match_idx.map(|i| i + 1).unwrap_or(0);
+            (
+                format!(" {}/{} ", cur, search.matches.len()),
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            )
+        };
+        let query_text = format!(" {} ", search.query);
+        let dir_width = 1u16;
+        let query_width = query_text.chars().count() as u16;
+        let count_width = count_text.chars().count() as u16;
+        let sep_width = 1u16;
+        let total_width = sep_width + dir_width + query_width + count_width;
+        Some((
+            vec![
+                Span::styled(
+                    "│",
+                    Style::default().fg(Color::DarkGray).bg(Color::DarkGray),
+                ),
+                Span::styled(
+                    dir_char,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .bg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    query_text,
+                    Style::default().fg(Color::White).bg(Color::Black),
+                ),
+                Span::styled(count_text, count_style),
+            ],
+            total_width,
+        ))
+    }
+}
+
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let right = search_right_status(app);
+    let right_width = right.as_ref().map(|(_, w)| *w).unwrap_or(0);
+    let left_width = area.width.saturating_sub(right_width);
+
+    let left_area = Rect {
+        width: left_width,
+        ..area
+    };
+    let right_area = Rect {
+        x: area.x + left_width,
+        y: area.y,
+        width: right_width,
+        height: 1,
+    };
+
+    // Render right-side search status (if any).
+    if let Some((spans, _)) = right {
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black)),
+            right_area,
+        );
+    }
+
+    // Search input mode: show the search prompt on the left instead of hints.
+    if let Some(search) = &app.search {
+        if search.typing {
+            let dir_char = match search.direction {
+                SearchDirection::Forward => "/",
+                SearchDirection::Backward => "?",
+            };
+            // Split query at cursor: before | cursor_char_or_block | after
+            let before = search.query[..search.cursor].to_string();
+            let cursor_style = Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD);
+            let (cursor_span, after) = if search.cursor < search.query.len() {
+                let c = search.query[search.cursor..].chars().next().unwrap();
+                let after = search.query[search.cursor + c.len_utf8()..].to_string();
+                (Span::styled(c.to_string(), cursor_style), after)
+            } else {
+                (Span::styled(" ", cursor_style), String::new())
+            };
+            let mut prompt_spans = vec![
+                Span::styled(
+                    dir_char,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(before, Style::default().fg(Color::White)),
+                cursor_span,
+            ];
+            if !after.is_empty() {
+                prompt_spans.push(Span::styled(after, Style::default().fg(Color::White)));
+            }
+            frame.render_widget(
+                Paragraph::new(Line::from(prompt_spans)).style(Style::default().bg(Color::Black)),
+                left_area,
+            );
+            return;
+        }
+    }
+
+    // Normal mode: render hint bar on the left.
     let focused_action = app.focused_item().map(|fi| &fi.action);
 
-    let mut spans: Vec<Span<'static>> = Vec::new();
-
-    // Group 1: Quit
-    spans.push(key_badge("q"));
-    spans.push(hint_desc("quit"));
-
-    spans.push(hint_sep());
-
-    // Group 2: Scroll
-    spans.push(key_badge("j/k"));
-    spans.push(hint_desc("↕1"));
-    spans.push(key_badge("^F/^B"));
-    spans.push(hint_desc("page"));
-    spans.push(key_badge("^D/^U"));
-    spans.push(hint_desc("½pg"));
-    spans.push(key_badge("g/G"));
-    spans.push(hint_desc("top/end"));
+    let mut spans: Vec<Span<'static>> = vec![
+        // Group 1: Quit
+        key_badge("q"),
+        hint_desc("quit"),
+        hint_sep(),
+        // Group 2: Scroll
+        key_badge("j/k"),
+        hint_desc("↕1"),
+        key_badge("^F/^B"),
+        hint_desc("page"),
+        key_badge("^D/^U"),
+        hint_desc("½pg"),
+        key_badge("g/G"),
+        hint_desc("top/end"),
+    ];
 
     spans.push(hint_sep());
 
-    // Group 3: Focus / Action
+    // Group 3: Search
+    spans.push(key_badge("/"));
+    spans.push(hint_desc("search"));
+    if let Some(search) = &app.search {
+        if !search.matches.is_empty() {
+            spans.push(key_badge("n/N"));
+            spans.push(hint_desc("next"));
+        }
+    }
+
+    spans.push(hint_sep());
+
+    // Group 4: Focus / Action
     spans.push(key_badge("Tab/S-Tab"));
     spans.push(hint_desc("focus"));
     if let Some(action) = focused_action {
@@ -554,7 +816,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     spans.push(hint_sep());
 
-    // Group 4: Tools
+    // Group 5: Tools
     spans.push(key_badge("b"));
     spans.push(hint_desc("backlinks"));
     spans.push(key_badge("+/-"));
@@ -564,17 +826,16 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(key_badge("r/^L"));
     spans.push(hint_desc("reload"));
 
-    // Group 5: Back (conditional)
+    // Group 6: Back (conditional)
     if !app.nav_history.is_empty() {
         spans.push(hint_sep());
         spans.push(key_badge("BS/^O"));
         spans.push(hint_desc("back"));
     }
 
-    let status = Line::from(spans);
     frame.render_widget(
-        Paragraph::new(status).style(Style::default().bg(Color::DarkGray)),
-        area,
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray)),
+        left_area,
     );
 }
 

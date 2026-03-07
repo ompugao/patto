@@ -3,6 +3,7 @@ mod backlinks;
 mod config;
 mod image_cache;
 mod math_render;
+mod search;
 mod ui;
 mod wrap;
 
@@ -156,7 +157,7 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
-                Ok((stream, addr)) => {
+                Ok((stream, _addr)) => {
                     let repo = repository.clone();
                     tokio::spawn(async move {
                         let (reader, writer) = tokio::io::split(stream);
@@ -166,7 +167,7 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
                         //eprintln!("Preview TUI LSP connection {} closed", addr);
                     });
                 }
-                Err(err) => {
+                Err(_err) => {
                     //eprintln!("Preview TUI LSP accept error: {err}");
                 }
             }
@@ -181,16 +182,13 @@ async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std
 ///
 /// - `{line}`     — source line of the focused item (Tab-selected), or `top_line` if nothing focused.
 /// - `{top_line}` — first visible source line of the viewport.
-fn build_editor_cmd(
+pub(crate) fn build_editor_cmd(
     editor: &config::EditorConfig,
     file: &str,
     line: usize,
     top_line: usize,
 ) -> String {
-    let template = editor.cmd.as_deref().unwrap_or_else(|| {
-        // Checked at call time via env var; return a static placeholder
-        ""
-    });
+    let template = editor.cmd.as_deref().unwrap_or("");
 
     if template.is_empty() {
         // Fall back to $EDITOR or $VISUAL
@@ -296,60 +294,49 @@ async fn main() -> anyhow::Result<()> {
             event = event_stream.next() => {
                 match event {
                     Some(Ok(Event::Key(KeyEvent { code, modifiers, .. }))) => {
-                        // Intercept 'e' to launch editor before normal key handling
-                        if !app.backlinks.visible
-                            && code == crossterm::event::KeyCode::Char('e')
-                            && modifiers == crossterm::event::KeyModifiers::NONE
-                        {
-                            let top_line = app.source_line_at_offset();
-                            let line = app.source_line_of_focused_item().unwrap_or(top_line);
-                            let file_str = app.file_path.display().to_string();
-
-                            // Build the shell command string
-                            let cmd = build_editor_cmd(&tui_config.editor, &file_str, line, top_line);
-
-                            use config::EditorAction;
-                            match tui_config.editor.action {
-                                EditorAction::Suspend => {
-                                    disable_raw_mode()?;
-                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                    let _ = std::process::Command::new("sh")
-                                        .arg("-c")
-                                        .arg(&cmd)
-                                        .spawn()
-                                        .and_then(|mut c| c.wait());
-                                    enable_raw_mode()?;
-                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                    terminal.clear()?;
-                                }
-                                EditorAction::Quit => {
-                                    disable_raw_mode()?;
-                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                    terminal.show_cursor()?;
-                                    let _ = std::process::Command::new("sh")
-                                        .arg("-c")
-                                        .arg(&cmd)
-                                        .spawn()
-                                        .and_then(|mut c| c.wait());
-                                    std::process::exit(0);
-                                }
-                                EditorAction::Background => {
-                                    let _ = tokio::process::Command::new("sh")
-                                        .arg("-c")
-                                        .arg(&cmd)
-                                        .spawn();
+                        let vh = terminal.size()?.height as usize;
+                        let action = app
+                            .handle_key(&repository, code, modifiers, vh, &tui_config)
+                            .await;
+                        use app::AppAction;
+                        match action {
+                            AppAction::Quit => break,
+                            AppAction::LaunchEditor { cmd, action } => {
+                                use config::EditorAction;
+                                match action {
+                                    EditorAction::Suspend => {
+                                        disable_raw_mode()?;
+                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                        let _ = std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(&cmd)
+                                            .spawn()
+                                            .and_then(|mut c| c.wait());
+                                        enable_raw_mode()?;
+                                        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                        terminal.clear()?;
+                                    }
+                                    EditorAction::Quit => {
+                                        disable_raw_mode()?;
+                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                        terminal.show_cursor()?;
+                                        let _ = std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(&cmd)
+                                            .spawn()
+                                            .and_then(|mut c| c.wait());
+                                        std::process::exit(0);
+                                    }
+                                    EditorAction::Background => {
+                                        let _ = tokio::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(&cmd)
+                                            .spawn();
+                                    }
                                 }
                             }
-                            continue;
+                            AppAction::None => {}
                         }
-
-                        let vh = terminal.size()?.height as usize;
-                        let quit = if app.backlinks.visible {
-                            app.handle_backlinks_key(&repository, code, modifiers).await
-                        } else {
-                            app.handle_normal_key(&repository, code, modifiers, vh).await
-                        };
-                        if quit { break; }
                     }
                     Some(Ok(Event::Resize(_, _))) => {
                         // Terminal resized — redraw handled by the loop
