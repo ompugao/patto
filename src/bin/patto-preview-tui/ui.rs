@@ -1,4 +1,6 @@
 use crate::backlinks::FlatEntry;
+use crate::config::TasksPanelPosition;
+use crate::tasks::TaskEntry;
 use patto::tui_renderer::{DocElement, LinkAction};
 use ratatui::{
     buffer::Buffer,
@@ -39,6 +41,10 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
 
     if app.backlinks.visible {
         draw_backlinks_popup(frame, app);
+    }
+
+    if app.tasks.visible {
+        draw_tasks_panel(frame, app);
     }
 }
 
@@ -819,6 +825,8 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     // Group 5: Tools
     spans.push(key_badge("b"));
     spans.push(hint_desc("backlinks"));
+    spans.push(key_badge("T"));
+    spans.push(hint_desc("tasks"));
     spans.push(key_badge("+/-"));
     spans.push(hint_desc(&format!("img({})", app.images.height_rows)));
     spans.push(key_badge("w"));
@@ -993,4 +1001,145 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
         Paragraph::new(hint).style(Style::default().bg(Color::DarkGray)),
         chunks[1],
     );
+}
+
+fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
+    let content_area = {
+        let full = frame.area();
+        // Reserve top title bar (1 row) and bottom status bar (1 row).
+        Rect {
+            x: full.x,
+            y: full.y + 1,
+            width: full.width,
+            height: full.height.saturating_sub(2),
+        }
+    };
+
+    let cfg = &app.tui_config.tasks;
+    let panel_w = ((content_area.width as f64 * cfg.width.clamp(0.05, 1.0)) as u16).max(20);
+    let panel_h = ((content_area.height as f64 * cfg.height.clamp(0.05, 1.0)) as u16).max(3);
+
+    let (panel_x, panel_y) = match cfg.position {
+        TasksPanelPosition::BottomRight => (
+            content_area.x + content_area.width.saturating_sub(panel_w),
+            content_area.y + content_area.height.saturating_sub(panel_h),
+        ),
+        TasksPanelPosition::BottomLeft => (
+            content_area.x,
+            content_area.y + content_area.height.saturating_sub(panel_h),
+        ),
+        TasksPanelPosition::TopRight => (
+            content_area.x + content_area.width.saturating_sub(panel_w),
+            content_area.y,
+        ),
+        TasksPanelPosition::TopLeft => (content_area.x, content_area.y),
+    };
+
+    let area = Rect {
+        x: panel_x,
+        y: panel_y,
+        width: panel_w,
+        height: panel_h,
+    };
+
+    // Clear the region behind the panel.
+    frame.render_widget(Clear, area);
+
+    let inner_width = area.width.saturating_sub(2) as usize; // inside borders
+
+    let block = Block::default()
+        .title(" Tasks ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let selected = app.tasks.list_state.selected;
+    let entries = &app.tasks.entries;
+    let total = entries.len();
+
+    if total == 0 {
+        frame.render_widget(
+            Paragraph::new("(no tasks)").style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
+    // Simple manual scroll: ensure selected item is visible.
+    let inner_h = inner.height as usize;
+    let scroll_offset = if let Some(sel) = selected {
+        if sel >= inner_h {
+            sel + 1 - inner_h
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, entry) in entries.iter().enumerate().skip(scroll_offset) {
+        if lines.len() >= inner_h {
+            break;
+        }
+        let is_sel = selected == Some(i);
+        match entry {
+            TaskEntry::SectionHeader(title) => {
+                lines.push(Line::from(Span::styled(
+                    title.clone(),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+            TaskEntry::Placeholder(msg) => {
+                lines.push(Line::from(Span::styled(
+                    msg.clone(),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            TaskEntry::TaskItem {
+                text,
+                file_name,
+                due_str,
+                category,
+                ..
+            } => {
+                use crate::tasks::DeadlineCategory;
+                let base_style = match category {
+                    DeadlineCategory::Overdue => Style::default().fg(Color::Red),
+                    DeadlineCategory::Today => Style::default().fg(Color::Yellow),
+                    _ => Style::default().fg(Color::White),
+                };
+                let row_style = if is_sel {
+                    base_style.add_modifier(Modifier::REVERSED)
+                } else {
+                    base_style
+                };
+
+                // Format: "> [due] text  file" truncated to fit inner width
+                let prefix = if is_sel { "> " } else { "  " };
+                let date_part = if due_str.is_empty() {
+                    String::new()
+                } else {
+                    format!("[{}] ", due_str)
+                };
+                let suffix = format!(" {}", file_name);
+                // Available space for task text
+                let fixed_len = prefix.len() + date_part.len() + suffix.len();
+                let text_max = inner_width.saturating_sub(fixed_len);
+                let truncated_text = if text.chars().count() > text_max {
+                    let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
+                    format!("{}…", s)
+                } else {
+                    text.clone()
+                };
+                let row_text = format!("{}{}{}{}", prefix, date_part, truncated_text, suffix);
+                lines.push(Line::from(Span::styled(row_text, row_style)));
+            }
+        }
+    }
+
+    frame.render_widget(Paragraph::new(lines), inner);
 }

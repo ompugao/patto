@@ -13,7 +13,7 @@ use tower_lsp::{Client, LanguageServer};
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
-    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
+    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule,
 };
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
@@ -188,23 +188,6 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
 
     for child in parent.value().children.lock().unwrap().iter() {
         gather_anchors(child, anchors);
-    }
-}
-
-fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Task { status, due, .. } = prop {
-                if !matches!(status, TaskStatus::Done) {
-                    tasklines.push((parent.clone(), due.clone()));
-                    break;
-                }
-            }
-        }
-    }
-
-    for child in parent.value().children.lock().unwrap().iter() {
-        gather_tasks(child, tasklines);
     }
 }
 
@@ -973,20 +956,11 @@ impl LanguageServer for Backend {
 
         match params.command.as_str() {
             "experimental/aggregate_tasks" => {
-                let mut tasks: Vec<(Url, AstNode, Deadline)> = vec![];
-
                 let repo_bind = self.repository.lock().unwrap();
                 let Some(repo) = repo_bind.as_ref() else {
                     return Ok(None);
                 };
-                repo.ast_map.iter().for_each(|entry| {
-                    let mut tasklines = vec![];
-                    gather_tasks(entry.value(), &mut tasklines);
-                    tasklines.into_iter().for_each(|(line, due)| {
-                        tasks.push((entry.key().clone(), line.clone(), due.clone()));
-                    });
-                });
-                tasks.sort_by_key(|(_uri, _line, due): &(_, _, Deadline)| due.clone());
+                let tasks = repo.aggregate_tasks();
                 let ret = json!(tasks
                     .iter()
                     .map(|(uri, line, due)| {
@@ -998,9 +972,6 @@ impl LanguageServer for Backend {
                         )
                     })
                     .collect::<Vec<_>>());
-                //self.client
-                //    .log_message(MessageType::INFO, format!("response: {:?}", ret))
-                //    .await;
                 return Ok(Some(ret));
             }
             "experimental/retrieve_two_hop_notes" => {
