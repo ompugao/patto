@@ -1,5 +1,48 @@
 use serde::Deserialize;
 
+/// Position of the floating tasks panel within the content area.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TasksPanelPosition {
+    #[default]
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
+}
+
+fn default_tasks_width() -> f64 {
+    0.4
+}
+
+fn default_tasks_height() -> f64 {
+    0.3
+}
+
+/// Configuration for the floating tasks panel.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TasksPanelConfig {
+    /// Which corner of the content area to anchor the panel to.
+    #[serde(default)]
+    pub position: TasksPanelPosition,
+    /// Panel width as a fraction of the content area width (0.0 – 1.0).
+    #[serde(default = "default_tasks_width")]
+    pub width: f64,
+    /// Panel height as a fraction of the content area height (0.0 – 1.0).
+    #[serde(default = "default_tasks_height")]
+    pub height: f64,
+}
+
+impl Default for TasksPanelConfig {
+    fn default() -> Self {
+        Self {
+            position: TasksPanelPosition::default(),
+            width: default_tasks_width(),
+            height: default_tasks_height(),
+        }
+    }
+}
+
 /// What the TUI does after launching the editor command.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -37,6 +80,9 @@ pub struct TuiConfig {
     /// Defaults to `"base16-ocean.dark"` when not set.
     #[serde(default = "default_syntax_theme")]
     pub syntax_theme: String,
+    /// Floating tasks panel appearance and position.
+    #[serde(default)]
+    pub tasks: TasksPanelConfig,
 }
 
 impl Default for TuiConfig {
@@ -44,6 +90,7 @@ impl Default for TuiConfig {
         Self {
             editor: EditorConfig::default(),
             syntax_theme: default_syntax_theme(),
+            tasks: TasksPanelConfig::default(),
         }
     }
 }

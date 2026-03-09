@@ -12,7 +12,7 @@ use tokio::time::sleep;
 use tower_lsp::lsp_types::Url;
 use urlencoding::encode;
 
-use crate::parser::{self, AstNode, Location};
+use crate::parser::{self, AstNode, AstNodeKind, Deadline, Location, Property, TaskStatus};
 
 // ---------------------------------------------------------------------------
 // Workspace config (.patto.toml in notes directory)
@@ -689,6 +689,22 @@ impl Repository {
             .send(RepositoryMessage::TwoHopLinksChanged(path, two_hop_links));
     }
 
+    /// Collect all non-Done tasks across the entire workspace, sorted by deadline.
+    ///
+    /// Returns `(uri, ast_node, deadline)` tuples where `ast_node` is the task line.
+    pub fn aggregate_tasks(&self) -> Vec<(Url, AstNode, Deadline)> {
+        let mut tasks: Vec<(Url, AstNode, Deadline)> = Vec::new();
+        self.ast_map.iter().for_each(|entry| {
+            let mut tasklines = Vec::new();
+            gather_tasks(entry.value(), &mut tasklines);
+            for (node, due) in tasklines {
+                tasks.push((entry.key().clone(), node, due));
+            }
+        });
+        tasks.sort_by_key(|(_, _, due)| due.clone());
+        tasks
+    }
+
     /// Start filesystem watcher for the repository
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
@@ -855,5 +871,22 @@ impl Repository {
         });
 
         Ok(())
+    }
+}
+
+/// Recursively collect non-Done task lines from an AST node.
+pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
+        for prop in properties {
+            if let Property::Task { status, due, .. } = prop {
+                if !matches!(status, TaskStatus::Done) {
+                    tasklines.push((parent.clone(), due.clone()));
+                    break;
+                }
+            }
+        }
+    }
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_tasks(child, tasklines);
     }
 }

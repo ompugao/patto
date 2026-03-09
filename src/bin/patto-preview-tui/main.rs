@@ -4,6 +4,7 @@ mod config;
 mod image_cache;
 mod math_render;
 mod search;
+mod tasks;
 mod ui;
 mod wrap;
 
@@ -207,7 +208,6 @@ pub(crate) fn build_editor_cmd(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let tui_config = config::TuiConfig::load();
 
     let file_path = std::fs::canonicalize(PathBuf::from(&args.file)).unwrap_or_else(|_| {
         eprintln!("Cannot find file: {}", args.file);
@@ -255,7 +255,9 @@ async fn main() -> anyhow::Result<()> {
         app.wrap = false;
     }
     app.showbreak = args.showbreak.clone();
+    let tui_config = config::TuiConfig::load();
     app.syntax_theme = tui_config.syntax_theme.clone();
+    app.tui_config = tui_config;
     app.re_render(&initial_content);
 
     // Query the terminal size now (crossterm works without raw mode) so that
@@ -296,7 +298,7 @@ async fn main() -> anyhow::Result<()> {
                     Some(Ok(Event::Key(KeyEvent { code, modifiers, .. }))) => {
                         let vh = terminal.size()?.height as usize;
                         let action = app
-                            .handle_key(&repository, code, modifiers, vh, &tui_config)
+                            .handle_key(&repository, code, modifiers, vh)
                             .await;
                         use app::AppAction;
                         match action {

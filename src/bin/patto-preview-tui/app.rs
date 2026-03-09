@@ -2,6 +2,7 @@ use crate::backlinks::BacklinksPanel;
 use crate::config;
 use crate::image_cache::ImageCache;
 use crate::search::{SearchDirection, SearchState};
+use crate::tasks::TasksPanel;
 use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
 use patto::{
@@ -35,6 +36,15 @@ pub(crate) struct NavigationEntry {
     pub(crate) scroll_offset: usize,
 }
 
+/// Snapshot of the view taken when the tasks panel is opened, so that `Esc`
+/// can restore it without committing a navigation history entry.
+pub(crate) struct TaskPreviewState {
+    pub(crate) file_path: PathBuf,
+    pub(crate) scroll_offset: usize,
+    /// Raw file content; re-rendered on restore to avoid requiring Clone on RenderedDoc.
+    pub(crate) content: String,
+}
+
 pub(crate) struct App {
     pub(crate) file_path: PathBuf,
     /// Workspace root directory.
@@ -57,6 +67,12 @@ pub(crate) struct App {
     pub(crate) images: ImageCache,
     /// Backlinks/two-hop-links panel.
     pub(crate) backlinks: BacklinksPanel,
+    /// Tasks panel.
+    pub(crate) tasks: TasksPanel,
+    /// Snapshot saved when tasks panel opens; restored on Esc.
+    pub(crate) task_preview_state: Option<TaskPreviewState>,
+    /// TUI configuration (loaded once at startup).
+    pub(crate) tui_config: config::TuiConfig,
     /// syntect theme name for code block syntax highlighting.
     pub(crate) syntax_theme: String,
     /// Active incremental search state. `None` when no search is active.
@@ -86,6 +102,9 @@ impl App {
             nav_history: Vec::new(),
             images: ImageCache::new(protocol_override),
             backlinks: BacklinksPanel::new(),
+            tasks: TasksPanel::new(),
+            task_preview_state: None,
+            tui_config: config::TuiConfig::default(),
             syntax_theme: String::new(),
             search: None,
         }
@@ -443,9 +462,12 @@ impl App {
         code: KeyCode,
         modifiers: KeyModifiers,
         viewport_height: usize,
-        tui_config: &config::TuiConfig,
     ) -> AppAction {
-        // Mode priority: backlinks popup > search input > normal
+        // Mode priority: tasks panel > backlinks popup > search input > normal
+        if self.tasks.visible {
+            return self.handle_tasks_key(repository, code, modifiers).await;
+        }
+
         if self.backlinks.visible {
             return self.handle_backlinks_key(repository, code, modifiers).await;
         }
@@ -455,7 +477,7 @@ impl App {
             return AppAction::None;
         }
 
-        self.handle_normal_key(repository, code, modifiers, viewport_height, tui_config)
+        self.handle_normal_key(repository, code, modifiers, viewport_height)
             .await
     }
 
@@ -491,6 +513,98 @@ impl App {
             _ => {}
         }
         AppAction::None
+    }
+
+    /// Handle a key event while the tasks panel is open.
+    async fn handle_tasks_key(
+        &mut self,
+        repository: &Repository,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> AppAction {
+        match (code, modifiers) {
+            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('T'), _) => {
+                self.close_tasks_panel();
+            }
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                self.tasks.navigate_down();
+                self.load_task_preview(repository).await;
+            }
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                self.tasks.navigate_up();
+                self.load_task_preview(repository).await;
+            }
+            (KeyCode::Enter, _) => {
+                if let Some((uri, line)) = self.tasks.resolve_cursor() {
+                    // Commit the navigation: drop preview state, keep current view.
+                    self.task_preview_state = None;
+                    self.tasks.close();
+                    if let Some(path) = uri.to_file_path().ok() {
+                        if path != self.file_path {
+                            // Push history so the user can go back.
+                            let content = match std::fs::read_to_string(&path) {
+                                Ok(c) => c,
+                                Err(_) => return AppAction::None,
+                            };
+                            self.nav_history.push(crate::app::NavigationEntry {
+                                file_path: self.file_path.clone(),
+                                scroll_offset: self.scroll_offset,
+                            });
+                            self.file_path = path;
+                            self.re_render(&content);
+                        }
+                        self.scroll_to_line(line);
+                    }
+                }
+            }
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => return AppAction::Quit,
+            _ => {}
+        }
+        AppAction::None
+    }
+
+    /// Open the tasks panel: save current view as a preview snapshot, then
+    /// load the first task's file as the background preview.
+    pub(crate) async fn open_tasks_panel(&mut self, repository: &Repository) {
+        // Mutually exclusive with backlinks.
+        self.backlinks.close();
+        // Save current view (store raw content so we can re-render on restore).
+        let saved_content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
+        self.task_preview_state = Some(TaskPreviewState {
+            file_path: self.file_path.clone(),
+            scroll_offset: self.scroll_offset,
+            content: saved_content,
+        });
+        self.tasks.refresh(repository);
+        self.tasks.open();
+        self.load_task_preview(repository).await;
+    }
+
+    /// Restore the view snapshot saved when the tasks panel was opened.
+    fn close_tasks_panel(&mut self) {
+        if let Some(state) = self.task_preview_state.take() {
+            self.file_path = state.file_path;
+            self.scroll_offset = state.scroll_offset;
+            self.re_render(&state.content);
+        }
+        self.tasks.close();
+    }
+
+    /// Load the file of the currently selected task into the main view (preview).
+    async fn load_task_preview(&mut self, _repository: &Repository) {
+        let Some((uri, line)) = self.tasks.resolve_cursor() else {
+            return;
+        };
+        let Ok(path) = uri.to_file_path() else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        // Update file path + rendered content without touching nav history.
+        self.file_path = path;
+        self.re_render(&content);
+        self.scroll_to_line(line);
     }
 
     /// Handle a key event while the user is typing a search query.
@@ -599,7 +713,6 @@ impl App {
         code: KeyCode,
         modifiers: KeyModifiers,
         viewport_height: usize,
-        tui_config: &config::TuiConfig,
     ) -> AppAction {
         match (code, modifiers) {
             // --- Editor shortcut (moved here from main.rs) ---
@@ -607,10 +720,11 @@ impl App {
                 let top_line = self.source_line_at_offset();
                 let line = self.source_line_of_focused_item().unwrap_or(top_line);
                 let file_str = self.file_path.display().to_string();
-                let cmd = crate::build_editor_cmd(&tui_config.editor, &file_str, line, top_line);
+                let cmd =
+                    crate::build_editor_cmd(&self.tui_config.editor, &file_str, line, top_line);
                 return AppAction::LaunchEditor {
                     cmd,
-                    action: tui_config.editor.action.clone(),
+                    action: self.tui_config.editor.action.clone(),
                 };
             }
 
@@ -671,6 +785,11 @@ impl App {
             (KeyCode::Char('b'), _) => {
                 self.backlinks.open();
                 self.backlinks.refresh(repository, &self.file_path).await;
+            }
+
+            // --- Tasks ---
+            (KeyCode::Char('T'), _) => {
+                self.open_tasks_panel(repository).await;
             }
 
             // --- Image size ---
