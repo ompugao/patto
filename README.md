@@ -135,6 +135,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+**v0.4.3** - patto-preview-tui: syntect syntax highlighting for code blocks, vim-like `/`/`?` search with cmdline editing, task view panel (`T`) grouped by deadline category
 **v0.4.2** - patto-preview-tui enhancements: math rendering via typst, text wrapping, TCP LSP backend, extensible editor integration with Neovim viewport sync, tui-widget-list for backlinks panel; PDF embedding via `@embed ./file.pdf`; `@embed`/`@img` syntax unification with LSP diagnostics (local paths now require `./` prefix)
 **v0.4.1** - Add TUI previewer
 **v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
