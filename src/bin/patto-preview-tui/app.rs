@@ -834,6 +834,11 @@ impl App {
                             }
                         }
                         LinkAction::JumpToAnchor { anchor } => {
+                            // Save current position for back-navigation
+                            self.nav_history.push(NavigationEntry {
+                                file_path: self.file_path.clone(),
+                                scroll_offset: self.scroll_offset,
+                            });
                             self.scroll_to_anchor(anchor);
                         }
                         LinkAction::OpenUrl(url) => {
