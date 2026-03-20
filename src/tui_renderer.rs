@@ -175,11 +175,25 @@ fn render_node(
                 // Delegate to the block element renderer
                 let block_node = contents[0].clone();
                 drop(contents);
-                render_node(&block_node, elements, focusables, anchors, indent, syntax_theme);
+                render_node(
+                    &block_node,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                );
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    render_node(child, elements, focusables, anchors, indent + 1, syntax_theme);
+                    render_node(
+                        child,
+                        elements,
+                        focusables,
+                        anchors,
+                        indent + 1,
+                        syntax_theme,
+                    );
                 }
                 return;
             }
@@ -299,7 +313,14 @@ fn render_node(
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent + 1, syntax_theme);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent + 1,
+                    syntax_theme,
+                );
             }
         }
         AstNodeKind::Quote => {
