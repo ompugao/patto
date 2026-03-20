@@ -91,6 +91,7 @@ impl App {
             rendered_doc: RenderedDoc {
                 elements: Vec::new(),
                 focusables: Vec::new(),
+                anchors: std::collections::HashMap::new(),
             },
             scroll_offset: 0,
             viewport_height: 24,
@@ -333,11 +334,29 @@ impl App {
     /// Try to scroll to a heading/anchor matching the given text.
     fn scroll_to_anchor(&mut self, anchor: &str) {
         let anchor_lower = anchor.to_lowercase();
+
+        // First, try exact anchor match via the anchor map
+        if let Some(&elem_idx) = self.rendered_doc.anchors.get(&anchor_lower) {
+            // Calculate scroll offset by summing heights of elements before target
+            let mut row = 0usize;
+            for (i, elem) in self.rendered_doc.elements.iter().enumerate() {
+                if i == elem_idx {
+                    self.scroll_offset = row;
+                    return;
+                }
+                row += self.elem_display_height(elem);
+            }
+        }
+
+        // Fallback: text-based search (skip self-links by requiring the anchor
+        // to appear at the start of non-whitespace content)
         let mut row = 0usize;
         for elem in &self.rendered_doc.elements {
             if let DocElement::TextLine(line, _) = elem {
                 let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-                if text.to_lowercase().contains(&anchor_lower) {
+                let trimmed = text.trim_start();
+                // Match if line starts with the anchor text (heading-like)
+                if trimmed.to_lowercase().starts_with(&anchor_lower) {
                     self.scroll_offset = row;
                     return;
                 }
@@ -813,6 +832,9 @@ impl App {
                             if self.open_note(name, anchor.as_deref()) {
                                 self.backlinks.refresh(repository, &self.file_path).await;
                             }
+                        }
+                        LinkAction::JumpToAnchor { anchor } => {
+                            self.scroll_to_anchor(anchor);
                         }
                         LinkAction::OpenUrl(url) => {
                             let target = if url.contains("://") {
