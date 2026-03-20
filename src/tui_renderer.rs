@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -12,6 +14,8 @@ pub enum LinkAction {
         name: String,
         anchor: Option<String>,
     },
+    /// Jump to an anchor within the current document (self-link).
+    JumpToAnchor { anchor: String },
     /// Open a URL in the system browser.
     OpenUrl(String),
     /// View an image fullscreen.
@@ -65,6 +69,8 @@ pub struct RenderedDoc {
     pub elements: Vec<DocElement>,
     /// All focusable items (links, images) in document order.
     pub focusables: Vec<FocusableItem>,
+    /// Map from anchor name to element index.
+    pub anchors: HashMap<String, usize>,
 }
 
 impl RenderedDoc {}
@@ -73,10 +79,19 @@ impl RenderedDoc {}
 pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
-    render_node(ast, &mut elements, &mut focusables, 0, syntax_theme);
+    let mut anchors = HashMap::new();
+    render_node(
+        ast,
+        &mut elements,
+        &mut focusables,
+        &mut anchors,
+        0,
+        syntax_theme,
+    );
     RenderedDoc {
         elements,
         focusables,
+        anchors,
     }
 }
 
@@ -131,6 +146,7 @@ fn render_node(
     ast: &AstNode,
     elements: &mut Vec<DocElement>,
     focusables: &mut Vec<FocusableItem>,
+    anchors: &mut HashMap<String, usize>,
     indent: usize,
     syntax_theme: Option<&str>,
 ) {
@@ -138,7 +154,7 @@ fn render_node(
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent, syntax_theme);
+                render_node(child, elements, focusables, anchors, indent, syntax_theme);
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -159,15 +175,37 @@ fn render_node(
                 // Delegate to the block element renderer
                 let block_node = contents[0].clone();
                 drop(contents);
-                render_node(&block_node, elements, focusables, indent, syntax_theme);
+                render_node(
+                    &block_node,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                );
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    render_node(child, elements, focusables, indent + 1, syntax_theme);
+                    render_node(
+                        child,
+                        elements,
+                        focusables,
+                        anchors,
+                        indent + 1,
+                        syntax_theme,
+                    );
                 }
                 return;
             }
             drop(contents);
+
+            // Record anchors defined on this line
+            let current_elem_idx = elements.len();
+            for property in properties {
+                if let Property::Anchor { name, .. } = property {
+                    anchors.insert(name.to_lowercase(), current_elem_idx);
+                }
+            }
 
             let mut task_status: Option<&TaskStatus> = None;
             for property in properties {
@@ -275,13 +313,20 @@ fn render_node(
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent + 1, syntax_theme);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent + 1,
+                    syntax_theme,
+                );
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, indent, syntax_theme);
+                render_node(child, elements, focusables, anchors, indent, syntax_theme);
             }
         }
         AstNodeKind::Math { inline } => {
@@ -473,14 +518,30 @@ fn render_inline(
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::UNDERLINED),
             ));
+            // Self-link: empty link name with anchor -> jump within current doc
+            let action = if link.is_empty() {
+                if let Some(anc) = anchor {
+                    LinkAction::JumpToAnchor {
+                        anchor: anc.clone(),
+                    }
+                } else {
+                    // Edge case: empty link with no anchor (shouldn't happen normally)
+                    LinkAction::OpenNote {
+                        name: link.clone(),
+                        anchor: anchor.clone(),
+                    }
+                }
+            } else {
+                LinkAction::OpenNote {
+                    name: link.clone(),
+                    anchor: anchor.clone(),
+                }
+            };
             focusables.push(FocusableItem {
                 elem_idx: current_elem_idx,
                 char_start,
                 char_end,
-                action: LinkAction::OpenNote {
-                    name: link.clone(),
-                    anchor: anchor.clone(),
-                },
+                action,
             });
         }
         AstNodeKind::Link { link, title } => {

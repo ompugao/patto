@@ -813,6 +813,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(action) = focused_action {
         let (key, desc) = match action {
             LinkAction::OpenNote { .. } => ("↵", "open note"),
+            LinkAction::JumpToAnchor { .. } => ("↵", "jump"),
             LinkAction::OpenUrl(_) => ("↵", "open url"),
             LinkAction::ViewImage(_) => ("↵", "fullscreen"),
         };
