@@ -77,6 +77,9 @@ pub(crate) struct App {
     pub(crate) syntax_theme: String,
     /// Active incremental search state. `None` when no search is active.
     pub(crate) search: Option<SearchState>,
+    /// Whether tables are displayed in expanded mode (no truncation, no trailing │).
+    /// Toggle with `t`. Default: false (compact mode with truncation + aligned │).
+    pub(crate) table_expanded: bool,
 }
 
 impl App {
@@ -108,6 +111,7 @@ impl App {
             tui_config: config::TuiConfig::default(),
             syntax_theme: String::new(),
             search: None,
+            table_expanded: false,
         }
     }
 
@@ -169,7 +173,16 @@ impl App {
     pub(crate) fn re_render(&mut self, content: &str) {
         let result =
             parser::parse_text_with_persistent_line_tracking(content, &mut self.line_tracker);
-        self.rendered_doc = tui_renderer::render_ast(&result.ast, Some(self.syntax_theme.as_str()));
+        self.rendered_doc = tui_renderer::render_ast(
+            &result.ast,
+            Some(self.syntax_theme.as_str()),
+            if self.viewport_width > 0 {
+                Some(self.viewport_width as usize)
+            } else {
+                None
+            },
+            self.table_expanded,
+        );
     }
 
     /// Return a reference to the currently focused item, if any.
@@ -809,6 +822,13 @@ impl App {
             // --- Tasks ---
             (KeyCode::Char('T'), _) => {
                 self.open_tasks_panel(repository).await;
+            }
+
+            // --- Table expand/collapse ---
+            (KeyCode::Char('t'), KeyModifiers::NONE) => {
+                self.table_expanded = !self.table_expanded;
+                let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
+                self.re_render(&content);
             }
 
             // --- Image size ---
