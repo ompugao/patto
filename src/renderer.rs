@@ -307,7 +307,7 @@ impl HtmlRenderer {
                 underline,
                 deleted,
             } => {
-                let font_pct = 100isize + fontsize * 20;
+                let font_pct = 100isize + (fontsize - 1).max(0) * 20;
                 let fontweight = if *fontsize > 0 {
                     " font-weight: bold;"
                 } else {
