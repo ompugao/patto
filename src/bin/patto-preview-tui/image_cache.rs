@@ -1,3 +1,4 @@
+use image::{DynamicImage, GenericImage, GenericImageView, Rgba};
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     protocol::StatefulProtocol,
@@ -10,6 +11,29 @@ use crate::math_render;
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
     Failed(String),
+}
+
+/// Composite `img` onto a solid `bg` color if it has an alpha channel.
+/// Images without alpha (e.g. JPEG) are returned unchanged.
+fn flatten_alpha(img: DynamicImage, bg: [u8; 3]) -> DynamicImage {
+    if !img.color().has_alpha() {
+        return img;
+    }
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let mut out = image::RgbImage::new(w, h);
+    for (x, y, Rgba([r, g, b, a])) in rgba.enumerate_pixels() {
+        let alpha = *a as f32 / 255.0;
+        let blend = |src: u8, bg: u8| -> u8 {
+            (alpha * src as f32 + (1.0 - alpha) * bg as f32).round() as u8
+        };
+        out.put_pixel(
+            x,
+            y,
+            image::Rgb([blend(*r, bg[0]), blend(*g, bg[1]), blend(*b, bg[2])]),
+        );
+    }
+    DynamicImage::ImageRgb8(out)
 }
 
 /// Self-contained image cache and protocol picker.
@@ -26,6 +50,9 @@ pub(crate) struct ImageCache {
     pub(crate) elem_heights: HashMap<String, u16>,
     /// Source of the image currently shown fullscreen (None = normal view).
     pub(crate) fullscreen_src: Option<String>,
+    /// RGB background used when compositing images with transparency.
+    /// `None` means pass images through unchanged.
+    pub(crate) background_color: Option<[u8; 3]>,
 }
 
 impl ImageCache {
@@ -55,6 +82,7 @@ impl ImageCache {
             height_rows: 10,
             elem_heights: HashMap::new(),
             fullscreen_src: None,
+            background_color: Some([255, 255, 255]),
         }
     }
 
@@ -68,6 +96,11 @@ impl ImageCache {
                 Ok(resp) => match resp.bytes() {
                     Ok(bytes) => match image::load_from_memory(&bytes) {
                         Ok(img) => {
+                            let img = if let Some(bg) = self.background_color {
+                                flatten_alpha(img, bg)
+                            } else {
+                                img
+                            };
                             let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                             self.elem_heights.insert(src.to_string(), self.height_rows);
                             self.cache
@@ -101,6 +134,11 @@ impl ImageCache {
 
         match image::open(&path) {
             Ok(img) => {
+                let img = if let Some(bg) = self.background_color {
+                    flatten_alpha(img, bg)
+                } else {
+                    img
+                };
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                 self.elem_heights.insert(src.to_string(), self.height_rows);
                 self.cache

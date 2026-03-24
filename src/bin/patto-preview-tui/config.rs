@@ -1,5 +1,55 @@
 use serde::Deserialize;
 
+/// Background color used when compositing images that have an alpha channel.
+#[derive(Debug, Clone)]
+pub enum ImageBackground {
+    White,
+    Black,
+    /// Arbitrary RGB color.
+    Custom([u8; 3]),
+    /// Pass the image through unchanged; no compositing is applied.
+    None,
+}
+
+impl ImageBackground {
+    /// Return the RGB triplet for this background, or `None` to skip compositing.
+    pub fn to_rgb(&self) -> Option<[u8; 3]> {
+        match self {
+            ImageBackground::White => Some([255, 255, 255]),
+            ImageBackground::Black => Some([0, 0, 0]),
+            ImageBackground::Custom(rgb) => Some(*rgb),
+            ImageBackground::None => Option::None,
+        }
+    }
+}
+
+impl Default for ImageBackground {
+    fn default() -> Self {
+        ImageBackground::White
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageBackground {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "white" => Ok(ImageBackground::White),
+            "black" => Ok(ImageBackground::Black),
+            "none" | "as-is" => Ok(ImageBackground::None),
+            hex if hex.starts_with('#') && hex.len() == 7 => {
+                let r = u8::from_str_radix(&hex[1..3], 16).map_err(serde::de::Error::custom)?;
+                let g = u8::from_str_radix(&hex[3..5], 16).map_err(serde::de::Error::custom)?;
+                let b = u8::from_str_radix(&hex[5..7], 16).map_err(serde::de::Error::custom)?;
+                Ok(ImageBackground::Custom([r, g, b]))
+            }
+            other => Err(serde::de::Error::custom(format!(
+                "unknown image_background '{}': expected \"white\", \"black\", \"none\", \"as-is\", or \"#rrggbb\"",
+                other
+            ))),
+        }
+    }
+}
+
 /// Position of the floating tasks panel within the content area.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -83,6 +133,11 @@ pub struct TuiConfig {
     /// Floating tasks panel appearance and position.
     #[serde(default)]
     pub tasks: TasksPanelConfig,
+    /// Background color for compositing images with transparency.
+    /// Accepts `"white"`, `"black"`, or a hex string like `"#rrggbb"`.
+    /// Defaults to `"white"`.
+    #[serde(default)]
+    pub image_background: ImageBackground,
 }
 
 impl Default for TuiConfig {
@@ -91,6 +146,7 @@ impl Default for TuiConfig {
             editor: EditorConfig::default(),
             syntax_theme: default_syntax_theme(),
             tasks: TasksPanelConfig::default(),
+            image_background: ImageBackground::default(),
         }
     }
 }
