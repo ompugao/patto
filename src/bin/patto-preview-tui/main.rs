@@ -257,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
     app.showbreak = args.showbreak.clone();
     let tui_config = config::TuiConfig::load();
     app.syntax_theme = tui_config.syntax_theme.clone();
+    app.images.background_color = tui_config.image_background.to_rgb();
     app.tui_config = tui_config;
     app.re_render(&initial_content);
 
