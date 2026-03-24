@@ -135,23 +135,22 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
-**v0.4.3** - patto-preview-tui: syntect syntax highlighting for code blocks, vim-like `/`/`?` search with cmdline editing, task view panel (`T`) grouped by deadline category
-**v0.4.2** - patto-preview-tui enhancements: math rendering via typst, text wrapping, TCP LSP backend, extensible editor integration with Neovim viewport sync, tui-widget-list for backlinks panel; PDF embedding via `@embed ./file.pdf`; `@embed`/`@img` syntax unification with LSP diagnostics (local paths now require `./` prefix)
-**v0.4.1** - Add TUI previewer
-**v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
-**v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
-**v0.3.0** - Complete Markdown export overhaul with 72 new tests  
-**v0.2.10** - Bump nextjs
-**v0.2.9** - Minor fix
-**v0.2.8** - Zotero integration  
-**v0.2.7** - Real-time preview without saving  
-**v0.2.6** - Enhanced diagnostic messages, Improved neovim integration
-
-**v0.2.5** - Comprehensive tests for lsp server added
-
-**v0.2.4** - Lsp Renaming Support
-**v0.2.3** - Minor fix of vscode extension
-**v0.2.2** - VS Code extension, semantic highlighting  
-**v0.2.0** - Repository system, LSP scanning, trouble.nvim integration
+- **v0.4.4** - patto-preview-tui: flatten transparent image backgrounds before rendering, fix self-link anchor jumping; fix font size scaling (only `[** xxx]` and above enlarge)
+- **v0.4.3** - patto-preview-tui: syntect syntax highlighting for code blocks, vim-like `/`/`?` search with cmdline editing, task view panel (`T`) grouped by deadline category
+- **v0.4.2** - patto-preview-tui enhancements: math rendering via typst, text wrapping, TCP LSP backend, extensible editor integration with Neovim viewport sync, tui-widget-list for backlinks panel; PDF embedding via `@embed ./file.pdf`; `@embed`/`@img` syntax unification with LSP diagnostics (local paths now require `./` prefix)
+- **v0.4.1** - Add TUI previewer
+- **v0.4.0** - Rewrite the previewer, improving its latency and stability of real-time previewing
+- **v0.3.1** - Add markdown import support, nested quotes, anchor renaming, and fix tab indentation handling
+- **v0.3.0** - Complete Markdown export overhaul with 72 new tests
+- **v0.2.10** - Bump nextjs
+- **v0.2.9** - Minor fix
+- **v0.2.8** - Zotero integration
+- **v0.2.7** - Real-time preview without saving
+- **v0.2.6** - Enhanced diagnostic messages, Improved neovim integration
+- **v0.2.5** - Comprehensive tests for lsp server added
+- **v0.2.4** - Lsp Renaming Support
+- **v0.2.3** - Minor fix of vscode extension
+- **v0.2.2** - VS Code extension, semantic highlighting
+- **v0.2.0** - Repository system, LSP scanning, trouble.nvim integration
 
 [Remaining Todos](./todo.md)
