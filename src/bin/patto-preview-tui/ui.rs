@@ -1,7 +1,7 @@
 use crate::backlinks::FlatEntry;
 use crate::config::TasksPanelPosition;
 use crate::tasks::TaskEntry;
-use patto::tui_renderer::{DocElement, LinkAction};
+use patto::tui_renderer::{DocElement, InlineSegment, LinkAction};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
@@ -13,6 +13,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 use std::path::Path;
 use tui_widget_list::{ListBuilder, ListView};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
@@ -412,6 +413,45 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         app.images.load_math(content);
     }
 
+    // Pre-load inline math segments in the viewport
+    if app.inline_math_rendering {
+        let inline_math_contents: Vec<String> = app
+            .rendered_doc
+            .elements
+            .iter()
+            .skip(start_elem)
+            .take_while({
+                let mut rows = 0usize;
+                move |elem| {
+                    rows += elem_h(elem);
+                    rows <= height + img_h as usize
+                }
+            })
+            .filter_map(|elem| {
+                if let DocElement::InlineMathLine { segments, .. } = elem {
+                    Some(
+                        segments
+                            .iter()
+                            .filter_map(|s| {
+                                if let InlineSegment::Math(c) = s {
+                                    Some(c.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        for content in &inline_math_contents {
+            app.images.load_inline_math(content);
+        }
+    }
+
     // Render visible elements
     // Determine which element index is focused and get char range for text highlights
     let (focused_elem_idx, focused_char_range) = match app.focused_item() {
@@ -606,6 +646,78 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                         .take(elem_h as usize)
                         .collect();
                         frame.render_widget(Paragraph::new(lines), math_area);
+                    }
+                }
+                y += elem_h as usize;
+            }
+            DocElement::InlineMathLine { segments, .. } => {
+                // Height of this element (can be > 1 for tall expressions like fractions).
+                let elem_h = elem_h(elem) as u16;
+                // Text segments are vertically centred; math images anchor to top.
+                let text_row_y = area.y + y as u16 + elem_h / 2;
+                let math_row_y = area.y + y as u16;
+                let mut x_cursor = area.x;
+                let max_x = area.x + area.width;
+                for segment in segments {
+                    if x_cursor >= max_x {
+                        break;
+                    }
+                    match segment {
+                        InlineSegment::Text(spans) => {
+                            // Use Unicode display width (double-width CJK chars count as 2 cols).
+                            let text_width: u16 =
+                                spans.iter().map(|s| s.content.width() as u16).sum();
+                            let avail = max_x.saturating_sub(x_cursor);
+                            let w = text_width.min(avail);
+                            if w > 0 {
+                                let text_area = Rect::new(x_cursor, text_row_y, w, 1);
+                                frame.render_widget(
+                                    Paragraph::new(Line::from(spans.clone())),
+                                    text_area,
+                                );
+                            }
+                            x_cursor = x_cursor.saturating_add(text_width).min(max_x);
+                        }
+                        InlineSegment::Math(content) => {
+                            let key = crate::image_cache::ImageCache::inline_math_key(content);
+                            let cols = app.images.inline_math_cols(content).unwrap_or(4);
+                            let math_rows = app
+                                .images
+                                .elem_heights
+                                .get(key.as_str())
+                                .copied()
+                                .unwrap_or(1);
+                            let avail = max_x.saturating_sub(x_cursor);
+                            let w = cols.min(avail);
+                            let avail_rows = (height - y) as u16;
+                            let h = math_rows.min(avail_rows).max(1);
+                            if w > 0 {
+                                let math_area = Rect::new(x_cursor, math_row_y, w, h);
+                                match app.images.get_mut(&key) {
+                                    Some(_) => {
+                                        draw_image_cell(
+                                            frame,
+                                            &mut app.images,
+                                            &key,
+                                            None,
+                                            math_area,
+                                            false,
+                                        );
+                                    }
+                                    None => {
+                                        // Fallback: show raw LaTeX in magenta
+                                        frame.render_widget(
+                                            Paragraph::new(Line::from(vec![Span::styled(
+                                                content.as_str().to_string(),
+                                                Style::default().fg(Color::Magenta),
+                                            )])),
+                                            Rect::new(x_cursor, text_row_y, w, 1),
+                                        );
+                                    }
+                                }
+                            }
+                            x_cursor = x_cursor.saturating_add(cols).min(max_x);
+                        }
                     }
                 }
                 y += elem_h as usize;

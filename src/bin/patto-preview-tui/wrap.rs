@@ -6,7 +6,7 @@
 //! `total_height` — which replaces `DocElement::height` / `RenderedDoc::total_height`
 //! so that the data model stays free of rendering parameters.
 
-use patto::tui_renderer::DocElement;
+use patto::tui_renderer::{DocElement, InlineSegment};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -134,6 +134,25 @@ pub fn elem_height(
         DocElement::Math { content, .. } => elem_heights
             .and_then(|m| m.get(content.as_str()).copied())
             .unwrap_or(img_h) as usize,
+        DocElement::InlineMathLine { segments, .. } => {
+            // Height = tallest inline math image in this line (min 1).
+            elem_heights
+                .map(|m| {
+                    segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let InlineSegment::Math(content) = s {
+                                let key = format!("__inline__:{}", content);
+                                m.get(key.as_str()).copied()
+                            } else {
+                                None
+                            }
+                        })
+                        .max()
+                        .unwrap_or(1)
+                })
+                .unwrap_or(1) as usize
+        }
     }
 }
 
