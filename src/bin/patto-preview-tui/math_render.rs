@@ -129,3 +129,53 @@ pub fn render_latex_to_image(latex: &str) -> Result<DynamicImage, String> {
         tex2typst_rs::tex2typst(latex).map_err(|e| format!("tex2typst conversion failed: {e}"))?;
     render_typst_to_image(&typst_math)
 }
+
+/// Render a LaTeX math expression as a compact inline image.
+///
+/// Uses Typst's inline math style (`$formula$`, no surrounding spaces) which
+/// renders fractions and operators in "text style" -- compact but readable,
+/// matching how LaTeX typesets `$\frac{a}{b}$` in prose.
+///
+/// Font size is the same as block math (14pt); the image height is determined
+/// naturally by the expression, typically 1 row for simple expressions and
+/// 2 rows for fractions.
+pub fn render_latex_inline(latex: &str) -> Result<DynamicImage, String> {
+    let typst_math =
+        tex2typst_rs::tex2typst(latex).map_err(|e| format!("tex2typst conversion failed: {e}"))?;
+    render_typst_inline(&typst_math)
+}
+
+/// Render a Typst math expression in inline (text) style.
+///
+/// Uses `$formula$` (no spaces) so Typst renders in text/inline math mode:
+/// compact fractions, smaller sub/superscripts.  14pt font, 2x scale.
+pub fn render_typst_inline(typst_math: &str) -> Result<DynamicImage, String> {
+    let source_text = format!(
+        "#set page(width: auto, height: auto, margin: (top: 2pt, bottom: 2pt, left: 3pt, right: 3pt), fill: black)\n\
+         #set text(fill: white, size: 14pt)\n\
+         ${typst_math}$\n"
+    );
+
+    let world = MathWorld::new(source_text);
+    let document = typst::compile::<PagedDocument>(&world)
+        .output
+        .map_err(|errors| {
+            errors
+                .iter()
+                .map(|e| e.message.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })?;
+
+    let page = document
+        .pages
+        .first()
+        .ok_or_else(|| "Typst produced no pages".to_string())?;
+
+    let pixmap = typst_render::render(page, 2.0);
+    let png_bytes = pixmap
+        .encode_png()
+        .map_err(|e| format!("PNG encode error: {e}"))?;
+
+    image::load_from_memory(&png_bytes).map_err(|e| format!("image decode error: {e}"))
+}

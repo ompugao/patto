@@ -75,6 +75,8 @@ pub(crate) struct App {
     pub(crate) tui_config: config::TuiConfig,
     /// syntect theme name for code block syntax highlighting.
     pub(crate) syntax_theme: String,
+    /// Whether to render inline math as raster images. Loaded from config.
+    pub(crate) inline_math_rendering: bool,
     /// Active incremental search state. `None` when no search is active.
     pub(crate) search: Option<SearchState>,
 }
@@ -107,6 +109,7 @@ impl App {
             task_preview_state: None,
             tui_config: config::TuiConfig::default(),
             syntax_theme: String::new(),
+            inline_math_rendering: true,
             search: None,
         }
     }
@@ -169,7 +172,11 @@ impl App {
     pub(crate) fn re_render(&mut self, content: &str) {
         let result =
             parser::parse_text_with_persistent_line_tracking(content, &mut self.line_tracker);
-        self.rendered_doc = tui_renderer::render_ast(&result.ast, Some(self.syntax_theme.as_str()));
+        self.rendered_doc = tui_renderer::render_ast(
+            &result.ast,
+            Some(self.syntax_theme.as_str()),
+            self.inline_math_rendering,
+        );
     }
 
     /// Return a reference to the currently focused item, if any.
@@ -375,7 +382,10 @@ impl App {
                 return;
             }
             let h = self.elem_display_height(elem);
-            if let DocElement::TextLine(_, _) = elem {
+            if matches!(
+                elem,
+                DocElement::TextLine(_, _) | DocElement::InlineMathLine { .. }
+            ) {
                 current_source_line += 1;
             }
             row += h;
@@ -389,8 +399,13 @@ impl App {
         let target_row = line.saturating_sub(1); // convert to 0-indexed
         let mut display_row = 0usize;
         for elem in &self.rendered_doc.elements {
-            if let DocElement::TextLine(_, source_row) = elem {
-                if *source_row >= target_row {
+            let source_row = match elem {
+                DocElement::TextLine(_, r) => Some(*r),
+                DocElement::InlineMathLine { source_row, .. } => Some(*source_row),
+                _ => None,
+            };
+            if let Some(r) = source_row {
+                if r >= target_row {
                     self.scroll_offset = display_row;
                     return;
                 }
@@ -409,8 +424,10 @@ impl App {
             if display_row > self.scroll_offset {
                 break;
             }
-            if let DocElement::TextLine(_, source_row) = elem {
-                last_source_row = *source_row;
+            match elem {
+                DocElement::TextLine(_, source_row) => last_source_row = *source_row,
+                DocElement::InlineMathLine { source_row, .. } => last_source_row = *source_row,
+                _ => {}
             }
             display_row += self.elem_display_height(elem);
         }
@@ -421,12 +438,10 @@ impl App {
     /// or `None` if nothing is focused. Used for `{line}` in editor commands.
     pub(crate) fn source_line_of_focused_item(&self) -> Option<usize> {
         let fi = self.focused_item()?;
-        if let Some(DocElement::TextLine(_, source_row)) =
-            self.rendered_doc.elements.get(fi.elem_idx)
-        {
-            Some(source_row + 1)
-        } else {
-            None
+        match self.rendered_doc.elements.get(fi.elem_idx) {
+            Some(DocElement::TextLine(_, source_row)) => Some(source_row + 1),
+            Some(DocElement::InlineMathLine { source_row, .. }) => Some(source_row + 1),
+            _ => None,
         }
     }
 
