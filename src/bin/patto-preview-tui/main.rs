@@ -258,6 +258,7 @@ async fn main() -> anyhow::Result<()> {
     let tui_config = config::TuiConfig::load();
     app.syntax_theme = tui_config.syntax_theme.clone();
     app.images.background_color = tui_config.image_background.to_rgb();
+    app.inline_math_rendering = tui_config.inline_math_rendering;
     app.tui_config = tui_config;
     app.re_render(&initial_content);
 

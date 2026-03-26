@@ -48,6 +48,8 @@ pub(crate) struct ImageCache {
     /// Per-element row heights keyed by cache key (image src or math content).
     /// Images store `height_rows`; math stores the tight pixel-computed height.
     pub(crate) elem_heights: HashMap<String, u16>,
+    /// Column widths for inline math images (cache key → terminal columns).
+    pub(crate) elem_widths: HashMap<String, u16>,
     /// Source of the image currently shown fullscreen (None = normal view).
     pub(crate) fullscreen_src: Option<String>,
     /// RGB background used when compositing images with transparency.
@@ -81,6 +83,7 @@ impl ImageCache {
             picker,
             height_rows: 10,
             elem_heights: HashMap::new(),
+            elem_widths: HashMap::new(),
             fullscreen_src: None,
             background_color: Some([255, 255, 255]),
         }
@@ -160,6 +163,7 @@ impl ImageCache {
     pub(crate) fn clear(&mut self) {
         self.cache.clear();
         self.elem_heights.clear();
+        self.elem_widths.clear();
     }
 
     pub(crate) fn increase_height(&mut self) {
@@ -200,5 +204,50 @@ impl ImageCache {
                     .insert(content.to_string(), CachedImage::Failed(e));
             }
         }
+    }
+
+    /// Cache key prefix for inline math entries.
+    pub(crate) fn inline_math_key(content: &str) -> String {
+        format!("__inline__:{}", content)
+    }
+
+    /// Render an inline LaTeX math expression to an image and cache it.
+    ///
+    /// Uses Typst inline/text math style so fractions are compact but readable.
+    /// The cache key is `"__inline__:{content}"`. Does nothing when there is no
+    /// image protocol picker (text-only terminal).
+    pub(crate) fn load_inline_math(&mut self, content: &str) {
+        let key = Self::inline_math_key(content);
+        if self.cache.contains_key(&key) || self.picker.is_none() {
+            return;
+        }
+        let (cell_w, cell_h) = self.picker.as_ref().unwrap().font_size();
+        let cell_width_px = if cell_w > 0 { cell_w as u32 } else { 10 };
+
+        match math_render::render_latex_inline(content) {
+            Ok(img) => {
+                // Compute natural row height (same logic as load_math).
+                let rows_needed = if cell_h > 0 {
+                    ((img.height() as f32 / cell_h as f32).ceil() as u16).max(1)
+                } else {
+                    2 // safe fallback for fractions
+                };
+                self.elem_heights.insert(key.clone(), rows_needed);
+                // Width in terminal columns (round up).
+                let cols = ((img.width() as f32 / cell_width_px as f32).ceil() as u16).max(1);
+                self.elem_widths.insert(key.clone(), cols);
+                let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
+                self.cache.insert(key, CachedImage::Loaded(protocol));
+            }
+            Err(e) => {
+                self.cache.insert(key, CachedImage::Failed(e));
+            }
+        }
+    }
+
+    /// Return the column width of a cached inline math image, if available.
+    pub(crate) fn inline_math_cols(&self, content: &str) -> Option<u16> {
+        let key = Self::inline_math_key(content);
+        self.elem_widths.get(&key).copied()
     }
 }
