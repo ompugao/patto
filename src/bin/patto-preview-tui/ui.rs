@@ -348,16 +348,12 @@ fn draw_inline_math_line(
                 let mut row_x_start = x_cursor;
                 let mut sub_spans: Vec<Span<'static>> = Vec::new();
                 let mut cur_buf = String::new();
-                let mut cur_style: Style =
-                    spans.first().map(|s| s.style).unwrap_or_default();
+                let mut cur_style: Style = spans.first().map(|s| s.style).unwrap_or_default();
 
                 for span in spans {
                     if span.style != cur_style {
                         if !cur_buf.is_empty() {
-                            sub_spans.push(Span::styled(
-                                std::mem::take(&mut cur_buf),
-                                cur_style,
-                            ));
+                            sub_spans.push(Span::styled(std::mem::take(&mut cur_buf), cur_style));
                         }
                         cur_style = span.style;
                     }
@@ -365,27 +361,21 @@ fn draw_inline_math_line(
                         let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
                         if wrap
                             && col_width > 0
-                            && (x_cursor as usize + ch_w as usize)
-                                > (area.x as usize + col_width)
+                            && (x_cursor as usize + ch_w as usize) > (area.x as usize + col_width)
                         {
                             // Flush accumulated text to the current row.
                             if !cur_buf.is_empty() {
-                                sub_spans.push(Span::styled(
-                                    std::mem::take(&mut cur_buf),
-                                    cur_style,
-                                ));
+                                sub_spans
+                                    .push(Span::styled(std::mem::take(&mut cur_buf), cur_style));
                             }
                             if !sub_spans.is_empty() {
-                                let text_y =
-                                    area.y + y as u16 + row_offset + cur_row_h / 2;
+                                let text_y = area.y + y as u16 + row_offset + cur_row_h / 2;
                                 let sub_w = x_cursor.saturating_sub(row_x_start);
-                                let avail_rows = (height as u16)
-                                    .saturating_sub(y as u16 + row_offset);
+                                let avail_rows =
+                                    (height as u16).saturating_sub(y as u16 + row_offset);
                                 if sub_w > 0 && avail_rows > 0 {
                                     frame.render_widget(
-                                        Paragraph::new(Line::from(std::mem::take(
-                                            &mut sub_spans,
-                                        ))),
+                                        Paragraph::new(Line::from(std::mem::take(&mut sub_spans))),
                                         Rect::new(row_x_start, text_y, sub_w, 1),
                                     );
                                 } else {
@@ -409,8 +399,7 @@ fn draw_inline_math_line(
                 if !sub_spans.is_empty() {
                     let text_y = area.y + y as u16 + row_offset + cur_row_h / 2;
                     let sub_w = x_cursor.saturating_sub(row_x_start);
-                    let avail_rows =
-                        (height as u16).saturating_sub(y as u16 + row_offset);
+                    let avail_rows = (height as u16).saturating_sub(y as u16 + row_offset);
                     if sub_w > 0 && avail_rows > 0 {
                         frame.render_widget(
                             Paragraph::new(Line::from(sub_spans)),
@@ -433,8 +422,7 @@ fn draw_inline_math_line(
                 if wrap
                     && col_width > 0
                     && x_cursor > area.x
-                    && (x_cursor as usize + seg_w as usize)
-                        > (area.x as usize + col_width)
+                    && (x_cursor as usize + seg_w as usize) > (area.x as usize + col_width)
                 {
                     row_offset += cur_row_h;
                     x_cursor = area.x;
@@ -445,8 +433,7 @@ fn draw_inline_math_line(
 
                 let avail_x = max_x.saturating_sub(x_cursor);
                 let w = (seg_w as u16).min(avail_x);
-                let avail_rows =
-                    (height as u16).saturating_sub(y as u16 + row_offset);
+                let avail_rows = (height as u16).saturating_sub(y as u16 + row_offset);
                 let h = seg_h.min(avail_rows).max(1);
                 let base_y = area.y + y as u16 + row_offset;
 
@@ -454,9 +441,7 @@ fn draw_inline_math_line(
                     let math_area = Rect::new(x_cursor, base_y, w, h);
                     match images.get_mut(&key) {
                         Some(_) => {
-                            draw_image_cell(
-                                frame, images, &key, None, math_area, false,
-                            );
+                            draw_image_cell(frame, images, &key, None, math_area, false);
                         }
                         None => {
                             frame.render_widget(
@@ -648,8 +633,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += 1;
             }
             DocElement::Image { src, alt, indent } => {
-                let elem_h =
-                    (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
                 let img_area = Rect::new(
                     area.x + indent_w,
@@ -669,8 +653,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::ImageRow(images, indent) => {
                 let n = images.len() as u16;
-                let elem_h =
-                    (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
                 let row_width = area.width.saturating_sub(indent_w);
                 let col_w = row_width / n;
@@ -706,10 +689,8 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += elem_h as usize;
             }
             DocElement::Math { content, indent } => {
-                let elem_h =
-                    (elem_height(elem, None, img_h, Some(&elem_sizes))
-                        as u16)
-                        .min((height - y) as u16);
+                let elem_h = (elem_height(elem, None, img_h, Some(&elem_sizes)) as u16)
+                    .min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
                 let math_area = Rect::new(
                     area.x + indent_w,
@@ -749,10 +730,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::InlineMathLine { segments, .. } => {
                 let elem_total_h = elem_h(elem) as u16;
-                draw_inline_math_line(
-                    frame, segments, area, y, height, wrap,
-                    &mut app.images,
-                );
+                draw_inline_math_line(frame, segments, area, y, height, wrap, &mut app.images);
                 y += elem_total_h as usize;
             }
         }

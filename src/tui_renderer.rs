@@ -107,14 +107,7 @@ pub fn render_ast(ast: &AstNode, cfg: &RenderConfig<'_>) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
     let mut anchors = HashMap::new();
-    render_node(
-        ast,
-        &mut elements,
-        &mut focusables,
-        &mut anchors,
-        0,
-        cfg,
-    );
+    render_node(ast, &mut elements, &mut focusables, &mut anchors, 0, cfg);
     RenderedDoc {
         elements,
         focusables,
@@ -183,14 +176,7 @@ fn render_node(
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(
-                    child,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent,
-                    cfg,
-                );
+                render_node(child, elements, focusables, anchors, indent, cfg);
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -211,25 +197,11 @@ fn render_node(
                 // Delegate to the block element renderer
                 let block_node = contents[0].clone();
                 drop(contents);
-                render_node(
-                    &block_node,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent,
-                    cfg,
-                );
+                render_node(&block_node, elements, focusables, anchors, indent, cfg);
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    render_node(
-                        child,
-                        elements,
-                        focusables,
-                        anchors,
-                        indent + 1,
-                        cfg,
-                    );
+                    render_node(child, elements, focusables, anchors, indent + 1, cfg);
                 }
                 return;
             }
@@ -382,27 +354,13 @@ fn render_node(
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(
-                    child,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent + 1,
-                    cfg,
-                );
+                render_node(child, elements, focusables, anchors, indent + 1, cfg);
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(
-                    child,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent,
-                    cfg,
-                );
+                render_node(child, elements, focusables, anchors, indent, cfg);
             }
         }
         AstNodeKind::Math { inline } => {
@@ -727,14 +685,8 @@ fn render_inline(
             }
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                let result = render_inline(
-                    content,
-                    spans,
-                    style,
-                    focusables,
-                    current_elem_idx,
-                    cfg,
-                );
+                let result =
+                    render_inline(content, spans, style, focusables, current_elem_idx, cfg);
                 if matches!(result, InlineResult::ImageBlock { .. }) {
                     return result;
                 }
