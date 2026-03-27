@@ -151,7 +151,7 @@ pub fn render_latex_inline(latex: &str) -> Result<DynamicImage, String> {
 /// compact fractions, smaller sub/superscripts.  14pt font, 2x scale.
 pub fn render_typst_inline(typst_math: &str) -> Result<DynamicImage, String> {
     let source_text = format!(
-        "#set page(width: auto, height: auto, margin: (top: 2pt, bottom: 2pt, left: 3pt, right: 3pt), fill: black)\n\
+        "#set page(width: auto, height: auto, margin: (top: 2pt, bottom: 4pt, left: 3pt, right: 3pt), fill: black)\n\
          #set text(fill: white, size: 14pt)\n\
          ${typst_math}$\n"
     );
