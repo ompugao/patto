@@ -104,16 +104,27 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 /// - `img_h` is the configured default height in terminal rows (fallback).
 /// - `elem_heights` maps cache key → actual row height for each loaded element;
 ///   both images (stored at `height_rows`) and math (pixel-computed) live here.
+/// - `elem_widths` maps inline-math cache key → column width; used for wrap
+///   height calculation of `InlineMathLine` elements.
 pub fn elem_height(
     elem: &DocElement,
     cfg: Option<&WrapConfig>,
     img_h: u16,
     elem_heights: Option<&HashMap<String, u16>>,
+    elem_widths: Option<&HashMap<String, u16>>,
 ) -> usize {
     if let Some(cfg) = cfg {
         if cfg.col_width > 0 {
             if let DocElement::TextLine(line, _) = elem {
                 return count_wrap_rows(line, cfg);
+            }
+            if let DocElement::InlineMathLine { segments, .. } = elem {
+                return inline_math_line_wrap_height(
+                    segments,
+                    cfg.col_width,
+                    elem_heights,
+                    elem_widths,
+                );
             }
         }
     }
@@ -135,25 +146,81 @@ pub fn elem_height(
             .and_then(|m| m.get(content.as_str()).copied())
             .unwrap_or(img_h) as usize,
         DocElement::InlineMathLine { segments, .. } => {
-            // Height = tallest inline math image in this line (min 1).
-            elem_heights
-                .map(|m| {
-                    segments
-                        .iter()
-                        .filter_map(|s| {
-                            if let InlineSegment::Math(content) = s {
-                                let key = format!("__inline__:{}", content);
-                                m.get(key.as_str()).copied()
-                            } else {
-                                None
-                            }
-                        })
-                        .max()
-                        .unwrap_or(1)
-                })
-                .unwrap_or(1) as usize
+            // No wrap config: height = tallest inline math image in the line (min 1).
+            inline_math_line_wrap_height(segments, 0, elem_heights, elem_widths)
         }
     }
+}
+
+/// Compute the display height of an `InlineMathLine` given a maximum column width.
+///
+/// Text segments are wrapped character-by-character (mirroring the ui.rs render arm).
+/// Math segments are treated atomically — if one doesn't fit, it moves to the next row.
+/// Each row's height equals the tallest math image on that row (minimum 1).
+/// When `col_width == 0` (no wrap) all segments share one row.
+fn inline_math_line_wrap_height(
+    segments: &[InlineSegment],
+    col_width: usize,
+    elem_heights: Option<&HashMap<String, u16>>,
+    elem_widths: Option<&HashMap<String, u16>>,
+) -> usize {
+    let math_seg_h = |content: &str| -> usize {
+        let key = format!("__inline__:{}", content);
+        elem_heights
+            .and_then(|m| m.get(key.as_str()).copied())
+            .unwrap_or(1) as usize
+    };
+    let math_seg_w = |content: &str| -> usize {
+        let key = format!("__inline__:{}", content);
+        elem_widths
+            .and_then(|m| m.get(key.as_str()).copied())
+            .unwrap_or(4) as usize
+    };
+
+    // Each entry is the height of that visual row.
+    let mut row_heights: Vec<usize> = vec![1];
+    let mut x = 0usize;
+
+    for seg in segments {
+        match seg {
+            InlineSegment::Text(spans) => {
+                // Text wraps character-by-character (mirrors ui.rs render arm).
+                for span in spans {
+                    for ch in span.content.chars() {
+                        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+                        if ch_w == 0 {
+                            continue;
+                        }
+                        if col_width > 0 && (x + ch_w) > col_width {
+                            // Start a new text-only row (height 1).
+                            row_heights.push(1);
+                            x = ch_w;
+                        } else {
+                            x += ch_w;
+                        }
+                    }
+                }
+                // Text doesn't increase the current row's height.
+            }
+            InlineSegment::Math(c) => {
+                let (w, h) = (math_seg_w(c), math_seg_h(c));
+                if w == 0 {
+                    continue;
+                }
+                if col_width > 0 && x > 0 && x + w > col_width {
+                    // Math doesn't fit: start a new row.
+                    row_heights.push(h.max(1));
+                    x = w;
+                } else {
+                    // Math fits: update current row's height.
+                    let last = row_heights.last_mut().unwrap();
+                    *last = (*last).max(h);
+                    x += w;
+                }
+            }
+        }
+    }
+    row_heights.iter().sum()
 }
 
 /// Total height of a slice of elements in terminal rows.
@@ -162,10 +229,11 @@ pub fn total_height(
     cfg: Option<&WrapConfig>,
     img_h: u16,
     elem_heights: Option<&HashMap<String, u16>>,
+    elem_widths: Option<&HashMap<String, u16>>,
 ) -> usize {
     elements
         .iter()
-        .map(|e| elem_height(e, cfg, img_h, elem_heights))
+        .map(|e| elem_height(e, cfg, img_h, elem_heights, elem_widths))
         .sum()
 }
 

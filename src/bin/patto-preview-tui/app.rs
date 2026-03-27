@@ -135,6 +135,7 @@ impl App {
             self.wrap_config().as_ref(),
             self.images.height_rows,
             Some(&self.images.elem_heights),
+            Some(&self.images.elem_widths),
         )
     }
 
@@ -145,6 +146,7 @@ impl App {
             self.wrap_config().as_ref(),
             self.images.height_rows,
             Some(&self.images.elem_heights),
+            Some(&self.images.elem_widths),
         )
     }
 
