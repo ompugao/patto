@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::math_render;
+use crate::wrap::ElemSizeCache;
 
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
@@ -45,11 +46,8 @@ pub(crate) struct ImageCache {
     picker: Option<Picker>,
     /// Default image height in terminal rows (user-configurable via +/-).
     pub(crate) height_rows: u16,
-    /// Per-element row heights keyed by cache key (image src or math content).
-    /// Images store `height_rows`; math stores the tight pixel-computed height.
-    pub(crate) elem_heights: HashMap<String, u16>,
-    /// Column widths for inline math images (cache key → terminal columns).
-    pub(crate) elem_widths: HashMap<String, u16>,
+    /// Cached element sizes (heights and widths) for images and math.
+    pub(crate) elem_sizes: ElemSizeCache,
     /// Source of the image currently shown fullscreen (None = normal view).
     pub(crate) fullscreen_src: Option<String>,
     /// RGB background used when compositing images with transparency.
@@ -82,8 +80,7 @@ impl ImageCache {
             cache: HashMap::new(),
             picker,
             height_rows: 10,
-            elem_heights: HashMap::new(),
-            elem_widths: HashMap::new(),
+            elem_sizes: ElemSizeCache::default(),
             fullscreen_src: None,
             background_color: Some([255, 255, 255]),
         }
@@ -105,7 +102,7 @@ impl ImageCache {
                                 img
                             };
                             let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                            self.elem_heights.insert(src.to_string(), self.height_rows);
+                            self.elem_sizes.heights.insert(src.to_string(), self.height_rows);
                             self.cache
                                 .insert(src.to_string(), CachedImage::Loaded(protocol));
                         }
@@ -143,7 +140,7 @@ impl ImageCache {
                     img
                 };
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                self.elem_heights.insert(src.to_string(), self.height_rows);
+                self.elem_sizes.heights.insert(src.to_string(), self.height_rows);
                 self.cache
                     .insert(src.to_string(), CachedImage::Loaded(protocol));
             }
@@ -162,8 +159,7 @@ impl ImageCache {
     /// Clear all cached images and their stored heights.
     pub(crate) fn clear(&mut self) {
         self.cache.clear();
-        self.elem_heights.clear();
-        self.elem_widths.clear();
+        self.elem_sizes.clear();
     }
 
     pub(crate) fn increase_height(&mut self) {
@@ -184,7 +180,7 @@ impl ImageCache {
         if self.cache.contains_key(content) || self.picker.is_none() {
             return;
         }
-        match math_render::render_latex_to_image(content) {
+        match math_render::render_latex(content, math_render::MathStyle::Display) {
             Ok(img) => {
                 // Compute the exact terminal rows this image occupies so we
                 // can allocate a tight rect (no blank padding below the formula).
@@ -194,7 +190,7 @@ impl ImageCache {
                 } else {
                     self.height_rows
                 };
-                self.elem_heights.insert(content.to_string(), rows_needed);
+                self.elem_sizes.heights.insert(content.to_string(), rows_needed);
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                 self.cache
                     .insert(content.to_string(), CachedImage::Loaded(protocol));
@@ -224,7 +220,7 @@ impl ImageCache {
         let (cell_w, cell_h) = self.picker.as_ref().unwrap().font_size();
         let cell_width_px = if cell_w > 0 { cell_w as u32 } else { 10 };
 
-        match math_render::render_latex_inline(content) {
+        match math_render::render_latex(content, math_render::MathStyle::Inline) {
             Ok(img) => {
                 // Compute natural row height (same logic as load_math).
                 let rows_needed = if cell_h > 0 {
@@ -232,10 +228,10 @@ impl ImageCache {
                 } else {
                     2 // safe fallback for fractions
                 };
-                self.elem_heights.insert(key.clone(), rows_needed);
+                self.elem_sizes.heights.insert(key.clone(), rows_needed);
                 // Width in terminal columns (round up).
                 let cols = ((img.width() as f32 / cell_width_px as f32).ceil() as u16).max(1);
-                self.elem_widths.insert(key.clone(), cols);
+                self.elem_sizes.widths.insert(key.clone(), cols);
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                 self.cache.insert(key, CachedImage::Loaded(protocol));
             }
@@ -248,6 +244,6 @@ impl ImageCache {
     /// Return the column width of a cached inline math image, if available.
     pub(crate) fn inline_math_cols(&self, content: &str) -> Option<u16> {
         let key = Self::inline_math_key(content);
-        self.elem_widths.get(&key).copied()
+        self.elem_sizes.widths.get(&key).copied()
     }
 }
