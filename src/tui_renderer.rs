@@ -90,8 +90,20 @@ pub struct RenderedDoc {
 
 impl RenderedDoc {}
 
+/// Configuration for the TUI rendering pass.
+///
+/// Bundled into a struct so new options can be added without changing the
+/// signatures of `render_ast`, `render_node`, and `render_inline`.
+pub struct RenderConfig<'a> {
+    /// Optional syntect theme name for code-block highlighting.
+    pub syntax_theme: Option<&'a str>,
+    /// Whether to emit `InlineMathLine` elements for inline math (`[$…$]`).
+    /// When `false`, inline math is rendered as plain magenta text.
+    pub inline_math: bool,
+}
+
 /// Render an AST root node into a flat list of DocElements.
-pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>, inline_math: bool) -> RenderedDoc {
+pub fn render_ast(ast: &AstNode, cfg: &RenderConfig<'_>) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
     let mut anchors = HashMap::new();
@@ -101,8 +113,7 @@ pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>, inline_math: bool) 
         &mut focusables,
         &mut anchors,
         0,
-        syntax_theme,
-        inline_math,
+        cfg,
     );
     RenderedDoc {
         elements,
@@ -166,8 +177,7 @@ fn render_node(
     focusables: &mut Vec<FocusableItem>,
     anchors: &mut HashMap<String, usize>,
     indent: usize,
-    syntax_theme: Option<&str>,
-    inline_math: bool,
+    cfg: &RenderConfig<'_>,
 ) {
     match ast.kind() {
         AstNodeKind::Dummy => {
@@ -179,8 +189,7 @@ fn render_node(
                     focusables,
                     anchors,
                     indent,
-                    syntax_theme,
-                    inline_math,
+                    cfg,
                 );
             }
         }
@@ -208,8 +217,7 @@ fn render_node(
                     focusables,
                     anchors,
                     indent,
-                    syntax_theme,
-                    inline_math,
+                    cfg,
                 );
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
@@ -220,8 +228,7 @@ fn render_node(
                         focusables,
                         anchors,
                         indent + 1,
-                        syntax_theme,
-                        inline_math,
+                        cfg,
                     );
                 }
                 return;
@@ -305,7 +312,7 @@ fn render_node(
                     base_style,
                     focusables,
                     elements.len(),
-                    inline_math,
+                    cfg,
                 );
                 match result {
                     InlineResult::ImageBlock { src, alt } => {
@@ -381,8 +388,7 @@ fn render_node(
                     focusables,
                     anchors,
                     indent + 1,
-                    syntax_theme,
-                    inline_math,
+                    cfg,
                 );
             }
         }
@@ -395,8 +401,7 @@ fn render_node(
                     focusables,
                     anchors,
                     indent,
-                    syntax_theme,
-                    inline_math,
+                    cfg,
                 );
             }
         }
@@ -449,7 +454,7 @@ fn render_node(
                 drop(children);
                 let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
                 let highlighted =
-                    crate::syntax_highlight::highlight_code(lang, &raw_refs, syntax_theme);
+                    crate::syntax_highlight::highlight_code(lang, &raw_refs, cfg.syntax_theme);
                 for (line_spans, _raw) in highlighted.into_iter().zip(raw_lines.iter()) {
                     let mut spans = vec![Span::raw(prefix.clone())];
                     if line_spans.is_empty() {
@@ -547,13 +552,17 @@ fn render_table_row(
         }
         let col_contents = col.value().contents.lock().unwrap();
         for c in col_contents.iter() {
+            let no_inline = RenderConfig {
+                syntax_theme: None,
+                inline_math: false,
+            };
             render_inline(
                 c,
                 &mut spans,
                 Style::default(),
                 focusables,
                 elements.len(),
-                false,
+                &no_inline,
             );
         }
     }
@@ -573,7 +582,7 @@ fn render_inline(
     base_style: Style,
     focusables: &mut Vec<FocusableItem>,
     current_elem_idx: usize,
-    inline_math: bool,
+    cfg: &RenderConfig<'_>,
 ) -> InlineResult {
     match ast.kind() {
         AstNodeKind::Text => {
@@ -679,7 +688,7 @@ fn render_inline(
         }
         AstNodeKind::Math { inline: true } => {
             let contents = ast.value().contents.lock().unwrap();
-            if inline_math {
+            if cfg.inline_math {
                 // Return as InlineMath so the caller can render it as an image
                 let content: String = contents
                     .iter()
@@ -724,7 +733,7 @@ fn render_inline(
                     style,
                     focusables,
                     current_elem_idx,
-                    inline_math,
+                    cfg,
                 );
                 if matches!(result, InlineResult::ImageBlock { .. }) {
                     return result;
@@ -750,7 +759,7 @@ fn render_inline(
                     base_style.fg(Color::DarkGray),
                     focusables,
                     current_elem_idx,
-                    inline_math,
+                    cfg,
                 );
             }
         }

@@ -134,8 +134,7 @@ impl App {
             elem,
             self.wrap_config().as_ref(),
             self.images.height_rows,
-            Some(&self.images.elem_heights),
-            Some(&self.images.elem_widths),
+            Some(&self.images.elem_sizes),
         )
     }
 
@@ -145,8 +144,7 @@ impl App {
             &self.rendered_doc.elements,
             self.wrap_config().as_ref(),
             self.images.height_rows,
-            Some(&self.images.elem_heights),
-            Some(&self.images.elem_widths),
+            Some(&self.images.elem_sizes),
         )
     }
 
@@ -174,11 +172,11 @@ impl App {
     pub(crate) fn re_render(&mut self, content: &str) {
         let result =
             parser::parse_text_with_persistent_line_tracking(content, &mut self.line_tracker);
-        self.rendered_doc = tui_renderer::render_ast(
-            &result.ast,
-            Some(self.syntax_theme.as_str()),
-            self.inline_math_rendering,
-        );
+        let cfg = tui_renderer::RenderConfig {
+            syntax_theme: Some(self.syntax_theme.as_str()),
+            inline_math: self.inline_math_rendering,
+        };
+        self.rendered_doc = tui_renderer::render_ast(&result.ast, &cfg);
     }
 
     /// Return a reference to the currently focused item, if any.

@@ -14,6 +14,25 @@ use ratatui::{
 use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 
+/// Cached element sizes (heights and widths) used by scroll math and rendering.
+///
+/// Images and math blocks store their height (in terminal rows); inline math
+/// images additionally store their width (in terminal columns).
+#[derive(Clone, Default)]
+pub struct ElemSizeCache {
+    /// Cache key → height in terminal rows.
+    pub heights: HashMap<String, u16>,
+    /// Cache key → width in terminal columns (inline math only).
+    pub widths: HashMap<String, u16>,
+}
+
+impl ElemSizeCache {
+    pub fn clear(&mut self) {
+        self.heights.clear();
+        self.widths.clear();
+    }
+}
+
 /// Parameters that control how lines are soft-wrapped.
 #[derive(Clone)]
 pub struct WrapConfig {
@@ -99,19 +118,15 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 /// Height of a single `DocElement` in terminal rows.
 ///
 /// - Pass a `WrapConfig` to get soft-wrap–aware height for `TextLine` elements.
-/// - Pass `None` (or a zero-width config) to get the unwarpped height (always 1
+/// - Pass `None` (or a zero-width config) to get the unwrapped height (always 1
 ///   for `TextLine` / `Spacer`).
 /// - `img_h` is the configured default height in terminal rows (fallback).
-/// - `elem_heights` maps cache key → actual row height for each loaded element;
-///   both images (stored at `height_rows`) and math (pixel-computed) live here.
-/// - `elem_widths` maps inline-math cache key → column width; used for wrap
-///   height calculation of `InlineMathLine` elements.
+/// - `sizes` provides cached heights and widths for images and math elements.
 pub fn elem_height(
     elem: &DocElement,
     cfg: Option<&WrapConfig>,
     img_h: u16,
-    elem_heights: Option<&HashMap<String, u16>>,
-    elem_widths: Option<&HashMap<String, u16>>,
+    sizes: Option<&ElemSizeCache>,
 ) -> usize {
     if let Some(cfg) = cfg {
         if cfg.col_width > 0 {
@@ -119,21 +134,17 @@ pub fn elem_height(
                 return count_wrap_rows(line, cfg);
             }
             if let DocElement::InlineMathLine { segments, .. } = elem {
-                return inline_math_line_wrap_height(
-                    segments,
-                    cfg.col_width,
-                    elem_heights,
-                    elem_widths,
-                );
+                return inline_math_line_wrap_height(segments, cfg.col_width, sizes);
             }
         }
     }
+    let heights = sizes.map(|s| &s.heights);
     match elem {
         DocElement::TextLine(_, _) | DocElement::Spacer => 1,
-        DocElement::Image { src, .. } => elem_heights
+        DocElement::Image { src, .. } => heights
             .and_then(|m| m.get(src.as_str()).copied())
             .unwrap_or(img_h) as usize,
-        DocElement::ImageRow(images, ..) => elem_heights
+        DocElement::ImageRow(images, ..) => heights
             .map(|m| {
                 images
                     .iter()
@@ -142,12 +153,11 @@ pub fn elem_height(
                     .unwrap_or(img_h)
             })
             .unwrap_or(img_h) as usize,
-        DocElement::Math { content, .. } => elem_heights
+        DocElement::Math { content, .. } => heights
             .and_then(|m| m.get(content.as_str()).copied())
             .unwrap_or(img_h) as usize,
         DocElement::InlineMathLine { segments, .. } => {
-            // No wrap config: height = tallest inline math image in the line (min 1).
-            inline_math_line_wrap_height(segments, 0, elem_heights, elem_widths)
+            inline_math_line_wrap_height(segments, 0, sizes)
         }
     }
 }
@@ -161,19 +171,18 @@ pub fn elem_height(
 fn inline_math_line_wrap_height(
     segments: &[InlineSegment],
     col_width: usize,
-    elem_heights: Option<&HashMap<String, u16>>,
-    elem_widths: Option<&HashMap<String, u16>>,
+    sizes: Option<&ElemSizeCache>,
 ) -> usize {
     let math_seg_h = |content: &str| -> usize {
         let key = format!("__inline__:{}", content);
-        elem_heights
-            .and_then(|m| m.get(key.as_str()).copied())
+        sizes
+            .and_then(|s| s.heights.get(key.as_str()).copied())
             .unwrap_or(1) as usize
     };
     let math_seg_w = |content: &str| -> usize {
         let key = format!("__inline__:{}", content);
-        elem_widths
-            .and_then(|m| m.get(key.as_str()).copied())
+        sizes
+            .and_then(|s| s.widths.get(key.as_str()).copied())
             .unwrap_or(4) as usize
     };
 
@@ -228,12 +237,11 @@ pub fn total_height(
     elements: &[DocElement],
     cfg: Option<&WrapConfig>,
     img_h: u16,
-    elem_heights: Option<&HashMap<String, u16>>,
-    elem_widths: Option<&HashMap<String, u16>>,
+    sizes: Option<&ElemSizeCache>,
 ) -> usize {
     elements
         .iter()
-        .map(|e| elem_height(e, cfg, img_h, elem_heights, elem_widths))
+        .map(|e| elem_height(e, cfg, img_h, sizes))
         .sum()
 }
 

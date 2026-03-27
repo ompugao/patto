@@ -13,7 +13,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 use std::path::Path;
 use tui_widget_list::{ListBuilder, ListView};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 
 use crate::app::App;
 use crate::image_cache::CachedImage;
@@ -60,8 +60,7 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         &app.rendered_doc.elements,
         app.wrap_config().as_ref(),
         app.images.height_rows,
-        Some(&app.images.elem_heights),
-        Some(&app.images.elem_widths),
+        Some(&app.images.elem_sizes),
     );
     let (pos, pct) = if total > 0 {
         let p = ((app.scroll_offset + 1) * 100 / total).min(100);
@@ -325,15 +324,165 @@ fn draw_image_cell(
     }
 }
 
+/// Render an `InlineMathLine` — text segments wrap character-by-character while
+/// math images are treated as atomic units.
+fn draw_inline_math_line(
+    frame: &mut Frame,
+    segments: &[InlineSegment],
+    area: Rect,
+    y: usize,
+    height: usize,
+    wrap: bool,
+    images: &mut crate::image_cache::ImageCache,
+) {
+    let max_x = area.x + area.width;
+    let col_width = area.width as usize;
+
+    let mut x_cursor: u16 = area.x;
+    let mut row_offset: u16 = 0;
+    let mut cur_row_h: u16 = 1;
+
+    for segment in segments {
+        match segment {
+            InlineSegment::Text(spans) => {
+                let mut row_x_start = x_cursor;
+                let mut sub_spans: Vec<Span<'static>> = Vec::new();
+                let mut cur_buf = String::new();
+                let mut cur_style: Style =
+                    spans.first().map(|s| s.style).unwrap_or_default();
+
+                for span in spans {
+                    if span.style != cur_style {
+                        if !cur_buf.is_empty() {
+                            sub_spans.push(Span::styled(
+                                std::mem::take(&mut cur_buf),
+                                cur_style,
+                            ));
+                        }
+                        cur_style = span.style;
+                    }
+                    for ch in span.content.chars() {
+                        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
+                        if wrap
+                            && col_width > 0
+                            && (x_cursor as usize + ch_w as usize)
+                                > (area.x as usize + col_width)
+                        {
+                            // Flush accumulated text to the current row.
+                            if !cur_buf.is_empty() {
+                                sub_spans.push(Span::styled(
+                                    std::mem::take(&mut cur_buf),
+                                    cur_style,
+                                ));
+                            }
+                            if !sub_spans.is_empty() {
+                                let text_y =
+                                    area.y + y as u16 + row_offset + cur_row_h / 2;
+                                let sub_w = x_cursor.saturating_sub(row_x_start);
+                                let avail_rows = (height as u16)
+                                    .saturating_sub(y as u16 + row_offset);
+                                if sub_w > 0 && avail_rows > 0 {
+                                    frame.render_widget(
+                                        Paragraph::new(Line::from(std::mem::take(
+                                            &mut sub_spans,
+                                        ))),
+                                        Rect::new(row_x_start, text_y, sub_w, 1),
+                                    );
+                                } else {
+                                    sub_spans.clear();
+                                }
+                            }
+                            row_offset += cur_row_h;
+                            x_cursor = area.x;
+                            cur_row_h = 1;
+                            row_x_start = area.x;
+                        }
+                        if ch_w > 0 {
+                            cur_buf.push(ch);
+                            x_cursor = x_cursor.saturating_add(ch_w).min(max_x);
+                        }
+                    }
+                }
+                if !cur_buf.is_empty() {
+                    sub_spans.push(Span::styled(cur_buf, cur_style));
+                }
+                if !sub_spans.is_empty() {
+                    let text_y = area.y + y as u16 + row_offset + cur_row_h / 2;
+                    let sub_w = x_cursor.saturating_sub(row_x_start);
+                    let avail_rows =
+                        (height as u16).saturating_sub(y as u16 + row_offset);
+                    if sub_w > 0 && avail_rows > 0 {
+                        frame.render_widget(
+                            Paragraph::new(Line::from(sub_spans)),
+                            Rect::new(row_x_start, text_y, sub_w, 1),
+                        );
+                    }
+                }
+                cur_row_h = cur_row_h.max(1);
+            }
+            InlineSegment::Math(content) => {
+                let seg_w = images.inline_math_cols(content).unwrap_or(4);
+                let key = crate::image_cache::ImageCache::inline_math_key(content);
+                let seg_h = images
+                    .elem_sizes
+                    .heights
+                    .get(key.as_str())
+                    .copied()
+                    .unwrap_or(1);
+
+                if wrap
+                    && col_width > 0
+                    && x_cursor > area.x
+                    && (x_cursor as usize + seg_w as usize)
+                        > (area.x as usize + col_width)
+                {
+                    row_offset += cur_row_h;
+                    x_cursor = area.x;
+                    cur_row_h = seg_h;
+                } else {
+                    cur_row_h = cur_row_h.max(seg_h);
+                }
+
+                let avail_x = max_x.saturating_sub(x_cursor);
+                let w = (seg_w as u16).min(avail_x);
+                let avail_rows =
+                    (height as u16).saturating_sub(y as u16 + row_offset);
+                let h = seg_h.min(avail_rows).max(1);
+                let base_y = area.y + y as u16 + row_offset;
+
+                if w > 0 && avail_rows > 0 {
+                    let math_area = Rect::new(x_cursor, base_y, w, h);
+                    match images.get_mut(&key) {
+                        Some(_) => {
+                            draw_image_cell(
+                                frame, images, &key, None, math_area, false,
+                            );
+                        }
+                        None => {
+                            frame.render_widget(
+                                Paragraph::new(Line::from(vec![Span::styled(
+                                    content.as_str().to_string(),
+                                    Style::default().fg(Color::Magenta),
+                                )])),
+                                Rect::new(x_cursor, base_y, w, 1),
+                            );
+                        }
+                    }
+                }
+                x_cursor = x_cursor.saturating_add(seg_w as u16).min(max_x);
+            }
+        }
+    }
+}
+
 fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
     let height = area.height as usize;
     let img_h = app.images.height_rows;
     let wrap = app.wrap;
     let showbreak = app.showbreak.clone();
-    // Snapshot elem_heights/elem_widths so the closure doesn't hold a borrow on
+    // Snapshot element sizes so the closure doesn't hold a borrow on
     // app.images while we later call app.images.load() / load_math() mutably.
-    let elem_heights = app.images.elem_heights.clone();
-    let elem_widths = app.images.elem_widths.clone();
+    let elem_sizes = app.images.elem_sizes.clone();
     // Update viewport dimensions (used by wrap-aware scroll calculations)
     app.viewport_width = area.width;
     app.viewport_height = height;
@@ -348,13 +497,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         } else {
             None
         };
-        elem_height(
-            elem,
-            cfg_opt,
-            img_h,
-            Some(&elem_heights),
-            Some(&elem_widths),
-        )
+        elem_height(elem, cfg_opt, img_h, Some(&elem_sizes))
     };
 
     // Skip elements until we reach scroll_offset rows
@@ -371,92 +514,34 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
         }
     }
 
-    // Pre-load images that will be visible (only scan viewport-worth of elements)
-    let mut scan_rows = 0usize;
-    let image_srcs: Vec<String> = app
-        .rendered_doc
-        .elements
-        .iter()
-        .skip(start_elem)
-        .take_while(|elem| {
-            let h = elem_h(elem);
-            scan_rows += h;
-            scan_rows <= height + img_h as usize
-        })
-        .filter_map(|elem| match elem {
-            DocElement::Image { src, .. } => Some(vec![src.clone()]),
+    // Pre-load images, math blocks, and inline math in the viewport (single pass).
+    let inline_math = app.inline_math_rendering;
+    let mut preload_rows = 0usize;
+    for elem in app.rendered_doc.elements.iter().skip(start_elem) {
+        preload_rows += elem_h(elem);
+        if preload_rows > height + img_h as usize {
+            break;
+        }
+        match elem {
+            DocElement::Image { src, .. } => {
+                app.images.load(src, root_dir);
+            }
             DocElement::ImageRow(images, ..) => {
-                Some(images.iter().map(|(s, _)| s.clone()).collect())
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect();
-    for src in &image_srcs {
-        app.images.load(src, root_dir);
-    }
-
-    // Pre-load math blocks in the viewport
-    let math_contents: Vec<String> = app
-        .rendered_doc
-        .elements
-        .iter()
-        .skip(start_elem)
-        .take_while({
-            let mut rows = 0usize;
-            move |elem| {
-                rows += elem_h(elem);
-                rows <= height + img_h as usize
-            }
-        })
-        .filter_map(|elem| {
-            if let DocElement::Math { content, .. } = elem {
-                Some(content.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-    for content in &math_contents {
-        app.images.load_math(content);
-    }
-
-    // Pre-load inline math segments in the viewport
-    if app.inline_math_rendering {
-        let inline_math_contents: Vec<String> = app
-            .rendered_doc
-            .elements
-            .iter()
-            .skip(start_elem)
-            .take_while({
-                let mut rows = 0usize;
-                move |elem| {
-                    rows += elem_h(elem);
-                    rows <= height + img_h as usize
+                for (s, _) in images {
+                    app.images.load(s, root_dir);
                 }
-            })
-            .filter_map(|elem| {
-                if let DocElement::InlineMathLine { segments, .. } = elem {
-                    Some(
-                        segments
-                            .iter()
-                            .filter_map(|s| {
-                                if let InlineSegment::Math(c) = s {
-                                    Some(c.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                } else {
-                    None
+            }
+            DocElement::Math { content, .. } => {
+                app.images.load_math(content);
+            }
+            DocElement::InlineMathLine { segments, .. } if inline_math => {
+                for seg in segments {
+                    if let InlineSegment::Math(c) = seg {
+                        app.images.load_inline_math(c);
+                    }
                 }
-            })
-            .flatten()
-            .collect();
-        for content in &inline_math_contents {
-            app.images.load_inline_math(content);
+            }
+            _ => {}
         }
     }
 
@@ -564,7 +649,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::Image { src, alt, indent } => {
                 let elem_h =
-                    (elem_height(elem, None, img_h, None, None) as u16).min((height - y) as u16);
+                    (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
                 let img_area = Rect::new(
                     area.x + indent_w,
@@ -585,7 +670,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             DocElement::ImageRow(images, indent) => {
                 let n = images.len() as u16;
                 let elem_h =
-                    (elem_height(elem, None, img_h, None, None) as u16).min((height - y) as u16);
+                    (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
                 let row_width = area.width.saturating_sub(indent_w);
                 let col_w = row_width / n;
@@ -622,7 +707,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
             }
             DocElement::Math { content, indent } => {
                 let elem_h =
-                    (elem_height(elem, None, img_h, Some(&elem_heights), Some(&elem_widths))
+                    (elem_height(elem, None, img_h, Some(&elem_sizes))
                         as u16)
                         .min((height - y) as u16);
                 let indent_w = (*indent as u16) * 2;
@@ -663,159 +748,11 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                 y += elem_h as usize;
             }
             DocElement::InlineMathLine { segments, .. } => {
-                // Total height of this element (accounts for wrap + math row heights).
                 let elem_total_h = elem_h(elem) as u16;
-                let max_x = area.x + area.width;
-                let col_width = area.width as usize;
-
-                // x_cursor and row_offset track position within the element.
-                // cur_row_h is the height of the current logical row.
-                let mut x_cursor: u16 = area.x;
-                let mut row_offset: u16 = 0;
-                let mut cur_row_h: u16 = 1;
-
-                for segment in segments {
-                    match segment {
-                        InlineSegment::Text(spans) => {
-                            // Text is wrapped character-by-character so that text fills the
-                            // terminal edge before breaking, just like regular text lines.
-                            let mut row_x_start = x_cursor;
-                            let mut sub_spans: Vec<Span<'static>> = Vec::new();
-                            let mut cur_buf = String::new();
-                            let mut cur_style: Style =
-                                spans.first().map(|s| s.style).unwrap_or_default();
-
-                            for span in spans {
-                                if span.style != cur_style {
-                                    if !cur_buf.is_empty() {
-                                        sub_spans.push(Span::styled(
-                                            std::mem::take(&mut cur_buf),
-                                            cur_style,
-                                        ));
-                                    }
-                                    cur_style = span.style;
-                                }
-                                for ch in span.content.chars() {
-                                    let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
-                                    if wrap
-                                        && col_width > 0
-                                        && (x_cursor as usize + ch_w as usize)
-                                            > (area.x as usize + col_width)
-                                    {
-                                        // Flush accumulated text to current row.
-                                        if !cur_buf.is_empty() {
-                                            sub_spans.push(Span::styled(
-                                                std::mem::take(&mut cur_buf),
-                                                cur_style,
-                                            ));
-                                        }
-                                        if !sub_spans.is_empty() {
-                                            let text_y =
-                                                area.y + y as u16 + row_offset + cur_row_h / 2;
-                                            let sub_w = x_cursor.saturating_sub(row_x_start);
-                                            let avail_rows = (height as u16)
-                                                .saturating_sub(y as u16 + row_offset);
-                                            if sub_w > 0 && avail_rows > 0 {
-                                                frame.render_widget(
-                                                    Paragraph::new(Line::from(std::mem::take(
-                                                        &mut sub_spans,
-                                                    ))),
-                                                    Rect::new(row_x_start, text_y, sub_w, 1),
-                                                );
-                                            } else {
-                                                sub_spans.clear();
-                                            }
-                                        }
-                                        // Start new row.
-                                        row_offset += cur_row_h;
-                                        x_cursor = area.x;
-                                        cur_row_h = 1;
-                                        row_x_start = area.x;
-                                    }
-                                    if ch_w > 0 {
-                                        cur_buf.push(ch);
-                                        x_cursor = x_cursor.saturating_add(ch_w).min(max_x);
-                                    }
-                                }
-                            }
-                            // Flush remaining chars.
-                            if !cur_buf.is_empty() {
-                                sub_spans.push(Span::styled(cur_buf, cur_style));
-                            }
-                            if !sub_spans.is_empty() {
-                                let text_y = area.y + y as u16 + row_offset + cur_row_h / 2;
-                                let sub_w = x_cursor.saturating_sub(row_x_start);
-                                let avail_rows =
-                                    (height as u16).saturating_sub(y as u16 + row_offset);
-                                if sub_w > 0 && avail_rows > 0 {
-                                    frame.render_widget(
-                                        Paragraph::new(Line::from(sub_spans)),
-                                        Rect::new(row_x_start, text_y, sub_w, 1),
-                                    );
-                                }
-                            }
-                            // Text doesn't increase cur_row_h beyond 1.
-                            cur_row_h = cur_row_h.max(1);
-                        }
-                        InlineSegment::Math(content) => {
-                            let seg_w = app.images.inline_math_cols(content).unwrap_or(4);
-                            let key = crate::image_cache::ImageCache::inline_math_key(content);
-                            let seg_h = app
-                                .images
-                                .elem_heights
-                                .get(key.as_str())
-                                .copied()
-                                .unwrap_or(1);
-
-                            // Math segments are atomic: wrap the whole image if it
-                            // doesn't fit on the current row.
-                            if wrap
-                                && col_width > 0
-                                && x_cursor > area.x
-                                && (x_cursor as usize + seg_w as usize)
-                                    > (area.x as usize + col_width)
-                            {
-                                row_offset += cur_row_h;
-                                x_cursor = area.x;
-                                cur_row_h = seg_h;
-                            } else {
-                                cur_row_h = cur_row_h.max(seg_h);
-                            }
-
-                            let avail_x = max_x.saturating_sub(x_cursor);
-                            let w = (seg_w as u16).min(avail_x);
-                            let avail_rows = (height as u16).saturating_sub(y as u16 + row_offset);
-                            let h = seg_h.min(avail_rows).max(1);
-                            let base_y = area.y + y as u16 + row_offset;
-
-                            if w > 0 && avail_rows > 0 {
-                                let math_area = Rect::new(x_cursor, base_y, w, h);
-                                match app.images.get_mut(&key) {
-                                    Some(_) => {
-                                        draw_image_cell(
-                                            frame,
-                                            &mut app.images,
-                                            &key,
-                                            None,
-                                            math_area,
-                                            false,
-                                        );
-                                    }
-                                    None => {
-                                        frame.render_widget(
-                                            Paragraph::new(Line::from(vec![Span::styled(
-                                                content.as_str().to_string(),
-                                                Style::default().fg(Color::Magenta),
-                                            )])),
-                                            Rect::new(x_cursor, base_y, w, 1),
-                                        );
-                                    }
-                                }
-                            }
-                            x_cursor = x_cursor.saturating_add(seg_w as u16).min(max_x);
-                        }
-                    }
-                }
+                draw_inline_math_line(
+                    frame, segments, area, y, height, wrap,
+                    &mut app.images,
+                );
                 y += elem_total_h as usize;
             }
         }
