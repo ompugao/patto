@@ -102,7 +102,9 @@ impl ImageCache {
                                 img
                             };
                             let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                            self.elem_sizes.heights.insert(src.to_string(), self.height_rows);
+                            self.elem_sizes
+                                .heights
+                                .insert(src.to_string(), self.height_rows);
                             self.cache
                                 .insert(src.to_string(), CachedImage::Loaded(protocol));
                         }
@@ -140,7 +142,9 @@ impl ImageCache {
                     img
                 };
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                self.elem_sizes.heights.insert(src.to_string(), self.height_rows);
+                self.elem_sizes
+                    .heights
+                    .insert(src.to_string(), self.height_rows);
                 self.cache
                     .insert(src.to_string(), CachedImage::Loaded(protocol));
             }
@@ -190,7 +194,9 @@ impl ImageCache {
                 } else {
                     self.height_rows
                 };
-                self.elem_sizes.heights.insert(content.to_string(), rows_needed);
+                self.elem_sizes
+                    .heights
+                    .insert(content.to_string(), rows_needed);
                 let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
                 self.cache
                     .insert(content.to_string(), CachedImage::Loaded(protocol));
