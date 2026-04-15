@@ -163,7 +163,16 @@ fn render_node(
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme, viewport_width, table_expanded);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                    viewport_width,
+                    table_expanded,
+                );
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -341,7 +350,16 @@ fn render_node(
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme, viewport_width, table_expanded);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                    viewport_width,
+                    table_expanded,
+                );
             }
         }
         AstNodeKind::Math { inline } => {
@@ -818,7 +836,12 @@ mod tests {
             .iter()
             .filter_map(|e| {
                 if let DocElement::TextLine(line, _) = e {
-                    Some(line.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                    Some(
+                        line.spans
+                            .iter()
+                            .map(|s| s.content.as_ref())
+                            .collect::<String>(),
+                    )
                 } else {
                     None
                 }
@@ -857,13 +880,20 @@ mod tests {
             eprintln!("  [{i}] {r}");
         }
         // Compact mode: all rows must be the same total display width (trailing │ aligned).
-        let widths: Vec<usize> = rows.iter().map(|r| {
-            use unicode_width::UnicodeWidthStr;
-            r.width()
-        }).collect();
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
         let first_w = widths[0];
         for (i, w) in widths.iter().enumerate() {
-            assert_eq!(*w, first_w, "Row {i} width {w} != row 0 width {first_w}\n  row: {}", rows[i]);
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != row 0 width {first_w}\n  row: {}",
+                rows[i]
+            );
         }
     }
 
@@ -878,13 +908,20 @@ mod tests {
             eprintln!("  [{i}] {r}");
         }
         // All rows must be the same total display width.
-        let widths: Vec<usize> = rows.iter().map(|r| {
-            use unicode_width::UnicodeWidthStr;
-            r.width()
-        }).collect();
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
         let first_w = widths[0];
         for (i, w) in widths.iter().enumerate() {
-            assert_eq!(*w, first_w, "Row {i} width {w} != row 0 width {first_w}\n  row: {}", rows[i]);
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != row 0 width {first_w}\n  row: {}",
+                rows[i]
+            );
         }
     }
 
@@ -893,21 +930,36 @@ mod tests {
         // The long cell must be truncated with … and trailing │ must still appear.
         let input = "[@table]\n\tHeader\tLong content that exceeds the max column width by a significant margin here\n\tA\tShort";
         let rows = table_rows(input);
-        assert!(rows.len() >= 2, "Expected at least 2 table rows, got {}", rows.len());
+        assert!(
+            rows.len() >= 2,
+            "Expected at least 2 table rows, got {}",
+            rows.len()
+        );
         eprintln!("rows:");
         for (i, r) in rows.iter().enumerate() {
             eprintln!("  [{i}] {r}");
         }
         // The header row's last cell (long content) must contain the ellipsis character.
-        assert!(rows[0].contains('…'), "Expected truncation ellipsis in header row: {}", rows[0]);
+        assert!(
+            rows[0].contains('…'),
+            "Expected truncation ellipsis in header row: {}",
+            rows[0]
+        );
         // Compact mode: all rows same display width.
-        let widths: Vec<usize> = rows.iter().map(|r| {
-            use unicode_width::UnicodeWidthStr;
-            r.width()
-        }).collect();
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
         let first_w = widths[0];
         for (i, w) in widths.iter().enumerate() {
-            assert_eq!(*w, first_w, "Row {i} width {w} != {first_w}\n  row: {}", rows[i]);
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != {first_w}\n  row: {}",
+                rows[i]
+            );
         }
     }
 }
