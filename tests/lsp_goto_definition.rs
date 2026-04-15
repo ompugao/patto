@@ -1,6 +1,7 @@
 mod common;
 
 use common::*;
+use tokio::time::{timeout, Duration};
 use tower_lsp::lsp_types::GotoDefinitionResponse;
 
 #[tokio::test]
@@ -97,4 +98,34 @@ async fn test_goto_definition_nonexistent_note() {
     assert!(response.is_some());
 
     println!("✅ Goto definition for nonexistent note test passed");
+}
+
+#[tokio::test]
+async fn test_goto_definition_self_link_no_deadlock() {
+    // Regression test: a file with a wiki-link to itself must not deadlock the LSP.
+    // Previously, add_file_to_graph called gdsl Node::connect(self, self, ...) which
+    // tried to acquire the same RwLock twice on the same thread → deadlock.
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("selflink.pn", "[selflink] is a self-referential note\n");
+
+    let mut client = InProcessLspClient::new(&workspace).await;
+
+    let uri = workspace.get_uri("selflink.pn");
+    client
+        .did_open(
+            uri.clone(),
+            "[selflink] is a self-referential note\n".to_string(),
+        )
+        .await;
+
+    // The goto_definition call must complete without hanging.
+    // Position inside [selflink] at line 0, char 5.
+    let result = timeout(Duration::from_secs(5), client.definition(uri.clone(), 0, 5)).await;
+
+    assert!(
+        result.is_ok(),
+        "goto_definition deadlocked on a self-linking note"
+    );
+
+    println!("✅ Self-link goto definition no-deadlock test passed");
 }

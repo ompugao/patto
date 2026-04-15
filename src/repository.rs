@@ -568,6 +568,13 @@ impl Repository {
 
                     // Update edges with location data
                     for (link_uri, locations) in &links_by_target {
+                        // Skip self-links: connecting a node to itself causes a
+                        // re-entrancy deadlock in gdsl's RwLock (connect() acquires
+                        // write on self then write on other, which are the same lock).
+                        if link_uri == &uri {
+                            continue;
+                        }
+
                         // Create or get target node
                         let target_node = graph.get(link_uri).unwrap_or_else(|| {
                             // Try to get AST from cache, or create placeholder
@@ -728,7 +735,7 @@ impl Repository {
             std::thread::park();
         });
 
-        eprintln!("Repository watching directory: {}", dir_display);
+        //eprintln!("Repository watching directory: {}", dir_display);
 
         let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> =
             Arc::new(Mutex::new(HashMap::new()));
