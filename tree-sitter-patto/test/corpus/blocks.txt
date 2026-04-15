@@ -1,0 +1,216 @@
+================================================================================
+Code block
+================================================================================
+[@code python]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word)))))))
+
+================================================================================
+Code block without language
+================================================================================
+[@code]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name))))
+
+================================================================================
+Math block
+================================================================================
+[@math]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name))))
+
+================================================================================
+Quote block
+================================================================================
+[@quote]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name))))
+
+================================================================================
+Table block
+================================================================================
+[@table]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name))))
+
+================================================================================
+Code block with content lines
+================================================================================
+[@code python]
+	def hello():
+	    print("world")
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))))
+
+================================================================================
+Quote block with content
+================================================================================
+[@quote]
+	This is a quote
+	with multiple lines
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))))
+
+================================================================================
+Command with key-value parameters
+================================================================================
+[@table caption="My Table" format=csv]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (key_value_param
+            (param_word)
+            (escaped_string
+              (string_content))))
+        (parameter
+          (key_value_param
+            (param_word)
+            (param_word)))))))
+
+================================================================================
+Command with escaped string parameter
+================================================================================
+[@code "python 3"]
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (escaped_string
+            (string_content)))))))
+
+================================================================================
+Nested blocks (indented command inside indented content)
+================================================================================
+Parent line
+	[@code python]
+		nested code line
+	After the block
+--------------------------------------------------------------------------------
+
+(document
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))))
+
+================================================================================
+Multiple blocks in sequence
+================================================================================
+[@code python]
+	print("hello")
+[@quote]
+	A famous quote
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))))
