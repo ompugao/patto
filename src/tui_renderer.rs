@@ -76,7 +76,12 @@ pub struct RenderedDoc {
 impl RenderedDoc {}
 
 /// Render an AST root node into a flat list of DocElements.
-pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
+pub fn render_ast(
+    ast: &AstNode,
+    syntax_theme: Option<&str>,
+    viewport_width: Option<usize>,
+    table_expanded: bool,
+) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
     let mut anchors = HashMap::new();
@@ -87,6 +92,8 @@ pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
         &mut anchors,
         0,
         syntax_theme,
+        viewport_width,
+        table_expanded,
     );
     RenderedDoc {
         elements,
@@ -149,12 +156,23 @@ fn render_node(
     anchors: &mut HashMap<String, usize>,
     indent: usize,
     syntax_theme: Option<&str>,
+    viewport_width: Option<usize>,
+    table_expanded: bool,
 ) {
     match ast.kind() {
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                    viewport_width,
+                    table_expanded,
+                );
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -182,6 +200,8 @@ fn render_node(
                     anchors,
                     indent,
                     syntax_theme,
+                    viewport_width,
+                    table_expanded,
                 );
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
@@ -193,6 +213,8 @@ fn render_node(
                         anchors,
                         indent + 1,
                         syntax_theme,
+                        viewport_width,
+                        table_expanded,
                     );
                 }
                 return;
@@ -320,13 +342,24 @@ fn render_node(
                     anchors,
                     indent + 1,
                     syntax_theme,
+                    viewport_width,
+                    table_expanded,
                 );
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
+                render_node(
+                    child,
+                    elements,
+                    focusables,
+                    anchors,
+                    indent,
+                    syntax_theme,
+                    viewport_width,
+                    table_expanded,
+                );
             }
         }
         AstNodeKind::Math { inline } => {
@@ -447,9 +480,22 @@ fn render_node(
                     ast.location().row,
                 ));
             }
+            let max_col_w = viewport_width
+                .map(|vw| (vw / 2).clamp(20, 80))
+                .unwrap_or(40);
             let children = ast.value().children.lock().unwrap();
-            for child in children.iter() {
-                render_table_row(child, elements, focusables, indent, child.location().row);
+            let col_widths = compute_column_widths(&children, max_col_w);
+            for (row_idx, child) in children.iter().enumerate() {
+                render_table_row(
+                    child,
+                    &col_widths,
+                    row_idx,
+                    table_expanded,
+                    elements,
+                    focusables,
+                    indent,
+                    child.location().row,
+                );
             }
         }
         AstNodeKind::TableRow | AstNodeKind::TableColumn => {
@@ -460,32 +506,143 @@ fn render_node(
 
 fn render_table_row(
     ast: &AstNode,
+    col_widths: &[usize],
+    row_idx: usize,
+    table_expanded: bool,
     elements: &mut Vec<DocElement>,
     focusables: &mut Vec<FocusableItem>,
     indent: usize,
     source_row: usize,
 ) {
+    use unicode_width::UnicodeWidthStr;
+    let is_header = row_idx == 0;
+    let base_style = if is_header {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
     let mut spans: Vec<Span<'static>> = Vec::new();
     spans.push(Span::raw("  ".repeat(indent)));
     spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
 
     let contents = ast.value().contents.lock().unwrap();
+    let num_cols = contents.len();
     for (i, col) in contents.iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         }
+        let is_last = i + 1 == num_cols;
+        let span_start = spans.len();
         let col_contents = col.value().contents.lock().unwrap();
         for c in col_contents.iter() {
-            render_inline(c, &mut spans, Style::default(), focusables, elements.len());
+            render_inline(c, &mut spans, base_style, focusables, elements.len());
+        }
+
+        if table_expanded {
+            // Expanded mode: pad non-last cols only, no trailing │.
+            if !is_last {
+                if let Some(&target_w) = col_widths.get(i) {
+                    let cell_w: usize = spans[span_start..].iter().map(|s| s.content.width()).sum();
+                    if cell_w < target_w {
+                        spans.push(Span::raw(" ".repeat(target_w - cell_w)));
+                    }
+                }
+            }
+        } else {
+            // Compact mode: truncate cell to column width then pad; trailing │ on every col.
+            if let Some(&target_w) = col_widths.get(i) {
+                let cell_spans = spans.drain(span_start..).collect::<Vec<_>>();
+                let mut truncated = truncate_cell_spans(cell_spans, target_w);
+                let cell_w: usize = truncated.iter().map(|s| s.content.width()).sum();
+                spans.append(&mut truncated);
+                if cell_w < target_w {
+                    spans.push(Span::raw(" ".repeat(target_w - cell_w)));
+                }
+            }
         }
     }
-    spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
+
+    if !table_expanded {
+        spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
+    }
     elements.push(DocElement::TextLine(Line::from(spans), source_row));
 }
 
-/// Count total character width of accumulated spans.
+/// Count total character width of accumulated spans (char count, used for focusable offsets).
 fn spans_char_width(spans: &[Span<'_>]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+/// Truncate `spans` so their total Unicode display width does not exceed `max_w`.
+///
+/// If the content fits, it is returned unchanged.  If it overflows, spans are
+/// clipped at `max_w - 1` display columns and a single `…` span is appended.
+fn truncate_cell_spans(spans: Vec<Span<'static>>, max_w: usize) -> Vec<Span<'static>> {
+    use unicode_width::UnicodeWidthChar;
+    use unicode_width::UnicodeWidthStr;
+    if max_w == 0 {
+        return vec![Span::raw("…")];
+    }
+    let total: usize = spans.iter().map(|s| s.content.width()).sum();
+    if total <= max_w {
+        return spans;
+    }
+    // Need to clip. Budget = max_w - 1 display cols (1 reserved for "…").
+    let budget = max_w - 1;
+    let mut result: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    'outer: for span in spans {
+        let style = span.style;
+        let mut buf = String::new();
+        for ch in span.content.chars() {
+            let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if used + w > budget {
+                if !buf.is_empty() {
+                    result.push(Span::styled(buf, style));
+                }
+                break 'outer;
+            }
+            buf.push(ch);
+            used += w;
+        }
+        if !buf.is_empty() {
+            result.push(Span::styled(buf, style));
+        }
+    }
+    result.push(Span::raw("…"));
+    result
+}
+
+/// Measure the Unicode display width of a `TableColumn` node's inline content.
+fn measure_cell_width(col: &AstNode) -> usize {
+    use unicode_width::UnicodeWidthStr;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut dummy_focusables = Vec::new();
+    let col_contents = col.value().contents.lock().unwrap();
+    for c in col_contents.iter() {
+        render_inline(c, &mut spans, Style::default(), &mut dummy_focusables, 0);
+    }
+    spans.iter().map(|s| s.content.width()).sum()
+}
+
+/// Compute the maximum display width of each column across all `TableRow` nodes.
+///
+/// Widths are capped at `max_col_w`.
+fn compute_column_widths(rows: &[AstNode], max_col_w: usize) -> Vec<usize> {
+    let mut widths: Vec<usize> = Vec::new();
+    for row in rows {
+        let contents = row.value().contents.lock().unwrap();
+        for (j, col) in contents.iter().enumerate() {
+            let w = measure_cell_width(col).min(max_col_w);
+            if j < widths.len() {
+                widths[j] = widths[j].max(w);
+            } else {
+                widths.push(w);
+            }
+        }
+    }
+    widths
 }
 
 fn render_inline(
@@ -664,4 +821,145 @@ fn render_inline(
         }
     }
     InlineResult::Inline
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_text;
+
+    fn table_rows(input: &str) -> Vec<String> {
+        let result = parse_text(input);
+        let rendered = render_ast(&result.ast, None, None, false);
+        rendered
+            .elements
+            .iter()
+            .filter_map(|e| {
+                if let DocElement::TextLine(line, _) = e {
+                    Some(
+                        line.spans
+                            .iter()
+                            .map(|s| s.content.as_ref())
+                            .collect::<String>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Count the display-column position of the *first* column separator `│ `
+    /// (after the leading indent+pipe) in a rendered row.  All data rows must
+    /// agree so that the middle-column separators are vertically aligned.
+    fn first_sep_offset(row: &str) -> Option<usize> {
+        use unicode_width::UnicodeWidthStr;
+        // Find the second │ (the separator after the first cell).
+        let mut pipes = 0usize;
+        let mut col = 0usize;
+        for ch in row.chars() {
+            let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if ch == '│' {
+                pipes += 1;
+                if pipes == 2 {
+                    return Some(col);
+                }
+            }
+            col += w;
+        }
+        None
+    }
+
+    #[test]
+    fn test_table_alignment_ascii() {
+        let input = "[@table]\n\tName\tAge\tCity\n\tAlice\t30\tNew York\n\tBob\t25\tLA";
+        let rows = table_rows(input);
+        assert!(!rows.is_empty(), "Expected table rows");
+        eprintln!("rows:");
+        for (i, r) in rows.iter().enumerate() {
+            eprintln!("  [{i}] {r}");
+        }
+        // Compact mode: all rows must be the same total display width (trailing │ aligned).
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
+        let first_w = widths[0];
+        for (i, w) in widths.iter().enumerate() {
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != row 0 width {first_w}\n  row: {}",
+                rows[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_alignment_cjk() {
+        // CJK chars are double-width — alignment must still hold.
+        let input = "[@table]\n\t手法\t特徴\n\tグラム・シュミット法\tベクトルを一つずつ直交化していく直感的な方法。\n\tハウスホルダー変換\t鏡映を利用する方法。";
+        let rows = table_rows(input);
+        assert!(!rows.is_empty());
+        eprintln!("rows:");
+        for (i, r) in rows.iter().enumerate() {
+            eprintln!("  [{i}] {r}");
+        }
+        // All rows must be the same total display width.
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
+        let first_w = widths[0];
+        for (i, w) in widths.iter().enumerate() {
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != row 0 width {first_w}\n  row: {}",
+                rows[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_truncation_adds_ellipsis() {
+        // The long cell must be truncated with … and trailing │ must still appear.
+        let input = "[@table]\n\tHeader\tLong content that exceeds the max column width by a significant margin here\n\tA\tShort";
+        let rows = table_rows(input);
+        assert!(
+            rows.len() >= 2,
+            "Expected at least 2 table rows, got {}",
+            rows.len()
+        );
+        eprintln!("rows:");
+        for (i, r) in rows.iter().enumerate() {
+            eprintln!("  [{i}] {r}");
+        }
+        // The header row's last cell (long content) must contain the ellipsis character.
+        assert!(
+            rows[0].contains('…'),
+            "Expected truncation ellipsis in header row: {}",
+            rows[0]
+        );
+        // Compact mode: all rows same display width.
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|r| {
+                use unicode_width::UnicodeWidthStr;
+                r.width()
+            })
+            .collect();
+        let first_w = widths[0];
+        for (i, w) in widths.iter().enumerate() {
+            assert_eq!(
+                *w, first_w,
+                "Row {i} width {w} != {first_w}\n  row: {}",
+                rows[i]
+            );
+        }
+    }
 }
