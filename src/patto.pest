@@ -63,7 +63,7 @@ url_title_before_local = @{ (non_url_like_char_except_space+ ~ " "+ ~ !("./"|"..
 non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
 // non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
-URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_")+}
+URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_" | ",")+}
 
 expr_local_file_link = ${"[" ~ (expr_local_file_title | expr_title_local_file | expr_local_file_only) ~ "]"}
 expr_title_local_file = ${local_file_title ~ WHITE_SPACE_INLINE+ ~ local_file}
