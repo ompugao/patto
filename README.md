@@ -135,6 +135,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+- **v0.4.5** - allow comma in URL; fix self-links in repository graph causing RwLock deadlock; dependency updates
 - **v0.4.4** - patto-preview-tui: flatten transparent image backgrounds before rendering, fix self-link anchor jumping; fix font size scaling (only `[** xxx]` and above enlarge)
 - **v0.4.3** - patto-preview-tui: syntect syntax highlighting for code blocks, vim-like `/`/`?` search with cmdline editing, task view panel (`T`) grouped by deadline category
 - **v0.4.2** - patto-preview-tui enhancements: math rendering via typst, text wrapping, TCP LSP backend, extensible editor integration with Neovim viewport sync, tui-widget-list for backlinks panel; PDF embedding via `@embed ./file.pdf`; `@embed`/`@img` syntax unification with LSP diagnostics (local paths now require `./` prefix)
