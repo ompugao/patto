@@ -63,7 +63,9 @@ url_title_before_local = @{ (non_url_like_char_except_space+ ~ " "+ ~ !("./"|"..
 non_url_like_char_except_space = @{(!(URL | "[" | "]"| " ") ~ ANY)}
 url_only = ${URL}
 // non_url_like_char = _{ !("://"|"[" | "]") ~ ANY }
-URL = @{ ASCII_ALPHA+ ~ "://" ~ (ASCII_ALPHANUMERIC | NUMBER|CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_" | ",")+}
+// scheme: RFC 3986 §3.1 — ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+// after "://": all unreserved + sub-delims + gen-delims used in authority/path/query/fragment + CJK (RFC 3987)
+URL = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "+" | "-" | ".")* ~ "://" ~ (ASCII_ALPHANUMERIC | CJK | "/" | ":" | "#" | "%" | "$" | "&" | "?" | "@" | "!" | "(" | ")" | "~" | "." | "=" | "+" | "*"| "-" | "_" | "," | "'" | ";")+}
 
 expr_local_file_link = ${"[" ~ (expr_local_file_title | expr_title_local_file | expr_local_file_only) ~ "]"}
 expr_title_local_file = ${local_file_title ~ WHITE_SPACE_INLINE+ ~ local_file}
