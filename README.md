@@ -132,6 +132,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 - Zotero integration
 - Terminal preview (`patto-preview-tui`) — keybindings, editor integration, image protocols
 - Google Calendar sync
+- **Daily journal** — edit separate daily files as one virtual buffer (Logseq-style)
 
 ## Recent Updates
 

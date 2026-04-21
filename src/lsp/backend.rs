@@ -315,8 +315,18 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let uri = Repository::normalize_url_percent_encoding(&params.uri);
 
-        // Use repository's add_file_to_graph method which handles everything
-        if let Ok(file_path) = uri.to_file_path() {
+        if uri.scheme() == "patto-journal" {
+            // Journal virtual buffer: store in document_map and ast_map for LSP features
+            // (completion, hover, goto-definition) but skip add_file_to_graph to avoid
+            // polluting the link graph. Individual daily files are tracked by the file watcher.
+            let result = parser::parse_text(&params.text);
+            let rope = ropey::Rope::from_str(&params.text);
+            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                repo.document_map.insert(uri.clone(), rope);
+                repo.ast_map.insert(uri.clone(), result.ast);
+            }
+        } else if let Ok(file_path) = uri.to_file_path() {
+            // Use repository's add_file_to_graph method which handles everything
             if let Some(repo) = self.repository.lock().unwrap().as_ref() {
                 repo.add_file_to_graph(&file_path, &params.text);
             }
@@ -790,6 +800,8 @@ impl LanguageServer for Backend {
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
+                        "experimental/journal_concat".to_string(),
+                        "experimental/journal_save".to_string(),
                         "patto/snapshotPapers".to_string(),
                         "patto/renderAsMarkdown".to_string(),
                     ],
@@ -932,9 +944,14 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri;
-        //self.repository.document_map.remove(&uri);
-        //self.repository.ast_map.remove(&uri);
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+        // Clean up journal virtual buffer entries from document_map and ast_map
+        if uri.scheme() == "patto-journal" {
+            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                repo.document_map.remove(&uri);
+                repo.ast_map.remove(&uri);
+            }
+        }
         self.client
             .log_message(MessageType::INFO, format!("file {} is closed!", uri))
             .await;
@@ -1103,6 +1120,163 @@ impl LanguageServer for Backend {
 
                 let markdown = String::from_utf8_lossy(&output).to_string();
                 return Ok(Some(json!(markdown)));
+            }
+            "experimental/journal_concat" => {
+                // Arguments: [directory_path, count?, order?]
+                // Returns: { content, boundaries: [{filename, start_line, end_line}] }
+                let Some(dir_str) = params.arguments.first().and_then(|a| a.as_str()) else {
+                    log::warn!("journal_concat: missing directory_path argument");
+                    return Ok(None);
+                };
+                let dir = std::path::PathBuf::from(dir_str);
+                if !dir.is_dir() {
+                    log::warn!("journal_concat: not a directory: {}", dir_str);
+                    return Ok(None);
+                }
+
+                let count = params
+                    .arguments
+                    .get(1)
+                    .and_then(|a| a.as_u64())
+                    .unwrap_or(30) as usize;
+                let order = params
+                    .arguments
+                    .get(2)
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("newest_first");
+
+                let date_re =
+                    regex::Regex::new(r"^(\d{4})-(\d{2})-(\d{2})\.pn$").unwrap();
+
+                let mut entries: Vec<(String, std::path::PathBuf)> = vec![];
+                if let Ok(read_dir) = std::fs::read_dir(&dir) {
+                    for entry in read_dir.flatten() {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        if date_re.is_match(&fname) {
+                            let name = fname.strip_suffix(".pn").unwrap().to_string();
+                            entries.push((name, entry.path()));
+                        }
+                    }
+                }
+
+                if order == "oldest_first" {
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                } else {
+                    entries.sort_by(|a, b| b.0.cmp(&a.0));
+                }
+                if count > 0 && entries.len() > count {
+                    entries.truncate(count);
+                }
+
+                let mut content = String::new();
+                let mut boundaries: Vec<Value> = vec![];
+                let mut current_line: usize = 0;
+
+                for (i, (name, path)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        content.push('\n');
+                        current_line += 1;
+                    }
+                    let start_line = current_line;
+                    let file_content = std::fs::read_to_string(path).unwrap_or_default();
+                    let line_count = if file_content.is_empty() {
+                        content.push('\n');
+                        current_line += 1;
+                        1
+                    } else {
+                        let lines: Vec<&str> = file_content.lines().collect();
+                        let n = lines.len();
+                        for (j, line) in lines.iter().enumerate() {
+                            content.push_str(line);
+                            if j < n - 1 || file_content.ends_with('\n') {
+                                content.push('\n');
+                            }
+                        }
+                        current_line += n;
+                        n
+                    };
+
+                    boundaries.push(json!({
+                        "filename": format!("{}.pn", name),
+                        "start_line": start_line,
+                        "end_line": start_line + line_count,
+                    }));
+                }
+
+                return Ok(Some(json!({
+                    "content": content,
+                    "boundaries": boundaries,
+                })));
+            }
+            "experimental/journal_save" => {
+                // Arguments: [directory_path, content, boundaries]
+                // boundaries: [{"filename": "YYYY-MM-DD.pn", "start_line": N, "end_line": M}]
+                let Some(dir_str) = params.arguments.first().and_then(|a| a.as_str()) else {
+                    return Ok(None);
+                };
+                let Some(content) = params.arguments.get(1).and_then(|a| a.as_str()) else {
+                    return Ok(None);
+                };
+                let Some(boundaries) = params.arguments.get(2).and_then(|a| a.as_array()) else {
+                    return Ok(None);
+                };
+
+                let dir = std::path::PathBuf::from(dir_str);
+                let lines: Vec<&str> = content.lines().collect();
+                let mut files_written: u64 = 0;
+                let mut errors: Vec<String> = vec![];
+
+                for boundary in boundaries {
+                    let Some(filename) = boundary.get("filename").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    let Some(start) = boundary.get("start_line").and_then(|v| v.as_u64()) else {
+                        continue;
+                    };
+                    let Some(end) = boundary.get("end_line").and_then(|v| v.as_u64()) else {
+                        continue;
+                    };
+                    let start = start as usize;
+                    let end = std::cmp::min(end as usize, lines.len());
+
+                    let section: Vec<&str> = lines[start..end].to_vec();
+                    // Trim trailing empty lines
+                    let mut trimmed = section;
+                    while !trimmed.is_empty() && trimmed.last() == Some(&"") {
+                        trimmed.pop();
+                    }
+
+                    let file_path = dir.join(filename);
+                    let mut file_content = trimmed.join("\n");
+                    if !trimmed.is_empty() {
+                        file_content.push('\n');
+                    }
+
+                    // Atomic write
+                    let tmp_path = file_path.with_extension("pn.tmp");
+                    match std::fs::write(&tmp_path, &file_content) {
+                        Ok(_) => {
+                            if let Err(e) = std::fs::rename(&tmp_path, &file_path) {
+                                errors.push(format!("{}: rename failed: {}", filename, e));
+                                let _ = std::fs::remove_file(&tmp_path);
+                            } else {
+                                files_written += 1;
+                                // Update the repository graph for this file
+                                if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                                    repo.add_file_to_graph(&file_path, &file_content);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            errors.push(format!("{}: write failed: {}", filename, e));
+                        }
+                    }
+                }
+
+                return Ok(Some(json!({
+                    "files_written": files_written,
+                    "errors": errors,
+                })));
             }
             c => {
                 log::info!("unknown command: {}", c);

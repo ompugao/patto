@@ -197,6 +197,53 @@ cargo build --release --features preview-tui-chafa-static
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
 
+### Daily Journal (Neovim)
+
+Store daily journal entries in separate files (`YYYY-MM-DD.pn`) and edit them as a single virtual buffer — similar to [Logseq](https://logseq.com/)'s daily notes view.
+
+**Setup:**
+
+```lua
+-- In your init.lua
+require('patto_journal').setup()
+
+-- Optional: set default journal directory
+vim.g.patto_journal_dir = '~/Documents/notes/journal/'
+vim.g.patto_journal_count = 30           -- number of recent days to show
+vim.g.patto_journal_order = 'newest_first'  -- or 'oldest_first'
+```
+
+**Usage:**
+
+```
+:PattoJournal ~/Documents/notes/journal/    Open journal view (30 most recent days)
+:PattoJournal ~/Documents/notes/journal/ 7  Show last 7 days
+:PattoJournalToday                          Open journal, jump to today
+```
+
+Inside the journal buffer:
+- `]]` / `[[` — jump to next / previous day
+- `gf` — open the individual `.pn` file for the section under cursor
+- `gd` — goto definition (jumps to date sections within the journal, or opens linked notes)
+- `:PattoJournalGoto 2026-04-15` — jump to a specific date
+- `:w` — saves changes back to individual daily files
+
+Wiki links, completion, hover, and diagnostics all work in the journal buffer.
+
+**Migrating from a single journal file:**
+
+```lua
+require('patto_journal_import').setup()
+```
+
+```
+:PattoJournalImport ~/Documents/notes/journal.pn ~/Documents/notes/journal/
+:PattoJournalImport journal.pn dest/ --dry-run    Preview without writing
+:PattoJournalImport journal.pn dest/ --overwrite   Overwrite existing files
+```
+
+The importer detects date patterns (e.g., `2026-04-21`) at indent level 0 and uses them as split points. Content before any date header is saved to `_preamble.pn`.
+
 
 <details>
 <summary>FAQ & Tips</summary>
