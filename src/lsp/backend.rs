@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use urlencoding::decode;
 
@@ -13,7 +14,7 @@ use tower_lsp::{Client, LanguageServer};
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
-    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule,
+    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
 };
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
@@ -315,10 +316,41 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let uri = Repository::normalize_url_percent_encoding(&params.uri);
 
-        // Use repository's add_file_to_graph method which handles everything
         if let Ok(file_path) = uri.to_file_path() {
+            // Fetch old AST before the graph is updated
+            let old_ast: Option<AstNode> = self
+                .repository
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|repo| repo.ast_map.get(&uri).map(|e| e.value().clone()));
+
+            // Update graph with new content
             if let Some(repo) = self.repository.lock().unwrap().as_ref() {
                 repo.add_file_to_graph(&file_path, &params.text);
+            }
+
+            // Fetch new AST and compare to detect task completions
+            if let Some(old_ast) = old_ast {
+                let new_ast: Option<AstNode> = self
+                    .repository
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|repo| repo.ast_map.get(&uri).map(|e| e.value().clone()));
+
+                if let Some(new_ast) = new_ast {
+                    let mut edits = Vec::new();
+                    self.collect_completion_edits(&old_ast, &new_ast, &mut edits);
+                    if !edits.is_empty() {
+                        let workspace_edit = WorkspaceEdit {
+                            changes: Some([(uri.clone(), edits)].iter().cloned().collect()),
+                            document_changes: None,
+                            change_annotations: None,
+                        };
+                        let _ = self.client.apply_edit(workspace_edit).await;
+                    }
+                }
             }
         }
 
@@ -327,8 +359,130 @@ impl Backend {
 
         // Publish diagnostics to the client
         self.client
-            .publish_diagnostics(params.uri, diagnostics, Some(params.version))
+            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
             .await;
+    }
+
+    /// Collect old task statuses (by line row) from the AST into a map.
+    fn collect_old_task_statuses(
+        node: &AstNode,
+        map: &mut HashMap<usize, (TaskStatus, Option<Deadline>)>,
+    ) {
+        if let AstNodeKind::Line { properties } = &node.kind() {
+            for prop in properties {
+                if let Property::Task {
+                    status,
+                    completed_at,
+                    ..
+                } = prop
+                {
+                    map.insert(node.location().row, (status.clone(), completed_at.clone()));
+                    break;
+                }
+            }
+        }
+        for child in node.value().children.lock().unwrap().iter() {
+            Self::collect_old_task_statuses(child, map);
+        }
+    }
+
+    /// Walk the new AST to find tasks that just transitioned to Done without a completed_at,
+    /// and generate the corresponding TextEdit for each.
+    fn find_newly_completed_tasks(
+        &self,
+        node: &AstNode,
+        old_statuses: &HashMap<usize, (TaskStatus, Option<Deadline>)>,
+        edits: &mut Vec<TextEdit>,
+    ) {
+        if let AstNodeKind::Line { properties } = &node.kind() {
+            for prop in properties {
+                if let Property::Task {
+                    status: new_status,
+                    completed_at: None,
+                    ..
+                } = prop
+                {
+                    if *new_status == TaskStatus::Done {
+                        let row = node.location().row;
+                        let was_not_done = old_statuses
+                            .get(&row)
+                            .map(|(old_status, _)| *old_status != TaskStatus::Done)
+                            .unwrap_or(false);
+                        if was_not_done {
+                            if let Some(edit) = self.generate_completed_at_edit_from_node(node) {
+                                edits.push(edit);
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        for child in node.value().children.lock().unwrap().iter() {
+            self.find_newly_completed_tasks(child, old_statuses, edits);
+        }
+    }
+
+    fn collect_completion_edits(
+        &self,
+        old_ast: &AstNode,
+        new_ast: &AstNode,
+        edits: &mut Vec<TextEdit>,
+    ) {
+        let mut old_statuses = HashMap::new();
+        Self::collect_old_task_statuses(old_ast, &mut old_statuses);
+        self.find_newly_completed_tasks(new_ast, &old_statuses, edits);
+    }
+
+    fn generate_completed_at_edit_from_node(&self, line_node: &AstNode) -> Option<TextEdit> {
+        let line_content = line_node.extract_str();
+        let line_idx = line_node.location().row as u32;
+
+        // If line already has completed_at, don't add it again
+        if line_content.contains("completed_at=") {
+            return None;
+        }
+
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        // Find where to insert completed_at
+        if let Some(close_brace_idx) = line_content.rfind('}') {
+            // Insert inside the existing task property, before the closing }
+            let insert_pos = close_brace_idx;
+            let new_text = format!(" completed_at={}", today);
+
+            return Some(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: line_idx,
+                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
+                    },
+                    end: Position {
+                        line: line_idx,
+                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
+                    },
+                },
+                new_text,
+            });
+        } else {
+            // Add new task property at end of line (after any description)
+            let insert_pos = line_content.len();
+            let new_text = format!(" {{@task completed_at={}}}", today);
+
+            return Some(TextEdit {
+                range: Range {
+                    start: Position {
+                        line: line_idx,
+                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
+                    },
+                    end: Position {
+                        line: line_idx,
+                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
+                    },
+                },
+                new_text,
+            });
+        }
     }
 
     async fn start_repository_listener(&self) {
@@ -790,7 +944,6 @@ impl LanguageServer for Backend {
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
-                        "experimental/mark_task_done".to_string(),
                         "patto/snapshotPapers".to_string(),
                         "patto/renderAsMarkdown".to_string(),
                     ],
@@ -1104,121 +1257,6 @@ impl LanguageServer for Backend {
 
                 let markdown = String::from_utf8_lossy(&output).to_string();
                 return Ok(Some(json!(markdown)));
-            }
-"experimental/mark_task_done" => {
-                // Arguments: [uri, line_number, optional_completion_date]
-                // Returns: { new_line: string, completion_date: string }
-                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
-                    return Ok(None);
-                };
-                let Some(line_num) = params.arguments.get(1).and_then(|a| a.as_u64()) else {
-                    return Ok(None);
-                };
-                let line_num = line_num as usize;
-
-                let Ok(uri) = Url::parse(uri_str) else {
-                    return Ok(None);
-                };
-                let uri = Repository::normalize_url_percent_encoding(&uri);
-
-                // Get the current line content
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(ast) = repo.ast_map.get(&uri) else {
-                    return Ok(None);
-                };
-
-                // Find the line at the given line number by traversing the AST
-                let mut target_line: Option<AstNode> = None;
-                
-                fn find_line_at_row(node: &AstNode, row: usize, result: &mut Option<AstNode>) {
-                    if node.location().row == row {
-                        *result = Some(node.clone());
-                        return;
-                    }
-                    let contents = node.value().contents.lock().unwrap();
-                    for child in contents.iter() {
-                        find_line_at_row(child, row, result);
-                        if result.is_some() {
-                            return;
-                        }
-                    }
-                }
-                
-                find_line_at_row(ast.value(), line_num, &mut target_line);
-                
-                let Some(line_node) = target_line else {
-                    return Ok(None);
-                };
-
-                // Get the line content
-                let line_content = line_node.extract_str();
-
-                // Use today's date if not provided
-                let completion_date = params
-                    .arguments
-                    .get(2)
-                    .and_then(|a| a.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| {
-                        chrono::Local::now()
-                            .format("%Y-%m-%d")
-                            .to_string()
-                    });
-
-                // Replace the task status symbol with done and add completed_at
-                let new_line = if line_content.contains("!") {
-                    // Change ! (todo) to - (done) and add completed_at
-                    let modified = line_content.replace("!", "-");
-                    if modified.contains("{@task") {
-                        // Update existing task property
-                        if modified.contains("completed_at=") {
-                            // Replace existing completed_at
-                            let re = regex::Regex::new(r"completed_at=\d{4}-\d{2}-\d{2}").unwrap();
-                            re.replace_all(&modified, format!("completed_at={}", completion_date))
-                                .to_string()
-                        } else {
-                            // Add completed_at before closing }
-                            modified.replace("}", &format!(" completed_at={}}}", completion_date))
-                        }
-                    } else {
-                        // Add task property with completed_at
-                        format!(
-                            "{} {{@task completed_at={}}}",
-                            modified.trim_end(),
-                            completion_date
-                        )
-                    }
-                } else if line_content.contains("*") {
-                    // Change * (doing) to - (done) and add completed_at
-                    let modified = line_content.replace("*", "-");
-                    if modified.contains("{@task") {
-                        // Update existing task property
-                        if modified.contains("completed_at=") {
-                            let re = regex::Regex::new(r"completed_at=\d{4}-\d{2}-\d{2}").unwrap();
-                            re.replace_all(&modified, format!("completed_at={}", completion_date))
-                                .to_string()
-                        } else {
-                            modified.replace("}", &format!(" completed_at={}}}", completion_date))
-                        }
-                    } else {
-                        format!(
-                            "{} {{@task completed_at={}}}",
-                            modified.trim_end(),
-                            completion_date
-                        )
-                    }
-                } else {
-                    // Already done or no task, return as-is
-                    line_content.to_string()
-                };
-
-                return Ok(Some(json!({
-                    "new_line": new_line,
-                    "completion_date": completion_date,
-                })));
             }
             c => {
                 log::info!("unknown command: {}", c);
