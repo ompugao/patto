@@ -790,6 +790,7 @@ impl LanguageServer for Backend {
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
+                        "experimental/mark_task_done".to_string(),
                         "patto/snapshotPapers".to_string(),
                         "patto/renderAsMarkdown".to_string(),
                     ],
@@ -1103,6 +1104,121 @@ impl LanguageServer for Backend {
 
                 let markdown = String::from_utf8_lossy(&output).to_string();
                 return Ok(Some(json!(markdown)));
+            }
+"experimental/mark_task_done" => {
+                // Arguments: [uri, line_number, optional_completion_date]
+                // Returns: { new_line: string, completion_date: string }
+                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
+                    return Ok(None);
+                };
+                let Some(line_num) = params.arguments.get(1).and_then(|a| a.as_u64()) else {
+                    return Ok(None);
+                };
+                let line_num = line_num as usize;
+
+                let Ok(uri) = Url::parse(uri_str) else {
+                    return Ok(None);
+                };
+                let uri = Repository::normalize_url_percent_encoding(&uri);
+
+                // Get the current line content
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
+                    return Ok(None);
+                };
+                let Some(ast) = repo.ast_map.get(&uri) else {
+                    return Ok(None);
+                };
+
+                // Find the line at the given line number by traversing the AST
+                let mut target_line: Option<AstNode> = None;
+                
+                fn find_line_at_row(node: &AstNode, row: usize, result: &mut Option<AstNode>) {
+                    if node.location().row == row {
+                        *result = Some(node.clone());
+                        return;
+                    }
+                    let contents = node.value().contents.lock().unwrap();
+                    for child in contents.iter() {
+                        find_line_at_row(child, row, result);
+                        if result.is_some() {
+                            return;
+                        }
+                    }
+                }
+                
+                find_line_at_row(ast.value(), line_num, &mut target_line);
+                
+                let Some(line_node) = target_line else {
+                    return Ok(None);
+                };
+
+                // Get the line content
+                let line_content = line_node.extract_str();
+
+                // Use today's date if not provided
+                let completion_date = params
+                    .arguments
+                    .get(2)
+                    .and_then(|a| a.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        chrono::Local::now()
+                            .format("%Y-%m-%d")
+                            .to_string()
+                    });
+
+                // Replace the task status symbol with done and add completed_at
+                let new_line = if line_content.contains("!") {
+                    // Change ! (todo) to - (done) and add completed_at
+                    let modified = line_content.replace("!", "-");
+                    if modified.contains("{@task") {
+                        // Update existing task property
+                        if modified.contains("completed_at=") {
+                            // Replace existing completed_at
+                            let re = regex::Regex::new(r"completed_at=\d{4}-\d{2}-\d{2}").unwrap();
+                            re.replace_all(&modified, format!("completed_at={}", completion_date))
+                                .to_string()
+                        } else {
+                            // Add completed_at before closing }
+                            modified.replace("}", &format!(" completed_at={}}}", completion_date))
+                        }
+                    } else {
+                        // Add task property with completed_at
+                        format!(
+                            "{} {{@task completed_at={}}}",
+                            modified.trim_end(),
+                            completion_date
+                        )
+                    }
+                } else if line_content.contains("*") {
+                    // Change * (doing) to - (done) and add completed_at
+                    let modified = line_content.replace("*", "-");
+                    if modified.contains("{@task") {
+                        // Update existing task property
+                        if modified.contains("completed_at=") {
+                            let re = regex::Regex::new(r"completed_at=\d{4}-\d{2}-\d{2}").unwrap();
+                            re.replace_all(&modified, format!("completed_at={}", completion_date))
+                                .to_string()
+                        } else {
+                            modified.replace("}", &format!(" completed_at={}}}", completion_date))
+                        }
+                    } else {
+                        format!(
+                            "{} {{@task completed_at={}}}",
+                            modified.trim_end(),
+                            completion_date
+                        )
+                    }
+                } else {
+                    // Already done or no task, return as-is
+                    line_content.to_string()
+                };
+
+                return Ok(Some(json!({
+                    "new_line": new_line,
+                    "completion_date": completion_date,
+                })));
             }
             c => {
                 log::info!("unknown command: {}", c);
