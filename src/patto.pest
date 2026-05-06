@@ -117,7 +117,7 @@ expr_property = { "{@" ~ property_name ~ (WHITE_SPACE_INLINE+ ~ (property_keywor
 property_name = @{ ASCII_ALPHANUMERIC+ }
 property_keyword_pair = ${ property_keyword_arg ~ "=" ~ property_keyword_value }
 property_positional_arg = @{ (ASCII_ALPHANUMERIC|CJK|"_"|"-")+ }
-property_keyword_arg = @{ ASCII_ALPHANUMERIC+ }
+property_keyword_arg = @{ (ASCII_ALPHANUMERIC | "_")+ }
 property_keyword_value = @{ (ASCII_ALPHANUMERIC|CJK|"-"|"/"|":"|"_")+ }
 
 trailing_properties = ${ (WHITE_SPACE_INLINE+ ~ (expr_property | expr_anchor | expr_task))+ }  // ignore white spaces

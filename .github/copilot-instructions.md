@@ -8,40 +8,51 @@ Patto is a plain-text note format (`.pn` files) with LSP support, task managemen
 - Vim/Neovim plugin (Lua)
 - A React/Vite preview UI embedded into the `patto-preview` binary via `rust-embed`
 
-## Build & Test
+## Build, Test & Lint
 
-### Rust
+### Rust (primary codebase)
 ```sh
-cargo build                     # Also triggers patto-preview-ui frontend build via build.rs
-cargo test                      # Run all tests
-cargo test <test_name>          # Run a single test by name (substring match)
-cargo test --test lsp_completion # Run a specific test file (e.g. tests/lsp_completion.rs)
-cargo fmt --all                 # Format
-cargo clippy --all-targets --all-features  # Lint
+# Build (automatically triggers patto-preview-ui build via build.rs)
+cargo build
 
-# Feature-gated binaries
-cargo build --features preview-tui              # Builds patto-preview-tui (no chafa)
-cargo build --features preview-tui-chafa-dyn    # Builds patto-preview-tui with chafa dynamically linked
-cargo build --features preview-tui-chafa-static # Builds patto-preview-tui with chafa statically linked (Linux only)
-cargo build --no-default-features          # Builds without Zotero integration
+# Running tests
+cargo test                              # All tests (runs on stable)
+cargo test <test_name>                  # Single test by name (substring match)
+cargo test <test_name> -- --nocapture   # Single test with output
+cargo test --test lsp_completion        # Specific test file (e.g. tests/lsp_completion.rs)
+cargo test --features preview-tui       # Tests with TUI feature enabled
+
+# Code quality
+cargo fmt --all                         # Format code
+cargo clippy --all-targets --all-features  # Lint (as run in CI)
+
+# Feature-gated builds
+cargo build --features preview-tui              # TUI preview (no chafa image support)
+cargo build --features preview-tui-chafa-dyn    # TUI with chafa dynamically linked
+cargo build --features preview-tui-chafa-static # TUI with chafa statically linked (Linux only)
+cargo build --no-default-features              # Without Zotero integration
 ```
+
+**Note:** CI runs tests and builds with `--features preview-tui` on all platforms (ubuntu, macos, windows). When adding platform-specific code, verify it builds on all three.
 
 ### VS Code Extension
 ```sh
-pnpm install    # From repo root (installs root + client/)
-npm run build   # Webpack bundle → dist/extension.js
-npm run lint    # ESLint on client/
+pnpm install              # From repo root (installs root + client/)
+npm run compile           # TypeScript compile
+npm run build             # Webpack bundle → dist/extension.js
+npm run lint              # ESLint on client/
+npm run watch             # Watch mode for development
 ```
 
 ### Preview UI (React/Vite, embedded in Rust binary)
 ```sh
 cd patto-preview-ui
 npm install
-npm run build   # Output goes to patto-preview-ui/dist/, picked up by rust-embed at cargo build time
-npm run dev     # Dev server (standalone, not embedded)
+npm run build             # Output → patto-preview-ui/dist/ (picked up by rust-embed at cargo build time)
+npm run dev               # Dev server (standalone, not embedded)
 ```
 
-> **Important:** `cargo build` runs `build.rs` which automatically runs `npm install && npm run build` in `patto-preview-ui/` whenever `patto-preview-ui/src/` changes. The `patto-preview-ui/dist/` directory is embedded into the `patto-preview` binary at compile time via `rust-embed`.
+> **Important:** `cargo build` runs `build.rs` which automatically runs `npm install && npm run build` in `patto-preview-ui/` whenever `patto-preview-ui/src/` changes. The `patto-preview-ui/dist/` directory is embedded into the `patto-preview` binary at compile time via `rust-embed`. If frontend changes don't appear: check `build.rs` rerun conditions, or manually run `cd patto-preview-ui && npm run build` then `cargo build` again.
 
 ## Architecture
 
@@ -103,3 +114,46 @@ tests/
 - **Markdown flavors**: `MarkdownFlavor` has three variants — `Standard`, `Obsidian`, and `GitHub`. Configured per-client via LSP `workspace/configuration` (`patto.markdown.defaultFlavor`). Implemented in `src/markdown/flavor.rs`.
 - **LSP config file**: `patto-lsp.toml` (searched in XDG config dirs under namespace `patto`) configures Zotero credentials. Fields: `[zotero] user_id`, `api_key`, `endpoint` — also accepted as top-level keys with `ZOTERO_*` aliases.
 - **`stable_id` on `AstNode`**: A `Mutex<Option<i64>>` assigned at parse time. Used by the WebSocket preview to identify lines across incremental updates (rendered as `data-line-id` attributes in HTML).
+
+## Common Development Workflows
+
+### Adding syntax features
+1. Add grammar rules to `src/patto.pest`
+2. Update `AstNode` variants in `src/parser.rs` to match new rules
+3. Update renderer in `src/renderer.rs` (for HTML output)
+4. Update markdown exporters in `src/markdown/` (for each flavor)
+5. Add LSP support: semantic tokens in `src/semantic_token.rs`, completions in `src/lsp/backend.rs`
+6. Add tests in `tests/` (use `TestWorkspace` + `InProcessLspClient`)
+
+### Modifying LSP behavior
+- Edit `src/lsp/backend.rs` (implements `LanguageServer` trait)
+- Edit `src/lsp/lsp_config.rs` for server initialization config (capabilities, options)
+- Test with integration tests in `tests/lsp_*.rs`
+
+### Adding editor integrations
+- **VS Code**: Modify `client/src/extension.ts` (extension lifecycle, command handlers)
+- **Vim/Neovim**: Modify `lua/patto/init.lua` (startup, config)
+- **Vim plugin files**: `plugin/patto.vim`, `ftdetect/patto.vim`, `after/ftplugin/patto.vim`
+
+### Frontend/Preview changes
+- React/Vite code: `patto-preview-ui/src/`
+- Changes automatically picked up by `cargo build` (via `build.rs`)
+- Tip: Use `cd patto-preview-ui && npm run dev` for standalone dev server to iterate quickly, then `cargo build` to verify embedded version works
+
+### TUI Preview changes
+- Edit `src/bin/patto-preview-tui.rs`
+- Test with `cargo build --features preview-tui && cargo run --bin patto-preview-tui -- <.pn file>`
+- For chafa (image support): `cargo build --features preview-tui-chafa-static` on Linux
+
+### Repository graph changes
+- Core logic in `src/repository.rs` (parsing, file watching, graph building)
+- Graph data structure uses `gdsl` crate for directed graph operations
+- File watching via `notify` crate (auto-detects `.pn` file changes)
+
+## Debugging Tips
+
+- **Parser errors**: Use `RUST_LOG=debug` to see detailed pest parser output when adding grammar rules
+- **LSP diagnostics**: Test with `cargo test lsp` (runs all LSP integration tests)
+- **WebSocket preview**: Browser DevTools → Network tab shows WebSocket `/ws` messages (check format matches `{ type: "...", data: { ... } }`)
+- **File watcher issues**: Repository graph caches file state in `DashMap`; verify cache invalidation when files change
+- **Decimal math**: When working with deadlines/timespans, note that the format uses ISO 8601 dates (`YYYY-MM-DD`)

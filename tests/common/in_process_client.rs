@@ -9,7 +9,7 @@ use crate::common::TestWorkspace;
 
 /// In-process LSP test client that directly uses Backend
 pub struct InProcessLspClient {
-    backend: Arc<Backend>,
+    pub backend: Arc<Backend>,
 }
 
 impl InProcessLspClient {
@@ -257,6 +257,65 @@ impl InProcessLspClient {
             vec![serde_json::json!(uri.to_string())],
         )
         .await
+    }
+
+    /// Review completed tasks (Patto-specific)
+    pub async fn tasks_review(
+        &mut self,
+        timeframe: &str,
+        from: Option<&str>,
+        to: Option<&str>,
+    ) -> Option<Option<serde_json::Value>> {
+        let mut args = vec![serde_json::json!(timeframe)];
+        if let Some(f) = from {
+            args.push(serde_json::json!(f));
+        }
+        if let Some(t) = to {
+            args.push(serde_json::json!(t));
+        }
+        self.execute_command("experimental/tasks_review", args)
+            .await
+    }
+
+    /// Send a did_change notification with full-document content update
+    pub async fn did_change(&mut self, uri: Url, version: i32, content: String) {
+        use tower_lsp::lsp_types::{
+            DidChangeTextDocumentParams, TextDocumentContentChangeEvent,
+            VersionedTextDocumentIdentifier,
+        };
+        let params = DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier { uri, version },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: content,
+            }],
+        };
+        self.backend.did_change(params).await;
+    }
+
+    /// Get the AST for a document from the repository's ast_map
+    pub fn get_ast(&self, uri: &Url) -> Option<patto::parser::AstNode> {
+        let normalized = patto::repository::Repository::normalize_url_percent_encoding(uri);
+        self.backend
+            .repository
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|repo| repo.ast_map.get(&normalized).map(|e| e.value().clone()))
+    }
+
+    /// Compute the TextEdits that would be applied for newly-completed tasks,
+    /// given an old and new AST. Useful for testing edit generation directly.
+    pub fn completion_edits(
+        &self,
+        old_ast: &patto::parser::AstNode,
+        new_ast: &patto::parser::AstNode,
+    ) -> Vec<tower_lsp::lsp_types::TextEdit> {
+        let mut edits = Vec::new();
+        self.backend
+            .collect_completion_edits(old_ast, new_ast, &mut edits);
+        edits
     }
 
     /// Send a generic notification

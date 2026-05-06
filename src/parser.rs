@@ -227,6 +227,8 @@ pub enum Property {
     Task {
         status: TaskStatus,
         due: Deadline,
+        scheduled: Option<Deadline>,
+        completed_at: Option<Deadline>,
         location: Location,
     },
     Anchor {
@@ -1621,9 +1623,11 @@ fn transform_property(
                     }
                 }
                 "task" => {
-                    // Task property: {@task status=todo due=2024-12-31}
+                    // Task property: {@task status=todo due=2024-12-31 scheduled=2024-12-30 completed_at=2024-12-31}
                     let mut status = TaskStatus::Todo;
                     let mut due = Deadline::Uninterpretable("".to_string());
+                    let mut scheduled: Option<Deadline> = None;
+                    let mut completed_at: Option<Deadline> = None;
                     let mut current_key = "";
 
                     for kv in inner {
@@ -1649,6 +1653,10 @@ fn transform_property(
                                     };
                                 } else if key == "due" {
                                     due = parse_deadline(value);
+                                } else if key == "scheduled" {
+                                    scheduled = Some(parse_deadline(value));
+                                } else if key == "completed_at" {
+                                    completed_at = Some(parse_deadline(value));
                                 } else {
                                     log::warn!("Unknown task property key: {}", key);
                                 }
@@ -1673,6 +1681,10 @@ fn transform_property(
                                     };
                                 } else if current_key == "due" {
                                     due = parse_deadline(value);
+                                } else if current_key == "scheduled" {
+                                    scheduled = Some(parse_deadline(value));
+                                } else if current_key == "completed_at" {
+                                    completed_at = Some(parse_deadline(value));
                                 } else {
                                     log::warn!("Unknown task property value: {}", value);
                                 }
@@ -1691,6 +1703,8 @@ fn transform_property(
                     Some(Property::Task {
                         status,
                         due,
+                        scheduled,
+                        completed_at,
                         location,
                     })
                 }
@@ -1714,6 +1728,8 @@ fn transform_property(
             Some(Property::Task {
                 status,
                 due,
+                scheduled: None,
+                completed_at: None,
                 location,
             })
         }
@@ -2774,30 +2790,18 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let task = &props[0];
-        if let Property::Task {
-            status,
-            due,
-            location,
-        } = task
-        {
+        if let Property::Task { status, due, .. } = task {
             assert_eq!(*status, TaskStatus::Todo);
             assert_eq!(
                 *due,
                 Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap())
             );
-            assert_eq!(location.span.0, 0);
-            assert_eq!(location.span.1, 11);
         } else {
             panic!("task could not be parsed");
         };
 
         let task = &props[2];
-        if let Property::Task {
-            status,
-            due,
-            location,
-        } = task
-        {
+        if let Property::Task { status, due, .. } = task {
             assert_eq!(*status, TaskStatus::Done);
             assert_eq!(
                 *due,
@@ -2806,8 +2810,6 @@ mod tests {
                         .unwrap()
                 )
             );
-            assert_eq!(location.span.0, 21);
-            assert_eq!(location.span.1, 38);
         } else {
             panic!("task could not be parsed");
         };

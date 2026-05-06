@@ -67,6 +67,10 @@
       {
         "command": "patto.copyAsMarkdown",
         "title": "Patto: Copy as Markdown"
+      },
+      {
+        "command": "patto.taskReview",
+        "title": "Patto: Review Completed Tasks"
       }
     ],
     "views": {

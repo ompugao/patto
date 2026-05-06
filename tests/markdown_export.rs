@@ -959,3 +959,65 @@ mod regressions {
         assert_eq!(output, "Line1\n\nLine2\n");
     }
 }
+
+#[cfg(test)]
+mod task_property_fields {
+    use super::*;
+
+    #[test]
+    fn test_todo_with_scheduled_standard() {
+        let input = "buy milk {@task status=todo due=2024-12-31 scheduled=2024-12-30}";
+        let out = render_markdown(input, MarkdownFlavor::Standard);
+        assert!(out.contains("[ ]"), "should have checkbox");
+        assert!(out.contains("(due: 2024-12-31)"), "should have due date");
+        assert!(
+            out.contains("(scheduled: 2024-12-30)"),
+            "should have scheduled date"
+        );
+    }
+
+    #[test]
+    fn test_todo_with_scheduled_obsidian() {
+        let input = "buy milk {@task status=todo due=2024-12-31 scheduled=2024-12-30}";
+        let out = render_markdown(input, MarkdownFlavor::Obsidian);
+        assert!(out.contains("[ ]"), "should have checkbox");
+        assert!(out.contains("📅 2024-12-31"), "should have due emoji");
+        assert!(out.contains("⏳ 2024-12-30"), "should have scheduled emoji");
+    }
+
+    #[test]
+    fn test_done_with_completed_at_standard() {
+        let input = "buy milk {@task status=done completed_at=2024-03-15}";
+        let out = render_markdown(input, MarkdownFlavor::Standard);
+        assert!(out.contains("[x]"), "should have checked checkbox");
+        assert!(
+            out.contains("(completed: 2024-03-15)"),
+            "should have completed_at"
+        );
+    }
+
+    #[test]
+    fn test_done_with_completed_at_obsidian() {
+        let input = "buy milk {@task status=done completed_at=2024-03-15}";
+        let out = render_markdown(input, MarkdownFlavor::Obsidian);
+        assert!(out.contains("[x]"), "should have checked checkbox");
+        assert!(out.contains("✅ 2024-03-15"), "should have completed emoji");
+    }
+
+    #[test]
+    fn test_patto_renderer_preserves_scheduled_and_completed_at() {
+        use patto::renderer::{PattoRenderer, Renderer};
+        let r = PattoRenderer::new();
+        let input = "buy milk {@task status=done due=2024-12-31 scheduled=2024-12-30 completed_at=2024-03-15}";
+        let result = patto::parser::parse_text(input);
+        let mut out = Vec::new();
+        r.format(&result.ast, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("status=done"), "status preserved");
+        assert!(s.contains("scheduled=2024-12-30"), "scheduled preserved");
+        assert!(
+            s.contains("completed_at=2024-03-15"),
+            "completed_at preserved"
+        );
+    }
+}

@@ -429,6 +429,94 @@ function startLanguageClient(
 		})
 	);
 
+	// Review completed tasks by timeframe
+	context.subscriptions.push(
+		commands.registerCommand("patto.taskReview", async () => {
+			const timeframeChoice = await vscode.window.showQuickPick(
+				[
+					{ label: "Today", value: "today" },
+					{ label: "This Week (Mon–today)", value: "this_week" },
+					{ label: "Custom date range…", value: "custom" },
+				],
+				{ placeHolder: "Select timeframe for completed task review" }
+			);
+			if (!timeframeChoice) return;
+
+			let args: string[];
+			if (timeframeChoice.value === "custom") {
+				const from = await vscode.window.showInputBox({
+					prompt: "From date (YYYY-MM-DD)",
+					placeHolder: "e.g. 2024-03-01",
+					validateInput: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) ? null : "Enter date as YYYY-MM-DD",
+				});
+				if (!from) return;
+				const to = await vscode.window.showInputBox({
+					prompt: "To date (YYYY-MM-DD)",
+					placeHolder: "e.g. 2024-03-31",
+					validateInput: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) ? null : "Enter date as YYYY-MM-DD",
+				});
+				if (!to) return;
+				args = ["custom", from, to];
+			} else {
+				args = [timeframeChoice.value];
+			}
+
+			try {
+				const response = await client.sendRequest(ExecuteCommandRequest.type, {
+					command: "experimental/tasks_review",
+					arguments: args,
+				}) as any[];
+
+				if (!response || response.length === 0) {
+					vscode.window.showInformationMessage("No completed tasks found for the selected period");
+					return;
+				}
+
+				// Group by completed_at date
+				const byDate = new Map<string, any[]>();
+				for (const task of response) {
+					const d = task.completed_at as string;
+					if (!byDate.has(d)) byDate.set(d, []);
+					byDate.get(d)!.push(task);
+				}
+
+				// Build quick pick items
+				const items: vscode.QuickPickItem[] = [];
+				for (const [date, tasks] of [...byDate.entries()].sort()) {
+					items.push({ label: `📅 ${date}`, kind: vscode.QuickPickItemKind.Separator });
+					for (const t of tasks) {
+						items.push({
+							label: `  ✓ ${t.text}`,
+							description: Uri.parse(t.location.uri).fsPath.split('/').pop(),
+							detail: Uri.parse(t.location.uri).fsPath,
+						});
+					}
+				}
+
+				const selected = await vscode.window.showQuickPick(items, {
+					placeHolder: `${response.length} completed task(s)`,
+					matchOnDescription: true,
+					matchOnDetail: true,
+				});
+
+				if (selected && selected.detail) {
+					const doc = await vscode.workspace.openTextDocument(selected.detail);
+					const task = response.find((t: any) =>
+						Uri.parse(t.location.uri).fsPath === selected.detail &&
+						`  ✓ ${t.text}` === selected.label
+					);
+					const line = task?.location?.range?.start?.line ?? 0;
+					const ed = await vscode.window.showTextDocument(doc);
+					ed.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter);
+					ed.selection = new vscode.Selection(line, 0, line, 0);
+				}
+			} catch (error) {
+				traceOutputChannel.appendLine("[patto] Error in task review: " + error);
+				vscode.window.showErrorMessage("Failed to retrieve completed tasks: " + error);
+			}
+		})
+	);
+
 	// Copy as Markdown command (uses configured default flavor)
 	context.subscriptions.push(
 		commands.registerCommand("patto.copyAsMarkdown", async () => {

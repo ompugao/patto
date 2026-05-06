@@ -585,10 +585,21 @@ impl MarkdownRenderer {
 
                 // Determine if this is a task
                 let mut task_due: Option<&crate::parser::Deadline> = None;
+                let mut task_scheduled: Option<&crate::parser::Deadline> = None;
+                let mut task_completed_at: Option<&crate::parser::Deadline> = None;
                 let mut is_done = false;
                 for property in properties {
-                    if let Property::Task { status, due, .. } = property {
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
                         task_due = Some(due);
+                        task_scheduled = scheduled.as_ref();
+                        task_completed_at = completed_at.as_ref();
                         is_done = matches!(status, TaskStatus::Done);
                         break;
                     }
@@ -623,6 +634,38 @@ impl MarkdownRenderer {
                                 TaskFormat::ObsidianEmoji => write!(output, " 📅 {}", due_str)?,
                                 TaskFormat::ObsidianDataview => {
                                     write!(output, " [due:: {}]", due_str)?
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Append scheduled date (only for non-done tasks)
+                if !is_done {
+                    if let Some(scheduled) = task_scheduled {
+                        let s_str = scheduled.to_string();
+                        if !s_str.is_empty() {
+                            match self.options.task_format() {
+                                TaskFormat::Checkbox => write!(output, " (scheduled: {})", s_str)?,
+                                TaskFormat::ObsidianEmoji => write!(output, " ⏳ {}", s_str)?,
+                                TaskFormat::ObsidianDataview => {
+                                    write!(output, " [scheduled:: {}]", s_str)?
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Append completed_at date for done tasks
+                if is_done {
+                    if let Some(completed_at) = task_completed_at {
+                        let c_str = completed_at.to_string();
+                        if !c_str.is_empty() {
+                            match self.options.task_format() {
+                                TaskFormat::Checkbox => write!(output, " (completed: {})", c_str)?,
+                                TaskFormat::ObsidianEmoji => write!(output, " ✅ {}", c_str)?,
+                                TaskFormat::ObsidianDataview => {
+                                    write!(output, " [completed_at:: {}]", c_str)?
                                 }
                             }
                         }
@@ -1051,10 +1094,22 @@ impl PattoRenderer {
                 }
 
                 // Check for task property
-                let mut task_prop: Option<(&TaskStatus, &crate::parser::Deadline)> = None;
+                let mut task_prop: Option<(
+                    &TaskStatus,
+                    &crate::parser::Deadline,
+                    Option<&crate::parser::Deadline>,
+                    Option<&crate::parser::Deadline>,
+                )> = None;
                 for property in properties {
-                    if let Property::Task { status, due, .. } = property {
-                        task_prop = Some((status, due));
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
+                        task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
                         break;
                     }
                 }
@@ -1065,18 +1120,24 @@ impl PattoRenderer {
                 }
 
                 // Add task property if present
-                if let Some((status, due)) = task_prop {
+                if let Some((status, due, scheduled, completed_at)) = task_prop {
                     let status_str = match status {
                         TaskStatus::Todo => "todo",
                         TaskStatus::Doing => "doing",
                         TaskStatus::Done => "done",
                     };
                     let due_str = due.to_string();
-                    if due_str.is_empty() {
-                        write!(output, " {{@task status={}}}", status_str)?;
-                    } else {
-                        write!(output, " {{@task status={} due={}}}", status_str, due_str)?;
+                    write!(output, " {{@task status={}", status_str)?;
+                    if !due_str.is_empty() {
+                        write!(output, " due={}", due_str)?;
                     }
+                    if let Some(s) = scheduled {
+                        write!(output, " scheduled={}", s)?;
+                    }
+                    if let Some(c) = completed_at {
+                        write!(output, " completed_at={}", c)?;
+                    }
+                    write!(output, "}}")?;
                 }
 
                 writeln!(output)?;
@@ -1093,10 +1154,22 @@ impl PattoRenderer {
                 }
 
                 // Check for task property
-                let mut task_prop: Option<(&TaskStatus, &crate::parser::Deadline)> = None;
+                let mut task_prop: Option<(
+                    &TaskStatus,
+                    &crate::parser::Deadline,
+                    Option<&crate::parser::Deadline>,
+                    Option<&crate::parser::Deadline>,
+                )> = None;
                 for property in properties {
-                    if let Property::Task { status, due, .. } = property {
-                        task_prop = Some((status, due));
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
+                        task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
                         break;
                     }
                 }
@@ -1107,18 +1180,24 @@ impl PattoRenderer {
                 }
 
                 // Add task property if present
-                if let Some((status, due)) = task_prop {
+                if let Some((status, due, scheduled, completed_at)) = task_prop {
                     let status_str = match status {
                         TaskStatus::Todo => "todo",
                         TaskStatus::Doing => "doing",
                         TaskStatus::Done => "done",
                     };
                     let due_str = due.to_string();
-                    if due_str.is_empty() {
-                        write!(output, " {{@task status={}}}", status_str)?;
-                    } else {
-                        write!(output, " {{@task status={} due={}}}", status_str, due_str)?;
+                    write!(output, " {{@task status={}", status_str)?;
+                    if !due_str.is_empty() {
+                        write!(output, " due={}", due_str)?;
                     }
+                    if let Some(s) = scheduled {
+                        write!(output, " scheduled={}", s)?;
+                    }
+                    if let Some(c) = completed_at {
+                        write!(output, " completed_at={}", c)?;
+                    }
+                    write!(output, "}}")?;
                 }
 
                 writeln!(output)?;

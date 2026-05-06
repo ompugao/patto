@@ -383,11 +383,27 @@ impl MarkdownImporter {
                                     .map(Deadline::Date)
                                     .unwrap_or(Deadline::Uninterpretable(String::new()));
 
+                                let scheduled = self
+                                    .extract_scheduled_date(&text)
+                                    .and_then(|d| {
+                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
+                                    })
+                                    .map(Deadline::Date);
+
+                                let completed_at = self
+                                    .extract_completed_at_date(&text)
+                                    .and_then(|d| {
+                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
+                                    })
+                                    .map(Deadline::Date);
+
                                 report.statistics.increment_feature("tasks");
 
                                 Some(vec![Property::Task {
                                     status,
                                     due,
+                                    scheduled,
+                                    completed_at,
                                     location: crate::parser::Location::default(),
                                 }])
                             } else {
@@ -807,6 +823,60 @@ impl MarkdownImporter {
             return captures.get(1).map(|m| m.as_str().to_string());
         }
 
+        None
+    }
+
+    /// Extract scheduled date from markdown task text.
+    /// Recognises: ⏳ YYYY-MM-DD, (scheduled: YYYY-MM-DD), [scheduled:: YYYY-MM-DD]
+    fn extract_scheduled_date(&self, text: &str) -> Option<String> {
+        // Obsidian emoji: ⏳ 2024-12-31
+        if let Some(cap) = Regex::new(r"⏳\s*(\d{4}-\d{2}-\d{2})")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
+        // Parentheses: (scheduled: 2024-12-31)
+        if let Some(cap) = Regex::new(r"\(scheduled:\s*(\d{4}-\d{2}-\d{2})\)")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
+        // Dataview: [scheduled:: 2024-12-31]
+        if let Some(cap) = Regex::new(r"\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
+        None
+    }
+
+    /// Extract completed_at date from markdown task text.
+    /// Recognises: ✅ YYYY-MM-DD, (completed: YYYY-MM-DD), [completed_at:: YYYY-MM-DD]
+    fn extract_completed_at_date(&self, text: &str) -> Option<String> {
+        // Obsidian emoji: ✅ 2024-12-31
+        if let Some(cap) = Regex::new(r"✅\s*(\d{4}-\d{2}-\d{2})")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
+        // Parentheses: (completed: 2024-12-31)
+        if let Some(cap) = Regex::new(r"\(completed:\s*(\d{4}-\d{2}-\d{2})\)")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
+        // Dataview: [completed_at:: 2024-12-31]
+        if let Some(cap) = Regex::new(r"\[completed_at::\s*(\d{4}-\d{2}-\d{2})\]")
+            .unwrap()
+            .captures(text)
+        {
+            return cap.get(1).map(|m| m.as_str().to_string());
+        }
         None
     }
 
