@@ -17,6 +17,7 @@ A **line-oriented** text format where newlines create lines and tabs create nest
 
 - Wiki-style links `[note name]` with backlinks and 2-hop visualization
 - Tasks with deadlines: `!2024-12-31` or `{@task due=2024-12-31}` (sorted by Overdue, Today, This Week)
+- Rich task metadata: `scheduled`, `completed_at` with auto-tracking when a task is marked done
 - Real-time preview and LSP-powered autocomplete
 - Works with Vim, Neovim, VS Code
 
@@ -38,9 +39,13 @@ Plain text
 [note#anchor]                    Link to the anchored line in note
 [https://example.com Title]     External link
 
-!2024-12-31    Todo with deadline
+!2024-12-31    Todo with deadline (shorthand)
 *2024-12-31    In progress
 -2024-12-31    Done
+
+{@task status=todo due=2024-12-31}                       Block form, todo
+{@task status=doing due=2024-12-31 scheduled=2024-12-30} Include scheduled date
+{@task status=done completed_at=2024-03-15}              Done — completed_at auto-inserted
 ```
 
 ### Blocks
@@ -122,12 +127,12 @@ Install from [VS Marketplace](https://marketplace.visualstudio.com/items?itemNam
 
 1. Create a `.pn` file
 2. Type `[` for link completion, `@` for blocks
-3. Use `:LspPattoTasks` to view all tasks (Vim/Neovim)
+3. Use `:LspPattoTasks` to view pending tasks, `:LspPattoTasksReview` to review completed tasks (Vim/Neovim)
 
 ## Advanced
 
 See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed documentation on:
-- Task management
+- Task management (pending tasks, completion review, auto-tracking `completed_at`)
 - Markdown import / export
 - Zotero integration
 - Terminal preview (`patto-preview-tui`) — keybindings, editor integration, image protocols

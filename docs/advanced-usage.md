@@ -4,7 +4,72 @@
 
 ![tasks](https://github.com/user-attachments/assets/e9945524-b430-496e-ae56-6a68bfd7c390)
 
-Commands: `:LspPattoTasks` or `:Trouble patto_tasks` ([trouble.nvim](https://github.com/folke/trouble.nvim))
+#### Task syntax
+
+Patto supports two syntaxes for tasks:
+
+**Shorthand** — quick inline marker with an optional date:
+```txt
+!2024-12-31    Todo with deadline
+*2024-12-31    In progress
+-2024-12-31    Done
+```
+
+**Block form** — rich metadata via `{@task}` property:
+```txt
+buy milk {@task status=todo}
+write report {@task status=doing due=2024-12-31 scheduled=2024-12-28}
+send invoice {@task status=done completed_at=2024-03-15}
+```
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `status` | `todo` \| `doing` \| `done` | Task state (required) |
+| `due` | `YYYY-MM-DD` | Hard deadline — when it must be done |
+| `scheduled` | `YYYY-MM-DD` | Soft start date — when to begin working on it |
+| `completed_at` | `YYYY-MM-DD` | Auto-inserted when task transitions to `done` |
+
+#### Auto-completion tracking
+
+When you change a task's status to `done` in your editor, the LSP server automatically inserts `completed_at=<today>` into the `{@task}` block via `workspace/applyEdit`. The date can be manually corrected afterwards.
+
+#### Commands: pending tasks
+
+View all non-done tasks sorted by deadline:
+
+- **Vim/Neovim**: `:LspPattoTasks` — opens in location list
+- **Vim/Neovim**: `:Trouble patto_tasks` — opens in [trouble.nvim](https://github.com/folke/trouble.nvim) grouped by deadline category
+- **VS Code**: `Patto: Show Tasks` (command palette) — opens in sidebar tree view
+
+#### Commands: review completed tasks
+
+View tasks completed within a time window, sorted by `completed_at`:
+
+- **Vim/Neovim**: `:LspPattoTasksReview [timeframe]`
+  - `:LspPattoTasksReview` — today (default)
+  - `:LspPattoTasksReview this_week` — current week (Mon–today)
+  - `:LspPattoTasksReview 2024-03-01:2024-03-31` — custom date range
+  Results open in the location list.
+
+- **Vim/Neovim (trouble.nvim)**: `:Trouble patto_tasks_review` — completed tasks grouped by date.
+  Change the timeframe programmatically:
+  ```lua
+  require("trouble.sources.patto_tasks_review").config.timeframe = "this_week"
+  require("trouble").open({ mode = "patto_tasks_review" })
+  ```
+
+- **VS Code**: `Patto: Review Completed Tasks` — select timeframe interactively, results shown in a date-grouped QuickPick with jump-to-line.
+
+#### CLI: task search
+
+```sh
+# Find all todo tasks
+rg --vimgrep '.*@task.*todo' .
+
+# Find tasks completed this month, sorted by date
+rg --vimgrep 'completed_at=2024-03' . | \
+  awk '{match($0, /completed_at=([0-9\-]+)/, m); print m[1], $0}' | sort
+```
 
 ### Markdown Import
 ```sh
@@ -214,9 +279,14 @@ Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.c
 
 **CLI task search:**
 ```sh
+# Find all todo tasks
 rg --vimgrep '.*@task.*todo' . | \
   awk '{match($0, /due=([0-9:\-T]+)/, m); print (RLENGTH>0 ? m[1] : "9999-99-99"), $0}' | \
   sort | cut -d' ' -f2-
+
+# Find tasks completed this week
+rg --vimgrep 'completed_at=' . | \
+  awk '{match($0, /completed_at=([0-9\-]+)/, m); print m[1], $0}' | sort -r | head -20
 ```
 </details>
 
