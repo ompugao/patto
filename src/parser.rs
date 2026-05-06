@@ -2790,12 +2790,7 @@ mod tests {
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let task = &props[0];
-        if let Property::Task {
-            status,
-            due,
-            ..
-        } = task
-        {
+        if let Property::Task { status, due, .. } = task {
             assert_eq!(*status, TaskStatus::Todo);
             assert_eq!(
                 *due,
@@ -2806,12 +2801,7 @@ mod tests {
         };
 
         let task = &props[2];
-        if let Property::Task {
-            status,
-            due,
-            ..
-        } = task
-        {
+        if let Property::Task { status, due, .. } = task {
             assert_eq!(*status, TaskStatus::Done);
             assert_eq!(
                 *due,

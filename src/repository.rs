@@ -921,10 +921,7 @@ pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) 
 }
 
 /// Recursively collect Done tasks that have a `completed_at` date.
-pub fn gather_completed_tasks(
-    parent: &AstNode,
-    tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>,
-) {
+pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Task {

@@ -970,7 +970,10 @@ mod task_property_fields {
         let out = render_markdown(input, MarkdownFlavor::Standard);
         assert!(out.contains("[ ]"), "should have checkbox");
         assert!(out.contains("(due: 2024-12-31)"), "should have due date");
-        assert!(out.contains("(scheduled: 2024-12-30)"), "should have scheduled date");
+        assert!(
+            out.contains("(scheduled: 2024-12-30)"),
+            "should have scheduled date"
+        );
     }
 
     #[test]
@@ -987,7 +990,10 @@ mod task_property_fields {
         let input = "buy milk {@task status=done completed_at=2024-03-15}";
         let out = render_markdown(input, MarkdownFlavor::Standard);
         assert!(out.contains("[x]"), "should have checked checkbox");
-        assert!(out.contains("(completed: 2024-03-15)"), "should have completed_at");
+        assert!(
+            out.contains("(completed: 2024-03-15)"),
+            "should have completed_at"
+        );
     }
 
     #[test]
@@ -1009,6 +1015,9 @@ mod task_property_fields {
         let s = String::from_utf8(out).unwrap();
         assert!(s.contains("status=done"), "status preserved");
         assert!(s.contains("scheduled=2024-12-30"), "scheduled preserved");
-        assert!(s.contains("completed_at=2024-03-15"), "completed_at preserved");
+        assert!(
+            s.contains("completed_at=2024-03-15"),
+            "completed_at preserved"
+        );
     }
 }

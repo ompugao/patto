@@ -589,7 +589,14 @@ impl MarkdownRenderer {
                 let mut task_completed_at: Option<&crate::parser::Deadline> = None;
                 let mut is_done = false;
                 for property in properties {
-                    if let Property::Task { status, due, scheduled, completed_at, .. } = property {
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
                         task_due = Some(due);
                         task_scheduled = scheduled.as_ref();
                         task_completed_at = completed_at.as_ref();
@@ -1087,9 +1094,21 @@ impl PattoRenderer {
                 }
 
                 // Check for task property
-                let mut task_prop: Option<(&TaskStatus, &crate::parser::Deadline, Option<&crate::parser::Deadline>, Option<&crate::parser::Deadline>)> = None;
+                let mut task_prop: Option<(
+                    &TaskStatus,
+                    &crate::parser::Deadline,
+                    Option<&crate::parser::Deadline>,
+                    Option<&crate::parser::Deadline>,
+                )> = None;
                 for property in properties {
-                    if let Property::Task { status, due, scheduled, completed_at, .. } = property {
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
                         task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
                         break;
                     }
@@ -1135,9 +1154,21 @@ impl PattoRenderer {
                 }
 
                 // Check for task property
-                let mut task_prop: Option<(&TaskStatus, &crate::parser::Deadline, Option<&crate::parser::Deadline>, Option<&crate::parser::Deadline>)> = None;
+                let mut task_prop: Option<(
+                    &TaskStatus,
+                    &crate::parser::Deadline,
+                    Option<&crate::parser::Deadline>,
+                    Option<&crate::parser::Deadline>,
+                )> = None;
                 for property in properties {
-                    if let Property::Task { status, due, scheduled, completed_at, .. } = property {
+                    if let Property::Task {
+                        status,
+                        due,
+                        scheduled,
+                        completed_at,
+                        ..
+                    } = property
+                    {
                         task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
                         break;
                     }

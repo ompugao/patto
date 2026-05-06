@@ -273,7 +273,8 @@ impl InProcessLspClient {
         if let Some(t) = to {
             args.push(serde_json::json!(t));
         }
-        self.execute_command("experimental/tasks_review", args).await
+        self.execute_command("experimental/tasks_review", args)
+            .await
     }
 
     /// Send a did_change notification with full-document content update

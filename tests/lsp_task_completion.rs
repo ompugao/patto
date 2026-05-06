@@ -50,26 +50,39 @@ async fn test_auto_complete_detects_task_transition() {
 
     // Verify the initial AST has a Todo task
     {
-        let ast = client.get_ast(&uri).expect("AST should be present after did_open");
+        let ast = client
+            .get_ast(&uri)
+            .expect("AST should be present after did_open");
         let mut tasks = Vec::new();
         collect_tasks(&ast, &mut tasks);
-        assert_eq!(tasks.len(), 1, "Expected one task, got tasks={:?}, uri={}", tasks.len(), uri);
-        assert_eq!(tasks[0].1, TaskStatus::Todo, "Task should initially be Todo");
-        assert!(tasks[0].2.is_none(), "completed_at should be absent initially");
+        assert_eq!(
+            tasks.len(),
+            1,
+            "Expected one task, got tasks={:?}, uri={}",
+            tasks.len(),
+            uri
+        );
+        assert_eq!(
+            tasks[0].1,
+            TaskStatus::Todo,
+            "Task should initially be Todo"
+        );
+        assert!(
+            tasks[0].2.is_none(),
+            "completed_at should be absent initially"
+        );
     }
 
     // Change the task status to Done (editor edit, no completed_at yet)
     client
-        .did_change(
-            uri.clone(),
-            2,
-            "buy milk {@task status=done}\n".to_string(),
-        )
+        .did_change(uri.clone(), 2, "buy milk {@task status=done}\n".to_string())
         .await;
 
     // The new AST should reflect Done status
     {
-        let ast = client.get_ast(&uri).expect("AST should be present after did_change");
+        let ast = client
+            .get_ast(&uri)
+            .expect("AST should be present after did_change");
         let mut tasks = Vec::new();
         collect_tasks(&ast, &mut tasks);
         assert_eq!(tasks.len(), 1, "Expected one task after change");
@@ -113,10 +126,7 @@ async fn test_auto_complete_does_not_trigger_for_already_done() {
     collect_tasks(&ast, &mut tasks);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].1, TaskStatus::Done);
-    assert!(
-        tasks[0].2.is_some(),
-        "completed_at should still be present"
-    );
+    assert!(tasks[0].2.is_some(), "completed_at should still be present");
 }
 
 #[tokio::test]
@@ -253,7 +263,11 @@ async fn test_shorthand_task_replaced_with_longform_on_done() {
 
     let edits = client.completion_edits(&old_ast, &new_ast);
 
-    assert_eq!(edits.len(), 1, "Expected exactly one edit for shorthand→longform");
+    assert_eq!(
+        edits.len(),
+        1,
+        "Expected exactly one edit for shorthand→longform"
+    );
 
     let edit = &edits[0];
     // The edit should be on line 0
