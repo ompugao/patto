@@ -443,46 +443,32 @@ impl Backend {
             return None;
         }
 
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let now = chrono::Local::now().format("%Y-%m-%dT%H:%M").to_string();
 
-        // Find where to insert completed_at
+        // Only insert into an existing {@task} block.
+        // If the line uses shorthand syntax only (e.g. `-2024-12-31`), skip —
+        // appending a separate {@task} block would create a duplicate task property.
         if let Some(close_brace_idx) = line_content.rfind('}') {
-            // Insert inside the existing task property, before the closing }
-            let insert_pos = close_brace_idx;
-            let new_text = format!(" completed_at={}", today);
-
-            return Some(TextEdit {
-                range: Range {
-                    start: Position {
-                        line: line_idx,
-                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
+            // Verify there's an actual {@task ...} block (not just some other closing brace)
+            if line_content.contains("{@task") {
+                let new_text = format!(" completed_at={}", now);
+                return Some(TextEdit {
+                    range: Range {
+                        start: Position {
+                            line: line_idx,
+                            character: utf16_from_byte_idx(line_content, close_brace_idx) as u32,
+                        },
+                        end: Position {
+                            line: line_idx,
+                            character: utf16_from_byte_idx(line_content, close_brace_idx) as u32,
+                        },
                     },
-                    end: Position {
-                        line: line_idx,
-                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
-                    },
-                },
-                new_text,
-            });
-        } else {
-            // Add new task property at end of line (after any description)
-            let insert_pos = line_content.len();
-            let new_text = format!(" {{@task completed_at={}}}", today);
-
-            return Some(TextEdit {
-                range: Range {
-                    start: Position {
-                        line: line_idx,
-                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
-                    },
-                    end: Position {
-                        line: line_idx,
-                        character: utf16_from_byte_idx(line_content, insert_pos) as u32,
-                    },
-                },
-                new_text,
-            });
+                    new_text,
+                });
+            }
         }
+
+        None
     }
 
     async fn start_repository_listener(&self) {
