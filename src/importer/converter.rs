@@ -388,6 +388,8 @@ impl MarkdownImporter {
                                 Some(vec![Property::Task {
                                     status,
                                     due,
+                                    scheduled: None,
+                                    completed_at: None,
                                     location: crate::parser::Location::default(),
                                 }])
                             } else {
