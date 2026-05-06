@@ -583,3 +583,20 @@ Combined **~~bold strikethrough~~** and *~~italic strikethrough~~*.
         "Italic strikethrough should be converted to [/- ...]"
     );
 }
+
+#[test]
+fn test_import_task_with_obsidian_scheduled_and_completed() {
+    // Obsidian-style: ✅ for completed_at, ⏳ for scheduled
+    let md = "- [x] done task ✅ 2024-03-15\n- [ ] pending task ⏳ 2024-12-30\n";
+    let patto = import_lossy(md);
+    assert!(patto.contains("completed_at=2024-03-15"), "completed_at should be extracted: {}", patto);
+    assert!(patto.contains("scheduled=2024-12-30"), "scheduled should be extracted: {}", patto);
+}
+
+#[test]
+fn test_import_task_with_dataview_scheduled_and_completed() {
+    let md = "- [x] done task [completed_at:: 2024-03-15]\n- [ ] pending [scheduled:: 2024-12-30]\n";
+    let patto = import_lossy(md);
+    assert!(patto.contains("completed_at=2024-03-15"), "completed_at dataview: {}", patto);
+    assert!(patto.contains("scheduled=2024-12-30"), "scheduled dataview: {}", patto);
+}
