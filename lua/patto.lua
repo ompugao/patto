@@ -202,7 +202,60 @@ return {
       desc = 'Take a snapshot of papers',
     })
 
-    -- Copy buffer or selection as markdown to clipboard
+    -- Review completed tasks by timeframe
+    -- Usage: :LspPattoTasksReview [today|this_week|YYYY-MM-DD:YYYY-MM-DD]
+    -- No arg = today, "this_week" = current week Mon–today, "YYYY-MM-DD:YYYY-MM-DD" = custom range
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasksReview', function(opts)
+      local arg = opts.args ~= '' and opts.args or 'today'
+      local arguments = {}
+
+      if arg == 'today' or arg == 'this_week' then
+        arguments = {arg}
+      else
+        -- Try to parse as "YYYY-MM-DD:YYYY-MM-DD"
+        local from, to = string.match(arg, '^(%d%d%d%d%-%d%d%-%d%d):(%d%d%d%d%-%d%d%-%d%d)$')
+        if from and to then
+          arguments = {'custom', from, to}
+        else
+          vim.notify('LspPattoTasksReview: invalid argument "' .. arg .. '". Use today|this_week|YYYY-MM-DD:YYYY-MM-DD', vim.log.levels.ERROR)
+          return
+        end
+      end
+
+      vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
+        command = 'experimental/tasks_review',
+        arguments = arguments,
+      }, function(results, _ctx, _config)
+        local locs = {}
+        for _, vres in pairs(results) do
+          if vres.result then
+            for _, task in ipairs(vres.result) do
+              locs[#locs + 1] = {
+                filename = vim.uri_to_fname(task.location.uri),
+                lnum     = task.location.range.start.line + 1,
+                col      = task.location.range.start.character + 1,
+                text     = '[' .. task.completed_at .. '] ' .. task.text,
+              }
+            end
+          end
+        end
+        if #locs == 0 then
+          vim.notify('No completed tasks found for: ' .. arg, vim.log.levels.INFO)
+          return
+        end
+        vim.fn.setloclist(0, locs)
+        vim.cmd('botright lopen 10')
+        vim.cmd('setlocal nowrap')
+      end)
+    end, {
+      desc = 'Review completed tasks (today|this_week|YYYY-MM-DD:YYYY-MM-DD)',
+      nargs = '?',
+      complete = function()
+        return {'today', 'this_week'}
+      end,
+    })
+
+
     -- Usage: :LspPattoCopyAsMarkdown [flavor]
     -- In visual mode, copies selection; in normal mode, copies entire buffer
     -- If no flavor specified, uses the defaultFlavor from settings
