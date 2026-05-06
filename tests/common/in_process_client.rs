@@ -304,6 +304,19 @@ impl InProcessLspClient {
             .and_then(|repo| repo.ast_map.get(&normalized).map(|e| e.value().clone()))
     }
 
+    /// Compute the TextEdits that would be applied for newly-completed tasks,
+    /// given an old and new AST. Useful for testing edit generation directly.
+    pub fn completion_edits(
+        &self,
+        old_ast: &patto::parser::AstNode,
+        new_ast: &patto::parser::AstNode,
+    ) -> Vec<tower_lsp::lsp_types::TextEdit> {
+        let mut edits = Vec::new();
+        self.backend
+            .collect_completion_edits(old_ast, new_ast, &mut edits);
+        edits
+    }
+
     /// Send a generic notification
     pub async fn notify(&mut self, method: &str, params: serde_json::Value) {
         // For specific notifications like didChange, didSave

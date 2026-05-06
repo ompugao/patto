@@ -25,7 +25,6 @@ fn collect_tasks(
         collect_tasks(child, out);
     }
 }
-
 /// `workspace/applyEdit` in the test environment is a no-op (the mock client silently discards
 /// server→client requests).  We therefore test the *detection* logic directly: after a
 /// `did_change` that transitions a task to `!Done`, the new AST stored in `ast_map` must
@@ -234,4 +233,56 @@ async fn test_auto_complete_detects_nested_task_transition() {
     assert!(child.is_some(), "Should find child task at row 1");
     let (_, status, _) = child.unwrap();
     assert_eq!(*status, TaskStatus::Done, "Child task should be Done");
+}
+
+/// When a shorthand task (`!YYYY-MM-DD`) is changed to done (`-YYYY-MM-DD`),
+/// the generated edit should replace the shorthand token+date with a full
+/// `{@task status=done due=YYYY-MM-DD completed_at=...}` block.
+#[tokio::test]
+async fn test_shorthand_task_replaced_with_longform_on_done() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("tasks.pn", "buy milk !2024-12-31\n");
+
+    let client = InProcessLspClient::new(&workspace).await;
+
+    let old_text = "buy milk !2024-12-31\n";
+    let new_text = "buy milk -2024-12-31\n";
+
+    let old_ast = patto::parser::parse_text(old_text).ast;
+    let new_ast = patto::parser::parse_text(new_text).ast;
+
+    let edits = client.completion_edits(&old_ast, &new_ast);
+
+    assert_eq!(edits.len(), 1, "Expected exactly one edit for shorthand→longform");
+
+    let edit = &edits[0];
+    // The edit should be on line 0
+    assert_eq!(edit.range.start.line, 0);
+    // The replacement text must contain the full {@task} block with status=done and due=
+    assert!(
+        edit.new_text.contains("{@task"),
+        "Edit should produce a {{@task}} block, got: {}",
+        edit.new_text
+    );
+    assert!(
+        edit.new_text.contains("status=done"),
+        "Edit should set status=done, got: {}",
+        edit.new_text
+    );
+    assert!(
+        edit.new_text.contains("due=2024-12-31"),
+        "Edit should preserve the due date, got: {}",
+        edit.new_text
+    );
+    assert!(
+        edit.new_text.contains("completed_at="),
+        "Edit should add completed_at, got: {}",
+        edit.new_text
+    );
+    // The shorthand `-YYYY-MM-DD` should NOT remain in the replacement text
+    assert!(
+        !edit.new_text.starts_with('-'),
+        "Shorthand dash prefix should be replaced, got: {}",
+        edit.new_text
+    );
 }

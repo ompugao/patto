@@ -423,7 +423,7 @@ impl Backend {
         }
     }
 
-    fn collect_completion_edits(
+    pub fn collect_completion_edits(
         &self,
         old_ast: &AstNode,
         new_ast: &AstNode,
@@ -445,12 +445,9 @@ impl Backend {
 
         let now = chrono::Local::now().format("%Y-%m-%dT%H:%M").to_string();
 
-        // Only insert into an existing {@task} block.
-        // If the line uses shorthand syntax only (e.g. `-2024-12-31`), skip —
-        // appending a separate {@task} block would create a duplicate task property.
-        if let Some(close_brace_idx) = line_content.rfind('}') {
-            // Verify there's an actual {@task ...} block (not just some other closing brace)
-            if line_content.contains("{@task") {
+        if line_content.contains("{@task") {
+            // Insert completed_at= into an existing {@task ...} block before the closing }
+            if let Some(close_brace_idx) = line_content.rfind('}') {
                 let new_text = format!(" completed_at={}", now);
                 return Some(TextEdit {
                     range: Range {
@@ -465,6 +462,37 @@ impl Backend {
                     },
                     new_text,
                 });
+            }
+        } else {
+            // Shorthand task (e.g. `-2024-12-31`): replace it with the long {@task} form
+            // so we can include completed_at without creating a duplicate property.
+            if let AstNodeKind::Line { properties } = &line_node.kind() {
+                for prop in properties {
+                    if let Property::Task {
+                        status: TaskStatus::Done,
+                        due,
+                        location,
+                        ..
+                    } = prop
+                    {
+                        let span = &location.span;
+                        let new_text =
+                            format!("{{@task status=done due={} completed_at={}}}", due, now);
+                        return Some(TextEdit {
+                            range: Range {
+                                start: Position {
+                                    line: line_idx,
+                                    character: utf16_from_byte_idx(line_content, span.0) as u32,
+                                },
+                                end: Position {
+                                    line: line_idx,
+                                    character: utf16_from_byte_idx(line_content, span.1) as u32,
+                                },
+                            },
+                            new_text,
+                        });
+                    }
+                }
             }
         }
 
