@@ -121,6 +121,81 @@ async fn test_auto_complete_does_not_trigger_for_already_done() {
 }
 
 #[tokio::test]
+async fn test_tasks_review_custom_range() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file(
+        "tasks.pn",
+        "- buy milk {@task status=done completed_at=2024-03-15}\n\
+         - write report {@task status=done completed_at=2024-03-20}\n\
+         - pending item {@task status=todo}\n",
+    );
+
+    let mut client = InProcessLspClient::new(&workspace).await;
+    let uri = workspace.get_uri("tasks.pn");
+    client
+        .did_open(
+            uri.clone(),
+            "- buy milk {@task status=done completed_at=2024-03-15}\n\
+             - write report {@task status=done completed_at=2024-03-20}\n\
+             - pending item {@task status=todo}\n"
+                .to_string(),
+        )
+        .await;
+
+    let result = client
+        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
+        .await;
+    let tasks = result
+        .flatten()
+        .expect("tasks_review should return a value");
+    let arr = tasks.as_array().expect("result should be an array");
+
+    assert_eq!(arr.len(), 2, "Expected 2 completed tasks in March 2024");
+    assert_eq!(arr[0]["completed_at"], "2024-03-15");
+    assert_eq!(arr[1]["completed_at"], "2024-03-20");
+
+    // Pending task must not appear
+    for item in arr {
+        assert!(
+            !item["text"].as_str().unwrap_or("").contains("pending"),
+            "Pending task should not appear in review"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_tasks_review_excludes_out_of_range() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file(
+        "tasks.pn",
+        "- old task {@task status=done completed_at=2024-01-10}\n\
+         - new task {@task status=done completed_at=2024-03-15}\n",
+    );
+
+    let mut client = InProcessLspClient::new(&workspace).await;
+    let uri = workspace.get_uri("tasks.pn");
+    client
+        .did_open(
+            uri.clone(),
+            "- old task {@task status=done completed_at=2024-01-10}\n\
+             - new task {@task status=done completed_at=2024-03-15}\n"
+                .to_string(),
+        )
+        .await;
+
+    let result = client
+        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
+        .await;
+    let tasks = result
+        .flatten()
+        .expect("tasks_review should return a value");
+    let arr = tasks.as_array().expect("result should be an array");
+
+    assert_eq!(arr.len(), 1, "Only one task should be in March");
+    assert_eq!(arr[0]["completed_at"], "2024-03-15");
+}
+
+#[tokio::test]
 async fn test_auto_complete_detects_nested_task_transition() {
     let mut workspace = TestWorkspace::new();
     // Parent task with indented child task

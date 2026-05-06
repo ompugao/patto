@@ -944,6 +944,7 @@ impl LanguageServer for Backend {
                         "experimental/aggregate_tasks".to_string(),
                         "experimental/retrieve_two_hop_notes".to_string(),
                         "experimental/scan_workspace".to_string(),
+                        "experimental/tasks_review".to_string(),
                         "patto/snapshotPapers".to_string(),
                         "patto/renderAsMarkdown".to_string(),
                     ],
@@ -1124,6 +1125,57 @@ impl LanguageServer for Backend {
                             "".to_string(),
                             due.clone(),
                         )
+                    })
+                    .collect::<Vec<_>>());
+                return Ok(Some(ret));
+            }
+            "experimental/tasks_review" => {
+                // Arguments: [timeframe, from_date?, to_date?]
+                // timeframe: "today" | "this_week" | "custom"
+                // from_date / to_date: "YYYY-MM-DD" strings (required for "custom")
+                // Returns: list of completed tasks sorted by completed_at, each with
+                //   { location, text, completed_at }
+                let today = chrono::Local::now().date_naive();
+                let timeframe = params
+                    .arguments
+                    .first()
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("today");
+
+                let (from, to) = match timeframe {
+                    "today" => (Some(today), Some(today)),
+                    "this_week" => {
+                        use chrono::Datelike;
+                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
+                        let start = today - chrono::Duration::days(weekday as i64);
+                        (Some(start), Some(today))
+                    }
+                    "custom" => {
+                        let parse = |a: Option<&serde_json::Value>| {
+                            a.and_then(|v| v.as_str())
+                                .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+                        };
+                        (
+                            parse(params.arguments.get(1)),
+                            parse(params.arguments.get(2)),
+                        )
+                    }
+                    _ => (Some(today), Some(today)),
+                };
+
+                let repo_bind = self.repository.lock().unwrap();
+                let Some(repo) = repo_bind.as_ref() else {
+                    return Ok(None);
+                };
+                let tasks = repo.aggregate_completed_tasks(from, to);
+                let ret = json!(tasks
+                    .iter()
+                    .map(|(uri, line, date)| {
+                        json!({
+                            "location": Location::new(uri.clone(), get_node_range(line)),
+                            "text": line.extract_str().trim_start(),
+                            "completed_at": date.format("%Y-%m-%d").to_string(),
+                        })
                     })
                     .collect::<Vec<_>>());
                 return Ok(Some(ret));

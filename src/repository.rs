@@ -712,6 +712,28 @@ impl Repository {
         tasks
     }
 
+    /// Collect Done tasks whose `completed_at` falls within [from, to] (inclusive).
+    /// Pass `None` for either bound to leave it open.
+    pub fn aggregate_completed_tasks(
+        &self,
+        from: Option<chrono::NaiveDate>,
+        to: Option<chrono::NaiveDate>,
+    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
+        let mut tasks: Vec<(Url, AstNode, chrono::NaiveDate)> = Vec::new();
+        self.ast_map.iter().for_each(|entry| {
+            let mut completed = Vec::new();
+            gather_completed_tasks(entry.value(), &mut completed);
+            for (node, date) in completed {
+                let in_range = from.map_or(true, |f| date >= f) && to.map_or(true, |t| date <= t);
+                if in_range {
+                    tasks.push((entry.key().clone(), node, date));
+                }
+            }
+        });
+        tasks.sort_by_key(|(_, _, date)| *date);
+        tasks
+    }
+
     /// Start filesystem watcher for the repository
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
@@ -895,5 +917,37 @@ pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) 
     }
     for child in parent.value().children.lock().unwrap().iter() {
         gather_tasks(child, tasklines);
+    }
+}
+
+/// Recursively collect Done tasks that have a `completed_at` date.
+pub fn gather_completed_tasks(
+    parent: &AstNode,
+    tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>,
+) {
+    if let AstNodeKind::Line { ref properties } = &parent.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                completed_at: Some(completed_at),
+                ..
+            } = prop
+            {
+                if matches!(status, TaskStatus::Done) {
+                    let date = match completed_at {
+                        Deadline::Date(d) => Some(*d),
+                        Deadline::DateTime(dt) => Some(dt.date()),
+                        Deadline::Uninterpretable(_) => None,
+                    };
+                    if let Some(date) = date {
+                        tasklines.push((parent.clone(), date));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for child in parent.value().children.lock().unwrap().iter() {
+        gather_completed_tasks(child, tasklines);
     }
 }
