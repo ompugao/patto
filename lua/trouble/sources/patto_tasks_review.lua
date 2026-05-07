@@ -161,6 +161,26 @@ function M.get(cb, ctx)
     end
 
     cb(items)
+
+    -- Auto-resize the trouble window to fit item count
+    vim.schedule(function()
+      local unique_groups = {}
+      for _, item in ipairs(items) do
+        unique_groups[item.completed_date_group] = true
+      end
+      local group_count = 0
+      for _ in pairs(unique_groups) do group_count = group_count + 1 end
+      local target = math.max(#items + group_count, 1)
+      local max_size = math.floor(vim.o.lines * 0.35)
+      target = math.min(target, max_size)
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        local buf = vim.api.nvim_win_get_buf(win)
+        if vim.bo[buf].filetype == "trouble" then
+          vim.api.nvim_win_set_height(win, target)
+          break
+        end
+      end
+    end)
   end)
 end
 
