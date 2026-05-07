@@ -191,19 +191,39 @@ Or with **lazy.nvim**:
 }
 ```
 
+*Tmux + Vim (single-pane toggle with viewport sync):*
+
+Same workflow using `vim --servername` / `--remote` instead of Neovim's `--server`.
+The toggle logic lives in `autoload/patto_preview_toggle.vim`. Bind it in your vimrc:
+
+```vim
+nnoremap <leader>p :call patto_preview_toggle#toggle()<CR>
+```
+
+Configure the TUI to call back into Vim via `--remote-expr`:
+
+```toml
+[editor]
+cmd = '''vim --servername "$VIM_SERVERNAME" --remote "{file}" && vim --servername "$VIM_SERVERNAME" --remote-expr "patto_preview_toggle#schedule_restore({top_line}, {line})"'''
+action = "quit"
+```
+
+`$VIM_SERVERNAME` is set automatically by `patto_preview_toggle#toggle()` when it
+launches the TUI pane, so no extra shell configuration is needed.
+
 <details>
 <summary>Why is the configuration complicated?</summary>
-Launch the TUI from Neovim in a zoomed split pane.
+Launch the TUI from Neovim/Vim in a zoomed split pane.
 When `e` is pressed, the TUI's editor command calls `--remote-expr` to schedule a viewport restore via a one-shot `VimResized` autocmd.
 When tmux unzooms, the resize event fires the autocmd and `winrestview` snaps the viewport to the exact position.
 </details>
 
-Customisable via `vim.g` variables:
+Customisable via `g:` variables:
 
 | Variable | Default | Description |
 |---|---|---|
 | `g:patto_preview_tui_binary` | `"patto-preview-tui"` | Path to the binary |
-| `g:patto_preview_tui_extra_args` | `{}` | Extra CLI arguments (list) |
+| `g:patto_preview_tui_extra_args` | `[]` | Extra CLI arguments (list) |
 
 The full round-trip:
 1. `<leader>p` → Neovim launches the TUI in a zoomed Tmux pane, scrolled to the current viewport top.
