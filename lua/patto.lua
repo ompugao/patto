@@ -203,13 +203,14 @@ return {
     })
 
     -- Review completed tasks by timeframe
-    -- Usage: :LspPattoTasksReview [today|this_week|YYYY-MM-DD:YYYY-MM-DD]
-    -- No arg = today, "this_week" = current week Mon–today, "YYYY-MM-DD:YYYY-MM-DD" = custom range
+    -- Usage: :LspPattoTasksReview [today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD]
+    -- No arg = today
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasksReview', function(opts)
       local arg = opts.args ~= '' and opts.args or 'today'
       local arguments = {}
 
-      if arg == 'today' or arg == 'this_week' then
+      local named = { today = true, yesterday = true, this_week = true, last_week = true, this_month = true }
+      if named[arg] then
         arguments = {arg}
       else
         -- Try to parse as "YYYY-MM-DD:YYYY-MM-DD"
@@ -217,7 +218,7 @@ return {
         if from and to then
           arguments = {'custom', from, to}
         else
-          vim.notify('LspPattoTasksReview: invalid argument "' .. arg .. '". Use today|this_week|YYYY-MM-DD:YYYY-MM-DD', vim.log.levels.ERROR)
+          vim.notify('LspPattoTasksReview: invalid argument "' .. arg .. '". Use today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD', vim.log.levels.ERROR)
           return
         end
       end
@@ -248,10 +249,10 @@ return {
         vim.cmd('setlocal nowrap')
       end)
     end, {
-      desc = 'Review completed tasks (today|this_week|YYYY-MM-DD:YYYY-MM-DD)',
+      desc = 'Review completed tasks (today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD)',
       nargs = '?',
       complete = function()
-        return {'today', 'this_week'}
+        return {'today', 'yesterday', 'this_week', 'last_week', 'this_month'}
       end,
     })
 

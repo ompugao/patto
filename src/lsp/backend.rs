@@ -1158,10 +1158,27 @@ impl LanguageServer for Backend {
 
                 let (from, to) = match timeframe {
                     "today" => (Some(today), Some(today)),
+                    "yesterday" => {
+                        let yesterday = today - chrono::Duration::days(1);
+                        (Some(yesterday), Some(yesterday))
+                    }
                     "this_week" => {
                         use chrono::Datelike;
                         let weekday = today.weekday().num_days_from_monday(); // Mon=0
                         let start = today - chrono::Duration::days(weekday as i64);
+                        (Some(start), Some(today))
+                    }
+                    "last_week" => {
+                        use chrono::Datelike;
+                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
+                        let this_week_start = today - chrono::Duration::days(weekday as i64);
+                        let last_week_start = this_week_start - chrono::Duration::days(7);
+                        let last_week_end = this_week_start - chrono::Duration::days(1);
+                        (Some(last_week_start), Some(last_week_end))
+                    }
+                    "this_month" => {
+                        use chrono::Datelike;
+                        let start = today.with_day(1).unwrap_or(today);
                         (Some(start), Some(today))
                     }
                     "custom" => {
