@@ -1,260 +1,263 @@
 --- patto_img_preview.lua
---- Renders images (and in the future, math) in patto note buffers using vim.ui.img.
+--- Shows an image (or in the future: rendered math) inline when the cursor
+--- rests on a line containing a patto image node.
 ---
---- The LSP server sends a `patto/mediaItems` notification whenever a buffer is
---- opened or changed.  This module listens for that notification, resolves each
---- image path / URL to a local PNG file, and displays it via vim.ui.img.set().
+--- Data flow:
+---   1. LSP server sends `patto/mediaItems` on every open/change.
+---   2. We store the item list keyed by (bufnr, 0-indexed line).
+---   3. A CursorMoved autocmd checks the current line; if it has an image we
+---      show it via vim.ui.img.set().  When the cursor leaves, we delete it.
 ---
---- State is kept per-buffer so that when the buffer content changes, previously
---- shown images are removed before new ones are placed.
+--- Only one image is visible at a time per buffer (the one under the cursor).
 
 local M = {}
 
---- { [bufnr] = { [line] = { id = <img_id>, src = <resolved_path> } } }
-M._state = {}
+--- { [bufnr] = { [line0] = { src=string, path=string|nil } } }
+--- `path` is the resolved local path (set after first resolution/download).
+M._items = {}
 
---- Whether the module is globally enabled.
+--- { [bufnr] = { id=integer, line=integer } }  – currently shown image per buf
+M._shown = {}
+
 M._enabled = true
 
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
 
---- Return the directory that contains the file loaded in `bufnr`.
---- Falls back to cwd if the buffer has no associated file.
 local function buf_dir(bufnr)
-  local path = vim.api.nvim_buf_get_name(bufnr)
-  if path == '' then
-    return vim.loop.cwd()
-  end
-  return vim.fn.fnamemodify(path, ':h')
+  local p = vim.api.nvim_buf_get_name(bufnr)
+  if p == '' then return vim.uv.cwd() end
+  return vim.fn.fnamemodify(p, ':h')
 end
 
---- Simple hash of a string — used to build stable /tmp filenames for URLs.
 local function str_hash(s)
   local h = 5381
-  for i = 1, #s do
-    h = (h * 33 + s:byte(i)) % 0x100000000
-  end
+  for i = 1, #s do h = (h * 33 + s:byte(i)) % 0x100000000 end
   return string.format('%08x', h)
 end
 
---- Resolve an image `src` (relative path or URL) to an absolute local path.
---- * Relative paths are resolved against the buffer's directory.
---- * URLs are left as-is; the caller must download them first.
-local function resolve_src(src, bufnr)
-  if src:match('^https?://') then
-    return src  -- handled separately via download
-  end
-  if src:match('^/') then
-    return src  -- already absolute
-  end
-  -- Relative path
+local function resolve_local(src, bufnr)
+  if src:match('^/') then return src end
   return buf_dir(bufnr) .. '/' .. src
 end
 
---- Derive a /tmp cache path for a URL.
 local function url_cache_path(url)
   return '/tmp/patto_img_' .. str_hash(url) .. '.png'
 end
 
 -- ---------------------------------------------------------------------------
--- Core rendering
+-- Image display
 -- ---------------------------------------------------------------------------
 
---- Remove all images tracked for `bufnr`.
-local function clear_buf_images(bufnr)
-  local buf_state = M._state[bufnr]
-  if not buf_state then return end
-  for _, entry in pairs(buf_state) do
-    if entry.id then
-      pcall(vim.ui.img.del, entry.id)
-    end
+--- Hide the currently shown image for `bufnr`, if any.
+local function hide_current(bufnr)
+  local shown = M._shown[bufnr]
+  if shown and shown.id then
+    pcall(vim.ui.img.del, shown.id)
   end
-  M._state[bufnr] = {}
+  M._shown[bufnr] = nil
 end
 
---- Display a PNG file at the given buffer line (0-indexed).
---- Returns the vim.ui.img id, or nil on failure.
-local function show_image_at_line(path, line, bufnr, win)
-  -- Check the file actually exists and is readable.
-  if vim.fn.filereadable(path) == 0 then
-    return nil
-  end
+--- Place PNG bytes on screen at the cursor line in `win`.
+--- `line0` is the 0-indexed buffer line the image belongs to.
+local function place_image(bytes, line0, win, bufnr)
+  -- win_screenpos returns {row, col}, both 1-indexed.
+  local winpos = vim.fn.win_screenpos(win)
+  -- Convert the buffer line to the screen row it occupies in the window.
+  -- vim.fn.line() is 1-indexed; we need the visual row of line0+1.
+  local vis_row = vim.fn.winline()  -- row of cursor within window (1-indexed)
+  local screen_row = winpos[1] + vis_row - 1
+  local screen_col = winpos[2]
 
-  local ok, bytes = pcall(vim.fn.readblob, path)
-  if not ok or not bytes or #bytes == 0 then
-    return nil
-  end
-
-  -- Convert to string if readblob returned a Blob object.
-  if type(bytes) ~= 'string' then
-    ok, bytes = pcall(tostring, bytes)
-    if not ok then return nil end
-  end
-
-  -- row/col in vim.ui.img are 1-indexed screen coordinates.
-  -- We use the window's screen position for the line.
-  local screen_row = vim.fn.win_screenpos(win)[1] + line  -- win top + 0-indexed line offset
-  local screen_col = vim.fn.win_screenpos(win)[2]
-
-  -- Constrain dimensions to something reasonable (configurable via M.config).
   local cfg = M.config
-  local ok2, id = pcall(vim.ui.img.set, bytes, {
+  local ok, id = pcall(vim.ui.img.set, bytes, {
     row    = screen_row,
     col    = screen_col,
     width  = cfg.width,
     height = cfg.height,
     zindex = cfg.zindex,
   })
-  if not ok2 then return nil end
-  return id
+  if not ok then return end
+  M._shown[bufnr] = { id = id, line = line0 }
 end
 
---- Download a URL to its cache path asynchronously, then call `cb(path)`.
-local function download_url(url, cb)
-  local dest = url_cache_path(url)
-  -- If already cached, use it immediately.
-  if vim.fn.filereadable(dest) == 1 then
-    cb(dest)
-    return
+--- Read a local PNG and display it; stores id in M._shown[bufnr].
+local function show_local(path, line0, win, bufnr)
+  if vim.fn.filereadable(path) == 0 then return end
+  local ok, bytes = pcall(vim.fn.readblob, path)
+  if not ok or not bytes or #bytes == 0 then return end
+  if type(bytes) ~= 'string' then
+    ok, bytes = pcall(tostring, bytes)
+    if not ok then return end
   end
-  vim.system(
-    { 'curl', '-fsSL', '-o', dest, '--', url },
-    { detach = false },
-    function(result)
-      vim.schedule(function()
-        if result.code == 0 then
-          cb(dest)
-        end
-        -- On failure we silently skip — no partial file left.
-      end)
-    end
-  )
+  place_image(bytes, line0, win, bufnr)
 end
 
---- Process a single media item for `bufnr` in `win`.
---- `item` is the table from the LSP notification:
----   { kind, src, content, inline, line, character }
-local function process_item(item, bufnr, win)
-  if item.kind ~= 'image' then
-    -- Math rendering is not yet implemented.
-    return
-  end
-
+--- Ensure the image for `item` at `line0` in `bufnr`/`win` is visible.
+--- Resolves path on first call; subsequent calls reuse the cached path.
+local function show_item(item, line0, win, bufnr)
   local src = item.src
   if not src or src == '' then return end
 
-  local line = item.line  -- 0-indexed
-
-  local function place(path)
-    -- Remove stale image at this line, if any.
-    local buf_state = M._state[bufnr] or {}
-    local old = buf_state[line]
-    if old and old.id then
-      pcall(vim.ui.img.del, old.id)
-    end
-
-    local id = show_image_at_line(path, line, bufnr, win)
-    buf_state[line] = { id = id, src = src }
-    M._state[bufnr] = buf_state
+  -- If path already resolved, show immediately.
+  if item.path then
+    show_local(item.path, line0, win, bufnr)
+    return
   end
 
   if src:match('^https?://') then
-    download_url(src, place)
+    local dest = url_cache_path(src)
+    item.path = dest  -- optimistically cache; if download fails, file won't exist
+    if vim.fn.filereadable(dest) == 1 then
+      show_local(dest, line0, win, bufnr)
+      return
+    end
+    vim.system(
+      { 'curl', '-fsSL', '-o', dest, '--', src },
+      { detach = false },
+      function(result)
+        vim.schedule(function()
+          if result.code == 0 then
+            -- Re-check cursor is still on that line.
+            local cur_win = vim.api.nvim_get_current_win()
+            if vim.api.nvim_win_get_buf(cur_win) == bufnr
+                and vim.fn.line('.') - 1 == line0 then
+              hide_current(bufnr)
+              show_local(dest, line0, cur_win, bufnr)
+            end
+          else
+            item.path = nil  -- reset so we retry next time
+          end
+        end)
+      end
+    )
   else
-    local abs = resolve_src(src, bufnr)
-    place(abs)
+    item.path = resolve_local(src, bufnr)
+    show_local(item.path, line0, win, bufnr)
   end
+end
+
+-- ---------------------------------------------------------------------------
+-- Cursor tracking
+-- ---------------------------------------------------------------------------
+
+--- Called on CursorMoved / CursorMovedI for a patto buffer.
+local function on_cursor_moved(bufnr)
+  if not M._enabled then return end
+  local items = M._items[bufnr]
+  if not items then return end
+
+  local line0 = vim.fn.line('.') - 1  -- 0-indexed
+
+  -- Already showing the right image — nothing to do.
+  local shown = M._shown[bufnr]
+  if shown and shown.line == line0 then return end
+
+  -- Hide whatever is currently shown.
+  hide_current(bufnr)
+
+  local item = items[line0]
+  if not item then return end
+
+  local win = vim.api.nvim_get_current_win()
+  if vim.api.nvim_win_get_buf(win) ~= bufnr then return end
+
+  show_item(item, line0, win, bufnr)
 end
 
 -- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
 
---- Configuration (can be overridden by the user before calling setup()).
 M.config = {
-  width  = 40,   -- image width in terminal cells
-  height = 10,   -- image height in terminal cells
+  width  = 40,
+  height = 10,
   zindex = 30,
 }
 
---- Called from the patto/mediaItems LSP notification handler.
---- `result` is { uri: string, items: [...] }
+--- Called by the `patto/mediaItems` LSP notification handler.
 function M.on_media_items(result, ctx)
   if not M._enabled then return end
   if not result or not result.items then return end
 
   local bufnr = ctx and ctx.bufnr
   if not bufnr or bufnr == 0 then
-    -- Resolve bufnr from URI.
-    local fname = vim.uri_to_fname(result.uri)
-    bufnr = vim.fn.bufnr(fname)
+    bufnr = vim.fn.bufnr(vim.uri_to_fname(result.uri))
   end
   if not bufnr or bufnr < 1 then return end
   if not vim.api.nvim_buf_is_loaded(bufnr) then return end
 
-  -- Find a window displaying this buffer.
-  local win = nil
-  for _, w in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(w) == bufnr then
-      win = w
-      break
+  -- Hide any currently shown image — item positions may have changed.
+  hide_current(bufnr)
+
+  -- Rebuild item index for this buffer.
+  -- Preserve already-resolved paths so we don't re-download.
+  local old_items = M._items[bufnr] or {}
+  local new_items = {}
+  for _, item in ipairs(result.items) do
+    if item.kind == 'image' and item.src and item.src ~= '' then
+      local line0 = item.line
+      local old = old_items[line0]
+      -- Reuse cached path if src hasn't changed.
+      local path = (old and old.src == item.src) and old.path or nil
+      new_items[line0] = { src = item.src, path = path }
     end
   end
-  if not win then return end
+  M._items[bufnr] = new_items
 
-  -- Remove all previously shown images for this buffer first.
-  clear_buf_images(bufnr)
-
-  for _, item in ipairs(result.items) do
-    process_item(item, bufnr, win)
+  -- If the cursor is already sitting on an image line, show it now.
+  local win = vim.fn.bufwinid(bufnr)
+  if win ~= -1 then
+    local cur_line0 = vim.fn.line('.') - 1
+    local item = new_items[cur_line0]
+    if item then
+      show_item(item, cur_line0, win, bufnr)
+    end
   end
 end
 
---- Attach image preview to a buffer.  Called from on_attach in patto.lua.
+--- Attach preview behaviour to a buffer (called from on_attach).
 function M.attach(bufnr)
-  -- Register a BufWipeout autocmd to clean up images when the buffer closes.
+  local augroup = vim.api.nvim_create_augroup('PattoImgPreview_' .. bufnr, { clear = true })
+
+  vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
+    group   = augroup,
+    buffer  = bufnr,
+    callback = function() on_cursor_moved(bufnr) end,
+  })
+
   vim.api.nvim_create_autocmd('BufWipeout', {
+    group   = augroup,
     buffer  = bufnr,
     once    = true,
     callback = function()
-      clear_buf_images(bufnr)
-      M._state[bufnr] = nil
+      hide_current(bufnr)
+      M._items[bufnr] = nil
+      M._shown[bufnr] = nil
+      vim.api.nvim_del_augroup_by_id(augroup)
     end,
   })
 end
 
---- Remove all images for a buffer and unregister its state.
 function M.detach(bufnr)
-  clear_buf_images(bufnr)
-  M._state[bufnr] = nil
+  hide_current(bufnr)
+  M._items[bufnr] = nil
+  M._shown[bufnr] = nil
+  pcall(vim.api.nvim_del_augroup_by_name, 'PattoImgPreview_' .. bufnr)
 end
 
---- Toggle image preview on/off globally.
 function M.toggle()
   M._enabled = not M._enabled
   if not M._enabled then
-    -- Remove all images across all buffers.
-    for bufnr in pairs(M._state) do
-      clear_buf_images(bufnr)
-    end
+    for bufnr in pairs(M._shown) do hide_current(bufnr) end
   end
-  vim.notify(
-    'Patto image preview: ' .. (M._enabled and 'enabled' or 'disabled'),
-    vim.log.levels.INFO
-  )
+  vim.notify('Patto image preview: ' .. (M._enabled and 'enabled' or 'disabled'), vim.log.levels.INFO)
 end
 
---- Setup: register the LSP notification handler.
---- Call this once (e.g. from your plugin config), not per-buffer.
 function M.setup(opts)
-  if opts then
-    M.config = vim.tbl_extend('force', M.config, opts)
-  end
-
-  -- Register the handler for the custom LSP notification.
-  vim.lsp.handlers['patto/mediaItems'] = function(err, result, ctx, _config)
+  if opts then M.config = vim.tbl_extend('force', M.config, opts) end
+  vim.lsp.handlers['patto/mediaItems'] = function(err, result, ctx, _)
     if err then return end
     M.on_media_items(result, ctx)
   end
