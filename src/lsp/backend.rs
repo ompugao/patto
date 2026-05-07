@@ -41,6 +41,23 @@ pub struct MarkdownSettings {
     default_flavor: Option<String>,
 }
 
+use tower_lsp::lsp_types::notification::Notification;
+
+/// Params for the `patto/mediaItems` server→client notification.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PattoMediaItemsParams {
+    pub uri: Url,
+    pub items: Vec<MediaItem>,
+}
+
+/// The `patto/mediaItems` custom notification type.
+pub enum PattoMediaItemsNotification {}
+
+impl Notification for PattoMediaItemsNotification {
+    type Params = PattoMediaItemsParams;
+    const METHOD: &'static str = "patto/mediaItems";
+}
+
 //#[derive(Debug)]
 pub struct Backend {
     pub client: Client,
@@ -113,6 +130,81 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
 
     diagnostics.extend(gather_malformed_command_diagnostics(text));
     (ast, diagnostics)
+}
+
+/// A single image or math node extracted from the AST, sent to the client
+/// via the `patto/mediaItems` notification.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MediaItem {
+    /// `"image"` or `"math"`
+    pub kind: String,
+    /// For images: the `src` attribute (path or URL). None for math.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
+    /// For math: the raw LaTeX content. None for images.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// `true` for inline math / inline images (currently all images are block-level).
+    pub inline: bool,
+    /// 0-indexed line number.
+    pub line: u32,
+    /// 0-indexed UTF-16 character offset of the node start.
+    pub character: u32,
+}
+
+/// Walk an AST tree and collect all Image and Math nodes into `out`.
+fn collect_media_items(node: &AstNode, out: &mut Vec<MediaItem>) {
+    match node.kind() {
+        AstNodeKind::Image { src, .. } => {
+            let row = node.location().row as u32;
+            let col = utf16_from_byte_idx(node.extract_str(), node.location().span.0) as u32;
+            out.push(MediaItem {
+                kind: "image".to_string(),
+                src: Some(src.clone()),
+                content: None,
+                inline: false,
+                line: row,
+                character: col,
+            });
+        }
+        AstNodeKind::Math { inline } => {
+            let row = node.location().row as u32;
+            let col = utf16_from_byte_idx(node.extract_str(), node.location().span.0) as u32;
+            // Concatenate all MathContent children as the content string.
+            let content: String = node
+                .value()
+                .children
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|child| {
+                    if matches!(child.kind(), AstNodeKind::MathContent) {
+                        child.extract_str().to_string()
+                    } else {
+                        String::new()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            out.push(MediaItem {
+                kind: "math".to_string(),
+                src: None,
+                content: Some(content),
+                inline: *inline,
+                line: row,
+                character: col,
+            });
+            // Don't recurse into children — we already consumed MathContent above.
+            return;
+        }
+        _ => {}
+    }
+    for child in node.value().children.lock().unwrap().iter() {
+        collect_media_items(child, out);
+    }
+    for content in node.value().contents.lock().unwrap().iter() {
+        collect_media_items(content, out);
+    }
 }
 
 /// Scan raw text for `[@embed ...]` / `[@img ...]` patterns that failed to parse
@@ -354,12 +446,22 @@ impl Backend {
             }
         }
 
-        // Parse for diagnostics (this is LSP-specific, not handled by repository)
-        let (_, diagnostics) = parse_text(&params.text);
+        // Parse for diagnostics and media items (this is LSP-specific, not handled by repository)
+        let (ast, diagnostics) = parse_text(&params.text);
 
         // Publish diagnostics to the client
         self.client
             .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
+            .await;
+
+        // Collect image and math nodes and notify the client
+        let mut items: Vec<MediaItem> = Vec::new();
+        collect_media_items(&ast, &mut items);
+        self.client
+            .send_notification::<PattoMediaItemsNotification>(PattoMediaItemsParams {
+                uri: params.uri.clone(),
+                items,
+            })
             .await;
     }
 

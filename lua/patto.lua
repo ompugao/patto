@@ -1,3 +1,6 @@
+local img_preview = require('patto_img_preview')
+img_preview.setup()
+
 local function open_scratch_buffer(name)
   local h = math.floor(vim.api.nvim_win_get_height(0) * 0.3)
   -- Check if buffer already exists
@@ -144,6 +147,15 @@ return {
     },
   },
   on_attach = function(client, bufnr)
+    -- Attach image preview for this buffer.
+    img_preview.attach(bufnr)
+
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoImgPreviewToggle', function()
+      img_preview.toggle()
+    end, {
+      desc = 'Toggle patto image preview in buffer',
+    })
+
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasks', function()
       vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
         command = 'experimental/aggregate_tasks',
