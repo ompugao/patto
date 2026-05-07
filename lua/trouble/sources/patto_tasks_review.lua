@@ -89,7 +89,7 @@ M.config = {
       format = "{completed_at} {text} {filename}",
       win = {
         position = "bottom",
-        size = 0.35,
+        size = 0.20,
       },
     },
   },

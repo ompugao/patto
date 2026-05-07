@@ -132,7 +132,7 @@ M.config = {
       format = "{deadline_date} {text} {filename}",
       win = {
         position = "bottom",
-        size = 0.35,
+        size = 0.25,
       },
     },
   },
