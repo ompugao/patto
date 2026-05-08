@@ -565,6 +565,10 @@ impl MarkdownImporter {
 
                     if in_heading {
                         heading_contents.push(inline_code);
+                    } else if in_table {
+                        if let Some(cell) = current_cell.as_ref() {
+                            cell.add_content(inline_code);
+                        }
                     } else {
                         pending_contents.push(inline_code);
                     }
