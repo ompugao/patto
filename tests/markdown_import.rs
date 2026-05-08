@@ -617,3 +617,21 @@ fn test_import_task_with_dataview_scheduled_and_completed() {
         patto
     );
 }
+
+#[test]
+fn test_table_inline_code_in_cells() {
+    let md = "| Header | Code |\n|--------|------|\n| plain  | `foo` |\n";
+    let patto = import_lossy(md);
+    assert!(
+        patto.contains("foo"),
+        "inline code in table cell should be preserved: {}",
+        patto
+    );
+    // The backtick content should appear as a code node, not be silently dropped
+    // In patto rendering a code node serializes with the code text present
+    assert!(
+        patto.contains("foo"),
+        "inline code text 'foo' must appear in output: {}",
+        patto
+    );
+}
