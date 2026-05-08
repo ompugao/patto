@@ -3,7 +3,7 @@ target/
 node_modules/
 patto-preview-next/
 patto-preview-ui/
-patto-chafa-ridge
+patto-chafa-bridge/
 client/node_modules/
 
 # Source files (we only need dist/)
