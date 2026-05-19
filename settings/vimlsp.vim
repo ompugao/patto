@@ -84,10 +84,10 @@ function! s:show_task(res) abort
         let l:path = lsp#utils#uri_to_path(l:item['location']['uri'])
         let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:item['location']['range']['start'])
 
-        " Build a rich display string: label + structured chips
-        let l:parts = [l:item['text']]
+        " Build a rich display string: due date + label + chips
+        let l:parts = []
 
-        " due date chip
+        " due date chip first
         let l:due = get(l:item, 'due', v:null)
         if type(l:due) == v:t_dict
             let l:due_str = get(l:due, 'Date', get(l:due, 'DateTime', ''))
@@ -97,6 +97,8 @@ function! s:show_task(res) abort
                 call add(l:parts, '[due:' . l:due_str . ']')
             endif
         endif
+
+        call add(l:parts, l:item['text'])
 
         " status chip (only show non-todo)
         let l:status = get(l:item, 'status', '')

@@ -160,14 +160,15 @@ return {
             location_item.lnum = item.location.range.start.line + 1
             location_item.col = item.location.range.start.character + 1
 
-            -- Build a rich display string: label + structured chips
-            local parts = { item.text }
-            -- due date
+            -- Build a rich display string: due date + label + chips
+            local parts = {}
+            -- due date first
             local due = item.due
             if type(due) == "table" then
               local due_str = due.Date or (due.DateTime and string.match(due.DateTime, "^(%d%d%d%d%-%d%d%-%d%d)"))
               if due_str then parts[#parts+1] = "[due:" .. due_str .. "]" end
             end
+            parts[#parts+1] = item.text
             -- status (only show non-todo)
             if item.status == "Doing" then
               parts[#parts+1] = "[doing]"

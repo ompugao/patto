@@ -132,7 +132,7 @@ M.config = {
       },
       sort   = { "deadline", "filename", "pos" },
       -- Format: status icon | label | due chip | time chips | file
-      format = "{task_status}{text}{task_due}{task_time_spent}{task_started_at} {filename}",
+      format = "{task_status}{task_due} {text}{task_time_spent}{task_started_at} {filename}",
       win = { position = "bottom", size = 0.25 },
     },
   },

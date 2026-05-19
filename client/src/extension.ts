@@ -124,14 +124,16 @@ function stopPreviewServer() {
 
 /** Build a rich display label for a task from its structured fields. */
 function taskLabel(task: any): string {
-	const parts: string[] = [task.text as string];
+	const parts: string[] = [];
 
-	// due date chip
+	// due date first
 	const due = task.due;
 	if (due && typeof due === 'object') {
 		const dueStr: string = due.Date ?? (due.DateTime ? (due.DateTime as string).slice(0, 10) : '');
 		if (dueStr) parts.push(`[due:${dueStr}]`);
 	}
+
+	parts.push(task.text as string);
 
 	// status chip (only show non-todo)
 	if (task.status === 'Doing') parts.push('[doing]');
