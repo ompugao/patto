@@ -522,7 +522,7 @@ function startLanguageClient(
 							else if (m > 0)     timeChip = ` ⏱ ${m}m`;
 						}
 						items.push({
-							label: `  ✓ ${t.text}${timeChip}`,
+							label: `  ✓ ${t.completed_at}  ${t.text}${timeChip}`,
 							description: Uri.parse(t.location.uri).fsPath.split('/').pop(),
 							detail: Uri.parse(t.location.uri).fsPath,
 						});
@@ -539,7 +539,7 @@ function startLanguageClient(
 					const doc = await vscode.workspace.openTextDocument(selected.detail);
 					const task = response.find((t: any) =>
 						Uri.parse(t.location.uri).fsPath === selected.detail &&
-						selected.label.startsWith(`  ✓ ${t.text}`)
+						selected.label.includes(t.text)
 					);
 					const line = task?.location?.range?.start?.line ?? 0;
 					const ed = await vscode.window.showTextDocument(doc);

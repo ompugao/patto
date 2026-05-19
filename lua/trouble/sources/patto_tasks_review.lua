@@ -90,7 +90,7 @@ M.config = {
       },
       sort   = { "completed_date_group_order", "completed_at", "filename", "pos" },
       -- Format: label | completed chip | time chip | file
-      format = "{text} {task_completed_at}{task_time_spent} {filename}",
+      format = "{task_completed_at} {text}{task_time_spent} {filename}",
       win    = { position = "bottom", size = 0.20 },
     },
   },
