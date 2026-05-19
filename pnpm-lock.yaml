@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@vscode/vsce':
-        specifier: ^3.7.0
+        specifier: ^3.9.1
         version: 3.9.1
       vscode-languageclient:
         specifier: 9.0.1
@@ -37,7 +37,7 @@ importers:
         specifier: ^3.2.9
         version: 3.2.9
       eslint:
-        specifier: ^9.26.0
+        specifier: ^9.39.4
         version: 9.39.4
       glob:
         specifier: ^7.2.3
@@ -46,7 +46,7 @@ importers:
         specifier: ^11.7.5
         version: 11.7.5
       ts-loader:
-        specifier: ^9.5.4
+        specifier: ^9.5.7
         version: 9.5.7(typescript@5.4.5)(webpack@5.106.2)
       typescript:
         specifier: 5.4.5
@@ -58,7 +58,7 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       webpack:
-        specifier: ^5.104.1
+        specifier: ^5.106.2
         version: 5.106.2(webpack-cli@5.1.4)
       webpack-cli:
         specifier: ^5.1.4
@@ -684,8 +684,8 @@ packages:
   brace-expansion@2.1.0:
     resolution: {integrity: sha512-TN1kCZAgdgweJhWWpgKYrQaMNHcDULHkWwQIspdtjV4Y5aurRdZpjAqn6yX3FPqTA9ngHCc4hJxMAMgGfve85w==}
 
-  brace-expansion@5.0.5:
-    resolution: {integrity: sha512-VZznLgtwhn+Mact9tfiwx64fA9erHH/MCXEUfB/0bX/6Fz6ny5EGTXYltMocqg4xFAQZtnO3DHWWXi8RiuN7cQ==}
+  brace-expansion@5.0.6:
+    resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
 
   braces@3.0.3:
@@ -3308,7 +3308,7 @@ snapshots:
     dependencies:
       balanced-match: 1.0.2
 
-  brace-expansion@5.0.5:
+  brace-expansion@5.0.6:
     dependencies:
       balanced-match: 4.0.4
 
@@ -4340,7 +4340,7 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.5
+      brace-expansion: 5.0.6
 
   minimatch@3.1.5:
     dependencies:
