@@ -13,11 +13,14 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use crate::lsp::task_edits::{
+    collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
+};
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
     self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
 };
-use crate::lsp::task_edits::{collect_task_snapshots, detect_task_transitions, generate_edits_for_transition};use crate::renderer::{MarkdownRenderer, Renderer};
+use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
 use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use pest::Parser as _;
@@ -254,11 +257,11 @@ fn task_label(line: &AstNode) -> String {
                 let raw = line.extract_str();
                 // Remove the property span (byte offsets) and collapse extra whitespace.
                 let before = raw[..location.span.0.min(raw.len())].trim_end();
-                let after  = raw[location.span.1.min(raw.len())..].trim_start();
+                let after = raw[location.span.1.min(raw.len())..].trim_start();
                 return match (before.is_empty(), after.is_empty()) {
-                    (true,  true)  => String::new(),
-                    (false, true)  => before.trim_start().to_string(),
-                    (true,  false) => after.trim_start().to_string(),
+                    (true, true) => String::new(),
+                    (false, true) => before.trim_start().to_string(),
+                    (true, false) => after.trim_start().to_string(),
                     (false, false) => format!("{} {}", before.trim_start(), after),
                 };
             }
@@ -268,7 +271,11 @@ fn task_label(line: &AstNode) -> String {
 }
 
 /// Build a TaskInformation from an AstNode that has a Task property.
-fn task_information(uri: &tower_lsp::lsp_types::Url, line: &AstNode, due: &Deadline) -> TaskInformation {
+fn task_information(
+    uri: &tower_lsp::lsp_types::Url,
+    line: &AstNode,
+    due: &Deadline,
+) -> TaskInformation {
     let mut info = TaskInformation::new(
         Location::new(uri.clone(), get_node_range(line)),
         task_label(line),
@@ -277,12 +284,20 @@ fn task_information(uri: &tower_lsp::lsp_types::Url, line: &AstNode, due: &Deadl
     );
     if let AstNodeKind::Line { properties } = &line.kind() {
         for prop in properties {
-            if let Property::Task { status, scheduled, completed_at, started_at, time_spent, .. } = prop {
-                info.status       = status.clone();
-                info.scheduled    = scheduled.clone();
+            if let Property::Task {
+                status,
+                scheduled,
+                completed_at,
+                started_at,
+                time_spent,
+                ..
+            } = prop
+            {
+                info.status = status.clone();
+                info.scheduled = scheduled.clone();
                 info.completed_at = completed_at.clone();
-                info.started_at   = started_at.clone();
-                info.time_spent   = time_spent.clone();
+                info.started_at = started_at.clone();
+                info.time_spent = time_spent.clone();
                 break;
             }
         }
@@ -1152,7 +1167,8 @@ impl LanguageServer for Backend {
                 let ret = json!(tasks
                     .iter()
                     .map(|(uri, line, date)| {
-                        let mut info = task_information(uri, line, &crate::parser::Deadline::Date(*date));
+                        let mut info =
+                            task_information(uri, line, &crate::parser::Deadline::Date(*date));
                         // Override completed_at with the authoritative value from repository
                         // (already set by task_information, but ensure the date string matches)
                         json!({

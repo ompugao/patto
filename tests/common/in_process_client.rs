@@ -313,7 +313,9 @@ impl InProcessLspClient {
         old_ast: &patto::parser::AstNode,
         new_ast: &patto::parser::AstNode,
     ) -> Vec<tower_lsp::lsp_types::TextEdit> {
-        use patto::lsp::task_edits::{collect_task_snapshots, detect_task_transitions, generate_edits_for_transition};
+        use patto::lsp::task_edits::{
+            collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
+        };
         let now = chrono::Local::now().naive_local();
         let old_snapshots = collect_task_snapshots(old_ast);
         let new_snapshots = collect_task_snapshots(new_ast);

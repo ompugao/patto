@@ -1,7 +1,9 @@
 mod common;
 
 use common::*;
-use patto::lsp::task_edits::{collect_task_snapshots, detect_task_transitions, generate_edits_for_transition};
+use patto::lsp::task_edits::{
+    collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
+};
 use patto::parser::{parse_text, TaskStatus};
 use patto::task::TaskTransition;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,7 +94,11 @@ async fn test_no_transition_for_already_done_with_completed_at() {
         "buy milk {@task status=todo due=2026-06-01}\n",
         "buy milk {@task status=done due=2026-06-01 completed_at=2026-05-18T10:00}\n",
     );
-    assert_eq!(ts.len(), 0, "No transition expected when completed_at already set");
+    assert_eq!(
+        ts.len(),
+        0,
+        "No transition expected when completed_at already set"
+    );
 }
 
 #[tokio::test]
@@ -103,7 +109,11 @@ async fn test_no_transition_for_already_doing_with_started_at() {
         "buy milk {@task status=todo due=2026-06-01}\n",
         "buy milk {@task status=doing due=2026-06-01 started_at=2026-05-19T08:00}\n",
     );
-    assert_eq!(ts.len(), 0, "No transition expected when started_at already set");
+    assert_eq!(
+        ts.len(),
+        0,
+        "No transition expected when started_at already set"
+    );
 }
 
 #[tokio::test]
@@ -114,7 +124,11 @@ async fn test_no_transition_for_brand_new_task() {
         "some line without a task\n",
         "buy milk {@task status=done due=2026-06-01}\n",
     );
-    assert_eq!(ts.len(), 0, "Brand-new task lines should not trigger auto-edits");
+    assert_eq!(
+        ts.len(),
+        0,
+        "Brand-new task lines should not trigger auto-edits"
+    );
 }
 
 // ─── Edit-generation tests ────────────────────────────────────────────────────
@@ -259,10 +273,7 @@ async fn test_todo_to_done_without_doing_no_time_spent() {
 async fn test_shorthand_done_replaced_with_longform() {
     let _workspace = TestWorkspace::new();
     // Shorthand `-YYYY-MM-DD` (done) transitioning from `!` (todo).
-    let edits = edits_for(
-        "buy milk !2026-06-01\n",
-        "buy milk -2026-06-01\n",
-    );
+    let edits = edits_for("buy milk !2026-06-01\n", "buy milk -2026-06-01\n");
     assert_eq!(edits.len(), 1, "Expected one edit for shorthand todo→done");
     let edit = &edits[0];
     assert_eq!(edit.range.start.line, 0);
@@ -334,7 +345,10 @@ fn test_doing_to_todo_via_keystroke_simulation() {
             .flat_map(|t| generate_edits_for_transition(t, now))
             .collect();
 
-        if transitions.iter().any(|t| matches!(t, TaskTransition::BecameTodo { .. })) {
+        if transitions
+            .iter()
+            .any(|t| matches!(t, TaskTransition::BecameTodo { .. }))
+        {
             became_todo_fired = true;
             clock_out_edits = edits;
         }

@@ -213,7 +213,7 @@ mod tests {
             ("2h", "2h"),
             ("45m", "45m"),
             ("0h", "0h"),
-            ("0m", "0h"),   // normalises to hours form
+            ("0m", "0h"), // normalises to hours form
             ("10h5m", "10h5m"),
         ] {
             let d: Duration = input.parse().unwrap();
@@ -235,4 +235,3 @@ mod tests {
         assert!("1h30".parse::<Duration>().is_err()); // trailing digits, no unit
     }
 }
-

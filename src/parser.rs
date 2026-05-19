@@ -1655,9 +1655,18 @@ fn transform_property(
 
                                 if key == "status" {
                                     status = match value {
-                                        "todo" => { status_is_canonical = true; TaskStatus::Todo }
-                                        "doing" | "inprogress" | "wip" => { status_is_canonical = true; TaskStatus::Doing }
-                                        "done" => { status_is_canonical = true; TaskStatus::Done }
+                                        "todo" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Todo
+                                        }
+                                        "doing" | "inprogress" | "wip" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Doing
+                                        }
+                                        "done" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Done
+                                        }
                                         _ => {
                                             log::warn!(
                                                 "Unknown task status: '{}', interpreted as 'todo'",
@@ -1687,9 +1696,18 @@ fn transform_property(
                                 let value = kv.as_str();
                                 if current_key == "status" {
                                     status = match value {
-                                        "todo" => { status_is_canonical = true; TaskStatus::Todo }
-                                        "doing" => { status_is_canonical = true; TaskStatus::Doing }
-                                        "done" => { status_is_canonical = true; TaskStatus::Done }
+                                        "todo" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Todo
+                                        }
+                                        "doing" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Doing
+                                        }
+                                        "done" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Done
+                                        }
                                         _ => {
                                             log::warn!(
                                                 "Unknown task status: '{}', interpreted as 'todo'",

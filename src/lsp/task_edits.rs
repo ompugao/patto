@@ -188,7 +188,11 @@ pub fn generate_edits_for_transition(
             // Similarly, use the larger of new/old time_spent as the base so
             // we never lose accumulated time from a previous session.
             let base_time_spent = match (&new.time_spent, &old.time_spent) {
-                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() { n.clone() } else { o.clone() }),
+                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() {
+                    n.clone()
+                } else {
+                    o.clone()
+                }),
                 (Some(n), None) => Some(n.clone()),
                 (None, Some(o)) => Some(o.clone()),
                 (None, None) => None,
@@ -221,7 +225,11 @@ pub fn generate_edits_for_transition(
             // Fall back to old snapshot in case the user also deleted it.
             let started_at = new.started_at.as_ref().or(old.started_at.as_ref());
             let base_time_spent = match (&new.time_spent, &old.time_spent) {
-                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() { n.clone() } else { o.clone() }),
+                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() {
+                    n.clone()
+                } else {
+                    o.clone()
+                }),
                 (Some(n), None) => Some(n.clone()),
                 (None, Some(o)) => Some(o.clone()),
                 (None, None) => None,
@@ -290,21 +298,21 @@ fn build_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEd
 /// - If the value is empty, delete the existing `key=value` (and any leading space).
 fn build_longform_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
     let line = snapshot.prop_span.0; // row (0-indexed)
-    // We need the raw line text — extract from the snapshot's prop_span context.
-    // The Location stores the full line input as `input`.
-    // We reconstruct it from the AstNode indirectly via the span; however we
-    // don't have the AstNode here.  Instead we locate the text via the
-    // `prop_span` within the source string that we do not store in TaskSnapshot.
-    //
-    // To keep TaskSnapshot lean we store the raw line string in the snapshot
-    // itself.  We add a `line_text` field to TaskSnapshot below, OR we accept
-    // the text via a parameter.
-    //
-    // **Design decision**: accept `line_text` as an argument so we can stay pure.
-    // This is called from `generate_edits_for_transition` which has no line text.
-    //
-    // ► We propagate line_text through TaskSnapshot instead.
-    //   (See the `line_text` field added to TaskSnapshot in src/task.rs.)
+                                     // We need the raw line text — extract from the snapshot's prop_span context.
+                                     // The Location stores the full line input as `input`.
+                                     // We reconstruct it from the AstNode indirectly via the span; however we
+                                     // don't have the AstNode here.  Instead we locate the text via the
+                                     // `prop_span` within the source string that we do not store in TaskSnapshot.
+                                     //
+                                     // To keep TaskSnapshot lean we store the raw line string in the snapshot
+                                     // itself.  We add a `line_text` field to TaskSnapshot below, OR we accept
+                                     // the text via a parameter.
+                                     //
+                                     // **Design decision**: accept `line_text` as an argument so we can stay pure.
+                                     // This is called from `generate_edits_for_transition` which has no line text.
+                                     //
+                                     // ► We propagate line_text through TaskSnapshot instead.
+                                     //   (See the `line_text` field added to TaskSnapshot in src/task.rs.)
 
     // For now, build a single replacement edit that rewrites the entire property
     // block.  This is simpler than per-field surgery and avoids offset
@@ -313,7 +321,10 @@ fn build_longform_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> V
 }
 
 /// Rewrite the full `{@task …}` block in one edit, merging new field values.
-fn build_longform_full_rewrite(snapshot: &TaskSnapshot, new_fields: &[(&str, String)]) -> Vec<TextEdit> {
+fn build_longform_full_rewrite(
+    snapshot: &TaskSnapshot,
+    new_fields: &[(&str, String)],
+) -> Vec<TextEdit> {
     use crate::parser::Deadline;
 
     // Start from the snapshot's current field values.
@@ -411,7 +422,10 @@ fn build_longform_full_rewrite(snapshot: &TaskSnapshot, new_fields: &[(&str, Str
 }
 
 /// Replace the shorthand token with a full `{@task …}` block.
-fn build_shorthand_replacement(snapshot: &TaskSnapshot, new_fields: &[(&str, String)]) -> Vec<TextEdit> {
+fn build_shorthand_replacement(
+    snapshot: &TaskSnapshot,
+    new_fields: &[(&str, String)],
+) -> Vec<TextEdit> {
     // Delegate to the same full-rewrite logic — shorthand has no existing long
     // form, so rewriting the span (shorthand token) with `{@task …}` is correct.
     build_longform_full_rewrite(snapshot, new_fields)
@@ -423,8 +437,8 @@ fn build_shorthand_replacement(snapshot: &TaskSnapshot, new_fields: &[(&str, Str
 mod tests {
     use super::*;
     use crate::parser::Deadline;
-    use crate::task::{Duration, TaskSnapshot, TaskTransition};
     use crate::parser::TaskStatus;
+    use crate::task::{Duration, TaskSnapshot, TaskTransition};
 
     fn make_snapshot(row: usize, status: TaskStatus, started_at: Option<&str>) -> TaskSnapshot {
         TaskSnapshot {
@@ -480,7 +494,10 @@ mod tests {
     fn detect_doing_to_todo() {
         let old = {
             let mut m = HashMap::new();
-            m.insert(0, make_snapshot(0, TaskStatus::Doing, Some("2026-05-19T09:00")));
+            m.insert(
+                0,
+                make_snapshot(0, TaskStatus::Doing, Some("2026-05-19T09:00")),
+            );
             m
         };
         let new = {
