@@ -172,6 +172,8 @@ return {
             -- status (only show non-todo)
             if item.status == "Doing" then
               parts[#parts+1] = "[doing]"
+            elseif item.status == "Paused" then
+              parts[#parts+1] = "[paused]"
             end
             -- time_spent
             if type(item.time_spent) == "table" then

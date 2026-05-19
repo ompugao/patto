@@ -107,6 +107,10 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
 /// - `* → Done` without a `completed_at` already set  → `BecameDone`
 /// - `* → Doing` without a `started_at` already set   → `BecameDoing`
 /// - `Doing → Todo`                                    → `BecameTodo`  (clock-out)
+/// - `Doing → Paused`                                  → `BecamePaused` (explicit pause)
+///
+/// Note: only one transition is emitted per row per call. The match arms are
+/// ordered so that the most specific / highest-priority rule wins first.
 pub fn detect_task_transitions(
     new_snapshots: &HashMap<usize, TaskSnapshot>,
     old_snapshots: &HashMap<usize, TaskSnapshot>,
@@ -127,9 +131,14 @@ pub fn detect_task_transitions(
             continue;
         }
 
+        // Guard: skip if old == new status (no actual change).
+        if new.status == old.status {
+            continue;
+        }
+
         match (&new.status, &old.status) {
             // ── Any → Done ─────────────────────────────────────────────────
-            (TaskStatus::Done, prev) if *prev != TaskStatus::Done => {
+            (TaskStatus::Done, _) => {
                 // Only inject completed_at if it is not already present.
                 if new.completed_at.is_none() {
                     transitions.push(TaskTransition::BecameDone {
@@ -140,7 +149,7 @@ pub fn detect_task_transitions(
             }
 
             // ── Any → Doing ────────────────────────────────────────────────
-            (TaskStatus::Doing, prev) if *prev != TaskStatus::Doing => {
+            (TaskStatus::Doing, _) => {
                 // Only inject started_at if it is not already present.
                 if new.started_at.is_none() {
                     transitions.push(TaskTransition::BecameDoing {
@@ -148,6 +157,14 @@ pub fn detect_task_transitions(
                         new: new.clone(),
                     });
                 }
+            }
+
+            // ── Doing → Paused ─────────────────────────────────────────────
+            (TaskStatus::Paused, TaskStatus::Doing) => {
+                transitions.push(TaskTransition::BecamePaused {
+                    old: old.clone(),
+                    new: new.clone(),
+                });
             }
 
             // ── Doing → Todo ───────────────────────────────────────────────
@@ -158,6 +175,7 @@ pub fn detect_task_transitions(
                 });
             }
 
+            // ── All other transitions (e.g. Paused→Todo, Done→Todo, etc.) ─
             _ => {}
         }
     }
@@ -219,7 +237,7 @@ pub fn generate_edits_for_transition(
         }
 
         // ── BecameTodo (clock-out without Done) ───────────────────────────
-        TaskTransition::BecameTodo { old, new } => {
+        TaskTransition::BecameTodo { old, new } | TaskTransition::BecamePaused { old, new } => {
             // Prefer started_at from the new snapshot (it may still be present
             // in the line text if the user only changed the status word).
             // Fall back to old snapshot in case the user also deleted it.
@@ -342,6 +360,7 @@ fn build_longform_full_rewrite(
                 status = match value.as_str() {
                     "todo" => TaskStatus::Todo,
                     "doing" => TaskStatus::Doing,
+                    "paused" => TaskStatus::Paused,
                     "done" => TaskStatus::Done,
                     _ => status,
                 };
@@ -381,6 +400,7 @@ fn build_longform_full_rewrite(
     let status_str = match status {
         TaskStatus::Todo => "todo",
         TaskStatus::Doing => "doing",
+        TaskStatus::Paused => "paused",
         TaskStatus::Done => "done",
     };
 
@@ -528,5 +548,106 @@ mod tests {
         };
         let transitions = detect_task_transitions(&new, &old);
         assert_eq!(transitions.len(), 0);
+    }
+
+    // ── Paused status ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn detect_doing_to_paused() {
+        let old = {
+            let mut m = HashMap::new();
+            m.insert(
+                0,
+                make_snapshot(0, TaskStatus::Doing, Some("2026-05-19T09:00")),
+            );
+            m
+        };
+        let new = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Paused, None));
+            m
+        };
+        let transitions = detect_task_transitions(&new, &old);
+        assert_eq!(transitions.len(), 1);
+        assert!(matches!(transitions[0], TaskTransition::BecamePaused { .. }));
+    }
+
+    #[test]
+    fn detect_paused_to_doing() {
+        let old = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Paused, None));
+            m
+        };
+        let new = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Doing, None));
+            m
+        };
+        let transitions = detect_task_transitions(&new, &old);
+        assert_eq!(transitions.len(), 1);
+        assert!(matches!(transitions[0], TaskTransition::BecameDoing { .. }));
+    }
+
+    #[test]
+    fn no_transition_paused_to_todo() {
+        // Paused → Todo: time already accumulated; nothing to do.
+        let old = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Paused, None));
+            m
+        };
+        let new = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Todo, None));
+            m
+        };
+        let transitions = detect_task_transitions(&new, &old);
+        assert_eq!(transitions.len(), 0);
+    }
+
+    #[test]
+    fn no_transition_todo_to_paused() {
+        // Todo → Paused without ever clocking in: no started_at to flush.
+        let old = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Todo, None));
+            m
+        };
+        let new = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Paused, None));
+            m
+        };
+        let transitions = detect_task_transitions(&new, &old);
+        // No BecamePaused because old was not Doing.
+        assert_eq!(transitions.len(), 0);
+    }
+
+    #[test]
+    fn doing_to_paused_accumulates_time() {
+        let now = chrono::NaiveDateTime::parse_from_str("2026-05-19T10:30", "%Y-%m-%dT%H:%M")
+            .unwrap();
+        let old = {
+            let mut m = HashMap::new();
+            m.insert(
+                0,
+                make_snapshot(0, TaskStatus::Doing, Some("2026-05-19T09:00")),
+            );
+            m
+        };
+        let new = {
+            let mut m = HashMap::new();
+            m.insert(0, make_snapshot(0, TaskStatus::Paused, None));
+            m
+        };
+        let transitions = detect_task_transitions(&new, &old);
+        assert_eq!(transitions.len(), 1);
+        let edits = generate_edits_for_transition(&transitions[0], now);
+        // Should produce time_spent and clear started_at.
+        assert!(!edits.is_empty());
+        let combined = edits.iter().map(|e| e.new_text.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(combined.contains("time_spent=1h30m"), "expected time_spent=1h30m in: {combined}");
+        assert!(!combined.contains("started_at"), "started_at should be removed in: {combined}");
     }
 }

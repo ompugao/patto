@@ -169,6 +169,11 @@ pub enum TaskTransition {
         old: TaskSnapshot,
         new: TaskSnapshot,
     },
+    /// Doing → Paused (explicit pause; same clock-out logic as BecameTodo).
+    BecamePaused {
+        old: TaskSnapshot,
+        new: TaskSnapshot,
+    },
 }
 
 impl TaskTransition {
@@ -178,6 +183,7 @@ impl TaskTransition {
             TaskTransition::BecameDone { new, .. } => new.row,
             TaskTransition::BecameDoing { new, .. } => new.row,
             TaskTransition::BecameTodo { new, .. } => new.row,
+            TaskTransition::BecamePaused { new, .. } => new.row,
         }
     }
 
@@ -186,6 +192,7 @@ impl TaskTransition {
             TaskTransition::BecameDone { new, .. } => new,
             TaskTransition::BecameDoing { new, .. } => new,
             TaskTransition::BecameTodo { new, .. } => new,
+            TaskTransition::BecamePaused { new, .. } => new,
         }
     }
 
@@ -194,6 +201,7 @@ impl TaskTransition {
             TaskTransition::BecameDone { old, .. } => old,
             TaskTransition::BecameDoing { old, .. } => old,
             TaskTransition::BecameTodo { old, .. } => old,
+            TaskTransition::BecamePaused { old, .. } => old,
         }
     }
 }

@@ -232,6 +232,7 @@ fn render_node(
                 let (icon, color) = match status {
                     TaskStatus::Done => ("✓ ", Color::Green),
                     TaskStatus::Doing => ("◑ ", Color::Yellow),
+                    TaskStatus::Paused => ("⏸ ", Color::Cyan),
                     _ => ("○ ", Color::White),
                 };
                 prefix_spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));

@@ -83,9 +83,10 @@ M.config = {
     -- Status icon: ○ todo  ◑ doing  ✓ done
     task_status = function(ctx)
       local status = (ctx.item.item or {}).status
-      if     status == "Doing" then return { text = "◑ ", hl = "DiagnosticWarn" }
-      elseif status == "Done"  then return { text = "✓ ", hl = "DiagnosticOk"   }
-      else                          return { text = "○ ", hl = "Comment"        }
+      if     status == "Doing"  then return { text = "◑ ", hl = "DiagnosticWarn" }
+      elseif status == "Paused" then return { text = "⏸ ", hl = "DiagnosticInfo" }
+      elseif status == "Done"   then return { text = "✓ ", hl = "DiagnosticOk"   }
+      else                           return { text = "○ ", hl = "Comment"        }
       end
     end,
 
