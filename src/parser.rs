@@ -1700,23 +1700,23 @@ fn transform_property(
                             Rule::property_keyword_value => {
                                 let value = kv.as_str();
                                 if current_key == "status" {
-                                     status = match value {
-                                         "todo" => {
-                                             status_is_canonical = true;
-                                             TaskStatus::Todo
-                                         }
-                                         "doing" => {
-                                             status_is_canonical = true;
-                                             TaskStatus::Doing
-                                         }
-                                         "paused" => {
-                                             status_is_canonical = true;
-                                             TaskStatus::Paused
-                                         }
-                                         "done" => {
-                                             status_is_canonical = true;
-                                             TaskStatus::Done
-                                         }
+                                    status = match value {
+                                        "todo" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Todo
+                                        }
+                                        "doing" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Doing
+                                        }
+                                        "paused" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Paused
+                                        }
+                                        "done" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Done
+                                        }
                                         _ => {
                                             log::warn!(
                                                 "Unknown task status: '{}', interpreted as 'todo'",

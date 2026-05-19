@@ -569,7 +569,10 @@ mod tests {
         };
         let transitions = detect_task_transitions(&new, &old);
         assert_eq!(transitions.len(), 1);
-        assert!(matches!(transitions[0], TaskTransition::BecamePaused { .. }));
+        assert!(matches!(
+            transitions[0],
+            TaskTransition::BecamePaused { .. }
+        ));
     }
 
     #[test]
@@ -626,8 +629,8 @@ mod tests {
 
     #[test]
     fn doing_to_paused_accumulates_time() {
-        let now = chrono::NaiveDateTime::parse_from_str("2026-05-19T10:30", "%Y-%m-%dT%H:%M")
-            .unwrap();
+        let now =
+            chrono::NaiveDateTime::parse_from_str("2026-05-19T10:30", "%Y-%m-%dT%H:%M").unwrap();
         let old = {
             let mut m = HashMap::new();
             m.insert(
@@ -646,8 +649,18 @@ mod tests {
         let edits = generate_edits_for_transition(&transitions[0], now);
         // Should produce time_spent and clear started_at.
         assert!(!edits.is_empty());
-        let combined = edits.iter().map(|e| e.new_text.as_str()).collect::<Vec<_>>().join(" ");
-        assert!(combined.contains("time_spent=1h30m"), "expected time_spent=1h30m in: {combined}");
-        assert!(!combined.contains("started_at"), "started_at should be removed in: {combined}");
+        let combined = edits
+            .iter()
+            .map(|e| e.new_text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            combined.contains("time_spent=1h30m"),
+            "expected time_spent=1h30m in: {combined}"
+        );
+        assert!(
+            !combined.contains("started_at"),
+            "started_at should be removed in: {combined}"
+        );
     }
 }
