@@ -83,11 +83,48 @@ function! s:show_task(res) abort
     for l:item in a:res
         let l:path = lsp#utils#uri_to_path(l:item['location']['uri'])
         let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:item['location']['range']['start'])
+
+        " Build a rich display string: due date + label + chips
+        let l:parts = []
+
+        " due date chip first
+        let l:due = get(l:item, 'due', v:null)
+        if type(l:due) == v:t_dict
+            let l:due_str = get(l:due, 'Date', get(l:due, 'DateTime', ''))
+            if l:due_str !=# ''
+                " Trim datetime to date portion
+                let l:due_str = substitute(l:due_str, 'T.*$', '', '')
+                call add(l:parts, '[due:' . l:due_str . ']')
+            endif
+        endif
+
+        call add(l:parts, l:item['text'])
+
+        " status chip (only show non-todo)
+        let l:status = get(l:item, 'status', '')
+        if l:status ==# 'Doing'
+            call add(l:parts, '[doing]')
+        endif
+
+        " time_spent chip
+        let l:ts = get(l:item, 'time_spent', v:null)
+        if type(l:ts) == v:t_dict
+            let l:h = get(l:ts, 'hours', 0)
+            let l:m = get(l:ts, 'minutes', 0)
+            if l:h > 0 && l:m > 0
+                call add(l:parts, '[' . l:h . 'h' . l:m . 'm]')
+            elseif l:h > 0
+                call add(l:parts, '[' . l:h . 'h]')
+            elseif l:m > 0
+                call add(l:parts, '[' . l:m . 'm]')
+            endif
+        endif
+
         call add(l:list, {
                     \ 'filename': l:path,
                     \ 'lnum':     l:line,
                     \ 'col':      l:col,
-                    \ 'text':     l:item['text']
+                    \ 'text':     join(l:parts, ' '),
                     \ })
     endfor
 
@@ -279,11 +316,32 @@ function! s:show_tasks_review(res, label) abort
     for l:task in a:res
         let l:path = lsp#utils#uri_to_path(l:task['location']['uri'])
         let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:task['location']['range']['start'])
+
+        " Build display: [completed_at] label [time_spent]
+        let l:parts = []
+        let l:cat = get(l:task, 'completed_at', '')
+        if type(l:cat) == v:t_string && l:cat !=# ''
+            call add(l:parts, '[' . l:cat . ']')
+        endif
+        call add(l:parts, l:task['text'])
+        let l:ts = get(l:task, 'time_spent', v:null)
+        if type(l:ts) == v:t_dict
+            let l:h = get(l:ts, 'hours', 0)
+            let l:m = get(l:ts, 'minutes', 0)
+            if l:h > 0 && l:m > 0
+                call add(l:parts, '[' . l:h . 'h' . l:m . 'm]')
+            elseif l:h > 0
+                call add(l:parts, '[' . l:h . 'h]')
+            elseif l:m > 0
+                call add(l:parts, '[' . l:m . 'm]')
+            endif
+        endif
+
         call add(l:list, {
                     \ 'filename': l:path,
                     \ 'lnum':     l:line,
                     \ 'col':      l:col,
-                    \ 'text':     '[' . l:task['completed_at'] . '] ' . l:task['text'],
+                    \ 'text':     join(l:parts, ' '),
                     \ })
     endfor
 

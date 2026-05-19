@@ -122,6 +122,35 @@ function stopPreviewServer() {
 	previewPort = null;
 }
 
+/** Build a rich display label for a task from its structured fields. */
+function taskLabel(task: any): string {
+	const parts: string[] = [];
+
+	// due date first
+	const due = task.due;
+	if (due && typeof due === 'object') {
+		const dueStr: string = due.Date ?? (due.DateTime ? (due.DateTime as string).slice(0, 10) : '');
+		if (dueStr) parts.push(`[due:${dueStr}]`);
+	}
+
+	parts.push(task.text as string);
+
+	// status chip (only show non-todo)
+	if (task.status === 'Doing') parts.push('[doing]');
+
+	// time_spent chip
+	const ts = task.time_spent;
+	if (ts && typeof ts === 'object') {
+		const h: number = ts.hours ?? 0;
+		const m: number = ts.minutes ?? 0;
+		if (h > 0 && m > 0) parts.push(`[${h}h${m}m]`);
+		else if (h > 0)     parts.push(`[${h}h]`);
+		else if (m > 0)     parts.push(`[${m}m]`);
+	}
+
+	return parts.join(' ');
+}
+
 export class TasksProvider implements vscode.TreeDataProvider<Task> {
 	private tasks: Task[];
 	constructor() {
@@ -147,7 +176,7 @@ export class TasksProvider implements vscode.TreeDataProvider<Task> {
 		this.tasks = [];
 		for (let i = 0; i < result.length; ++i) {
 			this.tasks.push(new Task(
-				result[i]['text'],
+				taskLabel(result[i]),
 				result[i]['location'],
 				vscode.TreeItemCollapsibleState.None
 			));
@@ -485,8 +514,17 @@ function startLanguageClient(
 				for (const [date, tasks] of [...byDate.entries()].sort()) {
 					items.push({ label: `📅 ${date}`, kind: vscode.QuickPickItemKind.Separator });
 					for (const t of tasks) {
+						const ts = t.time_spent;
+						let timeChip = '';
+						if (ts && typeof ts === 'object') {
+							const h: number = ts.hours ?? 0;
+							const m: number = ts.minutes ?? 0;
+							if (h > 0 && m > 0) timeChip = ` ⏱ ${h}h${m}m`;
+							else if (h > 0)     timeChip = ` ⏱ ${h}h`;
+							else if (m > 0)     timeChip = ` ⏱ ${m}m`;
+						}
 						items.push({
-							label: `  ✓ ${t.text}`,
+							label: `  ✓ ${t.completed_at}  ${t.text}${timeChip}`,
 							description: Uri.parse(t.location.uri).fsPath.split('/').pop(),
 							detail: Uri.parse(t.location.uri).fsPath,
 						});
@@ -503,7 +541,7 @@ function startLanguageClient(
 					const doc = await vscode.workspace.openTextDocument(selected.detail);
 					const task = response.find((t: any) =>
 						Uri.parse(t.location.uri).fsPath === selected.detail &&
-						`  ✓ ${t.text}` === selected.label
+						selected.label.includes(t.text)
 					);
 					const line = task?.location?.range?.start?.line ?? 0;
 					const ed = await vscode.window.showTextDocument(doc);
