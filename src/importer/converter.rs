@@ -401,9 +401,12 @@ impl MarkdownImporter {
 
                                 Some(vec![Property::Task {
                                     status,
+                                    status_is_canonical: true,
                                     due,
                                     scheduled,
                                     completed_at,
+                                    started_at: None,
+                                    time_spent: None,
                                     location: crate::parser::Location::default(),
                                 }])
                             } else {

@@ -24,6 +24,7 @@ impl InProcessLspClient {
             root_uri: Arc::new(Mutex::new(None)),
             paper_catalog: PaperCatalog::default(),
             settings: Arc::new(Mutex::new(PattoSettings::default())),
+            last_valid_task_snapshots: Arc::new(dashmap::DashMap::new()),
         })
         .finish();
 
@@ -312,10 +313,15 @@ impl InProcessLspClient {
         old_ast: &patto::parser::AstNode,
         new_ast: &patto::parser::AstNode,
     ) -> Vec<tower_lsp::lsp_types::TextEdit> {
-        let mut edits = Vec::new();
-        self.backend
-            .collect_completion_edits(old_ast, new_ast, &mut edits);
-        edits
+        use patto::lsp::task_edits::{collect_task_snapshots, detect_task_transitions, generate_edits_for_transition};
+        let now = chrono::Local::now().naive_local();
+        let old_snapshots = collect_task_snapshots(old_ast);
+        let new_snapshots = collect_task_snapshots(new_ast);
+        let transitions = detect_task_transitions(&new_snapshots, &old_snapshots);
+        transitions
+            .iter()
+            .flat_map(|t| generate_edits_for_transition(t, now))
+            .collect()
     }
 
     /// Send a generic notification
@@ -330,5 +336,18 @@ impl InProcessLspClient {
                 self.backend.did_save(p).await;
             }
         }
+    }
+
+    /// Return the sticky last-valid task snapshots for a file (for testing the
+    /// keystroke-gap-bridging behaviour).
+    pub fn get_last_valid_task_snapshots(
+        &self,
+        uri: &tower_lsp::lsp_types::Url,
+    ) -> Option<std::collections::HashMap<usize, patto::task::TaskSnapshot>> {
+        let normalized = patto::repository::Repository::normalize_url_percent_encoding(uri);
+        self.backend
+            .last_valid_task_snapshots
+            .get(&normalized)
+            .map(|e| e.value().clone())
     }
 }

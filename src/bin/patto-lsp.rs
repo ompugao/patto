@@ -66,6 +66,7 @@ async fn main() {
             root_uri: Arc::new(Mutex::new(None)),
             paper_catalog: shared_catalog.clone(),
             settings: Arc::new(Mutex::new(PattoSettings::default())),
+            last_valid_task_snapshots: Arc::new(dashmap::DashMap::new()),
         }
     });
     log::info!("Patto Language Server Protocol started");

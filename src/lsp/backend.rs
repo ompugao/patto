@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use urlencoding::decode;
 
+use dashmap::DashMap;
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
 use super::paper::{PaperCatalog, PaperProviderError};
@@ -16,7 +17,7 @@ use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
     self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
 };
-use crate::renderer::{MarkdownRenderer, Renderer};
+use crate::lsp::task_edits::{collect_task_snapshots, detect_task_transitions, generate_edits_for_transition};use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
 use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use pest::Parser as _;
@@ -48,7 +49,10 @@ pub struct Backend {
     pub root_uri: Arc<Mutex<Option<Url>>>,
     pub paper_catalog: PaperCatalog,
     pub settings: Arc<Mutex<PattoSettings>>,
-    //semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
+    /// Last *valid* (successfully parsed) task snapshot per file, keyed by row.
+    /// Retained across keystrokes so that mid-edit parse failures (e.g. `status=`)
+    /// don't lose the `Doing` state needed to compute elapsed time on clock-out.
+    pub last_valid_task_snapshots: Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
 }
 
 fn get_node_range(from: &AstNode) -> Range {
@@ -317,186 +321,70 @@ impl Backend {
         let uri = Repository::normalize_url_percent_encoding(&params.uri);
 
         if let Ok(file_path) = uri.to_file_path() {
-            // Fetch old AST before the graph is updated
-            let old_ast: Option<AstNode> = self
+            // Update graph with new content.
+            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
+                repo.add_file_to_graph(&file_path, &params.text);
+            }
+
+            // Fetch the new AST and compute task snapshots for this version.
+            let new_ast: Option<AstNode> = self
                 .repository
                 .lock()
                 .unwrap()
                 .as_ref()
                 .and_then(|repo| repo.ast_map.get(&uri).map(|e| e.value().clone()));
 
-            // Update graph with new content
-            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
-                repo.add_file_to_graph(&file_path, &params.text);
-            }
+            if let Some(new_ast) = new_ast {
+                let now = chrono::Local::now().naive_local();
+                let new_snapshots = collect_task_snapshots(&new_ast);
 
-            // Fetch new AST and compare to detect task completions
-            if let Some(old_ast) = old_ast {
-                let new_ast: Option<AstNode> = self
-                    .repository
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(|repo| repo.ast_map.get(&uri).map(|e| e.value().clone()));
+                // Retrieve the sticky old snapshots (last valid state per row).
+                // These survive keystrokes where the task is temporarily unparseable
+                // (e.g. `status=` during a `doing`→`todo` edit).
+                let old_snapshots: HashMap<usize, crate::task::TaskSnapshot> = self
+                    .last_valid_task_snapshots
+                    .get(&uri)
+                    .map(|e| e.value().clone())
+                    .unwrap_or_default();
 
-                if let Some(new_ast) = new_ast {
-                    let mut edits = Vec::new();
-                    self.collect_completion_edits(&old_ast, &new_ast, &mut edits);
-                    if !edits.is_empty() {
-                        let workspace_edit = WorkspaceEdit {
-                            changes: Some([(uri.clone(), edits)].iter().cloned().collect()),
-                            document_changes: None,
-                            change_annotations: None,
-                        };
-                        let _ = self.client.apply_edit(workspace_edit).await;
+                // Update the sticky map: only overwrite rows where the new snapshot
+                // has a canonical status value. Non-canonical mid-edit states (e.g.
+                // `status=doin`) are ignored so the previous Doing state is preserved.
+                {
+                    let mut entry = self
+                        .last_valid_task_snapshots
+                        .entry(uri.clone())
+                        .or_default();
+                    for (row, snap) in &new_snapshots {
+                        if snap.status_is_canonical {
+                            entry.insert(*row, snap.clone());
+                        }
                     }
+                }
+
+                let transitions = detect_task_transitions(&new_snapshots, &old_snapshots);
+
+                let edits: Vec<tower_lsp::lsp_types::TextEdit> = transitions
+                    .iter()
+                    .flat_map(|t| generate_edits_for_transition(t, now))
+                    .collect();
+
+                if !edits.is_empty() {
+                    let workspace_edit = WorkspaceEdit {
+                        changes: Some([(uri.clone(), edits)].iter().cloned().collect()),
+                        document_changes: None,
+                        change_annotations: None,
+                    };
+                    let _ = self.client.apply_edit(workspace_edit).await;
                 }
             }
         }
 
-        // Parse for diagnostics (this is LSP-specific, not handled by repository)
+        // Parse for diagnostics (LSP-specific, not handled by repository).
         let (_, diagnostics) = parse_text(&params.text);
-
-        // Publish diagnostics to the client
         self.client
             .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
             .await;
-    }
-
-    /// Collect old task statuses (by line row) from the AST into a map.
-    fn collect_old_task_statuses(
-        node: &AstNode,
-        map: &mut HashMap<usize, (TaskStatus, Option<Deadline>)>,
-    ) {
-        if let AstNodeKind::Line { properties } = &node.kind() {
-            for prop in properties {
-                if let Property::Task {
-                    status,
-                    completed_at,
-                    ..
-                } = prop
-                {
-                    map.insert(node.location().row, (status.clone(), completed_at.clone()));
-                    break;
-                }
-            }
-        }
-        for child in node.value().children.lock().unwrap().iter() {
-            Self::collect_old_task_statuses(child, map);
-        }
-    }
-
-    /// Walk the new AST to find tasks that just transitioned to Done without a completed_at,
-    /// and generate the corresponding TextEdit for each.
-    fn find_newly_completed_tasks(
-        &self,
-        node: &AstNode,
-        old_statuses: &HashMap<usize, (TaskStatus, Option<Deadline>)>,
-        edits: &mut Vec<TextEdit>,
-    ) {
-        if let AstNodeKind::Line { properties } = &node.kind() {
-            for prop in properties {
-                if let Property::Task {
-                    status: new_status,
-                    completed_at: None,
-                    ..
-                } = prop
-                {
-                    if *new_status == TaskStatus::Done {
-                        let row = node.location().row;
-                        let was_not_done = old_statuses
-                            .get(&row)
-                            .map(|(old_status, _)| *old_status != TaskStatus::Done)
-                            .unwrap_or(false);
-                        if was_not_done {
-                            if let Some(edit) = self.generate_completed_at_edit_from_node(node) {
-                                edits.push(edit);
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        for child in node.value().children.lock().unwrap().iter() {
-            self.find_newly_completed_tasks(child, old_statuses, edits);
-        }
-    }
-
-    pub fn collect_completion_edits(
-        &self,
-        old_ast: &AstNode,
-        new_ast: &AstNode,
-        edits: &mut Vec<TextEdit>,
-    ) {
-        let mut old_statuses = HashMap::new();
-        Self::collect_old_task_statuses(old_ast, &mut old_statuses);
-        self.find_newly_completed_tasks(new_ast, &old_statuses, edits);
-    }
-
-    fn generate_completed_at_edit_from_node(&self, line_node: &AstNode) -> Option<TextEdit> {
-        let line_content = line_node.extract_str();
-        let line_idx = line_node.location().row as u32;
-
-        // If line already has completed_at, don't add it again
-        if line_content.contains("completed_at=") {
-            return None;
-        }
-
-        let now = chrono::Local::now().format("%Y-%m-%dT%H:%M").to_string();
-
-        if line_content.contains("{@task") {
-            // Insert completed_at= into an existing {@task ...} block before the closing }
-            if let Some(close_brace_idx) = line_content.rfind('}') {
-                let new_text = format!(" completed_at={}", now);
-                return Some(TextEdit {
-                    range: Range {
-                        start: Position {
-                            line: line_idx,
-                            character: utf16_from_byte_idx(line_content, close_brace_idx) as u32,
-                        },
-                        end: Position {
-                            line: line_idx,
-                            character: utf16_from_byte_idx(line_content, close_brace_idx) as u32,
-                        },
-                    },
-                    new_text,
-                });
-            }
-        } else {
-            // Shorthand task (e.g. `-2024-12-31`): replace it with the long {@task} form
-            // so we can include completed_at without creating a duplicate property.
-            if let AstNodeKind::Line { properties } = &line_node.kind() {
-                for prop in properties {
-                    if let Property::Task {
-                        status: TaskStatus::Done,
-                        due,
-                        location,
-                        ..
-                    } = prop
-                    {
-                        let span = &location.span;
-                        let new_text =
-                            format!("{{@task status=done due={} completed_at={}}}", due, now);
-                        return Some(TextEdit {
-                            range: Range {
-                                start: Position {
-                                    line: line_idx,
-                                    character: utf16_from_byte_idx(line_content, span.0) as u32,
-                                },
-                                end: Position {
-                                    line: line_idx,
-                                    character: utf16_from_byte_idx(line_content, span.1) as u32,
-                                },
-                            },
-                            new_text,
-                        });
-                    }
-                }
-            }
-        }
-
-        None
     }
 
     async fn start_repository_listener(&self) {

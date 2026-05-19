@@ -175,7 +175,7 @@ impl fmt::Display for Deadline {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Deadline::DateTime(dt) => {
-                write!(f, "{}", dt)?;
+                write!(f, "{}", dt.format("%Y-%m-%dT%H:%M"))?;
             }
             Deadline::Date(d) => {
                 write!(f, "{}", d)?;
@@ -226,9 +226,16 @@ pub enum TaskStatus {
 pub enum Property {
     Task {
         status: TaskStatus,
+        /// `false` if the status value was unrecognised (partial edit); transitions
+        /// involving a non-canonical status are skipped by the diff logic.
+        status_is_canonical: bool,
         due: Deadline,
         scheduled: Option<Deadline>,
         completed_at: Option<Deadline>,
+        /// Timestamp of the most recent clock-in (set when transitioning to Doing).
+        started_at: Option<Deadline>,
+        /// Accumulated time spent across all completed sessions.
+        time_spent: Option<crate::task::Duration>,
         location: Location,
     },
     Anchor {
@@ -1574,6 +1581,11 @@ fn transform_embed<'a>(
     }
 }
 
+/// Helper to parse deadline strings (public re-export for use in edit generation).
+pub fn parse_deadline_pub(value: &str) -> Deadline {
+    parse_deadline(value)
+}
+
 /// Helper to parse deadline strings
 fn parse_deadline(value: &str) -> Deadline {
     if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
@@ -1625,9 +1637,12 @@ fn transform_property(
                 "task" => {
                     // Task property: {@task status=todo due=2024-12-31 scheduled=2024-12-30 completed_at=2024-12-31}
                     let mut status = TaskStatus::Todo;
+                    let mut status_is_canonical = false;
                     let mut due = Deadline::Uninterpretable("".to_string());
                     let mut scheduled: Option<Deadline> = None;
                     let mut completed_at: Option<Deadline> = None;
+                    let mut started_at: Option<Deadline> = None;
+                    let mut time_spent: Option<crate::task::Duration> = None;
                     let mut current_key = "";
 
                     for kv in inner {
@@ -1640,9 +1655,9 @@ fn transform_property(
 
                                 if key == "status" {
                                     status = match value {
-                                        "todo" => TaskStatus::Todo,
-                                        "doing" | "inprogress" | "wip" => TaskStatus::Doing,
-                                        "done" => TaskStatus::Done,
+                                        "todo" => { status_is_canonical = true; TaskStatus::Todo }
+                                        "doing" | "inprogress" | "wip" => { status_is_canonical = true; TaskStatus::Doing }
+                                        "done" => { status_is_canonical = true; TaskStatus::Done }
                                         _ => {
                                             log::warn!(
                                                 "Unknown task status: '{}', interpreted as 'todo'",
@@ -1657,6 +1672,10 @@ fn transform_property(
                                     scheduled = Some(parse_deadline(value));
                                 } else if key == "completed_at" {
                                     completed_at = Some(parse_deadline(value));
+                                } else if key == "started_at" {
+                                    started_at = Some(parse_deadline(value));
+                                } else if key == "time_spent" {
+                                    time_spent = value.parse().ok();
                                 } else {
                                     log::warn!("Unknown task property key: {}", key);
                                 }
@@ -1668,9 +1687,9 @@ fn transform_property(
                                 let value = kv.as_str();
                                 if current_key == "status" {
                                     status = match value {
-                                        "todo" => TaskStatus::Todo,
-                                        "doing" => TaskStatus::Doing,
-                                        "done" => TaskStatus::Done,
+                                        "todo" => { status_is_canonical = true; TaskStatus::Todo }
+                                        "doing" => { status_is_canonical = true; TaskStatus::Doing }
+                                        "done" => { status_is_canonical = true; TaskStatus::Done }
                                         _ => {
                                             log::warn!(
                                                 "Unknown task status: '{}', interpreted as 'todo'",
@@ -1685,6 +1704,10 @@ fn transform_property(
                                     scheduled = Some(parse_deadline(value));
                                 } else if current_key == "completed_at" {
                                     completed_at = Some(parse_deadline(value));
+                                } else if current_key == "started_at" {
+                                    started_at = Some(parse_deadline(value));
+                                } else if current_key == "time_spent" {
+                                    time_spent = value.parse().ok();
                                 } else {
                                     log::warn!("Unknown task property value: {}", value);
                                 }
@@ -1702,9 +1725,12 @@ fn transform_property(
                     }
                     Some(Property::Task {
                         status,
+                        status_is_canonical,
                         due,
                         scheduled,
                         completed_at,
+                        started_at,
+                        time_spent,
                         location,
                     })
                 }
@@ -1727,9 +1753,12 @@ fn transform_property(
             let due = parse_deadline(due_str);
             Some(Property::Task {
                 status,
+                status_is_canonical: true,
                 due,
                 scheduled: None,
                 completed_at: None,
+                started_at: None,
+                time_spent: None,
                 location,
             })
         }

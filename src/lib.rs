@@ -11,4 +11,5 @@ pub mod semantic_token;
 pub mod syntax_highlight;
 #[cfg(feature = "preview-tui")]
 pub mod tui_renderer;
+pub mod task;
 pub mod utils;
