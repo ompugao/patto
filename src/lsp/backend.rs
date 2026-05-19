@@ -201,13 +201,32 @@ pub struct TaskInformation {
     /// The location of this task
     pub location: Location,
 
-    /// The text of this task
+    /// Human-readable label: raw line text with the task property token removed.
     pub text: String,
 
     pub message: String,
 
     /// The deadline of this task
     pub due: Deadline,
+
+    /// Optional scheduled date
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<Deadline>,
+
+    /// Optional completion timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<Deadline>,
+
+    /// Optional clock-in timestamp (currently running session)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<Deadline>,
+
+    /// Accumulated time spent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_spent: Option<crate::task::Duration>,
+
+    /// Task status
+    pub status: TaskStatus,
 }
 
 impl TaskInformation {
@@ -217,8 +236,58 @@ impl TaskInformation {
             text,
             message,
             due,
+            scheduled: None,
+            completed_at: None,
+            started_at: None,
+            time_spent: None,
+            status: TaskStatus::Todo,
         }
     }
+}
+
+/// Return the line text with the task property token stripped and whitespace trimmed.
+/// e.g. "buy milk {@task status=todo due=2026-06-01}" → "buy milk"
+fn task_label(line: &AstNode) -> String {
+    if let AstNodeKind::Line { properties } = &line.kind() {
+        for prop in properties {
+            if let Property::Task { location, .. } = prop {
+                let raw = line.extract_str();
+                // Remove the property span (byte offsets) and collapse extra whitespace.
+                let before = raw[..location.span.0.min(raw.len())].trim_end();
+                let after  = raw[location.span.1.min(raw.len())..].trim_start();
+                return match (before.is_empty(), after.is_empty()) {
+                    (true,  true)  => String::new(),
+                    (false, true)  => before.trim_start().to_string(),
+                    (true,  false) => after.trim_start().to_string(),
+                    (false, false) => format!("{} {}", before.trim_start(), after),
+                };
+            }
+        }
+    }
+    line.extract_str().trim_start().to_string()
+}
+
+/// Build a TaskInformation from an AstNode that has a Task property.
+fn task_information(uri: &tower_lsp::lsp_types::Url, line: &AstNode, due: &Deadline) -> TaskInformation {
+    let mut info = TaskInformation::new(
+        Location::new(uri.clone(), get_node_range(line)),
+        task_label(line),
+        String::new(),
+        due.clone(),
+    );
+    if let AstNodeKind::Line { properties } = &line.kind() {
+        for prop in properties {
+            if let Property::Task { status, scheduled, completed_at, started_at, time_spent, .. } = prop {
+                info.status       = status.clone();
+                info.scheduled    = scheduled.clone();
+                info.completed_at = completed_at.clone();
+                info.started_at   = started_at.clone();
+                info.time_spent   = time_spent.clone();
+                break;
+            }
+        }
+    }
+    info
 }
 
 fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
@@ -1020,14 +1089,7 @@ impl LanguageServer for Backend {
                 let tasks = repo.aggregate_tasks();
                 let ret = json!(tasks
                     .iter()
-                    .map(|(uri, line, due)| {
-                        TaskInformation::new(
-                            Location::new(uri.clone(), get_node_range(line)),
-                            line.extract_str().trim_start().to_string(),
-                            "".to_string(),
-                            due.clone(),
-                        )
-                    })
+                    .map(|(uri, line, due)| task_information(uri, line, due))
                     .collect::<Vec<_>>());
                 return Ok(Some(ret));
             }
@@ -1090,10 +1152,18 @@ impl LanguageServer for Backend {
                 let ret = json!(tasks
                     .iter()
                     .map(|(uri, line, date)| {
+                        let mut info = task_information(uri, line, &crate::parser::Deadline::Date(*date));
+                        // Override completed_at with the authoritative value from repository
+                        // (already set by task_information, but ensure the date string matches)
                         json!({
-                            "location": Location::new(uri.clone(), get_node_range(line)),
-                            "text": line.extract_str().trim_start(),
+                            "location":    info.location,
+                            "text":        info.text,
+                            "status":      info.status,
+                            "due":         info.due,
+                            "scheduled":   info.scheduled,
                             "completed_at": date.format("%Y-%m-%d").to_string(),
+                            "started_at":  info.started_at,
+                            "time_spent":  info.time_spent,
                         })
                     })
                     .collect::<Vec<_>>());

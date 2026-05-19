@@ -215,7 +215,7 @@ impl Ord for Deadline {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TaskStatus {
     Todo,
     Doing,

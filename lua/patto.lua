@@ -159,7 +159,32 @@ return {
             location_item.filename = vim.uri_to_fname(item.location.uri)
             location_item.lnum = item.location.range.start.line + 1
             location_item.col = item.location.range.start.character + 1
-            location_item.text = item.text
+
+            -- Build a rich display string: label + structured chips
+            local parts = { item.text }
+            -- due date
+            local due = item.due
+            if type(due) == "table" then
+              local due_str = due.Date or (due.DateTime and string.match(due.DateTime, "^(%d%d%d%d%-%d%d%-%d%d)"))
+              if due_str then parts[#parts+1] = "[due:" .. due_str .. "]" end
+            end
+            -- status (only show non-todo)
+            if item.status == "Doing" then
+              parts[#parts+1] = "[doing]"
+            end
+            -- time_spent
+            if type(item.time_spent) == "table" then
+              local h, m = item.time_spent.hours or 0, item.time_spent.minutes or 0
+              if h > 0 and m > 0 then
+                parts[#parts+1] = "[" .. h .. "h" .. m .. "m]"
+              elseif h > 0 then
+                parts[#parts+1] = "[" .. h .. "h]"
+              elseif m > 0 then
+                parts[#parts+1] = "[" .. m .. "m]"
+              end
+            end
+
+            location_item.text = table.concat(parts, " ")
             return location_item
           end, vres.result)
 
@@ -231,11 +256,26 @@ return {
         for _, vres in pairs(results) do
           if vres.result then
             for _, task in ipairs(vres.result) do
+              local parts = {}
+              if task.completed_at and task.completed_at ~= vim.NIL then
+                parts[#parts+1] = "[" .. task.completed_at .. "]"
+              end
+              parts[#parts+1] = task.text
+              if type(task.time_spent) == "table" then
+                local h, m = task.time_spent.hours or 0, task.time_spent.minutes or 0
+                if h > 0 and m > 0 then
+                  parts[#parts+1] = "[" .. h .. "h" .. m .. "m]"
+                elseif h > 0 then
+                  parts[#parts+1] = "[" .. h .. "h]"
+                elseif m > 0 then
+                  parts[#parts+1] = "[" .. m .. "m]"
+                end
+              end
               locs[#locs + 1] = {
                 filename = vim.uri_to_fname(task.location.uri),
                 lnum     = task.location.range.start.line + 1,
                 col      = task.location.range.start.character + 1,
-                text     = '[' .. task.completed_at .. '] ' .. task.text,
+                text     = table.concat(parts, " "),
               }
             end
           end
