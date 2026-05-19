@@ -54,12 +54,21 @@ syn match  pattoSImg    /\[\zs@img\s\{1,}.*\ze\]/
 
 " {@line_property ...}
 syn region pattoLineProperty   start=/{@\w\+/ end=/}/ oneline
+
+" {@task} concealment
+syn match pattoTaskBrace      /[{}]/                          contained conceal
+syn match pattoTaskAt         /@task\s*/                      contained conceal
+syn match pattoTaskPropStatus /status=/                       contained conceal cchar=◆
+syn match pattoTaskPropDue    /due=/                          contained conceal cchar=⏰
+syn match pattoTaskPropHidden /\(status\|due\)\@!\w\+=\S\+/  contained conceal
+syn region pattoTaskProperty  start=/{@task/ end=/}/ oneline
+  \ contains=pattoTaskBrace,pattoTaskAt,pattoTaskPropStatus,pattoTaskPropDue,pattoTaskPropHidden
 " #line_anchor
 syn match  pattoLineAnchor   /.*\s\+\zs\#\S\+\ze$/
 "syn match  pattoTag      /#\S\{1,}/
 " some task {@task status=done}
-syn match  pattoTaskHighPriority     /^\s*\zs.*{@task.*priority=high.*}.*$/
-syn match  pattoTaskDone     /^\s*\zs.*{@task.*status=done.*}.*$/
+syn match  pattoTaskHighPriority     /^\s*\zs.*{@task.*priority=high.*}.*$/ contains=pattoTaskProperty
+syn match  pattoTaskDone     /^\s*\zs.*{@task.*status=done.*}.*$/ contains=pattoTaskProperty
 " some task !date
 syn match  pattoAbbrevTask   /.*\zs[!\*]\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
 syn match  pattoAbbrevTaskDone   /^\s*\zs.*\-\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
@@ -93,6 +102,7 @@ hi def link pattoInlineMath    Operator
 hi def link pattoNumber   Type
 hi def link pattoInlineCode     String
 hi def link pattoLineProperty  Comment
+hi def link pattoTaskProperty  Comment
 hi def link pattoLineAnchor Keyword
 hi def link pattoCode     String
 "hi def link pattoMath     Operator
