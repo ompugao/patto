@@ -1124,6 +1124,7 @@ impl PattoRenderer {
                     let status_str = match status {
                         TaskStatus::Todo => "todo",
                         TaskStatus::Doing => "doing",
+                        TaskStatus::Paused => "paused",
                         TaskStatus::Done => "done",
                     };
                     let due_str = due.to_string();
@@ -1184,6 +1185,7 @@ impl PattoRenderer {
                     let status_str = match status {
                         TaskStatus::Todo => "todo",
                         TaskStatus::Doing => "doing",
+                        TaskStatus::Paused => "paused",
                         TaskStatus::Done => "done",
                     };
                     let due_str = due.to_string();

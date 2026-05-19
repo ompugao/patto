@@ -219,6 +219,7 @@ impl Ord for Deadline {
 pub enum TaskStatus {
     Todo,
     Doing,
+    Paused,
     Done,
 }
 
@@ -1663,6 +1664,10 @@ fn transform_property(
                                             status_is_canonical = true;
                                             TaskStatus::Doing
                                         }
+                                        "paused" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Paused
+                                        }
                                         "done" => {
                                             status_is_canonical = true;
                                             TaskStatus::Done
@@ -1703,6 +1708,10 @@ fn transform_property(
                                         "doing" => {
                                             status_is_canonical = true;
                                             TaskStatus::Doing
+                                        }
+                                        "paused" => {
+                                            status_is_canonical = true;
+                                            TaskStatus::Paused
                                         }
                                         "done" => {
                                             status_is_canonical = true;

@@ -136,7 +136,8 @@ function taskLabel(task: any): string {
 	parts.push(task.text as string);
 
 	// status chip (only show non-todo)
-	if (task.status === 'Doing') parts.push('[doing]');
+	if (task.status === 'Doing')  parts.push('[doing]');
+	if (task.status === 'Paused') parts.push('[paused]');
 
 	// time_spent chip
 	const ts = task.time_spent;

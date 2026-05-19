@@ -104,6 +104,8 @@ function! s:show_task(res) abort
         let l:status = get(l:item, 'status', '')
         if l:status ==# 'Doing'
             call add(l:parts, '[doing]')
+        elseif l:status ==# 'Paused'
+            call add(l:parts, '[paused]')
         endif
 
         " time_spent chip
