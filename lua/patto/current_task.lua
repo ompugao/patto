@@ -142,7 +142,7 @@ local function fetch()
 
   _fetching = true
   local ok_req = pcall(function()
-    client.request("workspace/executeCommand", {
+    client:request("workspace/executeCommand", {
       command   = "experimental/aggregate_tasks",
       arguments = {},
     }, function(err, result)
