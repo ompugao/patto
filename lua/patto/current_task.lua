@@ -1,19 +1,17 @@
 --- patto.current_task
---- Surfaces the currently active ("Doing") patto task in the winbar and/or
---- via a fidget.nvim corner notification, so you don't lose track of what
+--- Surfaces active ("Doing") and paused ("Paused") patto tasks via a
+--- fidget.nvim corner notification, so you don't lose track of what
 --- you're supposed to be working on.
 ---
 --- Setup (in your Neovim config):
 ---
 ---   require("patto.current_task").setup({
----     winbar        = true,    -- show in winbar
 ---     fidget        = true,    -- show via fidget.nvim
 ---     poll_interval = 60000,   -- background poll interval in ms (0 = disable timer)
 ---   })
 ---
 --- The module also exposes:
----   require("patto.current_task").get()      → task table or nil
----   require("patto.current_task").text()     → formatted string or ""
+---   require("patto.current_task").get()      → { doing = {...}, paused = {...} }
 ---   require("patto.current_task").refresh()  → manually trigger a fetch
 ---   require("patto.current_task").debug()    → print current state to messages
 
@@ -21,8 +19,10 @@ local M = {}
 
 -- ── internal state ────────────────────────────────────────────────────────────
 
----@type table[]  all Doing tasks from LSP
-local _current = {}
+---@type table[]  Doing tasks
+local _doing  = {}
+---@type table[]  Paused tasks
+local _paused = {}
 
 ---@type uv_timer_t|nil
 local _timer = nil
@@ -47,12 +47,11 @@ local function fmt_started_at(sa)
   return hm and ("▶ " .. hm) or ""
 end
 
---- Build the display string for a task.
 ---@param task table
 ---@return string
 local function task_display(task)
   if not task then return "" end
-  local parts = { "▶", task.text }
+  local parts = { task.text }
   local ts = fmt_time_spent(task.time_spent)
   if ts ~= "" then parts[#parts+1] = ts end
   local sa = fmt_started_at(task.started_at)
@@ -60,61 +59,45 @@ local function task_display(task)
   return table.concat(parts, "  ")
 end
 
---- Build display string for all current tasks.
----@return string
-local function all_tasks_display()
-  if #_current == 0 then return "" end
-  local entries = {}
-  for _, task in ipairs(_current) do
-    entries[#entries+1] = task_display(task)
-  end
-  return table.concat(entries, "  ┊  ")
-end
-
--- ── winbar ────────────────────────────────────────────────────────────────────
-
-local _winbar_enabled = false
-
-local function winbar_refresh()
-  if not _winbar_enabled then return end
-  local text = all_tasks_display()
-  if text ~= "" then
-    local escaped = text:gsub("%%", "%%%%")
-    vim.opt.winbar = "%#DiagnosticWarn# " .. escaped .. " %*"
-  else
-    vim.opt.winbar = "%#Comment# · no active task%*"
-  end
+local function task_key(task, i)
+  local loc = task.location and task.location.range and task.location.range.start
+  return string.format("patto_task_%s_%d",
+    task.location and task.location.uri or tostring(i),
+    loc and loc.line or i)
 end
 
 -- ── fidget ────────────────────────────────────────────────────────────────────
 
 local _fidget_enabled = false
-local _FIDGET_GROUP   = "patto_current_task"
--- Track which keys are currently shown so we can clear stale ones
-local _fidget_keys = {}
+local _fidget_keys    = {}  -- key → true, for stale-cleanup
 
 local function fidget_refresh()
   if not _fidget_enabled then return end
   local ok, fidget = pcall(require, "fidget")
   if not ok then return end
 
-  -- Build set of keys we want active now
+  -- Build wanted set: key → { task, annote, level }
   local wanted = {}
-  for i, task in ipairs(_current) do
-    -- Use a stable per-task key based on its file+line position
-    local loc = task.location and task.location.range and task.location.range.start
-    local key = string.format("patto_task_%s_%d",
-      task.location and task.location.uri or tostring(i),
-      loc and loc.line or i)
-    wanted[key] = task
+  for i, task in ipairs(_doing) do
+    wanted[task_key(task, i)] = {
+      task   = task,
+      annote = "◑ doing",
+      level  = vim.log.levels.INFO,
+    }
+  end
+  for i, task in ipairs(_paused) do
+    wanted[task_key(task, 1000 + i)] = {
+      task   = task,
+      annote = "⏸ paused",
+      level  = vim.log.levels.HINT,
+    }
   end
 
-  -- Remove keys no longer active
+  -- Clear stale keys
   for key in pairs(_fidget_keys) do
     if not wanted[key] then
       fidget.notify(nil, nil, {
         key          = key,
-        group        = _FIDGET_GROUP,
         ttl          = 1,
         update_only  = true,
         skip_history = true,
@@ -124,12 +107,11 @@ local function fidget_refresh()
 
   -- Upsert active tasks
   _fidget_keys = {}
-  for key, task in pairs(wanted) do
+  for key, entry in pairs(wanted) do
     _fidget_keys[key] = true
-    fidget.notify(task_display(task), vim.log.levels.INFO, {
+    fidget.notify(task_display(entry.task), entry.level, {
       key          = key,
-      group        = _FIDGET_GROUP,
-      annote       = "doing",
+      annote       = entry.annote,
       ttl          = 9e9,
       skip_history = true,
     })
@@ -167,18 +149,18 @@ local function fetch()
       _fetching = false
       if err or not result or type(result) ~= "table" then return end
 
-      local doing = {}
+      local doing, paused = {}, {}
       for _, task in ipairs(result) do
         if task.status == "Doing" then
           doing[#doing+1] = task
+        elseif task.status == "Paused" then
+          paused[#paused+1] = task
         end
       end
 
-      _current = doing
-      vim.schedule(function()
-        winbar_refresh()
-        fidget_refresh()
-      end)
+      _doing  = doing
+      _paused = paused
+      vim.schedule(fidget_refresh)
     end, bufnr)
   end)
 
@@ -187,14 +169,9 @@ end
 
 -- ── public API ────────────────────────────────────────────────────────────────
 
---- Returns all current Doing task objects as a list.
+--- Returns { doing = table[], paused = table[] }.
 function M.get()
-  return _current
-end
-
---- Returns the formatted display string for all active tasks, or "" if none.
-function M.text()
-  return all_tasks_display()
+  return { doing = _doing, paused = _paused }
 end
 
 --- Manually trigger a fetch.
@@ -204,42 +181,34 @@ end
 
 --- Print current state to messages (for debugging).
 function M.debug()
-  local bufnr = find_patto_bufnr()
+  local bufnr  = find_patto_bufnr()
   local clients = bufnr and vim.lsp.get_clients({ bufnr = bufnr, name = "patto_lsp" }) or {}
+  local fmt = function(list) return table.concat(vim.tbl_map(function(t) return t.text end, list), " | ") end
   vim.notify(string.format(
-    "[patto.current_task] patto_bufnr=%s  patto_lsp_clients=%d  fetching=%s  doing=%d task(s): %s",
+    "[patto.current_task] bufnr=%s clients=%d fetching=%s\n  doing(%d): %s\n  paused(%d): %s",
     tostring(bufnr), #clients, tostring(_fetching),
-    #_current,
-    #_current > 0 and table.concat(vim.tbl_map(function(t) return t.text end, _current), " | ") or "none"
+    #_doing,  #_doing  > 0 and fmt(_doing)  or "none",
+    #_paused, #_paused > 0 and fmt(_paused) or "none"
   ), vim.log.levels.INFO)
 end
 
 ---@class PattoCurrentTaskOpts
----@field winbar       boolean|nil
----@field fidget       boolean|nil
----@field poll_interval integer|nil  ms between background polls; 0 = disable timer
+---@field fidget        boolean|nil
+---@field poll_interval integer|nil  ms between polls; 0 = disable timer
 
 ---@param opts PattoCurrentTaskOpts|nil
 function M.setup(opts)
   opts = opts or {}
-  _winbar_enabled = opts.winbar == true
   _fidget_enabled = opts.fidget == true
   local interval  = opts.poll_interval
   if interval == nil then interval = 60000 end
 
   local ag = vim.api.nvim_create_augroup("PattoCurrentTask", { clear = true })
 
-  -- Re-fetch on save / leaving insert in patto files
   vim.api.nvim_create_autocmd({ "BufWritePost", "InsertLeave" }, {
-    group   = ag,
-    pattern = "*.pn",
-    callback = function() fetch() end,
-  })
-
-  -- Re-apply winbar when switching buffers (even non-patto ones)
-  vim.api.nvim_create_autocmd("BufEnter", {
     group    = ag,
-    callback = function() winbar_refresh() end,
+    pattern  = "*.pn",
+    callback = function() fetch() end,
   })
 
   -- Primary trigger: fetch once the patto LSP has attached
