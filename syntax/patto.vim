@@ -15,7 +15,7 @@ syn cluster pattoSBracketLink    contains=pattoSLink1,pattoSLink2,pattoSLink3
 
 "syn region  pattoSLink        keepend start=/\[/ms=s+1 end=/\]/me=e-1 contains=@pattoSBracketLink oneline transparent contained
 syn region  pattoSBracket        keepend start=/\[/ms=s+1 end=/\]/me=e-1 contains=@pattoSBracketLink oneline
-syn match pattoSBracketNoURL /\[\(.\+:\/\/\\*\)\@!.\{-}\]/ms=s+1,me=e-1 keepend contains=@pattoSBracketContent,pattoPageLink
+syn match pattoSBracketNoURL /\[\(.\+:\/\/\)\@!.\{-}\]/ms=s+1,me=e-1 keepend contains=@pattoSBracketContent,pattoPageLink
 
 " [patto]
 " do not match url!
@@ -42,7 +42,7 @@ syn include @tex syntax/tex.vim
 syn region pattoInlineMath start="\\\@<!\$" end="\$" skip="\\\$" contained contains=@tex keepend
 
 " [url]
-let url_regex = '\w\{1,}:\/\/\S\{1,}'
+let url_regex = '\w\{1,}:\/\/[^\] \t]\{1,}'
 execute 'syn match  pattoSLink1  /\zs' . url_regex . '\ze/        contained'
 " [url url_title]
 execute 'syn match  pattoSLink2  /\zs\s*' . url_regex . '\s\{1,}\ze.\{1,}/ contained conceal cchar=🔗'
@@ -66,9 +66,12 @@ syn region pattoTaskProperty  start=/{@task/ end=/}/ oneline
 " #line_anchor
 syn match  pattoLineAnchor   /.*\s\+\zs\#\S\+\ze$/
 "syn match  pattoTag      /#\S\{1,}/
+" transparent bracket wrapper for use inside done/high-priority task lines
+syn region pattoTaskBracket keepend start=/\[/ end=/\]/ oneline contained transparent contains=pattoSLink2,pattoSLink3
+
 " some task {@task status=done}
-syn match  pattoTaskHighPriority     /^\s*\zs.*{@task.*priority=high.*}.*$/ contains=pattoTaskProperty
-syn match  pattoTaskDone     /^\s*\zs.*{@task.*status=done.*}.*$/ contains=pattoTaskProperty
+syn match  pattoTaskHighPriority     /^\s*\zs.*{@task.*priority=high.*}.*$/ contains=pattoTaskProperty,pattoTaskBracket
+syn match  pattoTaskDone     /^\s*\zs.*{@task.*status=done.*}.*$/ contains=pattoTaskProperty,pattoTaskBracket
 " some task !date
 syn match  pattoAbbrevTask   /.*\zs[!\*]\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
 syn match  pattoAbbrevTaskDone   /^\s*\zs.*\-\d\{4}\-\d\{2}\-\d\{2}\%[T\d\d\:\d\d}]\ze.*$/
