@@ -133,6 +133,12 @@ return {
   root_markers = {'.git'},
   capabilities = {
     offsetEncoding = { 'utf-8' },
+    textDocument = {
+      foldingRange = {
+        dynamicRegistration = false,
+        lineFoldingOnly = true,
+      },
+    },
   },
   -- Default settings (can be overridden in user config)
   -- To override: vim.lsp.config('patto_lsp', { settings = { patto = { markdown = { defaultFlavor = 'obsidian' } } } })
