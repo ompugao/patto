@@ -1105,9 +1105,13 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
                 file_name,
                 due_str,
                 category,
+                status,
+                time_spent,
+                started_at,
                 ..
             } => {
-                use crate::tasks::DeadlineCategory;
+                use crate::tasks::{task_status_icon, DeadlineCategory};
+                use patto::parser::TaskStatus;
                 let base_style = match category {
                     DeadlineCategory::Overdue => Style::default().fg(Color::Red),
                     DeadlineCategory::Today => Style::default().fg(Color::Yellow),
@@ -1119,16 +1123,36 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
                     base_style
                 };
 
-                // Format: "> [due] text  file" truncated to fit inner width
-                let prefix = if is_sel { "> " } else { "  " };
+                // Build rich row: "{icon} {text}  [{due}] [⏱ ts] [▶ sa]  {file}"
+                let icon = task_status_icon(status);
+                let prefix = if is_sel {
+                    format!(">{} ", icon)
+                } else {
+                    format!(" {} ", icon)
+                };
                 let date_part = if due_str.is_empty() {
                     String::new()
                 } else {
                     format!("[{}] ", due_str)
                 };
-                let suffix = format!(" {}", file_name);
+                // Time-tracking chips (only for doing/paused)
+                let tracking = match status {
+                    TaskStatus::Doing | TaskStatus::Paused => {
+                        let mut parts = String::new();
+                        if let Some(ts) = time_spent {
+                            parts.push_str(&format!(" ⏱{}", ts));
+                        }
+                        if let Some(sa) = started_at {
+                            parts.push_str(&format!(" ▶{}", sa));
+                        }
+                        parts
+                    }
+                    _ => String::new(),
+                };
+                let suffix = format!("  {}", file_name);
                 // Available space for task text
-                let fixed_len = prefix.len() + date_part.len() + suffix.len();
+                let fixed_len =
+                    prefix.chars().count() + date_part.chars().count() + tracking.chars().count() + suffix.chars().count();
                 let text_max = inner_width.saturating_sub(fixed_len);
                 let truncated_text = if text.chars().count() > text_max {
                     let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
@@ -1136,7 +1160,8 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
                 } else {
                     text.clone()
                 };
-                let row_text = format!("{}{}{}{}", prefix, date_part, truncated_text, suffix);
+                let row_text =
+                    format!("{}{}{}{}{}", prefix, date_part, truncated_text, tracking, suffix);
                 lines.push(Line::from(Span::styled(row_text, row_style)));
             }
         }

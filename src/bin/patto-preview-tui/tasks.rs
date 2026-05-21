@@ -1,7 +1,55 @@
-use chrono::Local;
-use patto::{parser::Deadline, repository::Repository};
+use chrono::{Local, Timelike};
+use patto::{
+    parser::{AstNodeKind, Deadline, Property, TaskStatus},
+    repository::Repository,
+};
 use tower_lsp::lsp_types::Url;
 use tui_widget_list::ListState;
+
+/// Return the status-icon character for a `TaskStatus`.
+pub(crate) fn task_status_icon(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Todo => "○",
+        TaskStatus::Doing => "◑",
+        TaskStatus::Paused => "⏸",
+        TaskStatus::Done => "✓",
+    }
+}
+
+/// Extract task metadata (status, time_spent string, started_at string) from an `AstNode`.
+fn extract_task_meta(
+    node: &patto::parser::AstNode,
+) -> (TaskStatus, Option<String>, Option<String>) {
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                time_spent,
+                started_at,
+                ..
+            } = prop
+            {
+                let ts_str = time_spent.as_ref().map(|d| {
+                    if d.hours > 0 && d.minutes > 0 {
+                        format!("{}h{}m", d.hours, d.minutes)
+                    } else if d.hours > 0 {
+                        format!("{}h", d.hours)
+                    } else {
+                        format!("{}m", d.minutes)
+                    }
+                });
+                let sa_str = started_at.as_ref().and_then(|dl| match dl {
+                    Deadline::DateTime(dt) => {
+                        Some(format!("{:02}:{:02}", dt.hour(), dt.minute()))
+                    }
+                    _ => None,
+                });
+                return (status.clone(), ts_str, sa_str);
+            }
+        }
+    }
+    (TaskStatus::Todo, None, None)
+}
 
 /// Deadline grouping categories, matching the Lua trouble.nvim source behaviour.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,7 +128,7 @@ pub(crate) fn deadline_category(due: &Deadline) -> DeadlineCategory {
 pub(crate) enum TaskEntry {
     /// Deadline group section header.
     SectionHeader(String),
-    /// A single task item.
+    /// A single task item (upcoming / active).
     TaskItem {
         text: String,
         file_name: String,
@@ -89,6 +137,12 @@ pub(crate) enum TaskEntry {
         line: usize,
         due_str: String,
         category: DeadlineCategory,
+        /// Task status (○ todo / ◑ doing / ⏸ paused).
+        status: TaskStatus,
+        /// Formatted time-spent string, e.g. `"1h30m"`. Present for doing/paused tasks.
+        time_spent: Option<String>,
+        /// Formatted started-at string (HH:MM). Present for doing/paused tasks.
+        started_at: Option<String>,
     },
     /// Placeholder "(none)" when a section is empty.
     Placeholder(String),
@@ -177,6 +231,7 @@ impl TasksPanel {
                 .unwrap_or_else(|| uri.to_string());
             let line = node.location().row;
             let text = node.extract_str().trim_start().to_string();
+            let (status, time_spent, started_at) = extract_task_meta(node);
 
             let bucket_idx = category_order.iter().position(|c| *c == cat).unwrap_or(5);
             buckets[bucket_idx].push(TaskEntry::TaskItem {
@@ -186,6 +241,9 @@ impl TasksPanel {
                 line,
                 due_str,
                 category: cat,
+                status,
+                time_spent,
+                started_at,
             });
         }
 
@@ -257,5 +315,21 @@ impl TasksPanel {
             TaskEntry::TaskItem { uri, line, .. } => Some((uri.clone(), *line)),
             _ => None,
         }
+    }
+
+    /// Return a list of (status_icon, text) for all active (Doing/Paused) tasks.
+    /// Used by the fidget-style overlay.
+    pub(crate) fn active_tasks(&self) -> Vec<(TaskStatus, String)> {
+        self.entries
+            .iter()
+            .filter_map(|e| {
+                if let TaskEntry::TaskItem { status, text, .. } = e {
+                    if matches!(status, TaskStatus::Doing | TaskStatus::Paused) {
+                        return Some((status.clone(), text.clone()));
+                    }
+                }
+                None
+            })
+            .collect()
     }
 }
