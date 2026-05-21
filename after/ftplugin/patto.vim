@@ -7,3 +7,4 @@ setlocal noexpandtab
 " see https://github.com/vim/vim/pull/10442
 setlocal nowrap
 setlocal commentstring=[-\ %s]
+

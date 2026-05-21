@@ -42,6 +42,14 @@ function! s:is_port_open(host, port) abort
 endfunction
 
 function! s:on_lsp_buffer_enabled() abort
+    " LSP-based folding (requires vim-lsp)
+    " To enable: let g:patto_lsp_folding = 1
+    if get(g:, 'patto_lsp_folding', 0)
+        setlocal foldmethod=expr
+        setlocal foldexpr=lsp#ui#vim#folding#foldexpr()
+        setlocal foldlevel=99
+    endif
+
     command! -buffer LspPattoTasks          call <SID>patto_tasks()
     command! -buffer LspPattoScanWorkspace  call <SID>patto_scan_workspace()
     command! -buffer LspPattoSnapshotPapers call <SID>patto_snapshot_papers()

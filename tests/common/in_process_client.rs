@@ -245,6 +245,16 @@ impl InProcessLspClient {
             .flatten()
     }
 
+    /// Get folding ranges for a document
+    pub async fn folding_range(&mut self, uri: Url) -> Option<Vec<FoldingRange>> {
+        let params = FoldingRangeParams {
+            text_document: TextDocumentIdentifier { uri },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        self.backend.folding_range(params).await.ok().flatten()
+    }
+
     /// Aggregate tasks (Patto-specific)
     pub async fn aggregate_tasks(&mut self) -> Option<Option<serde_json::Value>> {
         self.execute_command("experimental/aggregate_tasks", vec![])

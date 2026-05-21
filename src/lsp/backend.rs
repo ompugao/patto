@@ -975,6 +975,7 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: Default::default(),
                 })),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -1923,6 +1924,118 @@ impl LanguageServer for Backend {
         }
 
         Ok(rename_result)
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
+
+        let result = || -> Option<Vec<FoldingRange>> {
+            let repo_lock = self.repository.lock().unwrap();
+            let repo = repo_lock.as_ref()?;
+            let ast = repo.ast_map.get(&uri)?;
+            Some(collect_folding_ranges(ast.value()))
+        }();
+
+        Ok(result)
+    }
+}
+
+/// Recursively find the maximum row number in a node's subtree.
+/// Recurses into both `children` (nested lines / block content) and
+/// `contents` (inline nodes — needed because block command nodes like
+/// `Code`/`Math`/`Quote`/`Table` are stored as *contents* of their
+/// parent `Line`, while their own content lines are *children*).
+fn last_row_of(node: &AstNode) -> usize {
+    let mut max = node.location().row;
+
+    for child in node.value().children.lock().unwrap().iter() {
+        let child_row = last_row_of(child);
+        if child_row > max {
+            max = child_row;
+        }
+    }
+
+    for content in node.value().contents.lock().unwrap().iter() {
+        let content_row = last_row_of(content);
+        if content_row > max {
+            max = content_row;
+        }
+    }
+
+    max
+}
+
+/// Collect LSP `FoldingRange`s from the parsed AST of a patto document.
+///
+/// Fold sources:
+/// - `Line` nodes with at least one child (indentation-based hierarchy)
+/// - `Code { inline: false }`, `Math { inline: false }`, `Quote`, `Table`
+///   block header nodes with at least one child  (kind = Region)
+/// - `QuoteContent` nodes with children (nested quote indentation)
+fn collect_folding_ranges(root: &AstNode) -> Vec<FoldingRange> {
+    let mut ranges = Vec::new();
+    // The Dummy root has no location; iterate its children directly
+    let children = root.value().children.lock().unwrap().clone();
+    for child in children.iter() {
+        collect_folding_ranges_node(child, &mut ranges);
+    }
+    ranges
+}
+
+fn collect_folding_ranges_node(node: &AstNode, ranges: &mut Vec<FoldingRange>) {
+    let start_row = node.location().row;
+
+    // Determine whether/what kind of fold to emit for this node
+    let fold_kind: Option<Option<FoldingRangeKind>> = match node.kind() {
+        AstNodeKind::Line { .. } => Some(None),
+        AstNodeKind::Code { inline, .. } => {
+            if *inline {
+                None // inline code — no fold, but still recurse
+            } else {
+                Some(Some(FoldingRangeKind::Region))
+            }
+        }
+        AstNodeKind::Math { inline } => {
+            if *inline {
+                None
+            } else {
+                Some(Some(FoldingRangeKind::Region))
+            }
+        }
+        AstNodeKind::Quote => Some(Some(FoldingRangeKind::Region)),
+        AstNodeKind::Table { .. } => Some(Some(FoldingRangeKind::Region)),
+        AstNodeKind::QuoteContent { .. } => Some(None),
+        // All other node types are not fold containers
+        _ => None,
+    };
+
+    // Recurse into children and contents (depth-first, so inner folds are added first)
+    {
+        let children = node.value().children.lock().unwrap().clone();
+        for child in children.iter() {
+            collect_folding_ranges_node(child, ranges);
+        }
+    }
+    {
+        let contents = node.value().contents.lock().unwrap().clone();
+        for content in contents.iter() {
+            collect_folding_ranges_node(content, ranges);
+        }
+    }
+
+    // Only emit a fold range if this node type is a fold container
+    if let Some(kind) = fold_kind {
+        let end_row = last_row_of(node);
+        if end_row > start_row {
+            ranges.push(FoldingRange {
+                start_line: start_row as u32,
+                start_character: None,
+                end_line: end_row as u32,
+                end_character: None,
+                kind,
+                collapsed_text: None,
+            });
+        }
     }
 }
 
