@@ -26,6 +26,8 @@ local _paused = {}
 
 ---@type uv_timer_t|nil
 local _timer = nil
+---@type uv_timer_t|nil  Cheap display-only refresh (no LSP call)
+local _display_timer = nil
 
 -- ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,6 +38,44 @@ local function fmt_time_spent(ts)
   elseif h > 0            then return string.format("⏱ %dh",    h)
   elseif m > 0            then return string.format("⏱ %dm",    m)
   else                         return ""
+  end
+end
+
+--- Parse a "YYYY-MM-DDTHH:MM" datetime string into an os.time timestamp.
+local function parse_datetime(dt)
+  if not dt then return nil end
+  local y, mo, d, h, mi = dt:match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+)")
+  if not y then return nil end
+  return os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+                   hour = tonumber(h), min = tonumber(mi), sec = 0 })
+end
+
+--- Format total elapsed time = time_spent + live elapsed since started_at.
+--- For Doing tasks (started_at present), adds the current session time.
+--- For Paused/Todo tasks (no started_at), shows time_spent as-is.
+local function fmt_total_time_spent(task)
+  local base_minutes = 0
+  local ts = task.time_spent
+  if ts and type(ts) == "table" then
+    base_minutes = (ts.hours or 0) * 60 + (ts.minutes or 0)
+  end
+
+  local live_minutes = 0
+  local sa = task.started_at
+  if sa and type(sa) == "table" and sa.DateTime then
+    local start_ts = parse_datetime(sa.DateTime)
+    if start_ts then
+      live_minutes = math.max(0, math.floor((os.time() - start_ts) / 60))
+    end
+  end
+
+  local total = base_minutes + live_minutes
+  if total <= 0 then return "" end
+  local h = math.floor(total / 60)
+  local m = total % 60
+  if     h > 0 and m > 0 then return string.format("⏱ %dh%dm", h, m)
+  elseif h > 0            then return string.format("⏱ %dh",    h)
+  else                         return string.format("⏱ %dm",    m)
   end
 end
 
@@ -52,7 +92,7 @@ end
 local function task_display(task)
   if not task then return "" end
   local parts = { task.text }
-  local ts = fmt_time_spent(task.time_spent)
+  local ts = fmt_total_time_spent(task)
   if ts ~= "" then parts[#parts+1] = ts end
   local sa = fmt_started_at(task.started_at)
   if sa ~= "" then parts[#parts+1] = sa end
@@ -194,14 +234,17 @@ end
 
 ---@class PattoCurrentTaskOpts
 ---@field fidget        boolean|nil
----@field poll_interval integer|nil  ms between polls; 0 = disable timer
+---@field poll_interval         integer|nil  ms between LSP polls; 0 = disable timer
+---@field display_interval      integer|nil  ms between display-only refreshes (no LSP); 0 = disable; default 60000
 
 ---@param opts PattoCurrentTaskOpts|nil
 function M.setup(opts)
   opts = opts or {}
   _fidget_enabled = opts.fidget == true
-  local interval  = opts.poll_interval
+  local interval         = opts.poll_interval
   if interval == nil then interval = 60000 end
+  local display_interval = opts.display_interval
+  if display_interval == nil then display_interval = 60000 end
 
   local ag = vim.api.nvim_create_augroup("PattoCurrentTask", { clear = true })
 
@@ -221,11 +264,27 @@ function M.setup(opts)
     end,
   })
 
-  -- Background timer
+  -- Background LSP poll timer
   if interval > 0 then
     if _timer then _timer:stop(); _timer:close() end
     _timer = vim.uv.new_timer()
     _timer:start(interval, interval, vim.schedule_wrap(fetch))
+  end
+
+  -- Display-only refresh timer: re-renders fidget with current in-memory task
+  -- data so the live elapsed time stays up to date without hitting the LSP.
+  if display_interval > 0 then
+    if _display_timer then _display_timer:stop(); _display_timer:close() end
+    _display_timer = vim.uv.new_timer()
+    _display_timer:start(display_interval, display_interval,
+      vim.schedule_wrap(function()
+        -- Only re-render when there are active Doing tasks (started_at present).
+        local has_doing = false
+        for _, t in ipairs(_doing) do
+          if t.started_at then has_doing = true; break end
+        end
+        if has_doing then fidget_refresh() end
+      end))
   end
 end
 
