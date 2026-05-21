@@ -25,6 +25,33 @@ local function date_ts(s)
                    hour = 12, min = 0, sec = 0 })
 end
 
+--- Parse a "YYYY-MM-DDTHH:MM" datetime string into an os.time timestamp.
+local function parse_datetime(dt)
+  if not dt then return nil end
+  local y, mo, d, h, mi = dt:match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+)")
+  if not y then return nil end
+  return os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+                   hour = tonumber(h), min = tonumber(mi), sec = 0 })
+end
+
+--- Compute total elapsed minutes = time_spent + live elapsed since started_at.
+local function total_time_spent_minutes(task)
+  local base = 0
+  local ts = task.time_spent
+  if ts and type(ts) == "table" then
+    base = (ts.hours or 0) * 60 + (ts.minutes or 0)
+  end
+  local live = 0
+  local sa = task.started_at
+  if sa and type(sa) == "table" and sa.DateTime then
+    local start_ts = parse_datetime(sa.DateTime)
+    if start_ts then
+      live = math.max(0, math.floor((os.time() - start_ts) / 60))
+    end
+  end
+  return base + live
+end
+
 --- Classify a task's due date into a bucket label and numeric sort key.
 local function classify_due(task)
   local due_str = deadline_date_str(task.due)
@@ -90,11 +117,13 @@ M.config = {
       end
     end,
 
-    -- time_spent chip:  ⏱ 1h30m  (hidden when absent)
+    -- time_spent chip:  ⏱ 1h30m  (total = accumulated + live session if Doing)
     task_time_spent = function(ctx)
-      local ts = (ctx.item.item or {}).time_spent
-      if not ts or type(ts) ~= "table" then return { text = "" } end
-      local h, m = ts.hours or 0, ts.minutes or 0
+      local task = ctx.item.item or {}
+      local total = total_time_spent_minutes(task)
+      if total <= 0 then return { text = "" } end
+      local h = math.floor(total / 60)
+      local m = total % 60
       local s
       if     h > 0 and m > 0 then s = string.format("⏱ %dh%dm", h, m)
       elseif h > 0            then s = string.format("⏱ %dh",    h)
@@ -141,7 +170,34 @@ M.config = {
 
 -- ── source.get ───────────────────────────────────────────────────────────────
 
+--- Timer that periodically refreshes Trouble so live elapsed time stays current.
+---@type uv_timer_t|nil
+local _refresh_timer = nil
+local _refresh_interval = 60000  -- ms; update via M.setup({ refresh_interval = N })
+
+--- Start the display-refresh timer (idempotent).
+local function ensure_refresh_timer()
+  if _refresh_timer then return end
+  _refresh_timer = vim.uv.new_timer()
+  _refresh_timer:start(_refresh_interval, _refresh_interval, vim.schedule_wrap(function()
+    local ok, trouble = pcall(require, "trouble")
+    if not ok then return end
+    -- Only refresh if the patto_tasks view is open.
+    if trouble.is_open({ mode = "patto_tasks" }) then
+      trouble.refresh({ mode = "patto_tasks" })
+    else
+      -- No open view — stop the timer to avoid unnecessary work.
+      if _refresh_timer then
+        _refresh_timer:stop()
+        _refresh_timer:close()
+        _refresh_timer = nil
+      end
+    end
+  end))
+end
+
 function M.get(cb)
+  ensure_refresh_timer()
   local patto_bufnr = nil
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "patto" then
@@ -184,6 +240,15 @@ function M.get(cb)
 
     cb(items)
   end)
+end
+
+--- Configure the patto_tasks trouble source.
+---@param opts { refresh_interval?: integer }|nil
+function M.setup(opts)
+  opts = opts or {}
+  if opts.refresh_interval ~= nil then
+    _refresh_interval = opts.refresh_interval
+  end
 end
 
 return M
