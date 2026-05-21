@@ -277,8 +277,9 @@ async fn main() -> anyhow::Result<()> {
         app.scroll_to_source_line(line);
     }
 
-    // Compute initial backlinks
+    // Compute initial backlinks and task cache
     app.backlinks.refresh(&repository, &app.file_path).await;
+    app.tasks.refresh(&repository);
 
     // Set up terminal
     enable_raw_mode()?;
@@ -288,6 +289,10 @@ async fn main() -> anyhow::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut event_stream = EventStream::new();
+    // Display-refresh interval: re-render every 60 s so live elapsed time
+    // on Doing tasks stays current (mirrors display_interval in current_task.lua).
+    let mut display_tick = tokio::time::interval(std::time::Duration::from_secs(60));
+    display_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     // Main loop
     loop {
@@ -355,15 +360,26 @@ async fn main() -> anyhow::Result<()> {
                         if path == app.file_path {
                             app.re_render(&content);
                             app.backlinks.refresh(&repository, &app.file_path).await;
+                            app.tasks.refresh(&repository);
                         }
                     }
+                    Ok(RepositoryMessage::ScanCompleted { .. }) | Ok(RepositoryMessage::FileAdded(..)) => {
+                        // Initial workspace scan finished (or new file appeared) — refresh
+                        // the task cache so the active-task overlay reflects all files.
+                        app.tasks.refresh(&repository);
+                    }
                     Ok(_) => {
-                        // Other messages: ignore for single-file mode
+                        // Other messages: ignore
                     }
                     Err(_) => {
                         // Channel lagged or closed
                     }
                 }
+            }
+            _ = display_tick.tick() => {
+                // Periodic redraw: live elapsed time on Doing tasks is recomputed
+                // from Local::now() during rendering, so just waking the loop is enough.
+                // Only meaningful when there are active Doing tasks.
             }
         }
     }

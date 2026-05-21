@@ -1,7 +1,145 @@
-use chrono::Local;
-use patto::{parser::Deadline, repository::Repository};
+use chrono::{Local, NaiveDateTime, TimeDelta};
+use patto::{
+    parser::{AstNodeKind, Deadline, Property, TaskStatus},
+    repository::Repository,
+};
 use tower_lsp::lsp_types::Url;
 use tui_widget_list::ListState;
+
+/// Return the status-icon character for a `TaskStatus`.
+pub(crate) fn task_status_icon(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Todo => "○",
+        TaskStatus::Doing => "◑",
+        TaskStatus::Paused => "⏸",
+        TaskStatus::Done => "✓",
+    }
+}
+
+/// Format a `TimeDelta` as a human-readable `"1h30m"` / `"45m"` / `"2h"` string.
+/// Returns `None` when the duration is zero or negative.
+pub(crate) fn fmt_timedelta(td: TimeDelta) -> Option<String> {
+    let total_mins = td.num_minutes();
+    if total_mins <= 0 {
+        return None;
+    }
+    let h = (total_mins / 60) as u32;
+    let m = (total_mins % 60) as u32;
+    let s = if h > 0 && m > 0 {
+        format!("{}h{}m", h, m)
+    } else if h > 0 {
+        format!("{}h", h)
+    } else {
+        format!("{}m", m)
+    };
+    Some(s)
+}
+
+/// Compute total elapsed time for a task **at the current moment**.
+///
+/// For `Doing` tasks with a `started_at_dt`, the live session duration
+/// (`now − started_at_dt`) is added to `base`.  For all other statuses the
+/// raw `base` is returned unchanged.
+///
+/// Must be called at **render time** (not at data-load time) so the counter
+/// stays live without requiring a repository re-scan.
+pub(crate) fn total_elapsed(
+    status: &TaskStatus,
+    base: TimeDelta,
+    started_at_dt: Option<NaiveDateTime>,
+) -> TimeDelta {
+    if matches!(status, TaskStatus::Doing) {
+        if let Some(dt) = started_at_dt {
+            let live = Local::now().naive_local() - dt;
+            if live > TimeDelta::zero() {
+                return base + live;
+            }
+        }
+    }
+    base
+}
+
+/// Extract raw task metadata from an `AstNode`.
+///
+/// Returns `(status, base_time_spent: TimeDelta, started_at_dt)`.
+/// Callers compute the live-elapsed total at render time via [`total_elapsed`].
+fn extract_task_meta(
+    node: &patto::parser::AstNode,
+) -> (TaskStatus, TimeDelta, Option<NaiveDateTime>) {
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                time_spent,
+                started_at,
+                ..
+            } = prop
+            {
+                let base = time_spent
+                    .as_ref()
+                    .map(|d| TimeDelta::minutes((d.hours * 60 + d.minutes) as i64))
+                    .unwrap_or(TimeDelta::zero());
+
+                let started_at_dt = started_at.as_ref().and_then(|dl| match dl {
+                    Deadline::DateTime(dt) => Some(*dt),
+                    _ => None,
+                });
+
+                return (status.clone(), base, started_at_dt);
+            }
+        }
+    }
+    (TaskStatus::Todo, TimeDelta::zero(), None)
+}
+
+/// Return the human-readable text of a node with all `{@task …}` property
+/// annotations removed.
+///
+/// `Property::Task` carries a `location: Location` whose `span` is the
+/// byte-range of the annotation within the raw source line.  We collect all
+/// such spans, sort them, then reassemble the non-annotated fragments and
+/// collapse runs of whitespace left behind.
+fn node_display_text(node: &patto::parser::AstNode) -> String {
+    use patto::parser::Property;
+
+    let raw = node.extract_str();
+
+    let mut spans_to_remove: Vec<(usize, usize)> = Vec::new();
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task { location, .. } = prop {
+                let s = location.span.0;
+                let e = location.span.1;
+                if e > s && e <= raw.len() {
+                    spans_to_remove.push((s, e));
+                }
+            }
+        }
+    }
+
+    if spans_to_remove.is_empty() {
+        return raw.trim().to_string();
+    }
+
+    spans_to_remove.sort_unstable();
+
+    // Build output from the non-removed byte slices.
+    let mut out = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    for (s, e) in spans_to_remove {
+        if s > cursor {
+            out.push_str(&raw[cursor..s]);
+        }
+        cursor = e;
+    }
+    if cursor < raw.len() {
+        out.push_str(&raw[cursor..]);
+    }
+
+    // Collapse consecutive whitespace and trim.
+    let collapsed: String = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed
+}
 
 /// Deadline grouping categories, matching the Lua trouble.nvim source behaviour.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,12 +213,115 @@ pub(crate) fn deadline_category(due: &Deadline) -> DeadlineCategory {
     }
 }
 
-/// A single display entry in the flat tasks list.
+/// Which view is currently shown in the tasks panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TasksView {
+    /// Upcoming / active tasks, grouped by deadline.
+    Upcoming,
+    /// Recently completed tasks, grouped by recency.
+    Review,
+}
+
+/// Recency grouping for completed tasks — mirrors the Lua `patto_tasks_review` source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CompletedCategory {
+    Today,
+    Yesterday,
+    ThisWeek,
+    LastWeek,
+    ThisMonth,
+    Older,
+}
+
+impl CompletedCategory {
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            CompletedCategory::Today => "✓ Today",
+            CompletedCategory::Yesterday => "✓ Yesterday",
+            CompletedCategory::ThisWeek => "✓ This Week",
+            CompletedCategory::LastWeek => "✓ Last Week",
+            CompletedCategory::ThisMonth => "✓ This Month",
+            CompletedCategory::Older => "✓ Older",
+        }
+    }
+
+    /// Ordering index (smaller = more recent).
+    pub(crate) fn order(&self) -> usize {
+        match self {
+            CompletedCategory::Today => 0,
+            CompletedCategory::Yesterday => 1,
+            CompletedCategory::ThisWeek => 2,
+            CompletedCategory::LastWeek => 3,
+            CompletedCategory::ThisMonth => 4,
+            CompletedCategory::Older => 5,
+        }
+    }
+}
+
+/// Classify a completed task's `completed_at` date into a recency bucket.
+pub(crate) fn completed_category(date: chrono::NaiveDate) -> CompletedCategory {
+    use chrono::Datelike;
+    let today = Local::now().date_naive();
+    let diff = (today - date).num_days();
+    if diff == 0 {
+        CompletedCategory::Today
+    } else if diff == 1 {
+        CompletedCategory::Yesterday
+    } else {
+        // Day of week: Monday=0 … Sunday=6
+        let dow = today.weekday().num_days_from_monday() as i64;
+        // Start of this week (Monday)
+        let this_week_start = today - chrono::Duration::days(dow);
+        // Start of last week
+        let last_week_start = this_week_start - chrono::Duration::days(7);
+        // Start of this month
+        let this_month_start =
+            chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+
+        if date >= this_week_start {
+            CompletedCategory::ThisWeek
+        } else if date >= last_week_start {
+            CompletedCategory::LastWeek
+        } else if date >= this_month_start {
+            CompletedCategory::ThisMonth
+        } else {
+            CompletedCategory::Older
+        }
+    }
+}
+
+/// A single display entry in the flat review (completed-tasks) list.
+#[derive(Clone)]
+pub(crate) enum ReviewEntry {
+    /// Recency group section header.
+    SectionHeader(String),
+    /// A single completed task item.
+    ReviewItem {
+        text: String,
+        file_name: String,
+        uri: Url,
+        /// 0-based line number within the file.
+        line: usize,
+        /// Formatted `completed_at` date string `YYYY-MM-DD`.
+        completed_at: String,
+        /// Total time spent (accumulated; no live session for completed tasks).
+        time_spent: TimeDelta,
+        category: CompletedCategory,
+    },
+    /// Placeholder text when list is empty.
+    Placeholder(String),
+}
+
+impl ReviewEntry {
+    pub(crate) fn is_selectable(&self) -> bool {
+        matches!(self, ReviewEntry::ReviewItem { .. })
+    }
+}
 #[derive(Clone)]
 pub(crate) enum TaskEntry {
     /// Deadline group section header.
     SectionHeader(String),
-    /// A single task item.
+    /// A single task item (upcoming / active).
     TaskItem {
         text: String,
         file_name: String,
@@ -89,6 +330,12 @@ pub(crate) enum TaskEntry {
         line: usize,
         due_str: String,
         category: DeadlineCategory,
+        /// Task status (○ todo / ◑ doing / ⏸ paused).
+        status: TaskStatus,
+        /// Accumulated (stored) time-spent. Add live elapsed at render time via [`total_elapsed`].
+        base_time_spent: TimeDelta,
+        /// Raw started_at datetime for computing live elapsed at render time.
+        started_at_dt: Option<NaiveDateTime>,
     },
     /// Placeholder "(none)" when a section is empty.
     Placeholder(String),
@@ -103,16 +350,25 @@ impl TaskEntry {
 /// Self-contained tasks panel state.
 pub(crate) struct TasksPanel {
     pub(crate) visible: bool,
+    /// Which view is currently showing.
+    pub(crate) view: TasksView,
+    /// Upcoming/active task entries.
     pub(crate) entries: Vec<TaskEntry>,
     pub(crate) list_state: ListState,
+    /// Completed-task review entries.
+    pub(crate) review_entries: Vec<ReviewEntry>,
+    pub(crate) review_list_state: ListState,
 }
 
 impl TasksPanel {
     pub(crate) fn new() -> Self {
         Self {
             visible: false,
+            view: TasksView::Upcoming,
             entries: Vec::new(),
             list_state: ListState::default(),
+            review_entries: Vec::new(),
+            review_list_state: ListState::default(),
         }
     }
 
@@ -126,7 +382,17 @@ impl TasksPanel {
 
     pub(crate) fn close(&mut self) {
         self.visible = false;
+        self.view = TasksView::Upcoming;
         self.list_state = ListState::default();
+        self.review_list_state = ListState::default();
+    }
+
+    /// Toggle between Upcoming and Review views.
+    pub(crate) fn toggle_view(&mut self) {
+        self.view = match self.view {
+            TasksView::Upcoming => TasksView::Review,
+            TasksView::Review => TasksView::Upcoming,
+        };
     }
 
     /// Re-fetch tasks from the repository and rebuild the flat entry list.
@@ -141,6 +407,30 @@ impl TasksPanel {
         {
             self.list_state = ListState::default();
             self.select_first_item();
+        }
+    }
+
+    /// Re-fetch completed tasks and rebuild the review entry list.
+    pub(crate) fn refresh_review(&mut self, repository: &Repository) {
+        use chrono::Datelike;
+        let today = Local::now().date_naive();
+        // Date range: from start-of-last-week or start-of-this-month (whichever is earlier)
+        let dow = today.weekday().num_days_from_monday() as i64;
+        let this_week_start = today - chrono::Duration::days(dow);
+        let last_week_start = this_week_start - chrono::Duration::days(7);
+        let this_month_start =
+            chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+        let from = last_week_start.min(this_month_start);
+
+        let completed = repository.aggregate_completed_tasks(Some(from), Some(today));
+        self.rebuild_review_entries(completed);
+        if self
+            .review_list_state
+            .selected
+            .map_or(true, |i| i >= self.review_entries.len())
+        {
+            self.review_list_state = ListState::default();
+            self.select_first_review_item();
         }
     }
 
@@ -176,7 +466,8 @@ impl TasksPanel {
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| uri.to_string());
             let line = node.location().row;
-            let text = node.extract_str().trim_start().to_string();
+            let text = node_display_text(node);
+            let (status, base_time_spent, started_at_dt) = extract_task_meta(node);
 
             let bucket_idx = category_order.iter().position(|c| *c == cat).unwrap_or(5);
             buckets[bucket_idx].push(TaskEntry::TaskItem {
@@ -186,6 +477,9 @@ impl TasksPanel {
                 line,
                 due_str,
                 category: cat,
+                status,
+                base_time_spent,
+                started_at_dt,
             });
         }
 
@@ -204,6 +498,68 @@ impl TasksPanel {
         self.entries = entries;
     }
 
+    /// Rebuild the review entry list from completed task data, grouped by recency.
+    fn rebuild_review_entries(
+        &mut self,
+        completed: Vec<(Url, patto::parser::AstNode, chrono::NaiveDate)>,
+    ) {
+        let category_order = [
+            CompletedCategory::Today,
+            CompletedCategory::Yesterday,
+            CompletedCategory::ThisWeek,
+            CompletedCategory::LastWeek,
+            CompletedCategory::ThisMonth,
+            CompletedCategory::Older,
+        ];
+
+        let mut buckets: Vec<Vec<ReviewEntry>> = vec![Vec::new(); category_order.len()];
+
+        for (uri, node, date) in &completed {
+            let cat = completed_category(*date);
+            let completed_at = date.format("%Y-%m-%d").to_string();
+            let file_name = uri
+                .to_file_path()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| uri.to_string());
+            let line = node.location().row;
+            let text = node_display_text(node);
+            let (_, time_spent, _) = extract_task_meta(node);
+
+            let bucket_idx = category_order.iter().position(|c| c == &cat).unwrap_or(5);
+            buckets[bucket_idx].push(ReviewEntry::ReviewItem {
+                text,
+                file_name,
+                uri: uri.clone(),
+                line,
+                completed_at,
+                time_spent,
+                category: cat,
+            });
+        }
+
+        // Reverse each bucket so most-recently-completed appears first.
+        for bucket in &mut buckets {
+            bucket.reverse();
+        }
+
+        let mut entries: Vec<ReviewEntry> = Vec::new();
+        for (cat, bucket) in category_order.iter().zip(buckets.iter()) {
+            if !bucket.is_empty() {
+                entries.push(ReviewEntry::SectionHeader(cat.label().to_string()));
+                entries.extend_from_slice(bucket);
+            }
+        }
+
+        if entries.is_empty() {
+            entries.push(ReviewEntry::Placeholder(
+                "  (no completed tasks in range)".to_string(),
+            ));
+        }
+
+        self.review_entries = entries;
+    }
+
     /// Select the first selectable entry.
     fn select_first_item(&mut self) {
         for (i, entry) in self.entries.iter().enumerate() {
@@ -214,7 +570,24 @@ impl TasksPanel {
         }
     }
 
+    /// Select the first selectable review entry.
+    fn select_first_review_item(&mut self) {
+        for (i, entry) in self.review_entries.iter().enumerate() {
+            if entry.is_selectable() {
+                self.review_list_state.select(Some(i));
+                return;
+            }
+        }
+    }
+
     pub(crate) fn navigate_down(&mut self) {
+        match self.view {
+            TasksView::Upcoming => self.navigate_down_upcoming(),
+            TasksView::Review => self.navigate_down_review(),
+        }
+    }
+
+    fn navigate_down_upcoming(&mut self) {
         let len = self.entries.len();
         if len == 0 {
             return;
@@ -232,7 +605,32 @@ impl TasksPanel {
         }
     }
 
+    fn navigate_down_review(&mut self) {
+        let len = self.review_entries.len();
+        if len == 0 {
+            return;
+        }
+        let start = self.review_list_state.selected.unwrap_or(0);
+        let mut next = (start + 1) % len;
+        for _ in 0..len {
+            if self.review_entries[next].is_selectable() {
+                break;
+            }
+            next = (next + 1) % len;
+        }
+        if self.review_entries[next].is_selectable() {
+            self.review_list_state.select(Some(next));
+        }
+    }
+
     pub(crate) fn navigate_up(&mut self) {
+        match self.view {
+            TasksView::Upcoming => self.navigate_up_upcoming(),
+            TasksView::Review => self.navigate_up_review(),
+        }
+    }
+
+    fn navigate_up_upcoming(&mut self) {
         let len = self.entries.len();
         if len == 0 {
             return;
@@ -250,12 +648,72 @@ impl TasksPanel {
         }
     }
 
-    /// Resolve the current selection to a navigation target: `(uri, line)`.
-    pub(crate) fn resolve_cursor(&self) -> Option<(Url, usize)> {
-        let idx = self.list_state.selected?;
-        match self.entries.get(idx)? {
-            TaskEntry::TaskItem { uri, line, .. } => Some((uri.clone(), *line)),
-            _ => None,
+    fn navigate_up_review(&mut self) {
+        let len = self.review_entries.len();
+        if len == 0 {
+            return;
         }
+        let start = self.review_list_state.selected.unwrap_or(0);
+        let mut prev = if start == 0 { len - 1 } else { start - 1 };
+        for _ in 0..len {
+            if self.review_entries[prev].is_selectable() {
+                break;
+            }
+            prev = if prev == 0 { len - 1 } else { prev - 1 };
+        }
+        if self.review_entries[prev].is_selectable() {
+            self.review_list_state.select(Some(prev));
+        }
+    }
+
+    /// Resolve the current selection to a navigation target: `(uri, line)`.
+    /// Dispatches to the current view.
+    pub(crate) fn resolve_cursor(&self) -> Option<(Url, usize)> {
+        match self.view {
+            TasksView::Upcoming => {
+                let idx = self.list_state.selected?;
+                match self.entries.get(idx)? {
+                    TaskEntry::TaskItem { uri, line, .. } => Some((uri.clone(), *line)),
+                    _ => None,
+                }
+            }
+            TasksView::Review => {
+                let idx = self.review_list_state.selected?;
+                match self.review_entries.get(idx)? {
+                    ReviewEntry::ReviewItem { uri, line, .. } => Some((uri.clone(), *line)),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// Return raw data for all active (Doing/Paused) tasks.
+    /// The overlay computes live elapsed at render time via [`total_elapsed`].
+    pub(crate) fn active_tasks(
+        &self,
+    ) -> Vec<(TaskStatus, String, TimeDelta, Option<NaiveDateTime>)> {
+        self.entries
+            .iter()
+            .filter_map(|e| {
+                if let TaskEntry::TaskItem {
+                    status,
+                    text,
+                    base_time_spent,
+                    started_at_dt,
+                    ..
+                } = e
+                {
+                    if matches!(status, TaskStatus::Doing | TaskStatus::Paused) {
+                        return Some((
+                            status.clone(),
+                            text.clone(),
+                            *base_time_spent,
+                            *started_at_dt,
+                        ));
+                    }
+                }
+                None
+            })
+            .collect()
     }
 }

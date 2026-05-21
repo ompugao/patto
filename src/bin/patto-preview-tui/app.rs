@@ -545,6 +545,10 @@ impl App {
             (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('T'), _) => {
                 self.close_tasks_panel();
             }
+            (KeyCode::Char('r'), KeyModifiers::NONE) | (KeyCode::Char('R'), _) => {
+                self.tasks.toggle_view();
+                self.tasks.refresh_review(repository);
+            }
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
                 self.tasks.navigate_down();
                 self.load_task_preview(repository).await;
