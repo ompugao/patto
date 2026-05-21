@@ -149,7 +149,24 @@ return {
       },
     },
   },
+  -- To Enable LSP-based folding: vim.lsp.config('patto_lsp', { lsp_folding = true })
+  lsp_folding = false,
   on_attach = function(client, bufnr)
+    if client.config.lsp_folding and vim.fn.has('nvim-0.10') == 1 then
+      local function set_fold_options()
+        vim.wo.foldmethod = 'expr'
+        vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+        vim.wo.foldtext = "v:lua.require('patto.foldtext').foldtext()"
+        vim.wo.foldlevel = 99
+      end
+      set_fold_options()
+      local fold_augroup = vim.api.nvim_create_augroup('patto_lsp_fold', { clear = false })
+      vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWinEnter' }, {
+        group = fold_augroup,
+        buffer = bufnr,
+        callback = set_fold_options,
+      })
+    end
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTasks', function()
       vim.lsp.buf_request_all(0, 'workspace/executeCommand', {
         command = 'experimental/aggregate_tasks',
