@@ -1026,7 +1026,9 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
     let num_rows = tasks_to_show.len() as u16;
 
     // Width: up to 40% of content width, min 20 cols.
-    let max_w = (content_area.width * 40 / 100).max(20).min(content_area.width);
+    let max_w = (content_area.width * 40 / 100)
+        .max(20)
+        .min(content_area.width);
 
     // Position: bottom-right of content area, 1 row above the bottom edge.
     let x = content_area.x + content_area.width.saturating_sub(max_w);
@@ -1066,7 +1068,7 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
                     .fg(Color::Black)
                     .bg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
-            Style::default().fg(Color::Yellow).bg(Color::Black),
+                Style::default().fg(Color::Yellow).bg(Color::Black),
             ),
             _ => continue,
         };
@@ -1263,9 +1265,9 @@ fn draw_tasks_upcoming_content(
                             .fg(Color::Black)
                             .bg(Color::Yellow)
                             .add_modifier(Modifier::BOLD),
-                        DeadlineCategory::Tomorrow => Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan),
+                        DeadlineCategory::Tomorrow => {
+                            Style::default().fg(Color::Black).bg(Color::Cyan)
+                        }
                         _ => Style::default().fg(Color::DarkGray).bg(Color::Black),
                     }
                 };
@@ -1319,7 +1321,10 @@ fn draw_tasks_upcoming_content(
                     };
                     spans.push(Span::styled(tracking, tracking_style));
                 }
-                spans.push(Span::styled(suffix_str, Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    suffix_str,
+                    Style::default().fg(Color::DarkGray),
+                ));
                 lines.push(Line::from(spans));
             }
         }
@@ -1415,8 +1420,10 @@ fn draw_tasks_review_content(
                 } else {
                     text.clone()
                 };
-                let row_text =
-                    format!("{}{}{}{}{}", prefix, done_chip, truncated_text, ts_part, suffix);
+                let row_text = format!(
+                    "{}{}{}{}{}",
+                    prefix, done_chip, truncated_text, ts_part, suffix
+                );
                 lines.push(Line::from(Span::styled(row_text, row_style)));
             }
         }

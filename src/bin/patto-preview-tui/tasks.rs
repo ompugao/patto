@@ -39,9 +39,7 @@ fn extract_task_meta(
                     }
                 });
                 let sa_str = started_at.as_ref().and_then(|dl| match dl {
-                    Deadline::DateTime(dt) => {
-                        Some(format!("{:02}:{:02}", dt.hour(), dt.minute()))
-                    }
+                    Deadline::DateTime(dt) => Some(format!("{:02}:{:02}", dt.hour(), dt.minute())),
                     _ => None,
                 });
                 return (status.clone(), ts_str, sa_str);
@@ -436,10 +434,7 @@ impl TasksPanel {
             let text = node.extract_str().trim_start().to_string();
             let (_, time_spent, _) = extract_task_meta(node);
 
-            let bucket_idx = category_order
-                .iter()
-                .position(|c| c == &cat)
-                .unwrap_or(5);
+            let bucket_idx = category_order.iter().position(|c| c == &cat).unwrap_or(5);
             buckets[bucket_idx].push(ReviewEntry::ReviewItem {
                 text,
                 file_name,
