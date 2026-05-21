@@ -1224,29 +1224,52 @@ fn draw_tasks_upcoming_content(
             } => {
                 use crate::tasks::{task_status_icon, DeadlineCategory};
                 use patto::parser::TaskStatus;
-                let base_style = match category {
-                    DeadlineCategory::Overdue => Style::default().fg(Color::Red),
-                    DeadlineCategory::Today => Style::default().fg(Color::Yellow),
-                    _ => Style::default().fg(Color::White),
+
+                // Base text / selection style
+                let text_fg = match category {
+                    DeadlineCategory::Overdue => Color::Red,
+                    DeadlineCategory::Today => Color::Yellow,
+                    _ => Color::White,
                 };
-                let row_style = if is_sel {
-                    base_style.add_modifier(Modifier::REVERSED)
+                let (text_style, prefix_str) = if is_sel {
+                    (
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(text_fg)
+                            .add_modifier(Modifier::BOLD),
+                        format!(">{} ", task_status_icon(status)),
+                    )
                 } else {
-                    base_style
+                    (
+                        Style::default().fg(text_fg),
+                        format!(" {} ", task_status_icon(status)),
+                    )
                 };
 
-                // Build rich row: "{icon} {text}  [{due}] [⏱ ts] [▶ sa]  {file}"
-                let icon = task_status_icon(status);
-                let prefix = if is_sel {
-                    format!(">{} ", icon)
+                // Due date chip style: colored bg badge
+                let chip_style = if is_sel {
+                    // When selected, chip also inverts
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(text_fg)
+                        .add_modifier(Modifier::BOLD)
                 } else {
-                    format!(" {} ", icon)
+                    match category {
+                        DeadlineCategory::Overdue => Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Red)
+                            .add_modifier(Modifier::BOLD),
+                        DeadlineCategory::Today => Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                        DeadlineCategory::Tomorrow => Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan),
+                        _ => Style::default().fg(Color::DarkGray).bg(Color::Black),
+                    }
                 };
-                let date_part = if due_str.is_empty() {
-                    String::new()
-                } else {
-                    format!("[{}] ", due_str)
-                };
+
                 // Time-tracking chips (only for doing/paused)
                 let tracking = match status {
                     TaskStatus::Doing | TaskStatus::Paused => {
@@ -1261,12 +1284,18 @@ fn draw_tasks_upcoming_content(
                     }
                     _ => String::new(),
                 };
-                let suffix = format!("  {}", file_name);
-                // Available space for task text
-                let fixed_len = prefix.chars().count()
-                    + date_part.chars().count()
+
+                // Compute how much space is left for the task text
+                let chip_str = if due_str.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {} ", due_str)
+                };
+                let suffix_str = format!("  {}", file_name);
+                let fixed_len = prefix_str.chars().count()
+                    + chip_str.chars().count()
                     + tracking.chars().count()
-                    + suffix.chars().count();
+                    + suffix_str.chars().count();
                 let text_max = inner_width.saturating_sub(fixed_len);
                 let truncated_text = if text.chars().count() > text_max {
                     let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
@@ -1274,9 +1303,24 @@ fn draw_tasks_upcoming_content(
                 } else {
                     text.clone()
                 };
-                let row_text =
-                    format!("{}{}{}{}{}", prefix, date_part, truncated_text, tracking, suffix);
-                lines.push(Line::from(Span::styled(row_text, row_style)));
+
+                // Build multi-span line
+                let mut spans = vec![Span::styled(prefix_str, text_style)];
+                if !chip_str.is_empty() {
+                    spans.push(Span::styled(chip_str, chip_style));
+                    spans.push(Span::raw(" "));
+                }
+                spans.push(Span::styled(truncated_text, text_style));
+                if !tracking.is_empty() {
+                    let tracking_style = if is_sel {
+                        text_style
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    spans.push(Span::styled(tracking, tracking_style));
+                }
+                spans.push(Span::styled(suffix_str, Style::default().fg(Color::DarkGray)));
+                lines.push(Line::from(spans));
             }
         }
     }
