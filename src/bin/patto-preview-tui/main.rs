@@ -363,8 +363,13 @@ async fn main() -> anyhow::Result<()> {
                             app.tasks.refresh(&repository);
                         }
                     }
+                    Ok(RepositoryMessage::ScanCompleted { .. }) | Ok(RepositoryMessage::FileAdded(..)) => {
+                        // Initial workspace scan finished (or new file appeared) — refresh
+                        // the task cache so the active-task overlay reflects all files.
+                        app.tasks.refresh(&repository);
+                    }
                     Ok(_) => {
-                        // Other messages: ignore for single-file mode
+                        // Other messages: ignore
                     }
                     Err(_) => {
                         // Channel lagged or closed
