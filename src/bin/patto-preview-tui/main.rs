@@ -277,8 +277,9 @@ async fn main() -> anyhow::Result<()> {
         app.scroll_to_source_line(line);
     }
 
-    // Compute initial backlinks
+    // Compute initial backlinks and task cache
     app.backlinks.refresh(&repository, &app.file_path).await;
+    app.tasks.refresh(&repository);
 
     // Set up terminal
     enable_raw_mode()?;
@@ -355,6 +356,7 @@ async fn main() -> anyhow::Result<()> {
                         if path == app.file_path {
                             app.re_render(&content);
                             app.backlinks.refresh(&repository, &app.file_path).await;
+                            app.tasks.refresh(&repository);
                         }
                     }
                     Ok(_) => {

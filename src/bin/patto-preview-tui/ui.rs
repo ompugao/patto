@@ -39,6 +39,11 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, root_dir: &Path) {
     draw_content(frame, chunks[1], app, root_dir);
     draw_status_bar(frame, chunks[2], app);
 
+    // Fidget-style active task overlay (when tasks panel is closed)
+    if !app.tasks.visible {
+        draw_active_task_overlay(frame, chunks[1], app);
+    }
+
     if app.backlinks.visible {
         draw_backlinks_popup(frame, app);
     }
@@ -1001,6 +1006,90 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().bg(Color::DarkGray)),
         chunks[1],
+    );
+}
+
+/// Fidget-style overlay showing active (Doing/Paused) tasks in the bottom-right corner
+/// of the content area. Only drawn when the tasks panel is closed.
+fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
+    use crate::tasks::task_status_icon;
+    use patto::parser::TaskStatus;
+
+    let active = app.tasks.active_tasks();
+    if active.is_empty() {
+        return;
+    }
+
+    // Show at most 3 tasks.
+    let max_rows = 3usize;
+    let tasks_to_show: Vec<_> = active.iter().take(max_rows).collect();
+    let num_rows = tasks_to_show.len() as u16;
+
+    // Width: up to 40% of content width, min 20 cols.
+    let max_w = (content_area.width * 40 / 100).max(20).min(content_area.width);
+
+    // Position: bottom-right of content area, 1 row above the bottom edge.
+    let x = content_area.x + content_area.width.saturating_sub(max_w);
+    let y = content_area
+        .y
+        .saturating_add(content_area.height)
+        .saturating_sub(num_rows + 1);
+
+    // Clamp to content area
+    if y < content_area.y || content_area.height < num_rows + 1 {
+        return;
+    }
+
+    let overlay_area = Rect {
+        x,
+        y,
+        width: max_w,
+        height: num_rows,
+    };
+
+    let inner_w = max_w as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (status, text) in &tasks_to_show {
+        let (annotation, ann_style, text_style) = match status {
+            TaskStatus::Doing => (
+                "◑ doing",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Cyan).bg(Color::Black),
+            ),
+            TaskStatus::Paused => (
+                "⏸ paused",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Yellow).bg(Color::Black),
+            ),
+            _ => continue,
+        };
+
+        let ann_len = annotation.chars().count();
+        let space = 1usize; // gap between annotation and text
+        let text_max = inner_w.saturating_sub(ann_len + space + 1);
+        let truncated = if text.chars().count() > text_max {
+            let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
+            format!("{}…", s)
+        } else {
+            text.clone()
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {} ", annotation), ann_style),
+            Span::styled(format!(" {}", truncated), text_style),
+        ]));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(Color::Black)),
+        overlay_area,
     );
 }
 
