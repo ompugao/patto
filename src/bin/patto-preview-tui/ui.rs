@@ -1012,9 +1012,7 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
 /// Fidget-style overlay showing active (Doing/Paused) tasks in the bottom-right corner
 /// of the content area. Only drawn when the tasks panel is closed.
 fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
-    use crate::tasks::task_status_icon;
     use patto::parser::TaskStatus;
-
     let active = app.tasks.active_tasks();
     if active.is_empty() {
         return;
@@ -1025,34 +1023,15 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
     let tasks_to_show: Vec<_> = active.iter().take(max_rows).collect();
     let num_rows = tasks_to_show.len() as u16;
 
-    // Width: up to 40% of content width, min 20 cols.
-    let max_w = (content_area.width * 40 / 100)
+    // Max width cap: 60% of content width, min 20 cols.
+    let max_w = (content_area.width * 60 / 100)
         .max(20)
-        .min(content_area.width);
+        .min(content_area.width) as usize;
 
-    // Position: bottom-right of content area, 1 row above the bottom edge.
-    let x = content_area.x + content_area.width.saturating_sub(max_w);
-    let y = content_area
-        .y
-        .saturating_add(content_area.height)
-        .saturating_sub(num_rows + 1);
-
-    // Clamp to content area
-    if y < content_area.y || content_area.height < num_rows + 1 {
-        return;
-    }
-
-    let overlay_area = Rect {
-        x,
-        y,
-        width: max_w,
-        height: num_rows,
-    };
-
-    let inner_w = max_w as usize;
-
+    // Build lines first so we can measure actual rendered width.
     let mut lines: Vec<Line> = Vec::new();
-    for (status, text) in &tasks_to_show {
+    for (status, text, base_time_spent, started_at_dt) in &tasks_to_show {
+        use crate::tasks::{fmt_timedelta, total_elapsed};
         let (annotation, ann_style, text_style) = match status {
             TaskStatus::Doing => (
                 "◑ doing",
@@ -1073,9 +1052,14 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
             _ => continue,
         };
 
-        let ann_len = annotation.chars().count();
-        let space = 1usize; // gap between annotation and text
-        let text_max = inner_w.saturating_sub(ann_len + space + 1);
+        let elapsed = total_elapsed(status, *base_time_spent, *started_at_dt);
+        let time_chip = fmt_timedelta(elapsed)
+            .map(|s| format!(" ⏱ {}", s))
+            .unwrap_or_default();
+
+        // " {annotation} " prefix + " " gap
+        let prefix_len = 1 + annotation.chars().count() + 2;
+        let text_max = max_w.saturating_sub(prefix_len + time_chip.chars().count());
         let truncated = if text.chars().count() > text_max {
             let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
             format!("{}…", s)
@@ -1083,11 +1067,55 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
             text.clone()
         };
 
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(format!(" {} ", annotation), ann_style),
             Span::styled(format!(" {}", truncated), text_style),
-        ]));
+        ];
+        if !time_chip.is_empty() {
+            spans.push(Span::styled(
+                time_chip,
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            ));
+        }
+        lines.push(Line::from(spans));
     }
+
+    if lines.is_empty() {
+        return;
+    }
+
+    // Measure actual width needed (sum of span char widths per line).
+    let actual_w = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.chars().count())
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0)
+        .min(max_w) as u16;
+
+    let num_rows = lines.len() as u16;
+
+    // Position: bottom-right of content area, 1 row above the bottom edge.
+    let x = content_area.x + content_area.width.saturating_sub(actual_w);
+    let y = content_area
+        .y
+        .saturating_add(content_area.height)
+        .saturating_sub(num_rows + 1);
+
+    if y < content_area.y || content_area.height < num_rows + 1 {
+        return;
+    }
+
+    let overlay_area = Rect {
+        x,
+        y,
+        width: actual_w,
+        height: num_rows,
+    };
 
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(Color::Black)),
@@ -1220,85 +1248,80 @@ fn draw_tasks_upcoming_content(
                 due_str,
                 category,
                 status,
-                time_spent,
-                started_at,
+                base_time_spent,
+                started_at_dt,
                 ..
             } => {
-                use crate::tasks::{task_status_icon, DeadlineCategory};
+                use crate::tasks::{
+                    fmt_timedelta, task_status_icon, total_elapsed, DeadlineCategory,
+                };
                 use patto::parser::TaskStatus;
 
-                // Base text / selection style
+                // ── colours ───────────────────────────────────────────────
                 let text_fg = match category {
                     DeadlineCategory::Overdue => Color::Red,
                     DeadlineCategory::Today => Color::Yellow,
                     _ => Color::White,
                 };
-                let (text_style, prefix_str) = if is_sel {
+                let (text_style, sel_prefix) = if is_sel {
                     (
                         Style::default()
                             .fg(Color::Black)
                             .bg(text_fg)
                             .add_modifier(Modifier::BOLD),
-                        format!(">{} ", task_status_icon(status)),
+                        ">",
                     )
                 } else {
-                    (
-                        Style::default().fg(text_fg),
-                        format!(" {} ", task_status_icon(status)),
-                    )
+                    (Style::default().fg(text_fg), " ")
                 };
 
-                // Due date chip style: colored bg badge
-                let chip_style = if is_sel {
-                    // When selected, chip also inverts
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(text_fg)
-                        .add_modifier(Modifier::BOLD)
+                // ── due-date chip (plain text, coloured fg, no brackets) ──
+                let due_chip_style = if is_sel {
+                    text_style
                 } else {
                     match category {
-                        DeadlineCategory::Overdue => Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Red)
-                            .add_modifier(Modifier::BOLD),
-                        DeadlineCategory::Today => Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                        DeadlineCategory::Tomorrow => {
-                            Style::default().fg(Color::Black).bg(Color::Cyan)
+                        DeadlineCategory::Overdue => {
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
                         }
-                        _ => Style::default().fg(Color::DarkGray).bg(Color::Black),
+                        DeadlineCategory::Today => Style::default().fg(Color::Yellow),
+                        DeadlineCategory::Tomorrow => Style::default().fg(Color::Cyan),
+                        _ => Style::default().fg(Color::DarkGray),
                     }
                 };
+                let due_chip = if due_str.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", due_str)
+                };
 
-                // Time-tracking chips (only for doing/paused)
-                let tracking = match status {
+                // ── time chips (doing/paused only, computed at render time) ──
+                let time_chip = match status {
                     TaskStatus::Doing | TaskStatus::Paused => {
-                        let mut parts = String::new();
-                        if let Some(ts) = time_spent {
-                            parts.push_str(&format!(" ⏱{}", ts));
-                        }
-                        if let Some(sa) = started_at {
-                            parts.push_str(&format!(" ▶{}", sa));
-                        }
-                        parts
+                        let elapsed = total_elapsed(status, *base_time_spent, *started_at_dt);
+                        fmt_timedelta(elapsed)
+                            .map(|s| format!(" ⏱ {}", s))
+                            .unwrap_or_default()
                     }
                     _ => String::new(),
                 };
-
-                // Compute how much space is left for the task text
-                let chip_str = if due_str.is_empty() {
-                    String::new()
+                let started_chip = if matches!(status, TaskStatus::Doing) {
+                    started_at_dt
+                        .map(|dt| format!(" ▶ {}", dt.format("%H:%M")))
+                        .unwrap_or_default()
                 } else {
-                    format!(" {} ", due_str)
+                    String::new()
                 };
+
+                // ── layout: prefix + icon + due + " " + text + chips + file ──
+                let prefix_str = format!("{}{} ", sel_prefix, task_status_icon(status));
                 let suffix_str = format!("  {}", file_name);
-                let fixed_len = prefix_str.chars().count()
-                    + chip_str.chars().count()
-                    + tracking.chars().count()
+                let fixed_chars = prefix_str.chars().count()
+                    + due_chip.chars().count()
+                    + 1 // space between due and text
+                    + time_chip.chars().count()
+                    + started_chip.chars().count()
                     + suffix_str.chars().count();
-                let text_max = inner_width.saturating_sub(fixed_len);
+                let text_max = inner_width.saturating_sub(fixed_chars);
                 let truncated_text = if text.chars().count() > text_max {
                     let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
                     format!("{}…", s)
@@ -1306,20 +1329,27 @@ fn draw_tasks_upcoming_content(
                     text.clone()
                 };
 
-                // Build multi-span line
+                // ── build spans ───────────────────────────────────────────
                 let mut spans = vec![Span::styled(prefix_str, text_style)];
-                if !chip_str.is_empty() {
-                    spans.push(Span::styled(chip_str, chip_style));
-                    spans.push(Span::raw(" "));
+                if !due_chip.is_empty() {
+                    spans.push(Span::styled(due_chip, due_chip_style));
                 }
-                spans.push(Span::styled(truncated_text, text_style));
-                if !tracking.is_empty() {
-                    let tracking_style = if is_sel {
+                spans.push(Span::styled(format!(" {}", truncated_text), text_style));
+                if !time_chip.is_empty() {
+                    let chip_style = if is_sel {
                         text_style
                     } else {
-                        Style::default().fg(Color::DarkGray)
+                        Style::default().fg(Color::Blue)
                     };
-                    spans.push(Span::styled(tracking, tracking_style));
+                    spans.push(Span::styled(time_chip, chip_style));
+                }
+                if !started_chip.is_empty() {
+                    let chip_style = if is_sel {
+                        text_style
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    };
+                    spans.push(Span::styled(started_chip, chip_style));
                 }
                 spans.push(Span::styled(
                     suffix_str,
@@ -1403,10 +1433,11 @@ fn draw_tasks_review_content(
                 // Build row: "{>|space} ✓ {completed_at} {text} [⏱ ts]  {file}"
                 let prefix = if is_sel { "> " } else { "  " };
                 let done_chip = format!("✓ {} ", completed_at);
-                let ts_part = if let Some(ts) = time_spent {
-                    format!(" ⏱{}", ts)
-                } else {
-                    String::new()
+                let ts_part = {
+                    use crate::tasks::fmt_timedelta;
+                    fmt_timedelta(*time_spent)
+                        .map(|s| format!(" ⏱{}", s))
+                        .unwrap_or_default()
                 };
                 let suffix = format!("  {}", file_name);
                 let fixed_len = prefix.chars().count()

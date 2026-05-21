@@ -1,4 +1,4 @@
-use chrono::{Local, Timelike};
+use chrono::{Local, NaiveDateTime, TimeDelta};
 use patto::{
     parser::{AstNodeKind, Deadline, Property, TaskStatus},
     repository::Repository,
@@ -16,27 +16,56 @@ pub(crate) fn task_status_icon(status: &TaskStatus) -> &'static str {
     }
 }
 
-/// Format a total number of minutes as a human-readable string.
-fn fmt_minutes(total: u32) -> String {
-    let h = total / 60;
-    let m = total % 60;
-    if h > 0 && m > 0 {
+/// Format a `TimeDelta` as a human-readable `"1h30m"` / `"45m"` / `"2h"` string.
+/// Returns `None` when the duration is zero or negative.
+pub(crate) fn fmt_timedelta(td: TimeDelta) -> Option<String> {
+    let total_mins = td.num_minutes();
+    if total_mins <= 0 {
+        return None;
+    }
+    let h = (total_mins / 60) as u32;
+    let m = (total_mins % 60) as u32;
+    let s = if h > 0 && m > 0 {
         format!("{}h{}m", h, m)
     } else if h > 0 {
         format!("{}h", h)
     } else {
         format!("{}m", m)
-    }
+    };
+    Some(s)
 }
 
-/// Extract task metadata (status, total_time_spent string, started_at string) from an `AstNode`.
+/// Compute total elapsed time for a task **at the current moment**.
 ///
-/// For Doing tasks with a `started_at` datetime, `time_spent` is the **total**
-/// elapsed time: accumulated `time_spent` + live elapsed since `started_at`,
-/// matching the behaviour of PR #103 in the Lua trouble/fidget sources.
+/// For `Doing` tasks with a `started_at_dt`, the live session duration
+/// (`now − started_at_dt`) is added to `base`.  For all other statuses the
+/// raw `base` is returned unchanged.
+///
+/// Must be called at **render time** (not at data-load time) so the counter
+/// stays live without requiring a repository re-scan.
+pub(crate) fn total_elapsed(
+    status: &TaskStatus,
+    base: TimeDelta,
+    started_at_dt: Option<NaiveDateTime>,
+) -> TimeDelta {
+    if matches!(status, TaskStatus::Doing) {
+        if let Some(dt) = started_at_dt {
+            let live = Local::now().naive_local() - dt;
+            if live > TimeDelta::zero() {
+                return base + live;
+            }
+        }
+    }
+    base
+}
+
+/// Extract raw task metadata from an `AstNode`.
+///
+/// Returns `(status, base_time_spent: TimeDelta, started_at_dt)`.
+/// Callers compute the live-elapsed total at render time via [`total_elapsed`].
 fn extract_task_meta(
     node: &patto::parser::AstNode,
-) -> (TaskStatus, Option<String>, Option<String>) {
+) -> (TaskStatus, TimeDelta, Option<NaiveDateTime>) {
     if let AstNodeKind::Line { ref properties } = node.kind() {
         for prop in properties {
             if let Property::Task {
@@ -46,42 +75,70 @@ fn extract_task_meta(
                 ..
             } = prop
             {
-                // Base accumulated minutes from stored time_spent field.
-                let base_minutes: u32 = time_spent
+                let base = time_spent
                     .as_ref()
-                    .map(|d| d.hours * 60 + d.minutes)
-                    .unwrap_or(0);
+                    .map(|d| TimeDelta::minutes((d.hours * 60 + d.minutes) as i64))
+                    .unwrap_or(TimeDelta::zero());
 
-                // Live session minutes: only added for Doing tasks that have a started_at datetime.
-                let live_minutes: u32 = if matches!(status, TaskStatus::Doing) {
-                    if let Some(Deadline::DateTime(dt)) = started_at {
-                        let now = Local::now().naive_local();
-                        let elapsed = now.signed_duration_since(*dt);
-                        elapsed.num_minutes().max(0) as u32
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-
-                let total_minutes = base_minutes + live_minutes;
-                let ts_str = if total_minutes > 0 {
-                    Some(fmt_minutes(total_minutes))
-                } else {
-                    None
-                };
-
-                let sa_str = started_at.as_ref().and_then(|dl| match dl {
-                    Deadline::DateTime(dt) => Some(format!("{:02}:{:02}", dt.hour(), dt.minute())),
+                let started_at_dt = started_at.as_ref().and_then(|dl| match dl {
+                    Deadline::DateTime(dt) => Some(*dt),
                     _ => None,
                 });
 
-                return (status.clone(), ts_str, sa_str);
+                return (status.clone(), base, started_at_dt);
             }
         }
     }
-    (TaskStatus::Todo, None, None)
+    (TaskStatus::Todo, TimeDelta::zero(), None)
+}
+
+/// Return the human-readable text of a node with all `{@task …}` property
+/// annotations removed.
+///
+/// `Property::Task` carries a `location: Location` whose `span` is the
+/// byte-range of the annotation within the raw source line.  We collect all
+/// such spans, sort them, then reassemble the non-annotated fragments and
+/// collapse runs of whitespace left behind.
+fn node_display_text(node: &patto::parser::AstNode) -> String {
+    use patto::parser::Property;
+
+    let raw = node.extract_str();
+
+    let mut spans_to_remove: Vec<(usize, usize)> = Vec::new();
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task { location, .. } = prop {
+                let s = location.span.0;
+                let e = location.span.1;
+                if e > s && e <= raw.len() {
+                    spans_to_remove.push((s, e));
+                }
+            }
+        }
+    }
+
+    if spans_to_remove.is_empty() {
+        return raw.trim().to_string();
+    }
+
+    spans_to_remove.sort_unstable();
+
+    // Build output from the non-removed byte slices.
+    let mut out = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+    for (s, e) in spans_to_remove {
+        if s > cursor {
+            out.push_str(&raw[cursor..s]);
+        }
+        cursor = e;
+    }
+    if cursor < raw.len() {
+        out.push_str(&raw[cursor..]);
+    }
+
+    // Collapse consecutive whitespace and trim.
+    let collapsed: String = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed
 }
 
 /// Deadline grouping categories, matching the Lua trouble.nvim source behaviour.
@@ -247,8 +304,8 @@ pub(crate) enum ReviewEntry {
         line: usize,
         /// Formatted `completed_at` date string `YYYY-MM-DD`.
         completed_at: String,
-        /// Formatted time-spent string, e.g. `"1h30m"`.
-        time_spent: Option<String>,
+        /// Total time spent (accumulated; no live session for completed tasks).
+        time_spent: TimeDelta,
         category: CompletedCategory,
     },
     /// Placeholder text when list is empty.
@@ -275,10 +332,10 @@ pub(crate) enum TaskEntry {
         category: DeadlineCategory,
         /// Task status (○ todo / ◑ doing / ⏸ paused).
         status: TaskStatus,
-        /// Formatted time-spent string, e.g. `"1h30m"`. Present for doing/paused tasks.
-        time_spent: Option<String>,
-        /// Formatted started-at string (HH:MM). Present for doing/paused tasks.
-        started_at: Option<String>,
+        /// Accumulated (stored) time-spent. Add live elapsed at render time via [`total_elapsed`].
+        base_time_spent: TimeDelta,
+        /// Raw started_at datetime for computing live elapsed at render time.
+        started_at_dt: Option<NaiveDateTime>,
     },
     /// Placeholder "(none)" when a section is empty.
     Placeholder(String),
@@ -409,8 +466,8 @@ impl TasksPanel {
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| uri.to_string());
             let line = node.location().row;
-            let text = node.extract_str().trim_start().to_string();
-            let (status, time_spent, started_at) = extract_task_meta(node);
+            let text = node_display_text(node);
+            let (status, base_time_spent, started_at_dt) = extract_task_meta(node);
 
             let bucket_idx = category_order.iter().position(|c| *c == cat).unwrap_or(5);
             buckets[bucket_idx].push(TaskEntry::TaskItem {
@@ -421,8 +478,8 @@ impl TasksPanel {
                 due_str,
                 category: cat,
                 status,
-                time_spent,
-                started_at,
+                base_time_spent,
+                started_at_dt,
             });
         }
 
@@ -466,7 +523,7 @@ impl TasksPanel {
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| uri.to_string());
             let line = node.location().row;
-            let text = node.extract_str().trim_start().to_string();
+            let text = node_display_text(node);
             let (_, time_spent, _) = extract_task_meta(node);
 
             let bucket_idx = category_order.iter().position(|c| c == &cat).unwrap_or(5);
@@ -630,15 +687,29 @@ impl TasksPanel {
         }
     }
 
-    /// Return a list of (status, text) for all active (Doing/Paused) tasks.
-    /// Used by the fidget-style overlay.
-    pub(crate) fn active_tasks(&self) -> Vec<(TaskStatus, String)> {
+    /// Return raw data for all active (Doing/Paused) tasks.
+    /// The overlay computes live elapsed at render time via [`total_elapsed`].
+    pub(crate) fn active_tasks(
+        &self,
+    ) -> Vec<(TaskStatus, String, TimeDelta, Option<NaiveDateTime>)> {
         self.entries
             .iter()
             .filter_map(|e| {
-                if let TaskEntry::TaskItem { status, text, .. } = e {
+                if let TaskEntry::TaskItem {
+                    status,
+                    text,
+                    base_time_spent,
+                    started_at_dt,
+                    ..
+                } = e
+                {
                     if matches!(status, TaskStatus::Doing | TaskStatus::Paused) {
-                        return Some((status.clone(), text.clone()));
+                        return Some((
+                            status.clone(),
+                            text.clone(),
+                            *base_time_spent,
+                            *started_at_dt,
+                        ));
                     }
                 }
                 None
