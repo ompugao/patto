@@ -1005,6 +1005,8 @@ fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src:
 }
 
 fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
+    use crate::tasks::TasksView;
+
     let content_area = {
         let full = frame.area();
         // Reserve top title bar (1 row) and bottom status bar (1 row).
@@ -1048,13 +1050,35 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
 
     let inner_width = area.width.saturating_sub(2) as usize; // inside borders
 
+    let is_review = app.tasks.view == TasksView::Review;
+    let title = if is_review {
+        " Tasks Review  [R:upcoming] "
+    } else {
+        " Tasks  [R:review] "
+    };
     let block = Block::default()
-        .title(" Tasks ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let inner_h = inner.height as usize;
+
+    if is_review {
+        draw_tasks_review_content(frame, app, inner, inner_h, inner_width);
+    } else {
+        draw_tasks_upcoming_content(frame, app, inner, inner_h, inner_width);
+    }
+}
+
+fn draw_tasks_upcoming_content(
+    frame: &mut Frame,
+    app: &App,
+    inner: Rect,
+    inner_h: usize,
+    inner_width: usize,
+) {
     let selected = app.tasks.list_state.selected;
     let entries = &app.tasks.entries;
     let total = entries.len();
@@ -1068,7 +1092,6 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
     }
 
     // Simple manual scroll: ensure selected item is visible.
-    let inner_h = inner.height as usize;
     let scroll_offset = if let Some(sel) = selected {
         if sel >= inner_h {
             sel + 1 - inner_h
@@ -1151,8 +1174,10 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
                 };
                 let suffix = format!("  {}", file_name);
                 // Available space for task text
-                let fixed_len =
-                    prefix.chars().count() + date_part.chars().count() + tracking.chars().count() + suffix.chars().count();
+                let fixed_len = prefix.chars().count()
+                    + date_part.chars().count()
+                    + tracking.chars().count()
+                    + suffix.chars().count();
                 let text_max = inner_width.saturating_sub(fixed_len);
                 let truncated_text = if text.chars().count() > text_max {
                     let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
@@ -1162,6 +1187,103 @@ fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
                 };
                 let row_text =
                     format!("{}{}{}{}{}", prefix, date_part, truncated_text, tracking, suffix);
+                lines.push(Line::from(Span::styled(row_text, row_style)));
+            }
+        }
+    }
+
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_tasks_review_content(
+    frame: &mut Frame,
+    app: &App,
+    inner: Rect,
+    inner_h: usize,
+    inner_width: usize,
+) {
+    use crate::tasks::ReviewEntry;
+
+    let selected = app.tasks.review_list_state.selected;
+    let entries = &app.tasks.review_entries;
+    let total = entries.len();
+
+    if total == 0 {
+        frame.render_widget(
+            Paragraph::new("(no completed tasks)").style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
+    // Simple manual scroll: ensure selected item is visible.
+    let scroll_offset = if let Some(sel) = selected {
+        if sel >= inner_h {
+            sel + 1 - inner_h
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, entry) in entries.iter().enumerate().skip(scroll_offset) {
+        if lines.len() >= inner_h {
+            break;
+        }
+        let is_sel = selected == Some(i);
+        match entry {
+            ReviewEntry::SectionHeader(title) => {
+                lines.push(Line::from(Span::styled(
+                    title.clone(),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+            ReviewEntry::Placeholder(msg) => {
+                lines.push(Line::from(Span::styled(
+                    msg.clone(),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            ReviewEntry::ReviewItem {
+                text,
+                file_name,
+                completed_at,
+                time_spent,
+                ..
+            } => {
+                let base_style = Style::default().fg(Color::Green);
+                let row_style = if is_sel {
+                    base_style.add_modifier(Modifier::REVERSED)
+                } else {
+                    base_style
+                };
+
+                // Build row: "{>|space} ✓ {completed_at} {text} [⏱ ts]  {file}"
+                let prefix = if is_sel { "> " } else { "  " };
+                let done_chip = format!("✓ {} ", completed_at);
+                let ts_part = if let Some(ts) = time_spent {
+                    format!(" ⏱{}", ts)
+                } else {
+                    String::new()
+                };
+                let suffix = format!("  {}", file_name);
+                let fixed_len = prefix.chars().count()
+                    + done_chip.chars().count()
+                    + ts_part.chars().count()
+                    + suffix.chars().count();
+                let text_max = inner_width.saturating_sub(fixed_len);
+                let truncated_text = if text.chars().count() > text_max {
+                    let s: String = text.chars().take(text_max.saturating_sub(1)).collect();
+                    format!("{}…", s)
+                } else {
+                    text.clone()
+                };
+                let row_text =
+                    format!("{}{}{}{}{}", prefix, done_chip, truncated_text, ts_part, suffix);
                 lines.push(Line::from(Span::styled(row_text, row_style)));
             }
         }
