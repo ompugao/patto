@@ -16,7 +16,24 @@ pub(crate) fn task_status_icon(status: &TaskStatus) -> &'static str {
     }
 }
 
-/// Extract task metadata (status, time_spent string, started_at string) from an `AstNode`.
+/// Format a total number of minutes as a human-readable string.
+fn fmt_minutes(total: u32) -> String {
+    let h = total / 60;
+    let m = total % 60;
+    if h > 0 && m > 0 {
+        format!("{}h{}m", h, m)
+    } else if h > 0 {
+        format!("{}h", h)
+    } else {
+        format!("{}m", m)
+    }
+}
+
+/// Extract task metadata (status, total_time_spent string, started_at string) from an `AstNode`.
+///
+/// For Doing tasks with a `started_at` datetime, `time_spent` is the **total**
+/// elapsed time: accumulated `time_spent` + live elapsed since `started_at`,
+/// matching the behaviour of PR #103 in the Lua trouble/fidget sources.
 fn extract_task_meta(
     node: &patto::parser::AstNode,
 ) -> (TaskStatus, Option<String>, Option<String>) {
@@ -29,19 +46,37 @@ fn extract_task_meta(
                 ..
             } = prop
             {
-                let ts_str = time_spent.as_ref().map(|d| {
-                    if d.hours > 0 && d.minutes > 0 {
-                        format!("{}h{}m", d.hours, d.minutes)
-                    } else if d.hours > 0 {
-                        format!("{}h", d.hours)
+                // Base accumulated minutes from stored time_spent field.
+                let base_minutes: u32 = time_spent
+                    .as_ref()
+                    .map(|d| d.hours * 60 + d.minutes)
+                    .unwrap_or(0);
+
+                // Live session minutes: only added for Doing tasks that have a started_at datetime.
+                let live_minutes: u32 = if matches!(status, TaskStatus::Doing) {
+                    if let Some(Deadline::DateTime(dt)) = started_at {
+                        let now = Local::now().naive_local();
+                        let elapsed = now.signed_duration_since(*dt);
+                        elapsed.num_minutes().max(0) as u32
                     } else {
-                        format!("{}m", d.minutes)
+                        0
                     }
-                });
+                } else {
+                    0
+                };
+
+                let total_minutes = base_minutes + live_minutes;
+                let ts_str = if total_minutes > 0 {
+                    Some(fmt_minutes(total_minutes))
+                } else {
+                    None
+                };
+
                 let sa_str = started_at.as_ref().and_then(|dl| match dl {
                     Deadline::DateTime(dt) => Some(format!("{:02}:{:02}", dt.hour(), dt.minute())),
                     _ => None,
                 });
+
                 return (status.clone(), ts_str, sa_str);
             }
         }
