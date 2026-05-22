@@ -140,6 +140,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+- **v0.5.0** - patto-preview-tui reaches Neovim plugin parity with active task overlay, Tasks Review panel, due-date chips, status/time tracking, and total elapsed time; add paused task status and LSP folding ranges with opt-in Vim/Neovim integration; task syntax concealment improvements; dependency updates
 - **v0.4.7** - task time tracking with transition detection; structured task info (due date, time_spent); fix preserve inline code in markdown table cells
 - **v0.4.6** - org-mode-style task management: `experimental/mark_task_done` and `experimental/tasks_review` LSP commands, `scheduled`/`completed_at` task properties with auto-tracking, recency grouping and timeframe presets for tasks_review; dependency updates
 - **v0.4.5** - allow comma in URL; fix self-links in repository graph causing RwLock deadlock; dependency updates
