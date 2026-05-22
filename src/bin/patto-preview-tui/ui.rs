@@ -1144,7 +1144,6 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
     // Show at most 3 tasks.
     let max_rows = 3usize;
     let tasks_to_show: Vec<_> = active.iter().take(max_rows).collect();
-    let num_rows = tasks_to_show.len() as u16;
 
     // Max width cap: 60% of content width, min 20 cols.
     let max_w = (content_area.width * 60 / 100)

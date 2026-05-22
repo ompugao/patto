@@ -14,6 +14,8 @@ use ratatui::{
 use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 
+use crate::image_cache::ImageCache;
+
 /// Cached element sizes (heights and widths) used by scroll math and rendering.
 ///
 /// Images and math blocks store their height (in terminal rows); inline math
@@ -174,13 +176,13 @@ fn inline_math_line_wrap_height(
     sizes: Option<&ElemSizeCache>,
 ) -> usize {
     let math_seg_h = |content: &str| -> usize {
-        let key = format!("__inline__:{}", content);
+        let key = ImageCache::inline_math_key(content);
         sizes
             .and_then(|s| s.heights.get(key.as_str()).copied())
             .unwrap_or(1) as usize
     };
     let math_seg_w = |content: &str| -> usize {
-        let key = format!("__inline__:{}", content);
+        let key = ImageCache::inline_math_key(content);
         sizes
             .and_then(|s| s.widths.get(key.as_str()).copied())
             .unwrap_or(4) as usize
