@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@vscode/vsce':
-        specifier: ^3.9.1
+        specifier: ^3.7.0
         version: 3.9.1
       vscode-languageclient:
         specifier: 9.0.1
@@ -37,7 +37,7 @@ importers:
         specifier: ^3.2.9
         version: 3.2.9
       eslint:
-        specifier: ^9.39.4
+        specifier: ^9.26.0
         version: 9.39.4
       glob:
         specifier: ^7.2.3
@@ -46,7 +46,7 @@ importers:
         specifier: ^11.7.5
         version: 11.7.5
       ts-loader:
-        specifier: ^9.5.7
+        specifier: ^9.5.4
         version: 9.5.7(typescript@5.4.5)(webpack@5.106.2)
       typescript:
         specifier: 5.4.5
@@ -58,7 +58,7 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       webpack:
-        specifier: ^5.106.2
+        specifier: ^5.104.1
         version: 5.106.2(webpack-cli@5.1.4)
       webpack-cli:
         specifier: ^5.1.4
