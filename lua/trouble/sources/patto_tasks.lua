@@ -196,7 +196,7 @@ local function ensure_refresh_timer()
   end))
 end
 
-function M.get(cb)
+function M.get(cb, ctx)
   ensure_refresh_timer()
   local patto_bufnr = nil
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -205,6 +205,21 @@ function M.get(cb)
       break
     end
   end
+
+  vim.schedule(function()
+    local ok_view, view_mod = pcall(require, "trouble.view")
+    if ok_view then
+      local views = view_mod.get({ mode = "patto_tasks" })
+      for _, v in ipairs(views) do
+        if v.view and v.view.win and v.view.win.buf then
+          local bufnr = v.view.win.buf
+          if vim.api.nvim_buf_is_valid(bufnr) then
+            pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks")
+          end
+        end
+      end
+    end
+  end)
 
   if not patto_bufnr then cb({}) return end
 
@@ -250,5 +265,31 @@ function M.setup(opts)
     _refresh_interval = opts.refresh_interval
   end
 end
+
+local function rename_trouble_buffers()
+  local ok_view, view_mod = pcall(require, "trouble.view")
+  if not ok_view then return end
+
+  local views = view_mod.get({ mode = "patto_tasks" })
+  for _, v in ipairs(views) do
+    if v.view and v.view.win and v.view.win.buf then
+      local bufnr = v.view.win.buf
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks")
+      end
+    end
+  end
+end
+
+local group = vim.api.nvim_create_augroup("patto_tasks_trouble_bufname", { clear = true })
+vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "FileType" }, {
+  group = group,
+  pattern = "*",
+  callback = function(ev)
+    if vim.bo[ev.buf].filetype == "trouble" then
+      vim.schedule(rename_trouble_buffers)
+    end
+  end,
+})
 
 return M

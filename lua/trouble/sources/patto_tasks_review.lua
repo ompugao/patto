@@ -98,7 +98,22 @@ M.config = {
 
 -- ── source.get ───────────────────────────────────────────────────────────────
 
-function M.get(cb, _ctx)
+function M.get(cb, ctx)
+  vim.schedule(function()
+    local ok_view, view_mod = pcall(require, "trouble.view")
+    if ok_view then
+      local views = view_mod.get({ mode = "patto_tasks_review" })
+      for _, v in ipairs(views) do
+        if v.view and v.view.win and v.view.win.buf then
+          local bufnr = v.view.win.buf
+          if vim.api.nvim_buf_is_valid(bufnr) then
+            pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks_review")
+          end
+        end
+      end
+    end
+  end)
+
   local patto_bufnr = nil
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "patto" then
@@ -153,5 +168,31 @@ function M.get(cb, _ctx)
     cb(items)
   end)
 end
+
+local function rename_trouble_buffers()
+  local ok_view, view_mod = pcall(require, "trouble.view")
+  if not ok_view then return end
+
+  local views = view_mod.get({ mode = "patto_tasks_review" })
+  for _, v in ipairs(views) do
+    if v.view and v.view.win and v.view.win.buf then
+      local bufnr = v.view.win.buf
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks_review")
+      end
+    end
+  end
+end
+
+local group = vim.api.nvim_create_augroup("patto_tasks_review_trouble_bufname", { clear = true })
+vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "FileType" }, {
+  group = group,
+  pattern = "*",
+  callback = function(ev)
+    if vim.bo[ev.buf].filetype == "trouble" then
+      vim.schedule(rename_trouble_buffers)
+    end
+  end,
+})
 
 return M
