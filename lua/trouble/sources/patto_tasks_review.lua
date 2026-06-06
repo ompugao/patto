@@ -108,6 +108,7 @@ function M.get(cb, ctx)
           local bufnr = v.view.win.buf
           if vim.api.nvim_buf_is_valid(bufnr) then
             pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks_review")
+            vim.bo[bufnr].syntax = "patto"
           end
         end
       end
@@ -179,6 +180,7 @@ local function rename_trouble_buffers()
       local bufnr = v.view.win.buf
       if vim.api.nvim_buf_is_valid(bufnr) then
         pcall(vim.api.nvim_buf_set_name, bufnr, "patto_tasks_review")
+        vim.bo[bufnr].syntax = "patto"
       end
     end
   end
