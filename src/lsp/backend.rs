@@ -249,18 +249,16 @@ impl TaskInformation {
 }
 
 fn conceal_urls(text: &str) -> String {
-    use std::sync::OnceLock;
     use regex::Regex;
+    use std::sync::OnceLock;
 
     static URL_TITLE_RE: OnceLock<Regex> = OnceLock::new();
     static TITLE_URL_RE: OnceLock<Regex> = OnceLock::new();
 
-    let url_title_re = URL_TITLE_RE.get_or_init(|| {
-        Regex::new(r"\[\w+://[^\]\s]+\s+([^\]]+)\]").unwrap()
-    });
-    let title_url_re = TITLE_URL_RE.get_or_init(|| {
-        Regex::new(r"\[([^\]]+?)\s+\w+://[^\]\s]+\]").unwrap()
-    });
+    let url_title_re =
+        URL_TITLE_RE.get_or_init(|| Regex::new(r"\[\w+://[^\]\s]+\s+([^\]]+)\]").unwrap());
+    let title_url_re =
+        TITLE_URL_RE.get_or_init(|| Regex::new(r"\[([^\]]+?)\s+\w+://[^\]\s]+\]").unwrap());
 
     let text = url_title_re.replace_all(text, "[🔗$1]");
     title_url_re.replace_all(&text, "[$1🔗]").into_owned()
@@ -296,7 +294,6 @@ fn task_label(line: &AstNode) -> String {
     };
     conceal_urls(&label)
 }
-
 
 /// Build a TaskInformation from an AstNode that has a Task property.
 fn task_information(
@@ -2160,32 +2157,41 @@ mod tests {
 
     #[test]
     fn test_task_label_conceal_urls() {
-        let (ast, _) = parse_text("buy milk [https://example.com/foo milk title] {@task status=todo due=2026-06-01}");
+        let (ast, _) = parse_text(
+            "buy milk [https://example.com/foo milk title] {@task status=todo due=2026-06-01}",
+        );
         let children = ast.value().children.lock().unwrap();
         let line = &children[0];
         let label = task_label(line);
         assert_eq!(label, "buy milk [🔗milk title]");
 
-        let (ast2, _) = parse_text("[milk title https://example.com/foo] buy milk {@task status=todo due=2026-06-01}");
+        let (ast2, _) = parse_text(
+            "[milk title https://example.com/foo] buy milk {@task status=todo due=2026-06-01}",
+        );
         let children2 = ast2.value().children.lock().unwrap();
         let line2 = &children2[0];
         let label2 = task_label(line2);
         assert_eq!(label2, "[milk title🔗] buy milk");
 
-        let (ast3, _) = parse_text("buy milk [https://example.com/foo] {@task status=todo due=2026-06-01}");
+        let (ast3, _) =
+            parse_text("buy milk [https://example.com/foo] {@task status=todo due=2026-06-01}");
         let children3 = ast3.value().children.lock().unwrap();
         let line3 = &children3[0];
         let label3 = task_label(line3);
         assert_eq!(label3, "buy milk [https://example.com/foo]");
 
         // Multi-byte character tests
-        let (ast4, _) = parse_text("牛乳を買う [https://example.com/foo 牛乳] {@task status=todo due=2026-06-01}");
+        let (ast4, _) = parse_text(
+            "牛乳を買う [https://example.com/foo 牛乳] {@task status=todo due=2026-06-01}",
+        );
         let children4 = ast4.value().children.lock().unwrap();
         let line4 = &children4[0];
         let label4 = task_label(line4);
         assert_eq!(label4, "牛乳を買う [🔗牛乳]");
 
-        let (ast5, _) = parse_text("[牛乳 https://example.com/foo] 牛乳を買う {@task status=todo due=2026-06-01}");
+        let (ast5, _) = parse_text(
+            "[牛乳 https://example.com/foo] 牛乳を買う {@task status=todo due=2026-06-01}",
+        );
         let children5 = ast5.value().children.lock().unwrap();
         let line5 = &children5[0];
         let label5 = task_label(line5);
