@@ -119,6 +119,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
         .collect();
 
     diagnostics.extend(gather_malformed_command_diagnostics(text));
+    diagnostics.extend(gather_stale_started_at_diagnostics(&ast));
     (ast, diagnostics)
 }
 
@@ -183,6 +184,57 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
         }
     }
     diags
+}
+
+/// Walk the AST and emit a WARNING diagnostic for every done task that still has
+/// a `started_at` field.  Such a field is stale: the clock-out transition should
+/// have removed it and accumulated elapsed time into `time_spent`.  Leaving it in
+/// place can mislead tooling into double-counting elapsed time.
+fn gather_stale_started_at_diagnostics(root: &AstNode) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    gather_stale_started_at_diagnostics_impl(root, &mut diags);
+    diags
+}
+
+fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diagnostic>) {
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                started_at: Some(_),
+                location,
+                ..
+            } = prop
+            {
+                if matches!(status, TaskStatus::Done) {
+                    let row = node.location().row as u32;
+                    let line_text = node.extract_str();
+                    let col_start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                    let col_end =
+                        utf16_from_byte_idx(line_text, location.span.1.min(line_text.len())) as u32;
+                    diags.push(Diagnostic {
+                        range: Range::new(
+                            Position::new(row, col_start),
+                            Position::new(row, col_end),
+                        ),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        code: Some(NumberOrString::String("stale-started-at".into())),
+                        code_description: None,
+                        source: Some("patto".into()),
+                        message: "Done task has a stale started_at field. \
+                            The time_spent field already accounts for all accumulated time. \
+                            Remove started_at= to silence this warning."
+                            .into(),
+                        ..Diagnostic::default()
+                    });
+                    break; // at most one Task property per line
+                }
+            }
+        }
+    }
+    for child in node.value().children.lock().unwrap().iter() {
+        gather_stale_started_at_diagnostics_impl(child, diags);
+    }
 }
 
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
