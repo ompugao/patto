@@ -280,7 +280,7 @@ fn elapsed_since(
     use crate::parser::Deadline;
     let start = match started_at.as_ref()? {
         Deadline::DateTime(dt) => *dt,
-        Deadline::Date(d) => d.and_hms_opt(0, 0, 0)?,
+        Deadline::Date(_) => return None,
         Deadline::Uninterpretable(_) => return None,
     };
     let secs = (now - start).num_seconds();
