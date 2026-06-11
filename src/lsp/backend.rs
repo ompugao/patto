@@ -1193,10 +1193,13 @@ impl LanguageServer for Backend {
                 let ret = json!(tasks
                     .iter()
                     .map(|(uri, line, date)| {
-                        let mut info =
+                        let info =
                             task_information(uri, line, &crate::parser::Deadline::Date(*date));
                         // Override completed_at with the authoritative value from repository
-                        // (already set by task_information, but ensure the date string matches)
+                        // (already set by task_information, but ensure the date string matches).
+                        // started_at is intentionally omitted: for a done task it is stale and
+                        // must not be used to compute additional elapsed time on the review side.
+                        // The time_spent field already contains the correct accumulated total.
                         json!({
                             "location":    info.location,
                             "text":        info.text,
@@ -1204,7 +1207,6 @@ impl LanguageServer for Backend {
                             "due":         info.due,
                             "scheduled":   info.scheduled,
                             "completed_at": date.format("%Y-%m-%d").to_string(),
-                            "started_at":  info.started_at,
                             "time_spent":  info.time_spent,
                         })
                     })
