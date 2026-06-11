@@ -2251,4 +2251,57 @@ mod tests {
         let label5 = task_label(line5);
         assert_eq!(label5, "[牛乳🔗] 牛乳を買う");
     }
+
+    // ── stale started_at diagnostics ────────────────────────────────────────
+
+    #[test]
+    fn test_stale_started_at_warn_on_done_task() {
+        // Done task with started_at still present → should emit stale-started-at warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 started_at=2026-06-01T09:00 time_spent=2h}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert_eq!(
+            stale.len(),
+            1,
+            "expected one stale-started-at diagnostic, got: {:?}",
+            diags
+        );
+        assert_eq!(stale[0].severity, Some(DiagnosticSeverity::WARNING));
+    }
+
+    #[test]
+    fn test_stale_started_at_no_warn_on_doing_task() {
+        // Doing task with started_at is legitimate — must NOT emit the warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=doing due=2026-06-01 started_at=2026-06-01T09:00}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "doing task with started_at should not produce stale-started-at warning"
+        );
+    }
+
+    #[test]
+    fn test_stale_started_at_no_warn_on_done_task_without_started_at() {
+        // Clean done task (no started_at) → no warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 time_spent=2h}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "done task without started_at should not produce stale-started-at warning"
+        );
+    }
 }
