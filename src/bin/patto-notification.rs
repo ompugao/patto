@@ -10,6 +10,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use patto::parser::{self, ParserResult};
 use patto::task::TaskSnapshot;
 use patto::lsp::task_edits::{collect_task_snapshots, detect_task_transitions};
+use str_indices::utf16::from_byte_idx as utf16_from_byte_idx;
 
 #[derive(ClapParser)]
 #[command(version, about = "Patto Notification LSP Server", long_about = None)]
@@ -164,11 +165,11 @@ impl NotificationBackendClone {
             let range = Range {
                 start: Position {
                     line: line_idx,
-                    character: val_start as u32,
+                    character: utf16_from_byte_idx(line_text, val_start) as u32,
                 },
                 end: Position {
                     line: line_idx,
-                    character: val_end as u32,
+                    character: utf16_from_byte_idx(line_text, val_end) as u32,
                 },
             };
             
