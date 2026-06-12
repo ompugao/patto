@@ -37,6 +37,7 @@ glob = "0.3"
 html-escape = "0.2.13"
 log = "0.4.29"
 notify = "8.2.0"
+notify-rust = "4"
 open = { version = "5", optional = true }
 pest = "2.8.5"
 pest_derive = "2.8.5"
@@ -103,3 +104,5 @@ opt-level = 1
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[workspace]
