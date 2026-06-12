@@ -119,6 +119,7 @@ fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
         .collect();
 
     diagnostics.extend(gather_malformed_command_diagnostics(text));
+    diagnostics.extend(gather_stale_started_at_diagnostics(&ast));
     (ast, diagnostics)
 }
 
@@ -183,6 +184,57 @@ fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
         }
     }
     diags
+}
+
+/// Walk the AST and emit a WARNING diagnostic for every done task that still has
+/// a `started_at` field.  Such a field is stale: the clock-out transition should
+/// have removed it and accumulated elapsed time into `time_spent`.  Leaving it in
+/// place can mislead tooling into double-counting elapsed time.
+fn gather_stale_started_at_diagnostics(root: &AstNode) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    gather_stale_started_at_diagnostics_impl(root, &mut diags);
+    diags
+}
+
+fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diagnostic>) {
+    if let AstNodeKind::Line { ref properties } = node.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                started_at: Some(_),
+                location,
+                ..
+            } = prop
+            {
+                if matches!(status, TaskStatus::Done) {
+                    let row = node.location().row as u32;
+                    let line_text = node.extract_str();
+                    let col_start = utf16_from_byte_idx(line_text, location.span.0) as u32;
+                    let col_end =
+                        utf16_from_byte_idx(line_text, location.span.1.min(line_text.len())) as u32;
+                    diags.push(Diagnostic {
+                        range: Range::new(
+                            Position::new(row, col_start),
+                            Position::new(row, col_end),
+                        ),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        code: Some(NumberOrString::String("stale-started-at".into())),
+                        code_description: None,
+                        source: Some("patto".into()),
+                        message: "Done task has a stale started_at field. \
+                            The time_spent field already accounts for all accumulated time. \
+                            Remove started_at= to silence this warning."
+                            .into(),
+                        ..Diagnostic::default()
+                    });
+                    break; // at most one Task property per line
+                }
+            }
+        }
+    }
+    for child in node.value().children.lock().unwrap().iter() {
+        gather_stale_started_at_diagnostics_impl(child, diags);
+    }
 }
 
 fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
@@ -1193,10 +1245,13 @@ impl LanguageServer for Backend {
                 let ret = json!(tasks
                     .iter()
                     .map(|(uri, line, date)| {
-                        let mut info =
+                        let info =
                             task_information(uri, line, &crate::parser::Deadline::Date(*date));
                         // Override completed_at with the authoritative value from repository
-                        // (already set by task_information, but ensure the date string matches)
+                        // (already set by task_information, but ensure the date string matches).
+                        // started_at is intentionally omitted: for a done task it is stale and
+                        // must not be used to compute additional elapsed time on the review side.
+                        // The time_spent field already contains the correct accumulated total.
                         json!({
                             "location":    info.location,
                             "text":        info.text,
@@ -1204,7 +1259,6 @@ impl LanguageServer for Backend {
                             "due":         info.due,
                             "scheduled":   info.scheduled,
                             "completed_at": date.format("%Y-%m-%d").to_string(),
-                            "started_at":  info.started_at,
                             "time_spent":  info.time_spent,
                         })
                     })
@@ -2196,5 +2250,58 @@ mod tests {
         let line5 = &children5[0];
         let label5 = task_label(line5);
         assert_eq!(label5, "[牛乳🔗] 牛乳を買う");
+    }
+
+    // ── stale started_at diagnostics ────────────────────────────────────────
+
+    #[test]
+    fn test_stale_started_at_warn_on_done_task() {
+        // Done task with started_at still present → should emit stale-started-at warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 started_at=2026-06-01T09:00 time_spent=2h}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert_eq!(
+            stale.len(),
+            1,
+            "expected one stale-started-at diagnostic, got: {:?}",
+            diags
+        );
+        assert_eq!(stale[0].severity, Some(DiagnosticSeverity::WARNING));
+    }
+
+    #[test]
+    fn test_stale_started_at_no_warn_on_doing_task() {
+        // Doing task with started_at is legitimate — must NOT emit the warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=doing due=2026-06-01 started_at=2026-06-01T09:00}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "doing task with started_at should not produce stale-started-at warning"
+        );
+    }
+
+    #[test]
+    fn test_stale_started_at_no_warn_on_done_task_without_started_at() {
+        // Clean done task (no started_at) → no warning.
+        let (_ast, diags) = parse_text(
+            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 time_spent=2h}\n",
+        );
+        let stale: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "done task without started_at should not produce stale-started-at warning"
+        );
     }
 }

@@ -378,3 +378,52 @@ fn test_doing_to_todo_via_keystroke_simulation() {
         edit.new_text
     );
 }
+
+// ─── Bare-date started_at tests ───────────────────────────────────────────────
+
+/// When started_at is a bare date (no time component), elapsed_since must return
+/// None.  The clock-out transition should therefore produce no time_spent edit,
+/// leaving any existing time_spent unchanged and started_at untouched.
+#[tokio::test]
+async fn test_bare_date_started_at_produces_no_elapsed() {
+    let _workspace = TestWorkspace::new();
+    // started_at=2026-05-19 (date only, no T time component).
+    // Old snapshot is Doing with that bare-date started_at; new snapshot is Todo.
+    let edits = edits_for(
+        "buy milk {@task status=doing due=2026-06-01 started_at=2026-05-19}\n",
+        "buy milk {@task status=todo due=2026-06-01}\n",
+    );
+    // No elapsed can be computed from a bare date — no edit should be generated.
+    assert!(
+        edits.is_empty(),
+        "bare-date started_at should produce no clock-out edit, got: {:?}",
+        edits
+    );
+}
+
+/// Same scenario but clocking out directly to done: no elapsed should be added,
+/// but completed_at must still be written.
+#[tokio::test]
+async fn test_bare_date_started_at_done_only_sets_completed_at() {
+    let _workspace = TestWorkspace::new();
+    let edits = edits_for(
+        "buy milk {@task status=doing due=2026-06-01 started_at=2026-05-19}\n",
+        "buy milk {@task status=done due=2026-06-01}\n",
+    );
+    assert_eq!(
+        edits.len(),
+        1,
+        "one edit expected for doing→done even with bare-date started_at"
+    );
+    let edit = &edits[0];
+    assert!(
+        edit.new_text.contains("completed_at="),
+        "edit should set completed_at, got: {}",
+        edit.new_text
+    );
+    assert!(
+        !edit.new_text.contains("time_spent="),
+        "no time_spent should be added when started_at is a bare date, got: {}",
+        edit.new_text
+    );
+}
