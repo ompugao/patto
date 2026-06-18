@@ -121,6 +121,10 @@ fn default_syntax_theme() -> String {
     "base16-ocean.dark".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Top-level TUI configuration (`~/.config/patto/patto-preview-tui.toml`).
 #[derive(Debug, Deserialize)]
 pub struct TuiConfig {
@@ -138,6 +142,11 @@ pub struct TuiConfig {
     /// Defaults to `"white"`.
     #[serde(default)]
     pub image_background: ImageBackground,
+    /// Whether to render inline math (`[$ … $]`) as raster images.
+    /// When `false`, inline math is displayed as plain magenta text instead.
+    /// Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub inline_math_rendering: bool,
 }
 
 impl Default for TuiConfig {
@@ -147,6 +156,7 @@ impl Default for TuiConfig {
             syntax_theme: default_syntax_theme(),
             tasks: TasksPanelConfig::default(),
             image_background: ImageBackground::default(),
+            inline_math_rendering: true,
         }
     }
 }
