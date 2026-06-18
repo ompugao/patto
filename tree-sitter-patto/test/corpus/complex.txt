@@ -1,0 +1,233 @@
+================================================================================
+Complex document with multiple constructs
+================================================================================
+Project Notes
+	[@code python]
+		def main():
+		    pass
+	Summary of code above
+	[https://docs.python.org Python Docs] for reference
+[@quote]
+	[* Important]: This is critical
+	See [project plan#timeline] for details
+Tasks
+	Buy supplies !2024-12-31 {@task status=todo}
+	Write report *2024-10-01
+-----
+Footer text with [/ emphasis]
+--------------------------------------------------------------------------------
+
+(document
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (bracket_expr
+      (bracket_content
+        (bracket_url)
+        (bracket_ws)
+        (bracket_text)
+        (bracket_ws)
+        (bracket_text)))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)))
+  (line
+    (bracket_expr
+      (bracket_content
+        (bracket_decoration_markers)
+        (bracket_text)))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (bracket_expr
+      (bracket_content
+        (bracket_text)
+        (bracket_ws)
+        (bracket_text)
+        (bracket_hash)))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (task)
+    (property
+      (property_name)
+      (property_kv
+        (property_word)
+        (property_word))))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (task))
+  (line
+    (horizontal_rule))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (bracket_expr
+      (bracket_content
+        (bracket_decoration_markers)
+        (bracket_text)))))
+
+================================================================================
+Deeply nested structure
+================================================================================
+Level 0
+	Level 1
+		Level 2
+			Level 3
+		Back to Level 2
+	Back to Level 1
+Level 0 again
+--------------------------------------------------------------------------------
+
+(document
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment))
+    (text
+      (text_segment))))
+
+================================================================================
+Block commands at various indent levels
+================================================================================
+[@code python]
+	print("top level")
+	[@quote]
+		nested quote
+	[@code javascript]
+		console.log("js")
+--------------------------------------------------------------------------------
+
+(document
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)))
+  (line
+    (text
+      (text_segment))
+    (text
+      (text_segment)))
+  (command_line
+    (command
+      (command_name)
+      (parameters
+        (parameter
+          (bare_param
+            (param_word))))))
+  (line
+    (text
+      (text_segment))))
+
+================================================================================
+Empty document
+================================================================================
+
+--------------------------------------------------------------------------------
+
+(document)
