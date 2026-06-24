@@ -140,6 +140,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+- **v0.5.2** - Fix blockquote preview rendering (remove per-line border duplication); warn on done tasks with stale started_at field; fix elapsed time calculation for bare dates; dependency updates
 - **v0.5.1** - Conceal URLs with titles in task labels; apply patto syntax highlighting and custom buffer names to Neovim Trouble buffers; dependency updates
 - **v0.5.0** - patto-preview-tui reaches Neovim plugin parity with active task overlay, Tasks Review panel, due-date chips, status/time tracking, and total elapsed time; add paused task status and LSP folding ranges with opt-in Vim/Neovim integration; task syntax concealment improvements; dependency updates
 - **v0.4.7** - task time tracking with transition detection; structured task info (due date, time_spent); fix preserve inline code in markdown table cells
