@@ -121,9 +121,7 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
                     )}
                 </div>
             );
-            return isQuote
-                ? <blockquote className="border-l-3 border-slate-200 pl-3 my-1 bg-slate-50/50 py-1 rounded-r">{inner}</blockquote>
-                : inner;
+            return inner;
         }
 
         case 'Quote': {
