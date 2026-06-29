@@ -237,11 +237,11 @@ fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diag
     }
 }
 
-fn gather_anchors(parent: &AstNode, anchors: &mut Vec<String>) {
+fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
-            if let Property::Anchor { name, .. } = prop {
-                anchors.push(name.to_string());
+            if let Property::Anchor { name, location } = prop {
+                anchors.push((name.to_string(), location.row));
             }
         }
     }
@@ -677,15 +677,32 @@ impl Backend {
                     if let Some(ast) = repo.ast_map.get(&linkuri) {
                         let mut anchors = vec![];
                         gather_anchors(ast.value(), &mut anchors);
+                        let link_rope = repo.document_map.get(&linkuri);
                         return Some(
                             anchors
                                 .iter()
-                                .map(|anchor| CompletionItem {
-                                    label: format!("#{}", anchor),
-                                    kind: Some(CompletionItemKind::REFERENCE),
-                                    filter_text: Some(anchor.to_string()),
-                                    insert_text: Some(anchor.to_string()),
-                                    ..Default::default()
+                                .map(|(anchor, row)| {
+                                    let documentation = link_rope.as_ref().and_then(|rope| {
+                                        let rope = rope.value();
+                                        let total_lines = rope.len_lines();
+                                        if *row >= total_lines {
+                                            return None;
+                                        }
+                                        let preview_lines = 5;
+                                        let end_line = (row + preview_lines).min(total_lines);
+                                        let preview: String = (*row..end_line)
+                                            .filter_map(|l| rope.get_line(l).map(|line| line.to_string()))
+                                            .collect();
+                                        Some(Documentation::String(preview.trim_end().to_string()))
+                                    });
+                                    CompletionItem {
+                                        label: format!("#{}", anchor),
+                                        kind: Some(CompletionItemKind::REFERENCE),
+                                        filter_text: Some(anchor.to_string()),
+                                        insert_text: Some(anchor.to_string()),
+                                        documentation,
+                                        ..Default::default()
+                                    }
                                 })
                                 .collect(),
                         );
@@ -737,6 +754,18 @@ impl Backend {
                                 path = path.strip_suffix(".pn").unwrap().to_string();
                             }
                             if matcher.fuzzy_match(&path, s).is_some() {
+                                let rope = e.value();
+                                let preview_lines = 5;
+                                let total_lines = rope.len_lines();
+                                let end_line = preview_lines.min(total_lines);
+                                let preview: String = (0..end_line)
+                                    .filter_map(|l| rope.get_line(l).map(|line| line.to_string()))
+                                    .collect();
+                                let documentation = if !preview.trim().is_empty() {
+                                    Some(Documentation::String(preview.trim_end().to_string()))
+                                } else {
+                                    None
+                                };
                                 return Some(CompletionItem {
                                     label: path.clone(),
                                     detail: Some(path.clone()),
@@ -746,6 +775,7 @@ impl Backend {
                                         new_text: path.clone(),
                                         range: replacement_range,
                                     })),
+                                    documentation,
                                     ..Default::default()
                                 });
                             }
