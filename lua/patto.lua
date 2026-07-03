@@ -227,6 +227,16 @@ return {
     end, {
       desc  = 'Aggregate tasks in a workspace',
     })
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoIncrementTask', function()
+      require('patto.tasks').increment()
+    end, {
+      desc = 'Increment task status on the current line',
+    })
+    vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoDecrementTask', function()
+      require('patto.tasks').decrement()
+    end, {
+      desc = 'Decrement task status on the current line',
+    })
     vim.api.nvim_buf_create_user_command(bufnr, 'LspPattoTwoHopLinks', function()
       PattoShowTwoHopLinks()
     end, {

@@ -164,6 +164,42 @@ M.config = {
       -- Format: status icon | label | due chip | time chips | file
       format = "{task_status}{task_due} {text}{task_time_spent}{task_started_at} {filename}",
       win = { position = "bottom", size = 0.25 },
+      keys = {
+        t = {
+          action = function(self)
+            local at = self:at()
+            if at and at.item then
+              require("patto.tasks").increment(at.item.buf, at.item.pos[1])
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Increment task status",
+        },
+        T = {
+          action = function(self)
+            local at = self:at()
+            if at and at.item then
+              require("patto.tasks").decrement(at.item.buf, at.item.pos[1])
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Decrement task status",
+        },
+        u = {
+          action = function(self)
+            if require("patto.tasks").undo() then
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Undo last task status change",
+        },
+      },
     },
   },
 }

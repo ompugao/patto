@@ -92,6 +92,42 @@ M.config = {
       -- Format: label | completed chip | time chip | file
       format = "{task_completed_at} {text}{task_time_spent} {filename}",
       win    = { position = "bottom", size = 0.20 },
+      keys = {
+        t = {
+          action = function(self)
+            local at = self:at()
+            if at and at.item then
+              require("patto.tasks").increment(at.item.buf, at.item.pos[1])
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Increment task status",
+        },
+        T = {
+          action = function(self)
+            local at = self:at()
+            if at and at.item then
+              require("patto.tasks").decrement(at.item.buf, at.item.pos[1])
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Decrement task status",
+        },
+        u = {
+          action = function(self)
+            if require("patto.tasks").undo() then
+              vim.defer_fn(function()
+                self:refresh()
+              end, 250)
+            end
+          end,
+          desc = "Undo last task status change",
+        },
+      },
     },
   },
 }
