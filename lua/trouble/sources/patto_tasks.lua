@@ -165,7 +165,7 @@ M.config = {
       format = "{task_status}{task_due} {text}{task_time_spent}{task_started_at} {filename}",
       win = { position = "bottom", size = 0.25 },
       keys = {
-        t = {
+        ["<c-a>"] = {
           action = function(self)
             local at = self:at()
             if at and at.item then
@@ -177,7 +177,7 @@ M.config = {
           end,
           desc = "Increment task status",
         },
-        T = {
+        ["<c-x>"] = {
           action = function(self)
             local at = self:at()
             if at and at.item then
