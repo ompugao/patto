@@ -691,7 +691,9 @@ impl Backend {
                                         let preview_lines = 5;
                                         let end_line = (row + preview_lines).min(total_lines);
                                         let preview: String = (*row..end_line)
-                                            .filter_map(|l| rope.get_line(l).map(|line| line.to_string()))
+                                            .filter_map(|l| {
+                                                rope.get_line(l).map(|line| line.to_string())
+                                            })
                                             .collect();
                                         Some(Documentation::String(preview.trim_end().to_string()))
                                     });
