@@ -168,6 +168,14 @@
                                 Source='$(var.CargoTargetBinDir)\patto-preview-tui.exe'
                                 KeyPath='yes'/>
                         </Component>
+                        <Component Id='binary6' Guid='*'>
+                            <File
+                                Id='exe6'
+                                Name='patto-syntax-checker.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\patto-syntax-checker.exe'
+                                KeyPath='yes'/>
+                        </Component>
                     </Directory>
                 </Directory>
             </Directory>
@@ -195,6 +203,7 @@
             <ComponentRef Id='binary3'/>
             <ComponentRef Id='binary4'/>
             <ComponentRef Id='binary5'/>
+            <ComponentRef Id='binary6'/>
 
             <Feature
                 Id='Environment'
