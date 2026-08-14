@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 use crate::utils::get_gyazo_img_src;
@@ -37,6 +38,15 @@ pub struct FocusableItem {
     pub action: LinkAction,
 }
 
+/// A segment within a line that mixes text and inline math.
+#[derive(Debug, Clone)]
+pub enum InlineSegment {
+    /// Styled text spans.
+    Text(Vec<Span<'static>>),
+    /// Inline math expression (raw LaTeX content).
+    Math(String),
+}
+
 /// A single element in the rendered document.
 #[derive(Debug, Clone)]
 pub enum DocElement {
@@ -53,6 +63,11 @@ pub enum DocElement {
     ImageRow(Vec<(String, Option<String>)>, usize),
     /// A math block to render as an image (LaTeX source).
     Math { content: String, indent: usize },
+    /// A line containing inline math segments (text interleaved with math images).
+    InlineMathLine {
+        segments: Vec<InlineSegment>,
+        source_row: usize,
+    },
     /// A blank line.
     Spacer,
 }
@@ -75,19 +90,24 @@ pub struct RenderedDoc {
 
 impl RenderedDoc {}
 
+/// Configuration for the TUI rendering pass.
+///
+/// Bundled into a struct so new options can be added without changing the
+/// signatures of `render_ast`, `render_node`, and `render_inline`.
+pub struct RenderConfig<'a> {
+    /// Optional syntect theme name for code-block highlighting.
+    pub syntax_theme: Option<&'a str>,
+    /// Whether to emit `InlineMathLine` elements for inline math (`[$…$]`).
+    /// When `false`, inline math is rendered as plain magenta text.
+    pub inline_math: bool,
+}
+
 /// Render an AST root node into a flat list of DocElements.
-pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
+pub fn render_ast(ast: &AstNode, cfg: &RenderConfig<'_>) -> RenderedDoc {
     let mut elements = Vec::new();
     let mut focusables = Vec::new();
     let mut anchors = HashMap::new();
-    render_node(
-        ast,
-        &mut elements,
-        &mut focusables,
-        &mut anchors,
-        0,
-        syntax_theme,
-    );
+    render_node(ast, &mut elements, &mut focusables, &mut anchors, 0, cfg);
     RenderedDoc {
         elements,
         focusables,
@@ -102,6 +122,8 @@ enum InlineResult {
     Inline,
     /// An image block that must be emitted as a separate DocElement.
     ImageBlock { src: String, alt: Option<String> },
+    /// An inline math expression (when inline_math rendering is enabled).
+    InlineMath { content: String },
 }
 
 /// Returns true if `spans` contains any non-whitespace text.
@@ -148,13 +170,13 @@ fn render_node(
     focusables: &mut Vec<FocusableItem>,
     anchors: &mut HashMap<String, usize>,
     indent: usize,
-    syntax_theme: Option<&str>,
+    cfg: &RenderConfig<'_>,
 ) {
     match ast.kind() {
         AstNodeKind::Dummy => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
+                render_node(child, elements, focusables, anchors, indent, cfg);
             }
         }
         AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
@@ -175,25 +197,11 @@ fn render_node(
                 // Delegate to the block element renderer
                 let block_node = contents[0].clone();
                 drop(contents);
-                render_node(
-                    &block_node,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent,
-                    syntax_theme,
-                );
+                render_node(&block_node, elements, focusables, anchors, indent, cfg);
                 // Still render children (nested lines after the block)
                 let children = ast.value().children.lock().unwrap();
                 for child in children.iter() {
-                    render_node(
-                        child,
-                        elements,
-                        focusables,
-                        anchors,
-                        indent + 1,
-                        syntax_theme,
-                    );
+                    render_node(child, elements, focusables, anchors, indent + 1, cfg);
                 }
                 return;
             }
@@ -264,11 +272,21 @@ fn render_node(
             let mut spans = prefix_spans.clone();
             // Buffer for consecutive images (no non-whitespace text between them).
             let mut image_row_buf: Vec<(String, Option<String>)> = Vec::new();
+            // Whether any InlineMath result was returned for this line.
+            let mut has_inline_math = false;
+            // Segments collected when inline math is present.
+            let mut segments: Vec<InlineSegment> = Vec::new();
 
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                let result =
-                    render_inline(content, &mut spans, base_style, focusables, elements.len());
+                let result = render_inline(
+                    content,
+                    &mut spans,
+                    base_style,
+                    focusables,
+                    elements.len(),
+                    cfg,
+                );
                 match result {
                     InlineResult::ImageBlock { src, alt } => {
                         // If spans have real text, flush them before starting an image group
@@ -286,6 +304,17 @@ fn render_node(
                             spans = vec![Span::raw("  ".repeat(indent + 1))];
                         }
                         image_row_buf.push((src, alt));
+                    }
+                    InlineResult::InlineMath {
+                        content: math_content,
+                    } => {
+                        has_inline_math = true;
+                        // Flush any accumulated spans into a Text segment
+                        if !spans.is_empty() {
+                            segments.push(InlineSegment::Text(std::mem::take(&mut spans)));
+                            spans = Vec::new();
+                        }
+                        segments.push(InlineSegment::Math(math_content));
                     }
                     InlineResult::Inline => {
                         // Non-image content — flush any pending image row first
@@ -308,26 +337,31 @@ fn render_node(
                 }
             }
 
-            // Flush remaining spans (always emit to preserve blank lines)
-            elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
+            // Emit the line: InlineMathLine if inline math was found, else plain TextLine
+            if has_inline_math {
+                // Flush any remaining spans as a final Text segment
+                if !spans.is_empty() {
+                    segments.push(InlineSegment::Text(spans));
+                }
+                elements.push(DocElement::InlineMathLine {
+                    segments,
+                    source_row: ast.location().row,
+                });
+            } else {
+                // Flush remaining spans (always emit to preserve blank lines)
+                elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
+            }
 
             // Children (nested lines)
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(
-                    child,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent + 1,
-                    syntax_theme,
-                );
+                render_node(child, elements, focusables, anchors, indent + 1, cfg);
             }
         }
         AstNodeKind::Quote => {
             let children = ast.value().children.lock().unwrap();
             for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
+                render_node(child, elements, focusables, anchors, indent, cfg);
             }
         }
         AstNodeKind::Math { inline } => {
@@ -379,7 +413,7 @@ fn render_node(
                 drop(children);
                 let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
                 let highlighted =
-                    crate::syntax_highlight::highlight_code(lang, &raw_refs, syntax_theme);
+                    crate::syntax_highlight::highlight_code(lang, &raw_refs, cfg.syntax_theme);
                 for (line_spans, _raw) in highlighted.into_iter().zip(raw_lines.iter()) {
                     let mut spans = vec![Span::raw(prefix.clone())];
                     if line_spans.is_empty() {
@@ -477,16 +511,28 @@ fn render_table_row(
         }
         let col_contents = col.value().contents.lock().unwrap();
         for c in col_contents.iter() {
-            render_inline(c, &mut spans, Style::default(), focusables, elements.len());
+            let no_inline = RenderConfig {
+                syntax_theme: None,
+                inline_math: false,
+            };
+            render_inline(
+                c,
+                &mut spans,
+                Style::default(),
+                focusables,
+                elements.len(),
+                &no_inline,
+            );
         }
     }
     spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
     elements.push(DocElement::TextLine(Line::from(spans), source_row));
 }
 
-/// Count total character width of accumulated spans.
+/// Count total display column width of accumulated spans (Unicode-aware).
+/// CJK and other double-width characters each count as 2 columns.
 fn spans_char_width(spans: &[Span<'_>]) -> usize {
-    spans.iter().map(|s| s.content.chars().count()).sum()
+    spans.iter().map(|s| s.content.width()).sum()
 }
 
 fn render_inline(
@@ -495,6 +541,7 @@ fn render_inline(
     base_style: Style,
     focusables: &mut Vec<FocusableItem>,
     current_elem_idx: usize,
+    cfg: &RenderConfig<'_>,
 ) -> InlineResult {
     match ast.kind() {
         AstNodeKind::Text => {
@@ -600,11 +647,22 @@ fn render_inline(
         }
         AstNodeKind::Math { inline: true } => {
             let contents = ast.value().contents.lock().unwrap();
-            for content in contents.iter() {
-                spans.push(Span::styled(
-                    content.extract_str().to_string(),
-                    base_style.fg(Color::Magenta),
-                ));
+            if cfg.inline_math {
+                // Return as InlineMath so the caller can render it as an image
+                let content: String = contents
+                    .iter()
+                    .map(|c| c.extract_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join("");
+                return InlineResult::InlineMath { content };
+            } else {
+                // Fallback: display raw LaTeX as magenta text
+                for content in contents.iter() {
+                    spans.push(Span::styled(
+                        content.extract_str().to_string(),
+                        base_style.fg(Color::Magenta),
+                    ));
+                }
             }
         }
         AstNodeKind::Decoration {
@@ -628,7 +686,8 @@ fn render_inline(
             }
             let contents = ast.value().contents.lock().unwrap();
             for content in contents.iter() {
-                let result = render_inline(content, spans, style, focusables, current_elem_idx);
+                let result =
+                    render_inline(content, spans, style, focusables, current_elem_idx, cfg);
                 if matches!(result, InlineResult::ImageBlock { .. }) {
                     return result;
                 }
@@ -653,6 +712,7 @@ fn render_inline(
                     base_style.fg(Color::DarkGray),
                     focusables,
                     current_elem_idx,
+                    cfg,
                 );
             }
         }
