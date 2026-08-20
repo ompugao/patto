@@ -225,7 +225,7 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
                         <tbody>
                             {children.map((row, i) => (
                                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                                    {(row.value?.children ?? []).map((col, j) => (
+                                    {(row.value?.contents ?? []).map((col, j) => (
                                         <td key={j} className="border border-slate-200 px-3 py-1.5">
                                             <InlineContents nodes={col.value?.contents ?? []} onWikiLinkClick={onWikiLinkClick} />
                                         </td>
