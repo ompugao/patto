@@ -166,6 +166,24 @@ impl MarkdownImporter {
         let mut link_url = String::new();
         let mut link_contents: Vec<AstNode> = Vec::new();
 
+        // Route an inline node to the currently active container.
+        // Table cells must be checked before headings/paragraphs, otherwise inline
+        // content produced inside a table (links, images, ...) leaks into the next line.
+        macro_rules! push_inline_content {
+            ($node:expr) => {{
+                let node = $node;
+                if in_table {
+                    if let Some(cell) = current_cell.as_ref() {
+                        cell.add_content(node);
+                    }
+                } else if in_heading {
+                    heading_contents.push(node);
+                } else {
+                    pending_contents.push(node);
+                }
+            }};
+        }
+
         for event in parser {
             match event {
                 Event::Start(tag) => {
@@ -270,7 +288,7 @@ impl MarkdownImporter {
                                 Some(title.as_ref())
                             };
                             let img_node = AstNode::image("", current_line, None, &dest_url, alt);
-                            pending_contents.push(img_node);
+                            push_inline_content!(img_node);
                             report.statistics.increment_feature("images");
                         }
                         Tag::Paragraph => {
@@ -489,11 +507,8 @@ impl MarkdownImporter {
                             // Convert link to patto format
                             let link_node =
                                 self.create_link_node(&link_url, &link_contents, current_line);
-                            if in_heading {
-                                heading_contents.push(link_node);
-                            } else {
-                                pending_contents.push(link_node);
-                            }
+                            link_contents.clear();
+                            push_inline_content!(link_node);
                         }
                         TagEnd::Paragraph => {
                             // Finalize paragraph as line
@@ -529,22 +544,9 @@ impl MarkdownImporter {
                                 code.add_child(code_content);
                             }
                         }
-                    } else if in_table {
-                        if let Some(cell) = current_cell.as_ref() {
-                            let text_node = AstNode::text(&text_str, current_line, None);
-                            cell.add_content(text_node);
-                        }
-                    } else if in_heading {
-                        // Apply decorations if any
-                        let content = self.create_text_with_decoration(
-                            &text_str,
-                            current_line,
-                            in_strong,
-                            in_emphasis,
-                            in_strikethrough,
-                        );
-                        heading_contents.push(content);
                     } else if in_link {
+                        // Link text is collected first: it becomes the link title, and the
+                        // finished link node is routed on TagEnd::Link.
                         let text_node = AstNode::text(&text_str, current_line, None);
                         link_contents.push(text_node);
                     } else {
@@ -556,7 +558,7 @@ impl MarkdownImporter {
                             in_emphasis,
                             in_strikethrough,
                         );
-                        pending_contents.push(content);
+                        push_inline_content!(content);
                     }
                 }
                 Event::Code(code) => {
@@ -566,15 +568,7 @@ impl MarkdownImporter {
                     let code_content = AstNode::codecontent(&code_str, current_line, None);
                     inline_code.add_content(code_content);
 
-                    if in_heading {
-                        heading_contents.push(inline_code);
-                    } else if in_table {
-                        if let Some(cell) = current_cell.as_ref() {
-                            cell.add_content(inline_code);
-                        }
-                    } else {
-                        pending_contents.push(inline_code);
-                    }
+                    push_inline_content!(inline_code);
                     report.statistics.increment_feature("inline_code");
                 }
                 Event::Html(html) => {
@@ -657,7 +651,7 @@ impl MarkdownImporter {
                     }
                     ImportMode::Preserve => {
                         let text = AstNode::text(&format!("[^{}]", name), current_line, None);
-                        pending_contents.push(text);
+                        push_inline_content!(text);
                     }
                 },
                 _ => {}
@@ -1025,6 +1019,28 @@ mod tests {
         assert!(result.patto_content.contains("[@table]"));
         assert!(result.patto_content.contains("\th1\th2"));
         assert!(result.patto_content.contains("\ta\tb"));
+    }
+
+    #[test]
+    fn test_table_with_inline_content() {
+        let result = import_lossy(
+            "| h1 | h2 | h3 |\n|---|---|---|\n| [Google](https://google.com) | **bold** | `code` |\n\nnext paragraph",
+        );
+        // Inline nodes must stay inside their cell...
+        assert!(result
+            .patto_content
+            .contains("\t[Google https://google.com]\t[* bold]\t[` code `]"));
+        // ...and must not leak into the following line
+        assert!(result
+            .patto_content
+            .lines()
+            .any(|l| l.trim() == "next paragraph"));
+    }
+
+    #[test]
+    fn test_table_with_image() {
+        let result = import_lossy("| h1 |\n|---|\n| ![alt](img.png) |");
+        assert!(result.patto_content.contains("\t[@img img.png]"));
     }
 
     #[test]
