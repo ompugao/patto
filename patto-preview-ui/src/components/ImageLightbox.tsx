@@ -23,12 +23,11 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
 
     return (
         <>
-            <figure className="inline-block align-top my-3 w-fit">
+            <figure className="patto-preview-figure inline-block align-top my-3 w-fit">
                 <img
                     src={src}
                     alt={alt || ''}
-                    className="max-w-full rounded-lg shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
-                    style={{ maxHeight: '30em', objectFit: 'contain' }}
+                    className="patto-preview-image rounded-lg shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
                     loading="lazy"
                     onClick={handleOpen}
                 />

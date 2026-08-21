@@ -14,6 +14,25 @@ code {
     monospace;
 }
 
+/* Inline images are capped relative to the viewport so the lines around them
+   stay on screen; clicking opens the full-size lightbox. */
+:root {
+  --patto-img-max-h: min(22em, 40vh);
+  --patto-img-max-w: min(100%, 40em);
+}
+
+.patto-preview-image {
+  max-height: var(--patto-img-max-h);
+  max-width: var(--patto-img-max-w);
+  object-fit: contain;
+}
+
+/* The figure is w-fit, so it must share the image's cap or the caption
+   centres over the uncapped intrinsic width instead of over the image. */
+.patto-preview-figure {
+  max-width: var(--patto-img-max-w);
+}
+
 /*
 pre.hljs,
 .hljs {
@@ -74,7 +93,12 @@ pre.hljs,
   }
 
   img {
-    max-height: 20em;
     page-break-inside: avoid;
+  }
+
+  .patto-preview-image,
+  .patto-preview-figure {
+    max-height: 20em;
+    max-width: 100%;
   }
 }
