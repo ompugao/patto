@@ -51,6 +51,8 @@ export interface AstNode {
 interface VirtualRendererProps {
     ast: AstNode | null;
     onWikiLinkClick: (link: string, anchor?: string) => void;
+    /** Lets the parent read/write the scroll offset, e.g. to restore it on Back. */
+    scrollElementRef?: React.RefObject<HTMLDivElement>;
 }
 
 // Rust generates span offsets as raw UTF-8 byte offsets (not JS UTF-16 characters)
@@ -259,8 +261,9 @@ export function flattenAst(node: AstNode): AstNode[] {
     return [node];
 }
 
-export default function VirtualRenderer({ ast, onWikiLinkClick }: VirtualRendererProps) {
-    const parentRef = useRef<HTMLDivElement>(null);
+export default function VirtualRenderer({ ast, onWikiLinkClick, scrollElementRef }: VirtualRendererProps) {
+    const internalRef = useRef<HTMLDivElement>(null);
+    const parentRef = scrollElementRef ?? internalRef;
 
     const blocks = useMemo(() => {
         if (!ast) return [];

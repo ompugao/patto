@@ -2,6 +2,15 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
 import PrintRenderer from './components/PrintRenderer'
 import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
+import {
+  noteFromLocation,
+  noteUrl,
+  currentHistoryState,
+  nextEntryKey,
+  saveScrollForEntry,
+  scrollForEntry,
+  type HistoryState,
+} from './noteUrl'
 
 interface FileMetadata {
   modified: number;
@@ -19,13 +28,60 @@ function App() {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [pinnedFiles, setPinnedFiles] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  // Seeded from `?note=` so a deep link shows "Loading..." rather than the empty state
+  const [selectedFile, setSelectedFile] = useState<string | null>(() => noteFromLocation())
   const [isConnected, setIsConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const [hoveredFile, setHoveredFile] = useState<string | null>(null)
   // Use a ref for WS so handleSelectFile always has the live socket, no stale closure
   const wsRef = useRef<WebSocket | null>(null)
+  // The socket handlers are built once, so they need a ref to see the live selection
+  const selectedFileRef = useRef<string | null>(selectedFile)
+  // Scroll container of the renderer, so history entries can carry a scroll offset
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const pendingScrollRef = useRef<number | null>(null)
+  const initializedRef = useRef(false)
+  // Which history entry we are on, so its scroll offset can be found again
+  const currentKeyRef = useRef<string | null>(null)
+  // Paths we asked for and have not seen answered. `FileChanged` is used both as
+  // the reply to SelectFile and as the broadcast for any file changing on disk,
+  // and only this queue tells the two apart.
+  const pendingRequestsRef = useRef<string[]>([])
+
+  const setSelected = useCallback((path: string | null) => {
+    selectedFileRef.current = path
+    setSelectedFile(path)
+  }, [])
+
+  // Every entry we create carries a key. `push` starts a new entry (user-intent
+  // navigation); otherwise the current one is corrected in place.
+  const writeHistory = useCallback((note: string | null, url?: string, push = false) => {
+    const key = push ? nextEntryKey() : currentHistoryState()?.key ?? nextEntryKey()
+    const state: HistoryState = { note, key }
+    if (push) window.history.pushState(state, '', url)
+    else window.history.replaceState(state, '', url)
+    currentKeyRef.current = key
+  }, [])
+
+  const sendSelectFile = useCallback((path: string) => {
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Backend WsClientMessage: #[serde(tag = "type", content = "data")]
+      socket.send(JSON.stringify({ type: 'SelectFile', data: { path } }));
+      pendingRequestsRef.current.push(path);
+      console.log('[patto] SelectFile sent:', path);
+    } else {
+      console.warn('[patto] WebSocket not open, state:', socket?.readyState);
+    }
+  }, [])
+
+  // Show a note without touching history — for popstate, reconnect and initial load
+  const applyNote = useCallback((path: string) => {
+    setSelected(path);
+    setAst(null); // Clear while loading
+    sendSelectFile(path);
+  }, [setSelected, sendSelectFile])
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -38,11 +94,29 @@ function App() {
       wsRef.current = socket;
 
       socket.onopen = () => {
+        if (wsRef.current !== socket) return;
         console.log('[patto] WebSocket connected to', wsUrl);
         setIsConnected(true);
+
+        // Restore what we should be showing: on first connect that comes from
+        // `?note=` (which `lua/patto_preview.lua` sets when Neovim opens the
+        // preview); on a reconnect it is whatever we were already showing.
+        const path = selectedFileRef.current ?? noteFromLocation();
+        if (path) {
+          if (initializedRef.current) {
+            // Reconnect: keep the stale render up until the fresh AST lands
+            sendSelectFile(path);
+          } else {
+            writeHistory(path, noteUrl(path));
+            pendingScrollRef.current = scrollForEntry(currentKeyRef.current);
+            applyNote(path);
+          }
+        }
+        initializedRef.current = true;
       };
 
       socket.onmessage = (event) => {
+        if (wsRef.current !== socket) return;
         try {
           // Backend uses #[serde(tag = "type", content = "data")]
           // so messages arrive as { type: "...", data: { ... } }
@@ -67,9 +141,40 @@ function App() {
             fileEntries.sort((a, b) => b.modified - a.modified);
             setFiles(fileEntries);
 
+            // A `?note=` pointing at a file that does not exist would otherwise
+            // sit on "Loading..." forever, since the server answers with nothing.
+            const current = selectedFileRef.current;
+            if (current && !filePaths.includes(current)) {
+              console.warn('[patto] note from URL not found in workspace:', current);
+              setSelected(null);
+              setAst(null);
+              writeHistory(null, window.location.pathname);
+            }
+
           } else if (msg.type === 'FileChanged') {
             console.log('[patto] FileChanged ast:', JSON.stringify(data.ast).substring(0, 200));
-            setAst(data.ast ?? null);
+            // Is this the answer to a SelectFile we sent? Splicing off everything
+            // up to the match also drops requests that were never answered (an
+            // unreadable file), so the queue cannot drift out of step.
+            const queue = pendingRequestsRef.current;
+            const queued = data.path ? queue.indexOf(data.path) : -1;
+            if (queued !== -1) queue.splice(0, queued + 1);
+
+            if (queued !== -1) {
+              // Our own reply. Render it only if it is still what we are showing:
+              // pressing Back before it arrived means we have moved on since.
+              if (data.path === selectedFileRef.current) setAst(data.ast ?? null);
+            } else {
+              // A broadcast: some file changed on disk, including Neovim buffers
+              // arriving over the LSP bridge, and it takes over the view. Keep the
+              // URL honest about that, but only replace — pushing here would let a
+              // `git pull` touching many files shred the back stack.
+              if (data.path && data.path !== selectedFileRef.current) {
+                setSelected(data.path);
+                writeHistory(data.path, noteUrl(data.path));
+              }
+              setAst(data.ast ?? null);
+            }
             if (data.path && data.metadata) {
               setFiles(prev => {
                 const updated = prev.map(f =>
@@ -98,8 +203,12 @@ function App() {
       };
 
       socket.onclose = () => {
+        // A superseded socket (StrictMode's double-mount, or a reconnect that
+        // already landed) must not clear the live one or start a second loop.
+        if (wsRef.current !== socket) return;
         console.log('[patto] WebSocket closed, reconnecting in 2s...');
         setIsConnected(false);
+        pendingRequestsRef.current = [];
         wsRef.current = null;
         setTimeout(connect, 2000);
       };
@@ -114,20 +223,97 @@ function App() {
     return () => {
       wsRef.current?.close();
     };
-  }, []);
+    // These callbacks are all stable, so the socket is still built exactly once
+  }, [applyNote, sendSelectFile, setSelected, writeHistory]);
 
+  // Seed a key on the entry we landed on, so scrolling has somewhere to record to
+  useEffect(() => {
+    if (!currentHistoryState()) writeHistory(noteFromLocation());
+    else currentKeyRef.current = currentHistoryState()!.key;
+  }, [writeHistory]);
+
+  // User-intent navigation: sidebar click, fuzzy-find Enter, or a wiki link.
+  // Re-selecting the open note refreshes it without stacking a duplicate entry.
   const handleSelectFile = useCallback((path: string) => {
-    setSelectedFile(path);
-    setAst(null); // Clear while loading
-    const socket = wsRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      // Backend WsClientMessage: #[serde(tag = "type", content = "data")]
-      socket.send(JSON.stringify({ type: 'SelectFile', data: { path } }));
-      console.log('[patto] SelectFile sent:', path);
-    } else {
-      console.warn('[patto] WebSocket not open, state:', socket?.readyState);
+    writeHistory(path, noteUrl(path), path !== selectedFileRef.current);
+    applyNote(path);
+  }, [applyNote, writeHistory]);
+
+  // Back/Forward, including mouse side-buttons and Alt+Left/Right.
+  // Never pushes — StrictMode double-invokes effects in dev, and this must not
+  // fabricate entries.
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      const state = e.state as HistoryState | null;
+      currentKeyRef.current = state?.key ?? null;
+      const path = state?.note ?? noteFromLocation();
+      if (path) {
+        pendingScrollRef.current = scrollForEntry(currentKeyRef.current);
+        applyNote(path);
+      } else {
+        pendingScrollRef.current = null;
+        setSelected(null);
+        setAst(null);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [applyNote, setSelected]);
+
+  // Record the offset continuously against the current entry, so it is already
+  // saved however the user leaves — a click, Back, Forward, or a reload. Saving
+  // only on the way out would miss Back, which fires after the entry has changed.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        // Ignore the frames while a restore is still settling, or we would
+        // record the offset we are on our way *from*.
+        if (pendingScrollRef.current != null) return;
+        if (currentKeyRef.current) saveScrollForEntry(currentKeyRef.current, el.scrollTop);
+      });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [ast]);
+
+  // Restore the scroll offset a Back/Forward asked for. The virtualizer measures
+  // rows lazily, so the container keeps growing for a few frames after the AST
+  // lands and an early write gets clamped — retry until it sticks, then give up.
+  useEffect(() => {
+    const target = pendingScrollRef.current;
+    if (!ast || target == null) return;
+    if (target === 0) {
+      pendingScrollRef.current = null;
+      return;
     }
-  }, []);
+    let frames = 0;
+    let raf = 0;
+    const step = () => {
+      const el = scrollRef.current;
+      if (el) {
+        el.scrollTop = target;
+        if (Math.abs(el.scrollTop - target) < 1) {
+          pendingScrollRef.current = null;
+          return;
+        }
+      }
+      if (++frames < 20) {
+        raf = requestAnimationFrame(step);
+      } else {
+        pendingScrollRef.current = null;
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [ast]);
 
   const handleWikiLinkClick = useCallback((link: string, _anchor?: string) => {
     const targetFile = files.find(f => f.path.replace(/\.pn$/, '') === link || f.path === link || f.path === `${link}.pn`);
@@ -284,7 +470,7 @@ function App() {
         ) : (
           <>
             <div className="screen-only h-full">
-              <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
+              <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} scrollElementRef={scrollRef} />
             </div>
             <PrintRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
           </>
