@@ -140,13 +140,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
-### Since v0.5.2
-
-- The browser preview is smoother to navigate, with the preview UI history flow cleaned up for note-to-note browsing.
-- Task workflows are more polished across the stack: better task review support, richer status/time tracking in `patto-preview-tui`, and auto-managed task metadata such as `completed_at`.
-- Recent fixes improve day-to-day reliability, including cleaner blockquote rendering in preview, better warnings for stale task state, and corrected elapsed-time calculations for bare dates.
-
-- **v0.5.3** - Add preview history navigation refactor in preview UI; bump release version metadata across Rust crates and VS Code extension binaries
+- **v0.5.3** - Refine preview history navigation and roll up recent task/reliability improvements from v0.5.2, then bump release version metadata across Rust crates and VS Code extension binaries
 - **v0.5.2** - Fix blockquote preview rendering (remove per-line border duplication); warn on done tasks with stale started_at field; fix elapsed time calculation for bare dates; dependency updates
 - **v0.5.1** - Conceal URLs with titles in task labels; apply patto syntax highlighting and custom buffer names to Neovim Trouble buffers; dependency updates
 - **v0.5.0** - patto-preview-tui reaches Neovim plugin parity with active task overlay, Tasks Review panel, due-date chips, status/time tracking, and total elapsed time; add paused task status and LSP folding ranges with opt-in Vim/Neovim integration; task syntax concealment improvements; dependency updates
