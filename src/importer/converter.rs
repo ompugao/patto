@@ -333,7 +333,7 @@ impl MarkdownImporter {
                                 }
                                 root.add_child(line_node);
                                 // Add horizontal line
-                                let hr = AstNode::horizontal_line("---", current_line, None);
+                                let hr = AstNode::horizontal_line("-----", current_line, None);
                                 root.add_child(hr);
                             } else {
                                 // H2-H6: bold decoration
