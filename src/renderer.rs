@@ -185,12 +185,20 @@ impl HtmlRenderer {
                     src_exported = src.clone();
                 }
                 write!(output, "<figure class=\"patto-figure\">")?;
+                // The exported page has no lightbox, so images are capped in CSS
+                // and the anchor is how a reader gets to the full-size original.
+                write!(
+                    output,
+                    "<a class=\"patto-image-link\" href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">",
+                    src_exported
+                )?;
                 if let Some(alt) = alt {
                     write!(
                         output,
                         "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
                         alt, src_exported
                     )?;
+                    write!(output, "</a>")?;
                     write!(output, "<figcaption>{}</figcaption>", encode_text(alt))?;
                 } else {
                     write!(
@@ -198,6 +206,7 @@ impl HtmlRenderer {
                         "<img class=\"patto-image\" src=\"{}\"/>",
                         src_exported
                     )?;
+                    write!(output, "</a>")?;
                 }
                 write!(output, "</figure>")?;
             }
