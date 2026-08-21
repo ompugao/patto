@@ -22,7 +22,7 @@ export default function PrintRenderer({ ast, onWikiLinkClick }: PrintRendererPro
     return (
         <div className="print-renderer">
             {blocks.map((block, i) => (
-                <div key={i} className="w-full px-8 py-0.5">
+                <div key={i} className="w-full px-8 py-[0.1875em]">
                     <RenderNode node={block} onWikiLinkClick={onWikiLinkClick} />
                 </div>
             ))}
