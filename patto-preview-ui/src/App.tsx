@@ -29,7 +29,9 @@ function App() {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:3000/ws`;
+    // Use the port we were served from, so `--port` works; in `vite dev` the
+    // dev-server proxy (see vite.config.ts) forwards /ws to the backend.
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
 
     const connect = () => {
       const socket = new WebSocket(wsUrl);
