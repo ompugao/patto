@@ -2,132 +2,121 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
 import PrintRenderer from './components/PrintRenderer'
 import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
+import type { FileEntry, ServerMessage } from './protocol'
+import { noteFromLocation, useNoteHistory } from './hooks/useNoteHistory'
+import { usePreviewSocket } from './hooks/usePreviewSocket'
 
-interface FileMetadata {
-  modified: number;
-  created: number;
-  linkCount: number;
-}
-
-interface FileEntry {
-  path: string;
-  modified: number;
-}
+const byNewest = (entries: FileEntry[]) => [...entries].sort((a, b) => b.modified - a.modified)
 
 function App() {
   const [ast, setAst] = useState<AstNode | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
   const [pinnedFiles, setPinnedFiles] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
+  // Seeded from `?note=` so a deep link shows "Loading..." rather than the empty state
+  const [selectedFile, setSelectedFile] = useState<string | null>(() => noteFromLocation())
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const [hoveredFile, setHoveredFile] = useState<string | null>(null)
-  // Use a ref for WS so handleSelectFile always has the live socket, no stale closure
-  const wsRef = useRef<WebSocket | null>(null)
 
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Use the port we were served from, so `--port` works; in `vite dev` the
-    // dev-server proxy (see vite.config.ts) forwards /ws to the backend.
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+  // Socket callbacks can run before React has re-rendered, so they read the
+  // selection from a ref that moves in the same tick as the state does.
+  const selectedFileRef = useRef<string | null>(selectedFile)
+  const setSelected = useCallback((path: string | null) => {
+    selectedFileRef.current = path
+    setSelectedFile(path)
+  }, [])
 
-    const connect = () => {
-      const socket = new WebSocket(wsUrl);
-      wsRef.current = socket;
+  // Show a note without touching history — for Back/Forward, which has already
+  // moved it, and for the empty state when `note` is null.
+  const showNote = useCallback((note: string | null) => {
+    setSelected(note)
+    setAst(null) // Clear while loading
+  }, [setSelected])
 
-      socket.onopen = () => {
-        console.log('[patto] WebSocket connected to', wsUrl);
-        setIsConnected(true);
-      };
+  const { scrollRef, pushNote, replaceNote, clearNote } = useNoteHistory({
+    content: ast,
+    onNavigate: showNote,
+  })
 
-      socket.onmessage = (event) => {
-        try {
-          // Backend uses #[serde(tag = "type", content = "data")]
-          // so messages arrive as { type: "...", data: { ... } }
-          const msg = JSON.parse(event.data);
-          const data = msg.data ?? {};
+  const handleMessage = useCallback((msg: ServerMessage, isOwnReply: boolean) => {
+    switch (msg.type) {
+      case 'FileList': {
+        const paths = msg.data.files ?? []
+        const metadata = msg.data.metadata ?? {}
+        setFiles(byNewest(paths.map(path => ({ path, modified: metadata[path]?.modified ?? 0 }))))
 
-          console.log('[patto] msg:', msg.type);
-
-          if (msg.type === 'FileList') {
-            const filePaths: string[] = data.files || [];
-            const metadataMap: Record<string, FileMetadata> = data.metadata || {};
-
-            const fileEntries: FileEntry[] = filePaths.map(path => {
-              const meta = metadataMap[path];
-              return {
-                path,
-                modified: meta ? meta.modified : 0
-              };
-            });
-
-            // Sort by newest modified first
-            fileEntries.sort((a, b) => b.modified - a.modified);
-            setFiles(fileEntries);
-
-          } else if (msg.type === 'FileChanged') {
-            console.log('[patto] FileChanged ast:', JSON.stringify(data.ast).substring(0, 200));
-            setAst(data.ast ?? null);
-            if (data.path && data.metadata) {
-              setFiles(prev => {
-                const updated = prev.map(f =>
-                  f.path === data.path ? { ...f, modified: data.metadata.modified } : f
-                );
-                return [...updated].sort((a, b) => b.modified - a.modified);
-              });
-            }
-          } else if (msg.type === 'FileAdded') {
-            if (data.path && data.metadata) {
-              setFiles(prev =>
-                [...prev, { path: data.path, modified: data.metadata.modified }]
-                  .sort((a, b) => b.modified - a.modified)
-              );
-            }
-          } else if (msg.type === 'FileRemoved') {
-            if (data.path) {
-              setFiles(prev => prev.filter(f => f.path !== data.path));
-            }
-          } else if (msg.type === 'PinnedFiles') {
-            setPinnedFiles(data.pinned || []);
-          }
-        } catch (e) {
-          console.error('[patto] Failed to parse websocket message', e, event.data);
+        // A `?note=` naming a file that is not in the workspace would otherwise
+        // sit on "Loading..." forever, since the server answers it with nothing.
+        const current = selectedFileRef.current
+        if (current && !paths.includes(current)) {
+          console.warn('[patto] note from URL not found in workspace:', current)
+          showNote(null)
+          clearNote()
         }
-      };
+        break
+      }
 
-      socket.onclose = () => {
-        console.log('[patto] WebSocket closed, reconnecting in 2s...');
-        setIsConnected(false);
-        wsRef.current = null;
-        setTimeout(connect, 2000);
-      };
+      case 'FileChanged': {
+        const { path, metadata, ast: changed } = msg.data
+        if (isOwnReply) {
+          // Show it only if it is still what we are on: pressing Back before it
+          // arrived means we have moved on since asking.
+          if (path === selectedFileRef.current) setAst(changed ?? null)
+        } else {
+          // A broadcast — some file changed on disk, including Neovim buffers
+          // arriving over the LSP bridge — and it takes over the view. Keep the
+          // URL honest about that, but replace rather than push: a `git pull`
+          // touching many files would otherwise shred the back stack.
+          if (path !== selectedFileRef.current) {
+            setSelected(path)
+            replaceNote(path)
+          }
+          setAst(changed ?? null)
+        }
+        if (metadata) {
+          setFiles(prev => byNewest(
+            prev.map(f => (f.path === path ? { ...f, modified: metadata.modified } : f))))
+        }
+        break
+      }
 
-      socket.onerror = (err) => {
-        console.error('[patto] WebSocket error:', err);
-      };
-    };
+      case 'FileAdded':
+        if (msg.data.path && msg.data.metadata) {
+          setFiles(prev => byNewest([...prev, { path: msg.data.path, modified: msg.data.metadata.modified }]))
+        }
+        break
 
-    connect();
+      case 'FileRemoved':
+        if (msg.data.path) setFiles(prev => prev.filter(f => f.path !== msg.data.path))
+        break
 
-    return () => {
-      wsRef.current?.close();
-    };
-  }, []);
-
-  const handleSelectFile = useCallback((path: string) => {
-    setSelectedFile(path);
-    setAst(null); // Clear while loading
-    const socket = wsRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      // Backend WsClientMessage: #[serde(tag = "type", content = "data")]
-      socket.send(JSON.stringify({ type: 'SelectFile', data: { path } }));
-      console.log('[patto] SelectFile sent:', path);
-    } else {
-      console.warn('[patto] WebSocket not open, state:', socket?.readyState);
+      case 'PinnedFiles':
+        setPinnedFiles(msg.data.pinned ?? [])
+        break
     }
-  }, []);
+  }, [clearNote, replaceNote, setSelected, showNote])
+
+  const { isConnected, selectNote, setPinned } = usePreviewSocket({ onMessage: handleMessage })
+
+  // Ask the server for whatever we are meant to be showing. Running again on
+  // reconnect is what brings the view back when the server restarts, and it also
+  // covers the `?note=` we were opened with, which is selected before we connect.
+  useEffect(() => {
+    if (isConnected && selectedFile) selectNote(selectedFile)
+  }, [isConnected, selectedFile, selectNote])
+
+  // User-intent navigation: a sidebar click, fuzzy-find Enter, or a wiki link.
+  const handleSelectFile = useCallback((path: string) => {
+    // Re-selecting the open note only makes sure the URL agrees; re-showing it
+    // would blank the view with nothing on the way to replace it.
+    if (path === selectedFileRef.current) {
+      replaceNote(path)
+      return
+    }
+    pushNote(path)
+    showNote(path)
+  }, [pushNote, replaceNote, showNote])
 
   const handleWikiLinkClick = useCallback((link: string, _anchor?: string) => {
     const targetFile = files.find(f => f.path.replace(/\.pn$/, '') === link || f.path === link || f.path === `${link}.pn`);
@@ -154,11 +143,8 @@ function App() {
 
   const handleTogglePin = useCallback((e: React.MouseEvent, path: string) => {
     e.stopPropagation();
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    const isPinned = pinnedFiles.includes(path);
-    socket.send(JSON.stringify({ type: isPinned ? 'UnpinFile' : 'PinFile', data: { path } }));
-  }, [pinnedFiles]);
+    setPinned(path, !pinnedFiles.includes(path));
+  }, [pinnedFiles, setPinned]);
 
   // Reset highlight when query changes
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -284,7 +270,7 @@ function App() {
         ) : (
           <>
             <div className="screen-only h-full">
-              <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
+              <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} scrollElementRef={scrollRef} />
             </div>
             <PrintRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
           </>
