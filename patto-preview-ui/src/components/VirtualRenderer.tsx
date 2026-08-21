@@ -88,7 +88,7 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
             const isEmpty = contents.length === 0 && text.trim() === '' && children.length === 0;
 
             if (isEmpty) {
-                return <div className="min-h-[1.5rem]">&nbsp;</div>;
+                return <div className="min-h-[1.5em]">&nbsp;</div>;
             }
 
             // Extract task property (first Task found in properties)
@@ -98,7 +98,7 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
             const due = taskProp?.Task.due ?? null;
 
             const inner = (
-                <div className={`leading-snug min-h-[1.5rem]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
+                <div className={`leading-snug min-h-[1.5em]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
                     {/* Use div instead of span so block-level content nodes (e.g. HorizontalLine) render correctly */}
                     <div className="flex items-baseline gap-1 flex-wrap">
                         {taskStatus && <TaskIcon status={taskStatus} />}
@@ -115,7 +115,7 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
                         )}
                     </div>
                     {children.length > 0 && (
-                        <div className="pl-5 border-l border-slate-100 ml-1 mt-1.5 space-y-1.5">
+                        <div className="pl-5 border-l border-slate-100 ml-1 mt-[0.375em] space-y-[0.375em]">
                             {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
                         </div>
                     )}
@@ -305,7 +305,7 @@ export default function VirtualRenderer({ ast, onWikiLinkClick }: VirtualRendere
                                 width: '100%',
                                 transform: `translateY(${virtualItem.start}px)`,
                             }}
-                            className="w-full px-8 py-[3px]"
+                            className="w-full px-8 py-[0.1875em]"
                         >
                             <RenderNode node={block} onWikiLinkClick={onWikiLinkClick} />
                         </div>
