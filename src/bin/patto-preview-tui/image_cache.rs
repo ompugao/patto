@@ -184,7 +184,7 @@ impl ImageCache {
             Ok(img) => {
                 // Compute the exact terminal rows this image occupies so we
                 // can allocate a tight rect (no blank padding below the formula).
-                let (_, cell_h) = self.picker.as_ref().unwrap().font_size();
+                let cell_h = self.picker.as_ref().unwrap().font_size().height;
                 let rows_needed = if cell_h > 0 {
                     ((img.height() as f32 / cell_h as f32).ceil() as u16).max(1)
                 } else {
