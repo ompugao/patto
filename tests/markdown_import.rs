@@ -57,7 +57,7 @@ def hello():
 
     // Check headings
     assert!(
-        patto.contains("My Document\n---"),
+        patto.contains("My Document\n-----"),
         "H1 should become text + horizontal line"
     );
     assert!(

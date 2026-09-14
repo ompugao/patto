@@ -267,7 +267,7 @@ impl<'a> Conversion<'a> {
             Event::SoftBreak | Event::HardBreak => self.line += 1,
             Event::Rule => {
                 self.root
-                    .add_child(AstNode::horizontal_line("---", self.line, None));
+                    .add_child(AstNode::horizontal_line("-----", self.line, None));
                 self.report.statistics.increment_feature("horizontal_rules");
             }
             Event::TaskListMarker(checked) => self.lists.task_checked = Some(checked),
@@ -932,7 +932,7 @@ mod tests {
     #[test]
     fn test_horizontal_rule() {
         let result = import_lossy("---");
-        assert!(result.patto_content.contains("---"));
+        assert!(result.patto_content.contains("-----"));
     }
 
     #[test]

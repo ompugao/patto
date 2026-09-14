@@ -294,7 +294,8 @@ impl PattoRenderer {
                 }
             }
             AstNodeKind::HorizontalLine => {
-                writeln!(output, "---")?;
+                // The grammar needs at least five dashes; fewer re-parse as text.
+                writeln!(output, "-----")?;
             }
         }
         Ok(())
