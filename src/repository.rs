@@ -734,172 +734,164 @@ impl Repository {
         tasks
     }
 
-    /// Start filesystem watcher for the repository
+    /// Start watching the repository directory for `.pn` and workspace-config changes.
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (tx, mut rx) = mpsc::channel(100);
-        let watch_dir = self.root_dir.clone();
-        let dir_display = watch_dir.display().to_string();
-        let watcher_tx = tx.clone();
+        let (tx, rx) = mpsc::channel(100);
+        // Registered before returning, so changes made right after this call are seen.
+        let watcher = watch_dir(&self.root_dir, tx.clone())?;
+        keep_alive_until_closed(watcher, tx);
+        self.clone().spawn_event_loop(rx);
+        Ok(())
+    }
 
-        // Spawn a blocking task for the file watcher
-        tokio::task::spawn_blocking(move || {
-            let mut watcher = RecommendedWatcher::new(
-                move |result| {
-                    if let Ok(event) = result {
-                        let _ = watcher_tx.blocking_send(event);
-                    }
-                },
-                Config::default(),
-            )
-            .unwrap();
-
-            watcher.watch(&watch_dir, RecursiveMode::Recursive).unwrap();
-            std::thread::park();
-        });
-
-        //eprintln!("Repository watching directory: {}", dir_display);
-
-        let pending_changes: Arc<Mutex<HashMap<PathBuf, Instant>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        let debounce_duration = Duration::from_millis(10);
-
-        let repo_tx = self.tx.clone();
-        let root_dir = self.root_dir.clone();
-        let repository = self.clone();
-
-        // Process events from the channel
+    fn spawn_event_loop(self, mut rx: mpsc::Receiver<notify::Event>) {
+        let debouncer = Debouncer::new(Duration::from_millis(10));
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
-                if !(event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove()) {
-                    continue;
-                }
-                for path in event.paths {
-                    let is_pn = path.extension().and_then(|s| s.to_str()) == Some("pn");
-                    let is_workspace_config = path.file_name().and_then(|n| n.to_str())
-                        == Some(WORKSPACE_CONFIG_FILENAME);
-
-                    if !is_pn && !is_workspace_config {
-                        continue;
-                    }
-
-                    // Handle .patto.toml changes: reload config and broadcast
-                    if is_workspace_config {
-                        if event.kind.is_modify() || event.kind.is_create() {
-                            let new_cfg = load_workspace_config(&root_dir);
-                            *repository.workspace_config.lock().unwrap() = new_cfg.clone();
-                            let _ =
-                                repo_tx.send(RepositoryMessage::WorkspaceConfigChanged(new_cfg));
-                        }
-                        continue;
-                    }
-
-                    if event.kind.is_create() {
-                        let Ok(rel_path) = path.strip_prefix(&root_dir) else {
-                            continue;
-                        };
-                        // Read file content and add to graph
-                        let Ok(content) = std::fs::read_to_string(&path) else {
-                            continue;
-                        };
-                        repository.add_file_to_graph(&path, &content);
-
-                        let Ok(file_metadata) = std::fs::metadata(&path) else {
-                            continue;
-                        };
-                        let modified = file_metadata
-                            .modified()
-                            .unwrap_or(SystemTime::UNIX_EPOCH)
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-
-                        let created = file_metadata
-                            .created()
-                            .unwrap_or(SystemTime::UNIX_EPOCH)
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-
-                        //let link_count = repository.count_links_in_file(&path).unwrap_or(0);
-                        let link_count = repository.calculate_back_links(&path).len();
-
-                        let metadata = FileMetadata {
-                            modified,
-                            created,
-                            link_count: link_count.try_into().unwrap(),
-                        };
-
-                        let _ = repo_tx.send(RepositoryMessage::FileAdded(
-                            rel_path.to_path_buf(),
-                            metadata,
-                        ));
-                    } else if event.kind.is_remove() {
-                        let Ok(rel_path) = path.strip_prefix(&root_dir) else {
-                            continue;
-                        };
-                        // Remove from graph
-                        repository.remove_file_from_graph(&path);
-                        let _ =
-                            repo_tx.send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
-                    } else if event.kind.is_modify() && path.is_file() {
-                        {
-                            let mut changes = pending_changes.lock().unwrap();
-                            changes.insert(path.clone(), Instant::now());
-                        }
-
-                        let path_clone = path.clone();
-                        let pending_changes_clone = Arc::clone(&pending_changes);
-                        let repository_clone = repository.clone();
-
-                        tokio::spawn(async move {
-                            sleep(debounce_duration).await;
-
-                            let should_process = {
-                                let mut changes = pending_changes_clone.lock().unwrap();
-                                if let Some(&last_change) = changes.get(&path_clone) {
-                                    let is_latest = Instant::now().duration_since(last_change)
-                                        >= debounce_duration;
-                                    if is_latest {
-                                        changes.remove(&path_clone);
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            };
-
-                            if should_process {
-                                let Ok(content) = tokio::fs::read_to_string(&path_clone).await
-                                else {
-                                    return;
-                                };
-
-                                let _start = Instant::now();
-                                repository_clone
-                                    .handle_live_file_change(path_clone.clone(), content)
-                                    .await;
-
-                                /*
-                                if let Ok(rel_path) =
-                                    path_clone.strip_prefix(&repository_clone.root_dir)
-                                {
-                                    eprintln!(
-                                        "File {} processed in {} ms",
-                                        rel_path.display(),
-                                        start.elapsed().as_millis()
-                                    );
-                                }
-                                */
-                            }
-                        });
-                    }
-                }
+                self.handle_fs_event(event, &debouncer).await;
             }
         });
+    }
 
-        Ok(())
+    async fn handle_fs_event(&self, event: notify::Event, debouncer: &Arc<Debouncer>) {
+        if !(event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove()) {
+            return;
+        }
+
+        for path in event.paths {
+            if path.file_name().and_then(|n| n.to_str()) == Some(WORKSPACE_CONFIG_FILENAME) {
+                if event.kind.is_modify() || event.kind.is_create() {
+                    self.reload_workspace_config();
+                }
+                continue;
+            }
+
+            if path.extension().and_then(|s| s.to_str()) != Some("pn") {
+                continue;
+            }
+
+            if event.kind.is_create() {
+                self.handle_file_created(&path);
+            } else if event.kind.is_remove() {
+                self.handle_file_removed(&path);
+            } else if event.kind.is_modify() && path.is_file() {
+                self.spawn_debounced_reload(path, debouncer.clone());
+            }
+        }
+    }
+
+    fn reload_workspace_config(&self) {
+        let config = load_workspace_config(&self.root_dir);
+        *self.workspace_config.lock().unwrap() = config.clone();
+        let _ = self
+            .tx
+            .send(RepositoryMessage::WorkspaceConfigChanged(config));
+    }
+
+    fn handle_file_created(&self, path: &Path) {
+        let Ok(rel_path) = path.strip_prefix(&self.root_dir) else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return;
+        };
+        self.add_file_to_graph(path, &content);
+
+        let Ok(metadata) = self.collect_file_metadata(&path.to_path_buf()) else {
+            return;
+        };
+        let _ = self.tx.send(RepositoryMessage::FileAdded(
+            rel_path.to_path_buf(),
+            metadata,
+        ));
+    }
+
+    fn handle_file_removed(&self, path: &Path) {
+        let Ok(rel_path) = path.strip_prefix(&self.root_dir) else {
+            return;
+        };
+        self.remove_file_from_graph(path);
+        let _ = self
+            .tx
+            .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+    }
+
+    /// Editors write a file in several bursts, so wait out the burst and reload
+    /// only once the path has been quiet for the debounce window.
+    fn spawn_debounced_reload(&self, path: PathBuf, debouncer: Arc<Debouncer>) {
+        debouncer.record(&path);
+
+        let repository = self.clone();
+        tokio::spawn(async move {
+            sleep(debouncer.window).await;
+            if !debouncer.take_if_settled(&path) {
+                return;
+            }
+            let Ok(content) = tokio::fs::read_to_string(&path).await else {
+                return;
+            };
+            repository.handle_live_file_change(path, content).await;
+        });
+    }
+}
+
+/// Register a recursive watch on `dir`, forwarding its events to `tx`.
+fn watch_dir(dir: &Path, tx: mpsc::Sender<notify::Event>) -> notify::Result<RecommendedWatcher> {
+    let mut watcher = RecommendedWatcher::new(
+        // `notify` invokes this on its own thread, never on a runtime worker.
+        move |result| {
+            if let Ok(event) = result {
+                let _ = tx.blocking_send(event);
+            }
+        },
+        Config::default(),
+    )?;
+    watcher.watch(dir, RecursiveMode::Recursive)?;
+    Ok(watcher)
+}
+
+/// A watcher stops delivering events once dropped, so park it in a task that
+/// outlives every event consumer.
+fn keep_alive_until_closed(watcher: RecommendedWatcher, tx: mpsc::Sender<notify::Event>) {
+    tokio::spawn(async move {
+        tx.closed().await;
+        drop(watcher);
+    });
+}
+
+/// Collapses a burst of modify events into a single reload per path.
+struct Debouncer {
+    pending: Mutex<HashMap<PathBuf, Instant>>,
+    window: Duration,
+}
+
+impl Debouncer {
+    fn new(window: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            pending: Mutex::new(HashMap::new()),
+            window,
+        })
+    }
+
+    fn record(&self, path: &Path) {
+        self.pending
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), Instant::now());
+    }
+
+    /// `true` if `path` has been quiet for the whole window, in which case the
+    /// entry is consumed so only one waiter reloads it.
+    fn take_if_settled(&self, path: &Path) -> bool {
+        let mut pending = self.pending.lock().unwrap();
+        let Some(&last_change) = pending.get(path) else {
+            return false;
+        };
+        if Instant::now().duration_since(last_change) < self.window {
+            return false;
+        }
+        pending.remove(path);
+        true
     }
 }
 
