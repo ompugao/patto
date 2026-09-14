@@ -5,7 +5,7 @@ use std::cmp;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 //use std::time::{Instant};
 use log;
 use thiserror::Error;
@@ -131,12 +131,12 @@ pub struct Annotation<T> {
 #[derive(Debug, Default, Serialize)]
 pub struct AstNodeInternal {
     #[serde(serialize_with = "serialize_mutex_vec")]
-    pub contents: Mutex<Vec<AstNode>>,
+    contents: Mutex<Vec<AstNode>>,
     #[serde(serialize_with = "serialize_mutex_vec")]
-    pub children: Mutex<Vec<AstNode>>,
-    pub kind: AstNodeKind,
+    children: Mutex<Vec<AstNode>>,
+    kind: AstNodeKind,
     #[serde(serialize_with = "serialize_mutex_opt_i64")]
-    pub stable_id: Mutex<Option<i64>>,
+    stable_id: Mutex<Option<i64>>,
 }
 
 fn serialize_mutex_vec<S, T: Serialize>(
@@ -505,20 +505,36 @@ impl AstNode {
         )
     }
 
-    pub fn value(&self) -> &AstNodeInternal {
-        &self.0.value
-    }
     pub fn kind(&self) -> &AstNodeKind {
-        &self.value().kind
+        &self.0.value.kind
     }
+
+    /// Inline contents of this node (text, links, decorations, ...).
+    pub fn contents(&self) -> MutexGuard<'_, Vec<AstNode>> {
+        self.0.value.contents.lock().unwrap()
+    }
+
+    /// Nested block children of this node (indented lines, block body, ...).
+    pub fn children(&self) -> MutexGuard<'_, Vec<AstNode>> {
+        self.0.value.children.lock().unwrap()
+    }
+
+    pub fn stable_id(&self) -> Option<i64> {
+        *self.0.value.stable_id.lock().unwrap()
+    }
+
+    pub fn set_stable_id(&self, stable_id: i64) {
+        *self.0.value.stable_id.lock().unwrap() = Some(stable_id);
+    }
+
     pub fn add_content(&self, content: AstNode) {
-        self.value().contents.lock().unwrap().push(content);
+        self.contents().push(content);
     }
     pub fn add_contents(&self, contents: Vec<AstNode>) {
-        self.value().contents.lock().unwrap().extend(contents);
+        self.contents().extend(contents);
     }
     pub fn add_child(&self, child: AstNode) {
-        self.value().children.lock().unwrap().push(child);
+        self.children().push(child);
     }
     pub fn location(&self) -> &Location {
         &self.0.location
@@ -537,7 +553,7 @@ impl Clone for AstNode {
 impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "extracted: {}", self.extract_str())?;
-        for content in self.value().contents.lock().unwrap().iter() {
+        for content in self.contents().iter() {
             write!(f, "-- {}", content)?;
         }
         if let AstNodeKind::Line { properties } = &self.kind() {
@@ -545,7 +561,7 @@ impl fmt::Display for AstNode {
                 writeln!(f, "property -- {:?}", prop)?;
             }
         }
-        for (i, child) in self.value().children.lock().unwrap().iter().enumerate() {
+        for (i, child) in self.children().iter().enumerate() {
             writeln!(f, "\t{i}child -- {:?}", child)?;
         }
         Ok(())
@@ -607,10 +623,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
         return Some(parent);
     }
     let last_child_line = parent
-        .value()
-        .children
-        .lock()
-        .unwrap()
+        .children()
         .iter()
         .filter_map(|e| match e.kind() {
             AstNodeKind::Line { .. } => Some(e.clone()),
@@ -627,7 +640,7 @@ fn find_parent_quote_content(quote: &AstNode, relative_indent: usize) -> AstNode
         return quote.clone();
     }
 
-    let children = quote.value().children.lock().unwrap();
+    let children = quote.children();
     if let Some(last_qc) = children
         .iter()
         .rfind(|c| matches!(c.kind(), AstNodeKind::QuoteContent { .. }))
@@ -1053,22 +1066,16 @@ fn apply_line_ids_to_ast(node: &AstNode, line_tracker: &LineTracker, _text: &str
         if let Some(line_id) = line_tracker.get_line_id(row + 1) {
             // negative id corresponds to special cases such as empty lines
             if line_id > 0 {
-                // We need to access the internal mutable state to set stable_id
-                // This is tricky due to Arc wrapping, but we can modify the approach
-                set_node_stable_id(node, line_id);
+                node.set_stable_id(line_id);
             }
         }
     }
 
     // Recursively apply to children
-    let children = node.value().children.lock().unwrap();
+    let children = node.children();
     for child in children.iter() {
         apply_line_ids_to_ast(child, line_tracker, _text);
     }
-}
-
-fn set_node_stable_id(node: &AstNode, stable_id: i64) {
-    *node.value().stable_id.lock().unwrap() = Some(stable_id);
 }
 
 fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
@@ -2230,10 +2237,7 @@ mod tests {
         } else {
             panic! {"Inline math could not be parsed"};
         }
-        assert_eq!(
-            math.value().contents.lock().unwrap()[0].extract_str(),
-            "math = a * b * c"
-        );
+        assert_eq!(math.contents()[0].extract_str(), "math = a * b * c");
         Ok(())
     }
 
@@ -2939,13 +2943,13 @@ mod tab_indentation_tests {
         );
 
         let root = result.ast;
-        let children = root.value().children.lock().unwrap();
+        let children = root.children();
 
         // Debug output
         eprintln!("Root has {} children", children.len());
         for (i, child) in children.iter().enumerate() {
             eprintln!("Child {}: {:?}", i, child.kind());
-            let subchildren = child.value().children.lock().unwrap();
+            let subchildren = child.children();
             for (j, subchild) in subchildren.iter().enumerate() {
                 eprintln!("  Subchild {}: {:?}", j, subchild.kind());
             }

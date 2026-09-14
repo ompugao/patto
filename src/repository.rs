@@ -196,11 +196,11 @@ impl Repository {
             wikilinks.push((link.clone(), anchor.clone(), parent.location().clone()));
         }
 
-        for content in parent.value().contents.lock().unwrap().iter() {
+        for content in parent.contents().iter() {
             Self::gather_wikilinks(content, wikilinks);
         }
 
-        for child in parent.value().children.lock().unwrap().iter() {
+        for child in parent.children().iter() {
             Self::gather_wikilinks(child, wikilinks);
         }
     }
@@ -915,7 +915,7 @@ pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) 
             }
         }
     }
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_tasks(child, tasklines);
     }
 }
@@ -944,7 +944,7 @@ pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, ch
             }
         }
     }
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_completed_tasks(child, tasklines);
     }
 }

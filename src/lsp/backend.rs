@@ -232,7 +232,7 @@ fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diag
             }
         }
     }
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         gather_stale_started_at_diagnostics_impl(child, diags);
     }
 }
@@ -246,7 +246,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
         }
     }
 
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_anchors(child, anchors);
     }
 }
@@ -395,10 +395,7 @@ fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
 
     #[allow(clippy::map_clone)]
     return parent
-        .value()
-        .children
-        .lock()
-        .unwrap()
+        .children()
         .iter()
         .find_map(|child| find_anchor(child, anchor))
         .map(|x| x.clone());
@@ -423,7 +420,7 @@ fn find_anchor_at_position(
         }
     }
 
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         if let Some(result) = find_anchor_at_position(child, row, col) {
             return Some(result);
         }
@@ -448,18 +445,18 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
         parentrow
     );
     if matches!(parent.kind(), AstNodeKind::Dummy) || parentrow < row {
-        for child in parent.value().children.lock().unwrap().iter() {
+        for child in parent.children().iter() {
             if let Some(mut route) = locate_node_route_impl(child, row, col) {
                 route.push(parent.clone());
                 return Some(route);
             }
         }
     } else if parentrow == row {
-        if parent.value().contents.lock().unwrap().is_empty() {
+        if parent.contents().is_empty() {
             log::debug!("{:?} must be leaf", parent.extract_str());
             return Some(vec![parent.clone()]);
         }
-        for content in parent.value().contents.lock().unwrap().iter() {
+        for content in parent.contents().iter() {
             if content.location().span.contains(col) {
                 log::debug!(
                     "in content: {:?}, spanning ({}, {})",
@@ -2059,14 +2056,14 @@ impl LanguageServer for Backend {
 fn last_row_of(node: &AstNode) -> usize {
     let mut max = node.location().row;
 
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         let child_row = last_row_of(child);
         if child_row > max {
             max = child_row;
         }
     }
 
-    for content in node.value().contents.lock().unwrap().iter() {
+    for content in node.contents().iter() {
         let content_row = last_row_of(content);
         if content_row > max {
             max = content_row;
@@ -2086,7 +2083,7 @@ fn last_row_of(node: &AstNode) -> usize {
 fn collect_folding_ranges(root: &AstNode) -> Vec<FoldingRange> {
     let mut ranges = Vec::new();
     // The Dummy root has no location; iterate its children directly
-    let children = root.value().children.lock().unwrap().clone();
+    let children = root.children().clone();
     for child in children.iter() {
         collect_folding_ranges_node(child, &mut ranges);
     }
@@ -2122,13 +2119,13 @@ fn collect_folding_ranges_node(node: &AstNode, ranges: &mut Vec<FoldingRange>) {
 
     // Recurse into children and contents (depth-first, so inner folds are added first)
     {
-        let children = node.value().children.lock().unwrap().clone();
+        let children = node.children().clone();
         for child in children.iter() {
             collect_folding_ranges_node(child, ranges);
         }
     }
     {
-        let contents = node.value().contents.lock().unwrap().clone();
+        let contents = node.contents().clone();
         for content in contents.iter() {
             collect_folding_ranges_node(content, ranges);
         }
@@ -2246,7 +2243,7 @@ mod tests {
         let (ast, _) = parse_text(
             "buy milk [https://example.com/foo milk title] {@task status=todo due=2026-06-01}",
         );
-        let children = ast.value().children.lock().unwrap();
+        let children = ast.children();
         let line = &children[0];
         let label = task_label(line);
         assert_eq!(label, "buy milk [🔗milk title]");
@@ -2254,14 +2251,14 @@ mod tests {
         let (ast2, _) = parse_text(
             "[milk title https://example.com/foo] buy milk {@task status=todo due=2026-06-01}",
         );
-        let children2 = ast2.value().children.lock().unwrap();
+        let children2 = ast2.children();
         let line2 = &children2[0];
         let label2 = task_label(line2);
         assert_eq!(label2, "[milk title🔗] buy milk");
 
         let (ast3, _) =
             parse_text("buy milk [https://example.com/foo] {@task status=todo due=2026-06-01}");
-        let children3 = ast3.value().children.lock().unwrap();
+        let children3 = ast3.children();
         let line3 = &children3[0];
         let label3 = task_label(line3);
         assert_eq!(label3, "buy milk [https://example.com/foo]");
@@ -2270,7 +2267,7 @@ mod tests {
         let (ast4, _) = parse_text(
             "牛乳を買う [https://example.com/foo 牛乳] {@task status=todo due=2026-06-01}",
         );
-        let children4 = ast4.value().children.lock().unwrap();
+        let children4 = ast4.children();
         let line4 = &children4[0];
         let label4 = task_label(line4);
         assert_eq!(label4, "牛乳を買う [🔗牛乳]");
@@ -2278,7 +2275,7 @@ mod tests {
         let (ast5, _) = parse_text(
             "[牛乳 https://example.com/foo] 牛乳を買う {@task status=todo due=2026-06-01}",
         );
-        let children5 = ast5.value().children.lock().unwrap();
+        let children5 = ast5.children();
         let line5 = &children5[0];
         let label5 = task_label(line5);
         assert_eq!(label5, "[牛乳🔗] 牛乳を買う");

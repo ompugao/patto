@@ -46,7 +46,7 @@ pub fn walk_task_lines(node: &AstNode, f: &mut impl FnMut(&AstNode, &Property)) 
         }
     }
 
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         walk_task_lines(child, f);
     }
 }

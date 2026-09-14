@@ -33,7 +33,7 @@ impl HtmlRenderer {
     }
 
     fn get_stable_id_attr(&self, ast: &AstNode) -> String {
-        if let Some(stable_id) = *ast.value().stable_id.lock().unwrap() {
+        if let Some(stable_id) = ast.stable_id() {
             format!(" data-line-id=\"{}\"", stable_id)
         } else {
             String::new()
@@ -44,7 +44,7 @@ impl HtmlRenderer {
         match &ast.kind() {
             AstNodeKind::Dummy => {
                 write!(output, "<ul class=\"patto-document\">")?;
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     let id_attr = self.get_stable_id_attr(child);
                     write!(output, "<li class=\"patto-line\"{}>", id_attr)?;
@@ -84,7 +84,7 @@ impl HtmlRenderer {
                     "<div class=\"patto-task-content{}{}\">",
                     done_cls, quote_cls
                 )?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
                 }
@@ -113,7 +113,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "</div>")?; // close patto-task-row
 
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 if !children.is_empty() {
                     write!(output, "<ul class=\"patto-children\">")?;
                     for child in children.iter() {
@@ -127,7 +127,7 @@ impl HtmlRenderer {
             }
             AstNodeKind::Quote => {
                 write!(output, "<blockquote class=\"patto-quote\">")?;
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     self.render_quote_content_html(child, output, 0)?;
                 }
@@ -136,14 +136,14 @@ impl HtmlRenderer {
             AstNodeKind::Math { inline } => {
                 if *inline {
                     write!(output, "<span class=\"patto-math-inline\">\\(")?;
-                    let contents = ast.value().contents.lock().unwrap();
+                    let contents = ast.contents();
                     write!(output, "{}", contents[0].extract_str())?;
                     write!(output, "\\)</span>")?;
                 } else {
                     write!(output, "<div class=\"patto-math-block\">")?;
                     // see https://github.com/mathjax/MathJax/issues/2312
                     write!(output, "\\[\\displaylines{{")?;
-                    let children = ast.value().children.lock().unwrap();
+                    let children = ast.children();
                     for child in children.iter() {
                         write!(output, "{}", child.extract_str())?;
                     }
@@ -154,13 +154,13 @@ impl HtmlRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "<code class=\"patto-inline-code\">")?;
-                    let contents = ast.value().contents.lock().unwrap();
+                    let contents = ast.contents();
                     write!(output, "{}", encode_text(contents[0].extract_str()))?;
                     write!(output, "</code>")?;
                 } else {
                     if lang == "mermaid" {
                         write!(output, "<pre class=\"mermaid\">")?;
-                        let children = ast.value().children.lock().unwrap();
+                        let children = ast.children();
                         for child in children.iter() {
                             writeln!(output, "{}", child.extract_str())?;
                         }
@@ -171,7 +171,7 @@ impl HtmlRenderer {
                             "<pre class=\"hljs patto-code-block\"><code class=\"language-{}\">",
                             lang
                         )?;
-                        let children = ast.value().children.lock().unwrap();
+                        let children = ast.children();
                         for child in children.iter() {
                             writeln!(output, "{}", encode_text(child.extract_str()))?;
                         }
@@ -337,7 +337,7 @@ impl HtmlRenderer {
                     "<span class=\"{}\" style=\"font-size: {font_pct}%;{fontweight}\">",
                     cls.trim()
                 )?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
                 }
@@ -360,7 +360,7 @@ impl HtmlRenderer {
                 }
                 write!(output, "<table class=\"patto-table\">")?;
                 write!(output, "<tbody>")?;
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     self._format_impl(child, output)?;
                 }
@@ -368,7 +368,7 @@ impl HtmlRenderer {
             }
             AstNodeKind::TableRow => {
                 write!(output, "<tr>")?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
                 }
@@ -376,7 +376,7 @@ impl HtmlRenderer {
             }
             AstNodeKind::TableColumn => {
                 write!(output, "<td>")?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for content in contents.iter() {
                     self._format_impl(content, output)?;
                 }
@@ -394,7 +394,7 @@ impl HtmlRenderer {
         indent_level: usize,
     ) -> io::Result<()> {
         // Check if this contains a nested Quote block
-        let contents = quote_content.value().contents.lock().unwrap();
+        let contents = quote_content.contents();
         let has_nested_quote =
             contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
 
@@ -429,7 +429,7 @@ impl HtmlRenderer {
         }
 
         // Render children (nested QuoteContent) with increased indent
-        let children = quote_content.value().children.lock().unwrap();
+        let children = quote_content.children();
         for child in children.iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
                 self.render_quote_content_html(child, output, indent_level + 1)?;
@@ -503,7 +503,7 @@ impl MarkdownRenderer {
     ) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     let child_row = child.location().row;
                     // Check if this child or any of its descendants are in range
@@ -521,7 +521,7 @@ impl MarkdownRenderer {
                     self._format_impl(ast, output, depth, in_quote)?;
                 } else if row < start_line {
                     // This line is before range, but check children
-                    let children = ast.value().children.lock().unwrap();
+                    let children = ast.children();
                     for child in children.iter() {
                         let child_row = child.location().row;
                         if child_row >= start_line && child_row <= end_line {
@@ -555,17 +555,17 @@ impl MarkdownRenderer {
     ) -> io::Result<()> {
         match &ast.kind() {
             AstNodeKind::Dummy => {
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     self._format_impl(child, output, depth, in_quote)?;
                 }
             }
             AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-                let has_children = !ast.value().children.lock().unwrap().is_empty();
+                let has_children = !ast.children().is_empty();
                 let is_quote_content = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
 
                 // Check if this line only contains a block element (quote, code, math, table)
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 let is_block_container = contents.len() == 1
                     && matches!(
                         contents[0].kind(),
@@ -629,7 +629,7 @@ impl MarkdownRenderer {
                 }
 
                 // Render contents
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, depth, in_quote)?;
                 }
 
@@ -701,7 +701,7 @@ impl MarkdownRenderer {
                 }
 
                 // Render children
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     self._format_impl(child, output, depth + 1, in_quote)?;
                 }
@@ -713,14 +713,14 @@ impl MarkdownRenderer {
             AstNodeKind::Math { inline } => {
                 if *inline {
                     write!(output, "$")?;
-                    let contents = ast.value().contents.lock().unwrap();
+                    let contents = ast.contents();
                     if !contents.is_empty() {
                         write!(output, "{}", contents[0].extract_str())?;
                     }
                     write!(output, "$")?;
                 } else {
                     writeln!(output, "$$")?;
-                    let children = ast.value().children.lock().unwrap();
+                    let children = ast.children();
                     for child in children.iter() {
                         writeln!(output, "{}", child.extract_str())?;
                     }
@@ -730,7 +730,7 @@ impl MarkdownRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "`")?;
-                    let contents = ast.value().contents.lock().unwrap();
+                    let contents = ast.contents();
                     if !contents.is_empty() {
                         write!(output, "{}", contents[0].extract_str())?;
                     }
@@ -738,7 +738,7 @@ impl MarkdownRenderer {
                 } else {
                     // Proper fenced code block (NOT nested in list)
                     writeln!(output, "```{}", lang)?;
-                    let children = ast.value().children.lock().unwrap();
+                    let children = ast.children();
                     for child in children.iter() {
                         writeln!(output, "{}", child.extract_str())?;
                     }
@@ -836,7 +836,7 @@ impl MarkdownRenderer {
                 }
 
                 // Content
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, depth, in_quote)?;
                 }
 
@@ -867,13 +867,13 @@ impl MarkdownRenderer {
                     writeln!(output, "*{}*", caption)?;
                 }
 
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for (i, child) in children.iter().enumerate() {
                     self._format_impl(child, output, depth, in_quote)?;
 
                     // Add header separator after first row
                     if i == 0 {
-                        let col_count = child.value().contents.lock().unwrap().len();
+                        let col_count = child.contents().len();
                         write!(output, "|")?;
                         for _ in 0..col_count {
                             write!(output, " --- |")?;
@@ -884,7 +884,7 @@ impl MarkdownRenderer {
             }
             AstNodeKind::TableRow => {
                 write!(output, "|")?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for content in contents.iter() {
                     write!(output, " ")?;
                     self._format_impl(content, output, depth, in_quote)?;
@@ -893,7 +893,7 @@ impl MarkdownRenderer {
                 writeln!(output)?;
             }
             AstNodeKind::TableColumn => {
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, depth, in_quote)?;
                 }
             }
@@ -910,7 +910,7 @@ impl MarkdownRenderer {
         depth: usize,
         inner_depth: usize,
     ) -> io::Result<()> {
-        let children = quote.value().children.lock().unwrap();
+        let children = quote.children();
         for child in children.iter() {
             match child.kind() {
                 AstNodeKind::QuoteContent { .. } => {
@@ -949,14 +949,14 @@ impl MarkdownRenderer {
         }
 
         // Check if this is a nested Quote block
-        let contents = quote_content.value().contents.lock().unwrap();
+        let contents = quote_content.contents();
         let has_nested_quote =
             contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
 
         if has_nested_quote {
             // For nested quotes, we need to output with extra "> " markers
             drop(contents);
-            let contents = quote_content.value().contents.lock().unwrap();
+            let contents = quote_content.contents();
             for content in contents.iter() {
                 if let AstNodeKind::Quote = content.kind() {
                     writeln!(output)?; // End the current line
@@ -988,7 +988,7 @@ impl MarkdownRenderer {
         }
 
         // Render children (nested QuoteContent) with increased inner_depth
-        let children = quote_content.value().children.lock().unwrap();
+        let children = quote_content.children();
         for child in children.iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
                 self.render_quote_content(child, output, depth, inner_depth + 1)?;
@@ -1016,7 +1016,7 @@ impl MarkdownRenderer {
         depth: usize,
         quote_level: usize,
     ) -> io::Result<()> {
-        let children = quote.value().children.lock().unwrap();
+        let children = quote.children();
         for child in children.iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
                 self.render_nested_quote_content(child, output, depth, quote_level)?;
@@ -1050,7 +1050,7 @@ impl MarkdownRenderer {
         }
 
         // Render contents
-        let contents = quote_content.value().contents.lock().unwrap();
+        let contents = quote_content.contents();
         for content in contents.iter() {
             self._format_impl(content, output, depth, true)?;
         }
@@ -1059,7 +1059,7 @@ impl MarkdownRenderer {
         writeln!(output)?;
 
         // Render children
-        let children = quote_content.value().children.lock().unwrap();
+        let children = quote_content.children();
         for child in children.iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
                 self.render_nested_quote_content(child, output, depth, quote_level)?;
@@ -1091,7 +1091,7 @@ impl PattoRenderer {
             AstNodeKind::Dummy => {
                 // Render all children at base indent level
                 // The tree structure provides proper nesting for list items
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     self._format_impl(child, output, self.base_indent)?;
                 }
@@ -1124,7 +1124,7 @@ impl PattoRenderer {
                 }
 
                 // Render contents
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, 0)?;
                 }
 
@@ -1153,7 +1153,7 @@ impl PattoRenderer {
                 writeln!(output)?;
 
                 // Children
-                for child in ast.value().children.lock().unwrap().iter() {
+                for child in ast.children().iter() {
                     self._format_impl(child, output, depth + 1)?;
                 }
             }
@@ -1185,7 +1185,7 @@ impl PattoRenderer {
                 }
 
                 // Render contents (clean text, no embedded tabs)
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, 0)?;
                 }
 
@@ -1214,7 +1214,7 @@ impl PattoRenderer {
                 writeln!(output)?;
 
                 // Recursively render nested children at depth+1
-                for child in ast.value().children.lock().unwrap().iter() {
+                for child in ast.children().iter() {
                     self._format_impl(child, output, depth + 1)?;
                 }
             }
@@ -1245,7 +1245,7 @@ impl PattoRenderer {
                 if !markers.is_empty() {
                     write!(output, "[{} ", markers)?;
                 }
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, 0)?;
                 }
                 if !markers.is_empty() {
@@ -1255,7 +1255,7 @@ impl PattoRenderer {
             AstNodeKind::Code { lang, inline } => {
                 if *inline {
                     write!(output, "[` ")?;
-                    for content in ast.value().contents.lock().unwrap().iter() {
+                    for content in ast.contents().iter() {
                         write!(output, "{}", content.extract_str())?;
                     }
                     write!(output, " `]")?;
@@ -1265,7 +1265,7 @@ impl PattoRenderer {
                     } else {
                         writeln!(output, "[@code {}]", lang)?;
                     }
-                    for child in ast.value().children.lock().unwrap().iter() {
+                    for child in ast.children().iter() {
                         write!(output, "\t")?;
                         write!(output, "{}", child.extract_str())?;
                         writeln!(output)?;
@@ -1278,13 +1278,13 @@ impl PattoRenderer {
             AstNodeKind::Math { inline } => {
                 if *inline {
                     write!(output, "[$ ")?;
-                    for content in ast.value().contents.lock().unwrap().iter() {
+                    for content in ast.contents().iter() {
                         write!(output, "{}", content.extract_str())?;
                     }
                     write!(output, " $]")?;
                 } else {
                     writeln!(output, "[@math]")?;
-                    for child in ast.value().children.lock().unwrap().iter() {
+                    for child in ast.children().iter() {
                         write!(output, "\t")?;
                         write!(output, "{}", child.extract_str())?;
                         writeln!(output)?;
@@ -1294,7 +1294,7 @@ impl PattoRenderer {
             AstNodeKind::Quote => {
                 writeln!(output, "[@quote]")?;
                 // Render children (QuoteContent and nested Line/Quote) with depth+1
-                for child in ast.value().children.lock().unwrap().iter() {
+                for child in ast.children().iter() {
                     self._format_impl(child, output, depth + 1)?;
                 }
             }
@@ -1304,25 +1304,25 @@ impl PattoRenderer {
                 } else {
                     writeln!(output, "[@table]")?;
                 }
-                for child in ast.value().children.lock().unwrap().iter() {
+                for child in ast.children().iter() {
                     self._format_impl(child, output, depth)?;
                 }
             }
             AstNodeKind::TableRow => {
                 write!(output, "\t")?;
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 for (i, cell) in contents.iter().enumerate() {
                     if i > 0 {
                         write!(output, "\t")?;
                     }
-                    for content in cell.value().contents.lock().unwrap().iter() {
+                    for content in cell.contents().iter() {
                         self._format_impl(content, output, 0)?;
                     }
                 }
                 writeln!(output)?;
             }
             AstNodeKind::TableColumn => {
-                for content in ast.value().contents.lock().unwrap().iter() {
+                for content in ast.contents().iter() {
                     self._format_impl(content, output, 0)?;
                 }
             }

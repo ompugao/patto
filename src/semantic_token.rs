@@ -265,10 +265,10 @@ fn collect_semantic_tokens(
     }
 
     // Recursively process children and contents
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         collect_semantic_tokens(child, tokens, line_range);
     }
-    for content in node.value().contents.lock().unwrap().iter() {
+    for content in node.contents().iter() {
         collect_semantic_tokens(content, tokens, line_range);
     }
 }

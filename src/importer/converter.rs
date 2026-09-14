@@ -522,8 +522,7 @@ impl MarkdownImporter {
                                     // Add as quote content
                                     let quote_content =
                                         AstNode::quotecontent("", current_line, None, None);
-                                    for content in line_node.value().contents.lock().unwrap().iter()
-                                    {
+                                    for content in line_node.contents().iter() {
                                         quote_content.add_content(content.clone());
                                     }
                                     quote.add_child(quote_content);
@@ -743,7 +742,7 @@ impl MarkdownImporter {
     }
 
     fn add_child_at_depth_recursive(&self, node: &AstNode, child: AstNode, remaining_depth: usize) {
-        let children = node.value().children.lock().unwrap();
+        let children = node.children();
         if let Some(last_child) = children.last() {
             if remaining_depth == 1 {
                 // Add as child of last_child
@@ -767,7 +766,7 @@ impl MarkdownImporter {
         report: &mut ConversionReport,
     ) {
         // Extract due date from line content
-        let contents = _line_node.value().contents.lock().unwrap();
+        let contents = _line_node.contents();
         let mut text = String::new();
         for content in contents.iter() {
             text.push_str(content.extract_str());

@@ -152,7 +152,7 @@ fn render_node(
 ) {
     match ast.kind() {
         AstNodeKind::Dummy => {
-            let children = ast.value().children.lock().unwrap();
+            let children = ast.children();
             for child in children.iter() {
                 render_node(child, elements, focusables, anchors, indent, syntax_theme);
             }
@@ -161,7 +161,7 @@ fn render_node(
             let is_quote = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
 
             // Check if this line is a block container (only content is a block element)
-            let contents = ast.value().contents.lock().unwrap();
+            let contents = ast.contents();
             let is_block_container = contents.len() == 1
                 && matches!(
                     contents[0].kind(),
@@ -184,7 +184,7 @@ fn render_node(
                     syntax_theme,
                 );
                 // Still render children (nested lines after the block)
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 for child in children.iter() {
                     render_node(
                         child,
@@ -237,7 +237,7 @@ fn render_node(
                 };
                 prefix_spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
             } else if !is_quote && indent > 0 {
-                let contents = ast.value().contents.lock().unwrap();
+                let contents = ast.contents();
                 let is_blank = contents.is_empty()
                     || contents.iter().all(|c| {
                         matches!(c.kind(), AstNodeKind::Text) && c.extract_str().trim().is_empty()
@@ -265,7 +265,7 @@ fn render_node(
             // Buffer for consecutive images (no non-whitespace text between them).
             let mut image_row_buf: Vec<(String, Option<String>)> = Vec::new();
 
-            let contents = ast.value().contents.lock().unwrap();
+            let contents = ast.contents();
             for content in contents.iter() {
                 let result =
                     render_inline(content, &mut spans, base_style, focusables, elements.len());
@@ -312,7 +312,7 @@ fn render_node(
             elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
 
             // Children (nested lines)
-            let children = ast.value().children.lock().unwrap();
+            let children = ast.children();
             for child in children.iter() {
                 render_node(
                     child,
@@ -325,7 +325,7 @@ fn render_node(
             }
         }
         AstNodeKind::Quote => {
-            let children = ast.value().children.lock().unwrap();
+            let children = ast.children();
             for child in children.iter() {
                 render_node(child, elements, focusables, anchors, indent, syntax_theme);
             }
@@ -334,7 +334,7 @@ fn render_node(
             if *inline {
                 // Handled as inline content in parent Line
             } else {
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 let content: String = children
                     .iter()
                     .map(|c| c.extract_str().to_string())
@@ -371,7 +371,7 @@ fn render_node(
                     ));
                 }
 
-                let children = ast.value().children.lock().unwrap();
+                let children = ast.children();
                 let raw_lines: Vec<String> = children
                     .iter()
                     .map(|c| c.extract_str().replace('\t', "    "))
@@ -448,7 +448,7 @@ fn render_node(
                     ast.location().row,
                 ));
             }
-            let children = ast.value().children.lock().unwrap();
+            let children = ast.children();
             for child in children.iter() {
                 render_table_row(child, elements, focusables, indent, child.location().row);
             }
@@ -470,12 +470,12 @@ fn render_table_row(
     spans.push(Span::raw("  ".repeat(indent)));
     spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
 
-    let contents = ast.value().contents.lock().unwrap();
+    let contents = ast.contents();
     for (i, col) in contents.iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         }
-        let col_contents = col.value().contents.lock().unwrap();
+        let col_contents = col.contents();
         for c in col_contents.iter() {
             render_inline(c, &mut spans, Style::default(), focusables, elements.len());
         }
@@ -590,7 +590,7 @@ fn render_inline(
             });
         }
         AstNodeKind::Code { inline: true, .. } => {
-            let contents = ast.value().contents.lock().unwrap();
+            let contents = ast.contents();
             for content in contents.iter() {
                 spans.push(Span::styled(
                     content.extract_str().to_string(),
@@ -599,7 +599,7 @@ fn render_inline(
             }
         }
         AstNodeKind::Math { inline: true } => {
-            let contents = ast.value().contents.lock().unwrap();
+            let contents = ast.contents();
             for content in contents.iter() {
                 spans.push(Span::styled(
                     content.extract_str().to_string(),
@@ -626,7 +626,7 @@ fn render_inline(
             if *deleted {
                 style = style.add_modifier(Modifier::CROSSED_OUT);
             }
-            let contents = ast.value().contents.lock().unwrap();
+            let contents = ast.contents();
             for content in contents.iter() {
                 let result = render_inline(content, spans, style, focusables, current_elem_idx);
                 if matches!(result, InlineResult::ImageBlock { .. }) {
@@ -645,7 +645,7 @@ fn render_inline(
             };
         }
         AstNodeKind::Quote => {
-            let children = ast.value().children.lock().unwrap();
+            let children = ast.children();
             for child in children.iter() {
                 render_inline(
                     child,
