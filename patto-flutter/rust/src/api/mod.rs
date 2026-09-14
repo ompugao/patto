@@ -1,4 +1,5 @@
 pub mod error;
+pub mod events;
 pub mod git;
 pub mod index;
 pub mod render;

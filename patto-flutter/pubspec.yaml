@@ -38,6 +38,17 @@ dependencies:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
   freezed_annotation: ^3.1.0
+  flutter_riverpod: ^3.4.3
+  flutter_secure_storage: ^11.1.1
+  shared_preferences: ^2.5.5
+  path_provider: ^2.1.6
+  url_launcher: ^6.3.2
+  intl: ^0.20.3
+  flutter_math_fork: ^0.7.4
+  super_sliver_list: ^0.4.1
+  re_editor: ^0.10.0
+  re_highlight: ^0.0.3
+  cached_network_image: ^4.0.0
 
 dev_dependencies:
   flutter_test:
@@ -57,11 +68,11 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
   uses-material-design: true
+
+  assets:
+    # Trust roots for libgit2: the bundled OpenSSL ships none.
+    - assets/cacert.pem
 
   # To add assets to your application, add an assets section, like this:
   # assets:

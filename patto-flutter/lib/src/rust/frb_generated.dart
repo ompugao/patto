@@ -4,6 +4,7 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/error.dart';
+import 'api/events.dart';
 import 'api/git.dart';
 import 'api/index.dart';
 import 'api/tasks.dart';
@@ -109,7 +110,7 @@ abstract class RustLibApi extends BaseApi {
     required String relPath,
   });
 
-  Stream<GitProgress> crateFrbApiGitClone({
+  Stream<CloneEvent> crateFrbApiGitClone({
     required String url,
     required String root,
     String? branch,
@@ -120,14 +121,14 @@ abstract class RustLibApi extends BaseApi {
 
   Future<GitStatus> crateFrbApiGitStatus({required String root});
 
-  Stream<GitProgress> crateFrbApiGitSync({
+  Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
   });
 
-  Stream<IndexProgress> crateFrbApiIndexBuild({required String root});
+  Stream<IndexEvent> crateFrbApiIndexBuild({required String root});
 
   Future<IndexStats> crateFrbApiIndexRefresh({required String root});
 
@@ -338,13 +339,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Stream<GitProgress> crateFrbApiGitClone({
+  Stream<CloneEvent> crateFrbApiGitClone({
     required String url,
     required String root,
     String? branch,
     required GitCreds creds,
   }) {
-    final sink = RustStreamSink<GitProgress>();
+    final sink = RustStreamSink<CloneEvent>();
     unawaited(
       handler.executeNormal(
         NormalTask(
@@ -354,7 +355,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             sse_encode_String(root, serializer);
             sse_encode_opt_String(branch, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
-            sse_encode_StreamSink_git_progress_Sse(sink, serializer);
+            sse_encode_StreamSink_clone_event_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
@@ -364,7 +365,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           },
           codec: SseCodec(
             decodeSuccessData: sse_decode_unit,
-            decodeErrorData: sse_decode_patto_error,
+            decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitCloneConstMeta,
           argValues: [url, root, branch, creds, sink],
@@ -439,13 +440,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "git_status", argNames: ["root"]);
 
   @override
-  Stream<GitProgress> crateFrbApiGitSync({
+  Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
   }) {
-    final sink = RustStreamSink<GitProgress>();
+    final sink = RustStreamSink<SyncEvent>();
     unawaited(
       handler.executeNormal(
         NormalTask(
@@ -455,7 +456,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             sse_encode_String(authorName, serializer);
             sse_encode_String(authorEmail, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
-            sse_encode_StreamSink_git_progress_Sse(sink, serializer);
+            sse_encode_StreamSink_sync_event_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
@@ -464,8 +465,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             );
           },
           codec: SseCodec(
-            decodeSuccessData: sse_decode_sync_report,
-            decodeErrorData: sse_decode_patto_error,
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitSyncConstMeta,
           argValues: [root, authorName, authorEmail, creds, sink],
@@ -482,15 +483,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Stream<IndexProgress> crateFrbApiIndexBuild({required String root}) {
-    final sink = RustStreamSink<IndexProgress>();
+  Stream<IndexEvent> crateFrbApiIndexBuild({required String root}) {
+    final sink = RustStreamSink<IndexEvent>();
     unawaited(
       handler.executeNormal(
         NormalTask(
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(root, serializer);
-            sse_encode_StreamSink_index_progress_Sse(sink, serializer);
+            sse_encode_StreamSink_index_event_Sse(sink, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
@@ -499,8 +500,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             );
           },
           codec: SseCodec(
-            decodeSuccessData: sse_decode_index_stats,
-            decodeErrorData: sse_decode_patto_error,
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiIndexBuildConstMeta,
           argValues: [root, sink],
@@ -1005,7 +1006,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<GitProgress> dco_decode_StreamSink_git_progress_Sse(
+  RustStreamSink<CloneEvent> dco_decode_StreamSink_clone_event_Sse(
     dynamic raw,
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -1013,9 +1014,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<IndexProgress> dco_decode_StreamSink_index_progress_Sse(
+  RustStreamSink<IndexEvent> dco_decode_StreamSink_index_event_Sse(
     dynamic raw,
   ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  RustStreamSink<SyncEvent> dco_decode_StreamSink_sync_event_Sse(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
   }
@@ -1111,15 +1118,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Failure dco_decode_box_autoadd_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_failure(raw);
+  }
+
+  @protected
   GitCreds dco_decode_box_autoadd_git_creds(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_git_creds(raw);
   }
 
   @protected
+  GitErrorKind dco_decode_box_autoadd_git_error_kind(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_git_error_kind(raw);
+  }
+
+  @protected
+  GitProgress dco_decode_box_autoadd_git_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_git_progress(raw);
+  }
+
+  @protected
   ImageRef dco_decode_box_autoadd_image_ref(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_image_ref(raw);
+  }
+
+  @protected
+  IndexProgress dco_decode_box_autoadd_index_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_index_progress(raw);
+  }
+
+  @protected
+  IndexStats dco_decode_box_autoadd_index_stats(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_index_stats(raw);
+  }
+
+  @protected
+  SyncReport dco_decode_box_autoadd_sync_report(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_sync_report(raw);
   }
 
   @protected
@@ -1138,6 +1181,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int dco_decode_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  CloneEvent dco_decode_clone_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return CloneEvent_Progress(
+          progress: dco_decode_box_autoadd_git_progress(raw[1]),
+        );
+      case 1:
+        return CloneEvent_Done();
+      case 2:
+        return CloneEvent_Failed(
+          failure: dco_decode_box_autoadd_failure(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -1165,6 +1227,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       default:
         throw Exception("unreachable");
     }
+  }
+
+  @protected
+  Failure dco_decode_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return Failure(
+      message: dco_decode_String(arr[0]),
+      gitKind: dco_decode_opt_box_autoadd_git_error_kind(arr[1]),
+    );
   }
 
   @protected
@@ -1243,6 +1317,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       alt: dco_decode_opt_String(arr[1]),
       isLocal: dco_decode_bool(arr[2]),
     );
+  }
+
+  @protected
+  IndexEvent dco_decode_index_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return IndexEvent_Progress(
+          progress: dco_decode_box_autoadd_index_progress(raw[1]),
+        );
+      case 1:
+        return IndexEvent_Done(
+          stats: dco_decode_box_autoadd_index_stats(raw[1]),
+        );
+      case 2:
+        return IndexEvent_Failed(
+          failure: dco_decode_box_autoadd_failure(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -1466,6 +1561,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GitErrorKind? dco_decode_opt_box_autoadd_git_error_kind(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_git_error_kind(raw);
+  }
+
+  @protected
   TaskDate? dco_decode_opt_box_autoadd_task_date(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_task_date(raw);
@@ -1541,6 +1642,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       anchors: dco_decode_list_anchor_ref(arr[1]),
       errors: dco_decode_list_parse_issue(arr[2]),
     );
+  }
+
+  @protected
+  SyncEvent dco_decode_sync_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return SyncEvent_Progress(
+          progress: dco_decode_box_autoadd_git_progress(raw[1]),
+        );
+      case 1:
+        return SyncEvent_Done(
+          report: dco_decode_box_autoadd_sync_report(raw[1]),
+        );
+      case 2:
+        return SyncEvent_Failed(
+          failure: dco_decode_box_autoadd_failure(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -1666,7 +1788,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<GitProgress> sse_decode_StreamSink_git_progress_Sse(
+  RustStreamSink<CloneEvent> sse_decode_StreamSink_clone_event_Sse(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1674,7 +1796,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  RustStreamSink<IndexProgress> sse_decode_StreamSink_index_progress_Sse(
+  RustStreamSink<IndexEvent> sse_decode_StreamSink_index_event_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
+  RustStreamSink<SyncEvent> sse_decode_StreamSink_sync_event_Sse(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1777,15 +1907,57 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Failure sse_decode_box_autoadd_failure(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_failure(deserializer));
+  }
+
+  @protected
   GitCreds sse_decode_box_autoadd_git_creds(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_git_creds(deserializer));
   }
 
   @protected
+  GitErrorKind sse_decode_box_autoadd_git_error_kind(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_git_error_kind(deserializer));
+  }
+
+  @protected
+  GitProgress sse_decode_box_autoadd_git_progress(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_git_progress(deserializer));
+  }
+
+  @protected
   ImageRef sse_decode_box_autoadd_image_ref(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_image_ref(deserializer));
+  }
+
+  @protected
+  IndexProgress sse_decode_box_autoadd_index_progress(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_index_progress(deserializer));
+  }
+
+  @protected
+  IndexStats sse_decode_box_autoadd_index_stats(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_index_stats(deserializer));
+  }
+
+  @protected
+  SyncReport sse_decode_box_autoadd_sync_report(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_sync_report(deserializer));
   }
 
   @protected
@@ -1804,6 +1976,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  CloneEvent sse_decode_clone_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_progress = sse_decode_box_autoadd_git_progress(deserializer);
+        return CloneEvent_Progress(progress: var_progress);
+      case 1:
+        return CloneEvent_Done();
+      case 2:
+        var var_failure = sse_decode_box_autoadd_failure(deserializer);
+        return CloneEvent_Failed(failure: var_failure);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -1835,6 +2026,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       default:
         throw UnimplementedError('');
     }
+  }
+
+  @protected
+  Failure sse_decode_failure(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_message = sse_decode_String(deserializer);
+    var var_gitKind = sse_decode_opt_box_autoadd_git_error_kind(deserializer);
+    return Failure(message: var_message, gitKind: var_gitKind);
   }
 
   @protected
@@ -1910,6 +2109,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_alt = sse_decode_opt_String(deserializer);
     var var_isLocal = sse_decode_bool(deserializer);
     return ImageRef(src: var_src, alt: var_alt, isLocal: var_isLocal);
+  }
+
+  @protected
+  IndexEvent sse_decode_index_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_progress = sse_decode_box_autoadd_index_progress(deserializer);
+        return IndexEvent_Progress(progress: var_progress);
+      case 1:
+        var var_stats = sse_decode_box_autoadd_index_stats(deserializer);
+        return IndexEvent_Done(stats: var_stats);
+      case 2:
+        var var_failure = sse_decode_box_autoadd_failure(deserializer);
+        return IndexEvent_Failed(failure: var_failure);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -2224,6 +2443,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GitErrorKind? sse_decode_opt_box_autoadd_git_error_kind(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_git_error_kind(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   TaskDate? sse_decode_opt_box_autoadd_task_date(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2316,6 +2548,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       anchors: var_anchors,
       errors: var_errors,
     );
+  }
+
+  @protected
+  SyncEvent sse_decode_sync_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_progress = sse_decode_box_autoadd_git_progress(deserializer);
+        return SyncEvent_Progress(progress: var_progress);
+      case 1:
+        var var_report = sse_decode_box_autoadd_sync_report(deserializer);
+        return SyncEvent_Done(report: var_report);
+      case 2:
+        var var_failure = sse_decode_box_autoadd_failure(deserializer);
+        return SyncEvent_Failed(failure: var_failure);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -2441,15 +2693,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_StreamSink_git_progress_Sse(
-    RustStreamSink<GitProgress> self,
+  void sse_encode_StreamSink_clone_event_Sse(
+    RustStreamSink<CloneEvent> self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(
       self.setupAndSerialize(
         codec: SseCodec(
-          decodeSuccessData: sse_decode_git_progress,
+          decodeSuccessData: sse_decode_clone_event,
           decodeErrorData: sse_decode_AnyhowException,
         ),
       ),
@@ -2458,15 +2710,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_StreamSink_index_progress_Sse(
-    RustStreamSink<IndexProgress> self,
+  void sse_encode_StreamSink_index_event_Sse(
+    RustStreamSink<IndexEvent> self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(
       self.setupAndSerialize(
         codec: SseCodec(
-          decodeSuccessData: sse_decode_index_progress,
+          decodeSuccessData: sse_decode_index_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
+  void sse_encode_StreamSink_sync_event_Sse(
+    RustStreamSink<SyncEvent> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_sync_event,
           decodeErrorData: sse_decode_AnyhowException,
         ),
       ),
@@ -2552,6 +2821,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_failure(Failure self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_failure(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_git_creds(
     GitCreds self,
     SseSerializer serializer,
@@ -2561,12 +2836,57 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_git_error_kind(
+    GitErrorKind self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_git_error_kind(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_git_progress(
+    GitProgress self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_git_progress(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_image_ref(
     ImageRef self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_image_ref(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_index_progress(
+    IndexProgress self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_index_progress(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_index_stats(
+    IndexStats self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_index_stats(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_sync_report(
+    SyncReport self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_sync_report(self, serializer);
   }
 
   @protected
@@ -2594,6 +2914,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_clone_event(CloneEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case CloneEvent_Progress(progress: final progress):
+        sse_encode_i_32(0, serializer);
+        sse_encode_box_autoadd_git_progress(progress, serializer);
+      case CloneEvent_Done():
+        sse_encode_i_32(1, serializer);
+      case CloneEvent_Failed(failure: final failure):
+        sse_encode_i_32(2, serializer);
+        sse_encode_box_autoadd_failure(failure, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_date_kind(DateKind self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -2617,6 +2952,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case EmbedKind_Other():
         sse_encode_i_32(5, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_failure(Failure self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.message, serializer);
+    sse_encode_opt_box_autoadd_git_error_kind(self.gitKind, serializer);
   }
 
   @protected
@@ -2675,6 +3017,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.src, serializer);
     sse_encode_opt_String(self.alt, serializer);
     sse_encode_bool(self.isLocal, serializer);
+  }
+
+  @protected
+  void sse_encode_index_event(IndexEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case IndexEvent_Progress(progress: final progress):
+        sse_encode_i_32(0, serializer);
+        sse_encode_box_autoadd_index_progress(progress, serializer);
+      case IndexEvent_Done(stats: final stats):
+        sse_encode_i_32(1, serializer);
+        sse_encode_box_autoadd_index_stats(stats, serializer);
+      case IndexEvent_Failed(failure: final failure):
+        sse_encode_i_32(2, serializer);
+        sse_encode_box_autoadd_failure(failure, serializer);
+    }
   }
 
   @protected
@@ -2953,6 +3311,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_git_error_kind(
+    GitErrorKind? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_git_error_kind(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_task_date(
     TaskDate? self,
     SseSerializer serializer,
@@ -3037,6 +3408,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_block(self.blocks, serializer);
     sse_encode_list_anchor_ref(self.anchors, serializer);
     sse_encode_list_parse_issue(self.errors, serializer);
+  }
+
+  @protected
+  void sse_encode_sync_event(SyncEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case SyncEvent_Progress(progress: final progress):
+        sse_encode_i_32(0, serializer);
+        sse_encode_box_autoadd_git_progress(progress, serializer);
+      case SyncEvent_Done(report: final report):
+        sse_encode_i_32(1, serializer);
+        sse_encode_box_autoadd_sync_report(report, serializer);
+      case SyncEvent_Failed(failure: final failure):
+        sse_encode_i_32(2, serializer);
+        sse_encode_box_autoadd_failure(failure, serializer);
+    }
   }
 
   @protected

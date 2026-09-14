@@ -215,15 +215,17 @@ fn wire__crate__frb_api__git_clone_impl(
             let api_branch = <Option<String>>::sse_decode(&mut deserializer);
             let api_creds = <crate::api::git::GitCreds>::sse_decode(&mut deserializer);
             let api_sink = <StreamSink<
-                crate::api::git::GitProgress,
+                crate::api::events::CloneEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
             >>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::git_clone(
-                        api_url, api_root, api_branch, api_creds, api_sink,
-                    )?;
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>({
+                        crate::frb_api::git_clone(
+                            api_url, api_root, api_branch, api_creds, api_sink,
+                        );
+                    })?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -323,19 +325,21 @@ fn wire__crate__frb_api__git_sync_impl(
             let api_author_email = <String>::sse_decode(&mut deserializer);
             let api_creds = <crate::api::git::GitCreds>::sse_decode(&mut deserializer);
             let api_sink = <StreamSink<
-                crate::api::git::GitProgress,
+                crate::api::events::SyncEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
             >>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::git_sync(
-                        api_root,
-                        api_author_name,
-                        api_author_email,
-                        api_creds,
-                        api_sink,
-                    )?;
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>({
+                        crate::frb_api::git_sync(
+                            api_root,
+                            api_author_name,
+                            api_author_email,
+                            api_creds,
+                            api_sink,
+                        );
+                    })?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -366,13 +370,15 @@ fn wire__crate__frb_api__index_build_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
             let api_sink = <StreamSink<
-                crate::api::index::IndexProgress,
+                crate::api::events::IndexEvent,
                 flutter_rust_bridge::for_generated::SseCodec,
             >>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::index_build(api_root, api_sink)?;
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>({
+                        crate::frb_api::index_build(api_root, api_sink);
+                    })?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -926,7 +932,7 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
 }
 
 impl SseDecode
-    for StreamSink<crate::api::git::GitProgress, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::events::CloneEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -936,7 +942,17 @@ impl SseDecode
 }
 
 impl SseDecode
-    for StreamSink<crate::api::index::IndexProgress, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::events::IndexEvent, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
+
+impl SseDecode
+    for StreamSink<crate::api::events::SyncEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1056,6 +1072,33 @@ impl SseDecode for bool {
     }
 }
 
+impl SseDecode for crate::api::events::CloneEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_progress = <crate::api::git::GitProgress>::sse_decode(deserializer);
+                return crate::api::events::CloneEvent::Progress {
+                    progress: var_progress,
+                };
+            }
+            1 => {
+                return crate::api::events::CloneEvent::Done;
+            }
+            2 => {
+                let mut var_failure = <crate::api::events::Failure>::sse_decode(deserializer);
+                return crate::api::events::CloneEvent::Failed {
+                    failure: var_failure,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
 impl SseDecode for crate::api::types::DateKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1099,6 +1142,18 @@ impl SseDecode for crate::api::types::EmbedKind {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseDecode for crate::api::events::Failure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_message = <String>::sse_decode(deserializer);
+        let mut var_gitKind = <Option<crate::api::error::GitErrorKind>>::sse_decode(deserializer);
+        return crate::api::events::Failure {
+            message: var_message,
+            git_kind: var_gitKind,
+        };
     }
 }
 
@@ -1210,6 +1265,34 @@ impl SseDecode for crate::api::types::ImageRef {
             alt: var_alt,
             is_local: var_isLocal,
         };
+    }
+}
+
+impl SseDecode for crate::api::events::IndexEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_progress = <crate::api::index::IndexProgress>::sse_decode(deserializer);
+                return crate::api::events::IndexEvent::Progress {
+                    progress: var_progress,
+                };
+            }
+            1 => {
+                let mut var_stats = <crate::api::index::IndexStats>::sse_decode(deserializer);
+                return crate::api::events::IndexEvent::Done { stats: var_stats };
+            }
+            2 => {
+                let mut var_failure = <crate::api::events::Failure>::sse_decode(deserializer);
+                return crate::api::events::IndexEvent::Failed {
+                    failure: var_failure,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -1560,6 +1643,17 @@ impl SseDecode for Option<String> {
     }
 }
 
+impl SseDecode for Option<crate::api::error::GitErrorKind> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::error::GitErrorKind>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::types::TaskDate> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1679,6 +1773,34 @@ impl SseDecode for crate::api::types::RenderedNote {
             anchors: var_anchors,
             errors: var_errors,
         };
+    }
+}
+
+impl SseDecode for crate::api::events::SyncEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_progress = <crate::api::git::GitProgress>::sse_decode(deserializer);
+                return crate::api::events::SyncEvent::Progress {
+                    progress: var_progress,
+                };
+            }
+            1 => {
+                let mut var_report = <crate::api::git::SyncReport>::sse_decode(deserializer);
+                return crate::api::events::SyncEvent::Done { report: var_report };
+            }
+            2 => {
+                let mut var_failure = <crate::api::events::Failure>::sse_decode(deserializer);
+                return crate::api::events::SyncEvent::Failed {
+                    failure: var_failure,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -1973,6 +2095,34 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::BlockKind>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::events::CloneEvent {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::events::CloneEvent::Progress { progress } => {
+                [0.into_dart(), progress.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::events::CloneEvent::Done => [1.into_dart()].into_dart(),
+            crate::api::events::CloneEvent::Failed { failure } => {
+                [2.into_dart(), failure.into_into_dart().into_dart()].into_dart()
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::events::CloneEvent
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::events::CloneEvent>
+    for crate::api::events::CloneEvent
+{
+    fn into_into_dart(self) -> crate::api::events::CloneEvent {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::types::DateKind {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
@@ -2014,6 +2164,24 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::EmbedKind>
     for crate::api::types::EmbedKind
 {
     fn into_into_dart(self) -> crate::api::types::EmbedKind {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::events::Failure {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message.into_into_dart().into_dart(),
+            self.git_kind.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::events::Failure {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::events::Failure>
+    for crate::api::events::Failure
+{
+    fn into_into_dart(self) -> crate::api::events::Failure {
         self
     }
 }
@@ -2138,6 +2306,36 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::ImageRef>
     for crate::api::types::ImageRef
 {
     fn into_into_dart(self) -> crate::api::types::ImageRef {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::events::IndexEvent {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::events::IndexEvent::Progress { progress } => {
+                [0.into_dart(), progress.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::events::IndexEvent::Done { stats } => {
+                [1.into_dart(), stats.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::events::IndexEvent::Failed { failure } => {
+                [2.into_dart(), failure.into_into_dart().into_dart()].into_dart()
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::events::IndexEvent
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::events::IndexEvent>
+    for crate::api::events::IndexEvent
+{
+    fn into_into_dart(self) -> crate::api::events::IndexEvent {
         self
     }
 }
@@ -2453,6 +2651,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::RenderedNote>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::events::SyncEvent {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::events::SyncEvent::Progress { progress } => {
+                [0.into_dart(), progress.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::events::SyncEvent::Done { report } => {
+                [1.into_dart(), report.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::events::SyncEvent::Failed { failure } => {
+                [2.into_dart(), failure.into_into_dart().into_dart()].into_dart()
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::events::SyncEvent {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::events::SyncEvent>
+    for crate::api::events::SyncEvent
+{
+    fn into_into_dart(self) -> crate::api::events::SyncEvent {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::git::SyncReport {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2603,7 +2828,7 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
 }
 
 impl SseEncode
-    for StreamSink<crate::api::git::GitProgress, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::events::CloneEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2612,7 +2837,16 @@ impl SseEncode
 }
 
 impl SseEncode
-    for StreamSink<crate::api::index::IndexProgress, flutter_rust_bridge::for_generated::SseCodec>
+    for StreamSink<crate::api::events::IndexEvent, flutter_rust_bridge::for_generated::SseCodec>
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
+impl SseEncode
+    for StreamSink<crate::api::events::SyncEvent, flutter_rust_bridge::for_generated::SseCodec>
 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2704,6 +2938,28 @@ impl SseEncode for bool {
     }
 }
 
+impl SseEncode for crate::api::events::CloneEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::events::CloneEvent::Progress { progress } => {
+                <i32>::sse_encode(0, serializer);
+                <crate::api::git::GitProgress>::sse_encode(progress, serializer);
+            }
+            crate::api::events::CloneEvent::Done => {
+                <i32>::sse_encode(1, serializer);
+            }
+            crate::api::events::CloneEvent::Failed { failure } => {
+                <i32>::sse_encode(2, serializer);
+                <crate::api::events::Failure>::sse_encode(failure, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
 impl SseEncode for crate::api::types::DateKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2748,6 +3004,14 @@ impl SseEncode for crate::api::types::EmbedKind {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseEncode for crate::api::events::Failure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message, serializer);
+        <Option<crate::api::error::GitErrorKind>>::sse_encode(self.git_kind, serializer);
     }
 }
 
@@ -2845,6 +3109,29 @@ impl SseEncode for crate::api::types::ImageRef {
         <String>::sse_encode(self.src, serializer);
         <Option<String>>::sse_encode(self.alt, serializer);
         <bool>::sse_encode(self.is_local, serializer);
+    }
+}
+
+impl SseEncode for crate::api::events::IndexEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::events::IndexEvent::Progress { progress } => {
+                <i32>::sse_encode(0, serializer);
+                <crate::api::index::IndexProgress>::sse_encode(progress, serializer);
+            }
+            crate::api::events::IndexEvent::Done { stats } => {
+                <i32>::sse_encode(1, serializer);
+                <crate::api::index::IndexStats>::sse_encode(stats, serializer);
+            }
+            crate::api::events::IndexEvent::Failed { failure } => {
+                <i32>::sse_encode(2, serializer);
+                <crate::api::events::Failure>::sse_encode(failure, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -3128,6 +3415,16 @@ impl SseEncode for Option<String> {
     }
 }
 
+impl SseEncode for Option<crate::api::error::GitErrorKind> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::error::GitErrorKind>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::types::TaskDate> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3232,6 +3529,29 @@ impl SseEncode for crate::api::types::RenderedNote {
         <Vec<crate::api::types::Block>>::sse_encode(self.blocks, serializer);
         <Vec<crate::api::types::AnchorRef>>::sse_encode(self.anchors, serializer);
         <Vec<crate::api::types::ParseIssue>>::sse_encode(self.errors, serializer);
+    }
+}
+
+impl SseEncode for crate::api::events::SyncEvent {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::events::SyncEvent::Progress { progress } => {
+                <i32>::sse_encode(0, serializer);
+                <crate::api::git::GitProgress>::sse_encode(progress, serializer);
+            }
+            crate::api::events::SyncEvent::Done { report } => {
+                <i32>::sse_encode(1, serializer);
+                <crate::api::git::SyncReport>::sse_encode(report, serializer);
+            }
+            crate::api::events::SyncEvent::Failed { failure } => {
+                <i32>::sse_encode(2, serializer);
+                <crate::api::events::Failure>::sse_encode(failure, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 

@@ -15,11 +15,15 @@ flutter_rust_bridge = "=2.13.0"
 
 chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher = "0.3.7"
+libgit2-sys = "0.18"
+foreign-types-shared = "0.1"
+openssl = { version = "0.10", features = ["vendored"] }
 git2 = { version = "0.21", default-features = false, features = [
     "https",
     "vendored-libgit2",
     "vendored-openssl",
 ] }
+libc = "0.2"
 log = "0.4"
 parking_lot = "0.12"
 thiserror = "2"
@@ -50,3 +54,7 @@ lto = "thin"
 opt-level = 3
 codegen-units = 1
 strip = true
+
+# The flutter_rust_bridge macro expands under this cfg during codegen.
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(frb_expand)"] }

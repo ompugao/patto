@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import 'api/error.dart';
+import 'api/events.dart';
 import 'api/git.dart';
 import 'api/index.dart';
 import 'api/tasks.dart';
@@ -63,8 +64,11 @@ String relPathToNoteName({required String relPath}) =>
 Future<RenderedNote> renderNote({required String content}) =>
     RustLib.instance.api.crateFrbApiRenderNote(content: content);
 
-/// Scan the notes directory and build the link index, streaming progress.
-Stream<IndexProgress> indexBuild({required String root}) =>
+/// Scan the notes directory and build the link index.
+///
+/// The outcome arrives as the last event on the stream rather than as a return
+/// value; see [`crate::api::events`] for why.
+Stream<IndexEvent> indexBuild({required String root}) =>
     RustLib.instance.api.crateFrbApiIndexBuild(root: root);
 
 Future<void> indexUpdateFile({required String root, required String relPath}) =>
@@ -127,7 +131,7 @@ Future<TaskEditResult> setTaskStatus({
 Future<void> gitInitRuntime({required String caBundlePath}) =>
     RustLib.instance.api.crateFrbApiGitInitRuntime(caBundlePath: caBundlePath);
 
-Stream<GitProgress> gitClone({
+Stream<CloneEvent> gitClone({
   required String url,
   required String root,
   String? branch,
@@ -142,7 +146,7 @@ Stream<GitProgress> gitClone({
 Future<GitStatus> gitStatus({required String root}) =>
     RustLib.instance.api.crateFrbApiGitStatus(root: root);
 
-Stream<GitProgress> gitSync({
+Stream<SyncEvent> gitSync({
   required String root,
   required String authorName,
   required String authorEmail,

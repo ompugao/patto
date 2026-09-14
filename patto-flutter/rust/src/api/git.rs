@@ -7,7 +7,9 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
+use foreign_types_shared::ForeignType;
 use git2::build::{CheckoutBuilder, RepoBuilder};
+
 use git2::{
     AnnotatedCommit, Cred, FetchOptions, FileFavor, MergeOptions, ProxyOptions, PushOptions,
     RemoteCallbacks, Repository, Signature,
@@ -75,20 +77,57 @@ pub struct GitStatus {
 
 static CERT_FILE: OnceLock<String> = OnceLock::new();
 
-/// Point libgit2 at a CA bundle. The vendored OpenSSL ships no trust store, so
-/// without this every HTTPS fetch fails to verify the server certificate.
+/// Give libgit2 the trust roots it needs to verify an HTTPS server.
+///
+/// The vendored OpenSSL ships no trust store, and on Android `openssl-src`
+/// configures it with `no-stdio`, so OpenSSL there cannot open a PEM file at
+/// all: pointing libgit2 at a path fails with a "BIO lib" error and
+/// `SSL_CERT_FILE` is equally useless. The certificates are therefore parsed
+/// here and handed to libgit2 one at a time, which only touches memory.
+///
 /// The app bundles `cacert.pem` as an asset and passes its path once at startup.
 pub fn git_init_runtime(ca_bundle_path: String) -> PattoResult<()> {
-    if !Path::new(&ca_bundle_path).is_file() {
+    let path = Path::new(&ca_bundle_path);
+    if !path.is_file() {
         return Err(PattoError::NotFound(ca_bundle_path));
     }
+    let pem = std::fs::read(path)?;
+
     if CERT_FILE.set(ca_bundle_path.clone()).is_err() {
         return Ok(());
     }
-    // Safety: called once, before any repository is opened.
-    unsafe {
-        git2::opts::set_ssl_cert_file(&ca_bundle_path)?;
+
+    let certs = openssl::x509::X509::stack_from_pem(&pem).map_err(|e| PattoError::Git {
+        kind: GitErrorKind::Certificate,
+        message: format!("could not parse the CA bundle: {e}"),
+    })?;
+
+    // libgit2 has to be initialised before its options are set; opening a
+    // throwaway repository path is the cheapest way to force that.
+    let _ = Repository::open(".");
+
+    let mut added = 0usize;
+    for cert in &certs {
+        // Safety: libgit2 takes its own reference to the certificate.
+        let code = unsafe {
+            libgit2_sys::git_libgit2_opts(
+                libgit2_sys::GIT_OPT_ADD_SSL_X509_CERT as libc::c_int,
+                cert.as_ptr(),
+            )
+        };
+        if code >= 0 {
+            added += 1;
+        }
     }
+
+    if added == 0 {
+        return Err(PattoError::Git {
+            kind: GitErrorKind::Certificate,
+            message: "libgit2 accepted none of the bundled trust roots".to_string(),
+        });
+    }
+
+    log::info!("loaded {added} of {} trust roots", certs.len());
     Ok(())
 }
 
@@ -138,6 +177,17 @@ fn callbacks<'a>(
             total: total as u32,
             bytes: bytes as u64,
         });
+    });
+
+    // libgit2 only reports "the certificate is invalid"; log what it actually
+    // saw so a verification failure on device can be diagnosed.
+    cb.certificate_check(|cert, host| {
+        log::info!(
+            "TLS certificate for {host}: x509={} valid_host={}",
+            cert.as_x509().is_some(),
+            !host.is_empty()
+        );
+        Ok(git2::CertificateCheckStatus::CertificatePassthrough)
     });
 
     cb.push_update_reference(|reference, status| match status {

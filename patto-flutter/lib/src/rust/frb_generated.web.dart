@@ -7,6 +7,7 @@
 // ignore_for_file: argument_type_not_assignable
 
 import 'api/error.dart';
+import 'api/events.dart';
 import 'api/git.dart';
 import 'api/index.dart';
 import 'api/tasks.dart';
@@ -32,14 +33,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
-  RustStreamSink<GitProgress> dco_decode_StreamSink_git_progress_Sse(
-    dynamic raw,
-  );
+  RustStreamSink<CloneEvent> dco_decode_StreamSink_clone_event_Sse(dynamic raw);
 
   @protected
-  RustStreamSink<IndexProgress> dco_decode_StreamSink_index_progress_Sse(
-    dynamic raw,
-  );
+  RustStreamSink<IndexEvent> dco_decode_StreamSink_index_event_Sse(dynamic raw);
+
+  @protected
+  RustStreamSink<SyncEvent> dco_decode_StreamSink_sync_event_Sse(dynamic raw);
 
   @protected
   String dco_decode_String(dynamic raw);
@@ -63,10 +63,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EmbedKind dco_decode_box_autoadd_embed_kind(dynamic raw);
 
   @protected
+  Failure dco_decode_box_autoadd_failure(dynamic raw);
+
+  @protected
   GitCreds dco_decode_box_autoadd_git_creds(dynamic raw);
 
   @protected
+  GitErrorKind dco_decode_box_autoadd_git_error_kind(dynamic raw);
+
+  @protected
+  GitProgress dco_decode_box_autoadd_git_progress(dynamic raw);
+
+  @protected
   ImageRef dco_decode_box_autoadd_image_ref(dynamic raw);
+
+  @protected
+  IndexProgress dco_decode_box_autoadd_index_progress(dynamic raw);
+
+  @protected
+  IndexStats dco_decode_box_autoadd_index_stats(dynamic raw);
+
+  @protected
+  SyncReport dco_decode_box_autoadd_sync_report(dynamic raw);
 
   @protected
   TaskDate dco_decode_box_autoadd_task_date(dynamic raw);
@@ -78,10 +96,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  CloneEvent dco_decode_clone_event(dynamic raw);
+
+  @protected
   DateKind dco_decode_date_kind(dynamic raw);
 
   @protected
   EmbedKind dco_decode_embed_kind(dynamic raw);
+
+  @protected
+  Failure dco_decode_failure(dynamic raw);
 
   @protected
   GitCreds dco_decode_git_creds(dynamic raw);
@@ -106,6 +130,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ImageRef dco_decode_image_ref(dynamic raw);
+
+  @protected
+  IndexEvent dco_decode_index_event(dynamic raw);
 
   @protected
   IndexProgress dco_decode_index_progress(dynamic raw);
@@ -177,6 +204,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  GitErrorKind? dco_decode_opt_box_autoadd_git_error_kind(dynamic raw);
+
+  @protected
   TaskDate? dco_decode_opt_box_autoadd_task_date(dynamic raw);
 
   @protected
@@ -196,6 +226,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RenderedNote dco_decode_rendered_note(dynamic raw);
+
+  @protected
+  SyncEvent dco_decode_sync_event(dynamic raw);
 
   @protected
   SyncReport dco_decode_sync_report(dynamic raw);
@@ -234,12 +267,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
-  RustStreamSink<GitProgress> sse_decode_StreamSink_git_progress_Sse(
+  RustStreamSink<CloneEvent> sse_decode_StreamSink_clone_event_Sse(
     SseDeserializer deserializer,
   );
 
   @protected
-  RustStreamSink<IndexProgress> sse_decode_StreamSink_index_progress_Sse(
+  RustStreamSink<IndexEvent> sse_decode_StreamSink_index_event_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RustStreamSink<SyncEvent> sse_decode_StreamSink_sync_event_Sse(
     SseDeserializer deserializer,
   );
 
@@ -265,10 +303,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EmbedKind sse_decode_box_autoadd_embed_kind(SseDeserializer deserializer);
 
   @protected
+  Failure sse_decode_box_autoadd_failure(SseDeserializer deserializer);
+
+  @protected
   GitCreds sse_decode_box_autoadd_git_creds(SseDeserializer deserializer);
 
   @protected
+  GitErrorKind sse_decode_box_autoadd_git_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GitProgress sse_decode_box_autoadd_git_progress(SseDeserializer deserializer);
+
+  @protected
   ImageRef sse_decode_box_autoadd_image_ref(SseDeserializer deserializer);
+
+  @protected
+  IndexProgress sse_decode_box_autoadd_index_progress(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  IndexStats sse_decode_box_autoadd_index_stats(SseDeserializer deserializer);
+
+  @protected
+  SyncReport sse_decode_box_autoadd_sync_report(SseDeserializer deserializer);
 
   @protected
   TaskDate sse_decode_box_autoadd_task_date(SseDeserializer deserializer);
@@ -280,10 +340,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  CloneEvent sse_decode_clone_event(SseDeserializer deserializer);
+
+  @protected
   DateKind sse_decode_date_kind(SseDeserializer deserializer);
 
   @protected
   EmbedKind sse_decode_embed_kind(SseDeserializer deserializer);
+
+  @protected
+  Failure sse_decode_failure(SseDeserializer deserializer);
 
   @protected
   GitCreds sse_decode_git_creds(SseDeserializer deserializer);
@@ -308,6 +374,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ImageRef sse_decode_image_ref(SseDeserializer deserializer);
+
+  @protected
+  IndexEvent sse_decode_index_event(SseDeserializer deserializer);
 
   @protected
   IndexProgress sse_decode_index_progress(SseDeserializer deserializer);
@@ -383,6 +452,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  GitErrorKind? sse_decode_opt_box_autoadd_git_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TaskDate? sse_decode_opt_box_autoadd_task_date(SseDeserializer deserializer);
 
   @protected
@@ -402,6 +476,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RenderedNote sse_decode_rendered_note(SseDeserializer deserializer);
+
+  @protected
+  SyncEvent sse_decode_sync_event(SseDeserializer deserializer);
 
   @protected
   SyncReport sse_decode_sync_report(SseDeserializer deserializer);
@@ -443,14 +520,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_StreamSink_git_progress_Sse(
-    RustStreamSink<GitProgress> self,
+  void sse_encode_StreamSink_clone_event_Sse(
+    RustStreamSink<CloneEvent> self,
     SseSerializer serializer,
   );
 
   @protected
-  void sse_encode_StreamSink_index_progress_Sse(
-    RustStreamSink<IndexProgress> self,
+  void sse_encode_StreamSink_index_event_Sse(
+    RustStreamSink<IndexEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_sync_event_Sse(
+    RustStreamSink<SyncEvent> self,
     SseSerializer serializer,
   );
 
@@ -479,14 +562,47 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_failure(Failure self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_git_creds(
     GitCreds self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_box_autoadd_git_error_kind(
+    GitErrorKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_git_progress(
+    GitProgress self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_image_ref(
     ImageRef self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_index_progress(
+    IndexProgress self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_index_stats(
+    IndexStats self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_sync_report(
+    SyncReport self,
     SseSerializer serializer,
   );
 
@@ -506,10 +622,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_clone_event(CloneEvent self, SseSerializer serializer);
+
+  @protected
   void sse_encode_date_kind(DateKind self, SseSerializer serializer);
 
   @protected
   void sse_encode_embed_kind(EmbedKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_failure(Failure self, SseSerializer serializer);
 
   @protected
   void sse_encode_git_creds(GitCreds self, SseSerializer serializer);
@@ -534,6 +656,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_image_ref(ImageRef self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_index_event(IndexEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_index_progress(IndexProgress self, SseSerializer serializer);
@@ -623,6 +748,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_git_error_kind(
+    GitErrorKind? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_task_date(
     TaskDate? self,
     SseSerializer serializer,
@@ -648,6 +779,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_rendered_note(RenderedNote self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sync_event(SyncEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_sync_report(SyncReport self, SseSerializer serializer);

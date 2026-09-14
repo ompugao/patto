@@ -10,12 +10,13 @@ use flutter_rust_bridge::frb;
 use crate::frb_generated::StreamSink;
 
 pub use crate::api::error::{GitErrorKind, PattoError};
+pub use crate::api::events::{CloneEvent, Failure, IndexEvent, SyncEvent};
 pub use crate::api::git::{GitCreds, GitPhase, GitProgress, GitStatus, MergeOutcome, SyncReport};
 pub use crate::api::index::{BackLink, IndexProgress, IndexStats, LinkCount, TwoHop};
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
-    AnchorRef, Block, BlockKind, DateKind, EmbedKind, ImageRef, NoteSpan, NoteMeta, ParseIssue,
-    RenderedNote, NoteTableCell, NoteTableRow, TaskDate, TaskInfo, TaskStatus,
+    AnchorRef, Block, BlockKind, DateKind, EmbedKind, ImageRef, NoteMeta, NoteSpan, NoteTableCell,
+    NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo, TaskStatus,
 };
 
 use crate::api::error::PattoResult;
@@ -84,11 +85,20 @@ pub fn render_note(content: String) -> RenderedNote {
 
 // ─── index ───────────────────────────────────────────────────────────────────
 
-/// Scan the notes directory and build the link index, streaming progress.
-pub fn index_build(root: String, sink: StreamSink<IndexProgress>) -> PattoResult<IndexStats> {
-    index::index_build(root, |p| {
-        let _ = sink.add(p);
-    })
+/// Scan the notes directory and build the link index.
+///
+/// The outcome arrives as the last event on the stream rather than as a return
+/// value; see [`crate::api::events`] for why.
+pub fn index_build(root: String, sink: StreamSink<IndexEvent>) {
+    let progress_sink = sink.clone();
+    let result = index::index_build(root, move |progress| {
+        let _ = progress_sink.add(IndexEvent::Progress { progress });
+    });
+
+    let _ = match result {
+        Ok(stats) => sink.add(IndexEvent::Done { stats }),
+        Err(e) => sink.add(IndexEvent::Failed { failure: e.into() }),
+    };
 }
 
 pub fn index_update_file(root: String, rel_path: String) -> PattoResult<()> {
@@ -156,11 +166,17 @@ pub fn git_clone(
     root: String,
     branch: Option<String>,
     creds: GitCreds,
-    sink: StreamSink<GitProgress>,
-) -> PattoResult<()> {
-    git::git_clone(url, root, branch, creds, move |p| {
-        let _ = sink.add(p);
-    })
+    sink: StreamSink<CloneEvent>,
+) {
+    let progress_sink = sink.clone();
+    let result = git::git_clone(url, root, branch, creds, move |progress| {
+        let _ = progress_sink.add(CloneEvent::Progress { progress });
+    });
+
+    let _ = match result {
+        Ok(()) => sink.add(CloneEvent::Done),
+        Err(e) => sink.add(CloneEvent::Failed { failure: e.into() }),
+    };
 }
 
 pub fn git_status(root: String) -> PattoResult<GitStatus> {
@@ -172,11 +188,25 @@ pub fn git_sync(
     author_name: String,
     author_email: String,
     creds: GitCreds,
-    sink: StreamSink<GitProgress>,
-) -> PattoResult<SyncReport> {
-    let report = git::git_sync(root.clone(), author_name, author_email, creds, move |p| {
-        let _ = sink.add(p);
-    })?;
-    index::index_refresh(root)?;
-    Ok(report)
+    sink: StreamSink<SyncEvent>,
+) {
+    let progress_sink = sink.clone();
+    let result = git::git_sync(
+        root.clone(),
+        author_name,
+        author_email,
+        creds,
+        move |progress| {
+            let _ = progress_sink.add(SyncEvent::Progress { progress });
+        },
+    )
+    .and_then(|report| {
+        index::index_refresh(root)?;
+        Ok(report)
+    });
+
+    let _ = match result {
+        Ok(report) => sink.add(SyncEvent::Done { report }),
+        Err(e) => sink.add(SyncEvent::Failed { failure: e.into() }),
+    };
 }
