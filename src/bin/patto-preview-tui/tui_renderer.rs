@@ -68,22 +68,9 @@ impl RenderedDoc {}
 
 /// Render an AST root node into a flat list of DocElements.
 pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
-    let mut elements = Vec::new();
-    let mut focusables = Vec::new();
-    let mut anchors = HashMap::new();
-    render_node(
-        ast,
-        &mut elements,
-        &mut focusables,
-        &mut anchors,
-        0,
-        syntax_theme,
-    );
-    RenderedDoc {
-        elements,
-        focusables,
-        anchors,
-    }
+    let mut builder = DocBuilder::new(syntax_theme);
+    builder.node(ast, 0);
+    builder.finish()
 }
 
 /// Result of inline rendering — may contain image blocks that need to be
@@ -100,379 +87,352 @@ fn spans_have_content(spans: &[Span<'_>]) -> bool {
     spans.iter().any(|s| !s.content.trim().is_empty())
 }
 
-/// Flush `buf` as a single `Image` (len == 1) or `ImageRow` (len > 1) element.
-fn flush_image_row(
-    buf: &mut Vec<(String, Option<String>)>,
-    elements: &mut Vec<DocElement>,
-    focusables: &mut Vec<FocusableItem>,
-    indent: usize,
-) {
-    if buf.is_empty() {
-        return;
+/// Builds the flat element list the TUI draws from.
+///
+/// The three outputs — elements, focusables and the anchor map — are filled in
+/// together as the tree is walked, so they live here rather than being threaded
+/// through every function as `&mut` parameters.
+struct DocBuilder<'a> {
+    elements: Vec<DocElement>,
+    focusables: Vec<FocusableItem>,
+    anchors: HashMap<String, usize>,
+    syntax_theme: Option<&'a str>,
+}
+
+impl<'a> DocBuilder<'a> {
+    fn new(syntax_theme: Option<&'a str>) -> Self {
+        Self {
+            elements: Vec::new(),
+            focusables: Vec::new(),
+            anchors: HashMap::new(),
+            syntax_theme,
+        }
     }
-    if buf.len() == 1 {
-        let (src, alt) = buf.remove(0);
-        focusables.push(FocusableItem {
-            elem_idx: elements.len(),
+
+    fn finish(self) -> RenderedDoc {
+        RenderedDoc {
+            elements: self.elements,
+            focusables: self.focusables,
+            anchors: self.anchors,
+        }
+    }
+
+    fn push_text(&mut self, spans: Vec<Span<'static>>, row: usize) {
+        self.elements
+            .push(DocElement::TextLine(Line::from(spans), row));
+    }
+
+    /// Images are focusable, so that Enter can open them fullscreen.
+    fn push_image(&mut self, src: String, alt: Option<String>, indent: usize) {
+        self.focusables.push(FocusableItem {
+            elem_idx: self.elements.len(),
             char_start: 0,
             char_end: 0,
             action: LinkAction::ViewImage(src.clone()),
         });
-        elements.push(DocElement::Image { src, alt, indent });
-    } else {
-        for (src, _alt) in buf.iter() {
-            focusables.push(FocusableItem {
-                elem_idx: elements.len(),
-                char_start: 0,
-                char_end: 0,
-                action: LinkAction::ViewImage(src.clone()),
-            });
-        }
-        elements.push(DocElement::ImageRow(std::mem::take(buf), indent));
+        self.elements.push(DocElement::Image { src, alt, indent });
     }
-    buf.clear();
-}
 
-fn render_node(
-    ast: &AstNode,
-    elements: &mut Vec<DocElement>,
-    focusables: &mut Vec<FocusableItem>,
-    anchors: &mut HashMap<String, usize>,
-    indent: usize,
-    syntax_theme: Option<&str>,
-) {
-    match ast.kind() {
-        AstNodeKind::Dummy => {
-            let children = ast.children();
-            for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
-            }
+    /// Flush `buf` as a single `Image` (len == 1) or `ImageRow` (len > 1).
+    fn flush_image_row(&mut self, buf: &mut Vec<(String, Option<String>)>, indent: usize) {
+        if buf.is_empty() {
+            return;
         }
-        AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-            let is_quote = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
+        if buf.len() == 1 {
+            let (src, alt) = buf.remove(0);
+            self.push_image(src, alt, indent);
+        } else {
+            for (src, _alt) in buf.iter() {
+                self.focusables.push(FocusableItem {
+                    elem_idx: self.elements.len(),
+                    char_start: 0,
+                    char_end: 0,
+                    action: LinkAction::ViewImage(src.clone()),
+                });
+            }
+            self.elements
+                .push(DocElement::ImageRow(std::mem::take(buf), indent));
+        }
+        buf.clear();
+    }
 
-            // Check if this line is a block container (only content is a block element)
-            let contents = ast.contents();
-            let is_block_container = contents.len() == 1
-                && matches!(
-                    contents[0].kind(),
-                    AstNodeKind::Quote
-                        | AstNodeKind::Code { inline: false, .. }
-                        | AstNodeKind::Math { inline: false }
-                        | AstNodeKind::Table { .. }
-                );
+    fn children(&mut self, ast: &AstNode, indent: usize) {
+        for child in ast.children().iter() {
+            self.node(child, indent);
+        }
+    }
 
-            if is_block_container {
-                // Delegate to the block element renderer
-                let block_node = contents[0].clone();
-                drop(contents);
-                render_node(
-                    &block_node,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent,
-                    syntax_theme,
-                );
-                // Still render children (nested lines after the block)
-                let children = ast.children();
-                for child in children.iter() {
-                    render_node(
-                        child,
-                        elements,
-                        focusables,
-                        anchors,
-                        indent + 1,
-                        syntax_theme,
+    fn node(&mut self, ast: &AstNode, indent: usize) {
+        match ast.kind() {
+            AstNodeKind::Dummy | AstNodeKind::Quote => self.children(ast, indent),
+            AstNodeKind::Line { properties } => self.line(ast, properties, false, indent),
+            AstNodeKind::QuoteContent { properties } => self.line(ast, properties, true, indent),
+            AstNodeKind::Math { inline: false } => self.math_block(ast, indent),
+            AstNodeKind::Code {
+                lang,
+                inline: false,
+            } => self.code_block(ast, lang, indent),
+            AstNodeKind::Image { src, alt } => {
+                let src = get_gyazo_img_src(src).unwrap_or_else(|| src.clone());
+                self.push_image(src, alt.clone(), indent);
+                if let Some(alt) = alt {
+                    self.push_text(
+                        vec![Span::styled(
+                            format!("  {}", alt),
+                            Style::default()
+                                .fg(Color::DarkGray)
+                                .add_modifier(Modifier::ITALIC),
+                        )],
+                        ast.location().row,
                     );
                 }
-                return;
             }
-            drop(contents);
+            AstNodeKind::HorizontalLine => {
+                self.push_text(
+                    vec![Span::styled(
+                        "─".repeat(40),
+                        Style::default().fg(Color::DarkGray),
+                    )],
+                    ast.location().row,
+                );
+            }
+            AstNodeKind::Table { caption } => self.table(ast, caption.as_deref(), indent),
+            // Inline kinds are rendered by `render_inline` from their line, and
+            // table rows and columns by `table`.
+            _ => {}
+        }
+    }
 
-            // Record anchors defined on this line
-            let current_elem_idx = elements.len();
-            for property in properties {
-                if let Property::Anchor { name, .. } = property {
-                    anchors.insert(name.to_lowercase(), current_elem_idx);
+    fn line(&mut self, ast: &AstNode, properties: &[Property], is_quote: bool, indent: usize) {
+        // A line whose only content is a block delegates to that block.
+        if let Some(block) = block_container(ast) {
+            self.node(&block, indent);
+            self.children(ast, indent + 1);
+            return;
+        }
+
+        for property in properties {
+            if let Property::Anchor { name, .. } = property {
+                self.anchors
+                    .insert(name.to_lowercase(), self.elements.len());
+            }
+        }
+
+        let task_status = properties.iter().rev().find_map(|property| match property {
+            Property::Task { status, .. } => Some(status),
+            _ => None,
+        });
+        let is_done = matches!(task_status, Some(TaskStatus::Done));
+
+        let mut spans = self.line_prefix(ast, task_status, is_quote, indent);
+        let base_style = if is_done {
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::CROSSED_OUT)
+        } else if is_quote {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::ITALIC)
+        } else {
+            Style::default()
+        };
+
+        // Images that follow each other with no text between them share a row.
+        let mut image_row: Vec<(String, Option<String>)> = Vec::new();
+        for content in ast.contents().iter() {
+            let elem_idx = self.elements.len();
+            match render_inline(
+                content,
+                &mut spans,
+                base_style,
+                &mut self.focusables,
+                elem_idx,
+            ) {
+                InlineResult::ImageBlock { src, alt } => {
+                    if spans_have_content(&spans) {
+                        let row = ast.location().row;
+                        self.push_text(std::mem::take(&mut spans), row);
+                        // Text between images breaks the group.
+                        self.flush_image_row(&mut image_row, indent);
+                    } else {
+                        spans = vec![Span::raw("  ".repeat(indent + 1))];
+                    }
+                    image_row.push((src, alt));
+                }
+                InlineResult::Inline => self.flush_image_row(&mut image_row, indent),
+            }
+        }
+        self.flush_image_row(&mut image_row, indent);
+
+        for property in properties {
+            if let Property::Task { status, due, .. } = property {
+                if !matches!(status, TaskStatus::Done) {
+                    spans.push(Span::styled(
+                        format!(" [{}]", due),
+                        Style::default().fg(Color::Red),
+                    ));
                 }
             }
+        }
 
-            let mut task_status: Option<&TaskStatus> = None;
-            for property in properties {
-                if let Property::Task { status, .. } = property {
-                    task_status = Some(status);
-                }
-            }
-            let is_done = matches!(task_status, Some(TaskStatus::Done));
+        // Always emitted, so that blank lines keep their height.
+        self.push_text(spans, ast.location().row);
+        self.children(ast, indent + 1);
+    }
 
-            let mut prefix_spans: Vec<Span<'static>> = Vec::new();
+    /// Indent, quote bar and task icon or bullet.
+    fn line_prefix(
+        &self,
+        ast: &AstNode,
+        task_status: Option<&TaskStatus>,
+        is_quote: bool,
+        indent: usize,
+    ) -> Vec<Span<'static>> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        if indent > 0 {
+            spans.push(Span::raw("  ".repeat(indent)));
+        }
+        if is_quote {
+            spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
+        }
 
-            // Indent
-            if indent > 0 {
-                prefix_spans.push(Span::raw("  ".repeat(indent)));
-            }
-
-            // Quote prefix
-            if is_quote {
-                prefix_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
-            }
-
-            // Task icon / bullet
-            if let Some(status) = task_status {
-                let (icon, color) = match status {
-                    TaskStatus::Done => ("✓ ", Color::Green),
-                    TaskStatus::Doing => ("◑ ", Color::Yellow),
-                    TaskStatus::Paused => ("⏸ ", Color::Cyan),
-                    _ => ("○ ", Color::White),
-                };
-                prefix_spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
-            } else if !is_quote && indent > 0 {
-                let contents = ast.contents();
-                let is_blank = contents.is_empty()
-                    || contents.iter().all(|c| {
-                        matches!(c.kind(), AstNodeKind::Text) && c.extract_str().trim().is_empty()
-                    });
-                drop(contents);
-                if !is_blank {
-                    prefix_spans.push(Span::raw("• "));
-                }
-            }
-
-            // Inline contents — collect spans, grouping consecutive images into ImageRow
-            let base_style = if is_done {
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::CROSSED_OUT)
-            } else if is_quote {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::ITALIC)
-            } else {
-                Style::default()
+        if let Some(status) = task_status {
+            let (icon, color) = match status {
+                TaskStatus::Done => ("✓ ", Color::Green),
+                TaskStatus::Doing => ("◑ ", Color::Yellow),
+                TaskStatus::Paused => ("⏸ ", Color::Cyan),
+                _ => ("○ ", Color::White),
             };
+            spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
+        } else if !is_quote && indent > 0 && !is_blank(ast) {
+            spans.push(Span::raw("• "));
+        }
+        spans
+    }
 
-            let mut spans = prefix_spans.clone();
-            // Buffer for consecutive images (no non-whitespace text between them).
-            let mut image_row_buf: Vec<(String, Option<String>)> = Vec::new();
+    fn math_block(&mut self, ast: &AstNode, indent: usize) {
+        let content = ast
+            .children()
+            .iter()
+            .map(|child| child.extract_str().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.elements.push(DocElement::Math { content, indent });
+    }
 
-            let contents = ast.contents();
-            for content in contents.iter() {
-                let result =
-                    render_inline(content, &mut spans, base_style, focusables, elements.len());
-                match result {
-                    InlineResult::ImageBlock { src, alt } => {
-                        // If spans have real text, flush them before starting an image group
-                        if spans_have_content(&spans) {
-                            elements.push(DocElement::TextLine(
-                                Line::from(std::mem::take(&mut spans)),
-                                ast.location().row,
-                            ));
-                            // Also flush any existing image row — text breaks the group
-                            flush_image_row(&mut image_row_buf, elements, focusables, indent);
-                        } else if !image_row_buf.is_empty() {
-                            // Consecutive image — keep accumulating (spans are only whitespace/indent)
-                            spans = vec![Span::raw("  ".repeat(indent + 1))];
-                        } else {
-                            spans = vec![Span::raw("  ".repeat(indent + 1))];
-                        }
-                        image_row_buf.push((src, alt));
-                    }
-                    InlineResult::Inline => {
-                        // Non-image content — flush any pending image row first
-                        if !image_row_buf.is_empty() {
-                            flush_image_row(&mut image_row_buf, elements, focusables, indent);
-                        }
-                    }
-                }
+    fn code_block(&mut self, ast: &AstNode, lang: &str, indent: usize) {
+        let prefix = if indent > 0 {
+            "  ".repeat(indent)
+        } else {
+            "  ".to_string()
+        };
+        let row = ast.location().row;
+
+        if !lang.is_empty() {
+            self.push_text(
+                vec![
+                    Span::raw(prefix.clone()),
+                    Span::styled(
+                        format!(" {} ", lang),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ],
+                row,
+            );
+        }
+
+        let raw_lines: Vec<String> = ast
+            .children()
+            .iter()
+            .map(|child| child.extract_str().replace('\t', "    "))
+            .collect();
+        let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
+
+        for line_spans in
+            crate::syntax_highlight::highlight_code(lang, &raw_refs, self.syntax_theme)
+        {
+            let mut spans = vec![Span::raw(prefix.clone())];
+            if line_spans.is_empty() {
+                // Keep the row's height on an empty line.
+                spans.push(Span::raw(""));
+            } else {
+                spans.extend(line_spans);
             }
-            // Flush any trailing image row
-            flush_image_row(&mut image_row_buf, elements, focusables, indent);
+            self.push_text(spans, row);
+        }
+    }
 
-            // Deadline
-            for property in properties {
-                if let Property::Task { status, due, .. } = property {
-                    if !matches!(status, TaskStatus::Done) {
-                        let due_str = format!(" [{}]", due);
-                        spans.push(Span::styled(due_str, Style::default().fg(Color::Red)));
-                    }
-                }
+    fn table(&mut self, ast: &AstNode, caption: Option<&str>, indent: usize) {
+        if let Some(caption) = caption {
+            self.push_text(
+                vec![
+                    Span::raw("  ".repeat(indent)),
+                    Span::styled(
+                        caption.to_string(),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                ],
+                ast.location().row,
+            );
+        }
+        for child in ast.children().iter() {
+            self.table_row(child, indent);
+        }
+    }
+
+    fn table_row(&mut self, ast: &AstNode, indent: usize) {
+        let separator = Style::default().fg(Color::DarkGray);
+        let mut spans = vec![
+            Span::raw("  ".repeat(indent)),
+            Span::styled("│ ", separator),
+        ];
+
+        let elem_idx = self.elements.len();
+        for (i, column) in ast.contents().iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" │ ", separator));
             }
-
-            // Flush remaining spans (always emit to preserve blank lines)
-            elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
-
-            // Children (nested lines)
-            let children = ast.children();
-            for child in children.iter() {
-                render_node(
-                    child,
-                    elements,
-                    focusables,
-                    anchors,
-                    indent + 1,
-                    syntax_theme,
+            for content in column.contents().iter() {
+                render_inline(
+                    content,
+                    &mut spans,
+                    Style::default(),
+                    &mut self.focusables,
+                    elem_idx,
                 );
             }
         }
-        AstNodeKind::Quote => {
-            let children = ast.children();
-            for child in children.iter() {
-                render_node(child, elements, focusables, anchors, indent, syntax_theme);
-            }
-        }
-        AstNodeKind::Math { inline } => {
-            if *inline {
-                // Handled as inline content in parent Line
-            } else {
-                let children = ast.children();
-                let content: String = children
-                    .iter()
-                    .map(|c| c.extract_str().to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                drop(children);
-                elements.push(DocElement::Math { content, indent });
-            }
-        }
-        AstNodeKind::Code { lang, inline } => {
-            if *inline {
-                // Handled as inline content in parent Line
-            } else {
-                let prefix = if indent > 0 {
-                    "  ".repeat(indent)
-                } else {
-                    "  ".to_string()
-                };
-
-                // Show language label if present
-                if !lang.is_empty() {
-                    elements.push(DocElement::TextLine(
-                        Line::from(vec![
-                            Span::raw(prefix.clone()),
-                            Span::styled(
-                                format!(" {} ", lang),
-                                Style::default()
-                                    .fg(Color::Cyan)
-                                    .bg(Color::DarkGray)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ]),
-                        ast.location().row,
-                    ));
-                }
-
-                let children = ast.children();
-                let raw_lines: Vec<String> = children
-                    .iter()
-                    .map(|c| c.extract_str().replace('\t', "    "))
-                    .collect();
-                drop(children);
-                let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
-                let highlighted =
-                    crate::syntax_highlight::highlight_code(lang, &raw_refs, syntax_theme);
-                for (line_spans, _raw) in highlighted.into_iter().zip(raw_lines.iter()) {
-                    let mut spans = vec![Span::raw(prefix.clone())];
-                    if line_spans.is_empty() {
-                        // empty line — push a blank styled span to preserve height
-                        spans.push(Span::raw(""));
-                    } else {
-                        spans.extend(line_spans);
-                    }
-                    elements.push(DocElement::TextLine(Line::from(spans), ast.location().row));
-                }
-            }
-        }
-        AstNodeKind::Image { src, alt } => {
-            let mut src_resolved = src.clone();
-            if let Some(gyazo_src) = get_gyazo_img_src(src) {
-                src_resolved = gyazo_src;
-            }
-            focusables.push(FocusableItem {
-                elem_idx: elements.len(),
-                char_start: 0,
-                char_end: 0,
-                action: LinkAction::ViewImage(src_resolved.clone()),
-            });
-            elements.push(DocElement::Image {
-                src: src_resolved,
-                alt: alt.clone(),
-                indent,
-            });
-            if let Some(alt_text) = alt {
-                elements.push(DocElement::TextLine(
-                    Line::from(vec![Span::styled(
-                        format!("  {}", alt_text),
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::ITALIC),
-                    )]),
-                    ast.location().row,
-                ));
-            }
-        }
-        AstNodeKind::WikiLink { .. }
-        | AstNodeKind::Link { .. }
-        | AstNodeKind::Embed { .. }
-        | AstNodeKind::Decoration { .. }
-        | AstNodeKind::Text
-        | AstNodeKind::MathContent
-        | AstNodeKind::CodeContent => {
-            // These are inline — rendered by render_inline when inside a Line
-        }
-        AstNodeKind::HorizontalLine => {
-            elements.push(DocElement::TextLine(
-                Line::from(vec![Span::styled(
-                    "─".repeat(40),
-                    Style::default().fg(Color::DarkGray),
-                )]),
-                ast.location().row,
-            ));
-        }
-        AstNodeKind::Table { caption } => {
-            if let Some(cap) = caption {
-                elements.push(DocElement::TextLine(
-                    Line::from(vec![
-                        Span::raw("  ".repeat(indent)),
-                        Span::styled(cap.clone(), Style::default().add_modifier(Modifier::BOLD)),
-                    ]),
-                    ast.location().row,
-                ));
-            }
-            let children = ast.children();
-            for child in children.iter() {
-                render_table_row(child, elements, focusables, indent, child.location().row);
-            }
-        }
-        AstNodeKind::TableRow | AstNodeKind::TableColumn => {
-            // Handled inside Table rendering
-        }
+        spans.push(Span::styled(" │", separator));
+        self.push_text(spans, ast.location().row);
     }
 }
 
-fn render_table_row(
-    ast: &AstNode,
-    elements: &mut Vec<DocElement>,
-    focusables: &mut Vec<FocusableItem>,
-    indent: usize,
-    source_row: usize,
-) {
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    spans.push(Span::raw("  ".repeat(indent)));
-    spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
-
+/// The block this line exists only to hold, if it is such a line.
+fn block_container(ast: &AstNode) -> Option<AstNode> {
     let contents = ast.contents();
-    for (i, col) in contents.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-        }
-        let col_contents = col.contents();
-        for c in col_contents.iter() {
-            render_inline(c, &mut spans, Style::default(), focusables, elements.len());
-        }
-    }
-    spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
-    elements.push(DocElement::TextLine(Line::from(spans), source_row));
+    let [only] = contents.as_slice() else {
+        return None;
+    };
+    matches!(
+        only.kind(),
+        AstNodeKind::Quote
+            | AstNodeKind::Code { inline: false, .. }
+            | AstNodeKind::Math { inline: false }
+            | AstNodeKind::Table { .. }
+    )
+    .then(|| only.clone())
+}
+
+/// A line with nothing but whitespace on it.
+fn is_blank(ast: &AstNode) -> bool {
+    let contents = ast.contents();
+    contents.is_empty()
+        || contents
+            .iter()
+            .all(|c| matches!(c.kind(), AstNodeKind::Text) && c.extract_str().trim().is_empty())
 }
 
 /// Count total character width of accumulated spans.
@@ -811,6 +771,23 @@ mod tests {
                 .any(|f| matches!(&f.action, LinkAction::ViewImage(src) if src == "./cat.png")),
             "image is not focusable"
         );
+    }
+
+    #[test]
+    fn text_before_an_image_is_flushed_as_its_own_line() {
+        let doc = render("text then [@img ./x.png] image\n");
+        let kinds: Vec<&str> = doc
+            .elements
+            .iter()
+            .map(|element| match element {
+                DocElement::TextLine(..) => "text",
+                DocElement::Image { .. } => "image",
+                DocElement::ImageRow(..) => "image-row",
+                DocElement::Math { .. } => "math",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["text", "image", "text"]);
+        assert_eq!(text_lines(&doc)[0], "text then ");
     }
 
     #[test]
