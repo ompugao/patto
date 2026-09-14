@@ -4,6 +4,7 @@ pub mod completion;
 pub mod diagnostic_translator;
 pub mod lsp_config;
 pub mod paper;
+pub mod rename;
 pub mod semantic_token;
 pub mod task_edits;
 
