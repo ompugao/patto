@@ -51,6 +51,39 @@ jobs:
       - name: Run tests
         run: cargo test --verbose --features preview-tui
 
+  lean:
+    name: Lean library (no default features)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      # The lean build is what mobile/embedded clients consume: no npm step in
+      # build.rs, and no tokio / axum / tower-lsp / reqwest in the tree.
+      - name: Build
+        run: cargo build --verbose --no-default-features
+
+      - name: Run tests
+        run: cargo test --verbose --no-default-features
+
+      - name: Assert the dependency tree stays pure
+        run: |
+          if cargo tree --no-default-features -e normal \
+              | grep -E 'tokio|reqwest|tower-lsp|openssl|aws-lc|notify|axum'; then
+            echo "::error::a server-only dependency leaked into the lean build"
+            exit 1
+          fi
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest

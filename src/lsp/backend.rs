@@ -12,6 +12,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::ast_query::{find_anchor, task_label};
 use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::lsp::task_edits::{
     collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
@@ -300,53 +301,6 @@ impl TaskInformation {
     }
 }
 
-fn conceal_urls(text: &str) -> String {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    static URL_TITLE_RE: OnceLock<Regex> = OnceLock::new();
-    static TITLE_URL_RE: OnceLock<Regex> = OnceLock::new();
-
-    let url_title_re =
-        URL_TITLE_RE.get_or_init(|| Regex::new(r"\[\w+://[^\]\s]+\s+([^\]]+)\]").unwrap());
-    let title_url_re =
-        TITLE_URL_RE.get_or_init(|| Regex::new(r"\[([^\]]+?)\s+\w+://[^\]\s]+\]").unwrap());
-
-    let text = url_title_re.replace_all(text, "[🔗$1]");
-    title_url_re.replace_all(&text, "[$1🔗]").into_owned()
-}
-
-/// Return the line text with the task property token stripped and whitespace trimmed.
-/// e.g. "buy milk {@task status=todo due=2026-06-01}" → "buy milk"
-fn task_label(line: &AstNode) -> String {
-    let label = if let AstNodeKind::Line { properties } = &line.kind() {
-        let mut task_prop = None;
-        for prop in properties {
-            if let Property::Task { .. } = prop {
-                task_prop = Some(prop);
-                break;
-            }
-        }
-        if let Some(Property::Task { location, .. }) = task_prop {
-            let raw = line.extract_str();
-            // Remove the property span (byte offsets) and collapse extra whitespace.
-            let before = raw[..location.span.0.min(raw.len())].trim_end();
-            let after = raw[location.span.1.min(raw.len())..].trim_start();
-            match (before.is_empty(), after.is_empty()) {
-                (true, true) => String::new(),
-                (false, true) => before.trim_start().to_string(),
-                (true, false) => after.trim_start().to_string(),
-                (false, false) => format!("{} {}", before.trim_start(), after),
-            }
-        } else {
-            line.extract_str().trim_start().to_string()
-        }
-    } else {
-        line.extract_str().trim_start().to_string()
-    };
-    conceal_urls(&label)
-}
-
 /// Build a TaskInformation from an AstNode that has a Task property.
 fn task_information(
     uri: &tower_lsp::lsp_types::Url,
@@ -380,28 +334,6 @@ fn task_information(
         }
     }
     info
-}
-
-fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Anchor { name, .. } = prop {
-                if name == anchor {
-                    return Some(parent.clone());
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::map_clone)]
-    return parent
-        .value()
-        .children
-        .lock()
-        .unwrap()
-        .iter()
-        .find_map(|child| find_anchor(child, anchor))
-        .map(|x| x.clone());
 }
 
 /// Find anchor definition at the given row and column position
@@ -1231,43 +1163,16 @@ impl LanguageServer for Backend {
                     .and_then(|a| a.as_str())
                     .unwrap_or("today");
 
-                let (from, to) = match timeframe {
-                    "today" => (Some(today), Some(today)),
-                    "yesterday" => {
-                        let yesterday = today - chrono::Duration::days(1);
-                        (Some(yesterday), Some(yesterday))
-                    }
-                    "this_week" => {
-                        use chrono::Datelike;
-                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
-                        let start = today - chrono::Duration::days(weekday as i64);
-                        (Some(start), Some(today))
-                    }
-                    "last_week" => {
-                        use chrono::Datelike;
-                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
-                        let this_week_start = today - chrono::Duration::days(weekday as i64);
-                        let last_week_start = this_week_start - chrono::Duration::days(7);
-                        let last_week_end = this_week_start - chrono::Duration::days(1);
-                        (Some(last_week_start), Some(last_week_end))
-                    }
-                    "this_month" => {
-                        use chrono::Datelike;
-                        let start = today.with_day(1).unwrap_or(today);
-                        (Some(start), Some(today))
-                    }
-                    "custom" => {
-                        let parse = |a: Option<&serde_json::Value>| {
-                            a.and_then(|v| v.as_str())
-                                .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-                        };
-                        (
-                            parse(params.arguments.get(1)),
-                            parse(params.arguments.get(2)),
-                        )
-                    }
-                    _ => (Some(today), Some(today)),
+                let parse_date = |a: Option<&serde_json::Value>| {
+                    a.and_then(|v| v.as_str())
+                        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
                 };
+                let timeframe = crate::tasks_view::ReviewTimeframe::from_name(
+                    timeframe,
+                    parse_date(params.arguments.get(1)),
+                    parse_date(params.arguments.get(2)),
+                );
+                let (from, to) = crate::tasks_view::timeframe_bounds(&timeframe, today);
 
                 let repo_bind = self.repository.lock().unwrap();
                 let Some(repo) = repo_bind.as_ref() else {

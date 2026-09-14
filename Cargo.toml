@@ -7,6 +7,7 @@ description = "🪽 Yet another plain text format for quick note taking and task
 repository = "https://github.com/ompugao/patto"
 homepage = "https://github.com/ompugao/patto"
 authors = ["Shohei Fujii <fujii.shohei@gmail.com>"]
+exclude = ["patto-flutter/"]
 
 [package.metadata.wix]
 upgrade-guid = "08E8D49C-D108-4CCE-9F20-64D308C6BFD9"
@@ -17,54 +18,70 @@ eula = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["zotero"]
-zotero = ["dep:zotero-rs"]
-preview-tui = ["dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list", "dep:tex2typst-rs", "dep:typst", "dep:typst-library", "dep:typst-render", "dep:typst-kit", "dep:syntect"]
+# `default` keeps the full desktop surface: every module that existed before the
+# feature split stays enabled, so existing library users and the bundled binaries
+# are unaffected.  Mobile/embedded consumers build with `default-features = false`
+# to get the pure core (parser, renderer, task logic) without tokio/axum/tower-lsp.
+default = ["lsp", "preview", "repository", "cli", "oembed", "zotero"]
+
+# Notes directory model: filesystem scan, link graph, file watcher.
+repository = ["dep:tokio", "dep:notify", "dep:dashmap", "dep:gdsl", "dep:ropey", "dep:toml"]
+# Language server (implies repository).
+lsp = ["repository", "dep:tower-lsp", "dep:async-trait", "dep:fuzzy-matcher"]
+# Browser preview server; also enables the npm build step in build.rs.
+preview = ["lsp", "oembed", "dep:axum", "dep:rust-embed"]
+# Shared command-line plumbing for the bundled binaries.
+cli = ["dep:clap", "dep:clap-verbosity-flag", "dep:simplelog", "dep:glob"]
+# Fetch oEmbed HTML for twitter/x links while rendering (needs a network stack).
+oembed = ["dep:reqwest"]
+zotero = ["lsp", "dep:zotero-rs"]
+preview-tui = ["repository", "lsp", "cli", "dep:futures", "dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list", "dep:tex2typst-rs", "dep:typst", "dep:typst-library", "dep:typst-render", "dep:typst-kit", "dep:syntect"]
 preview-tui-chafa-dyn = ["preview-tui", "ratatui-image?/chafa-dyn"]
 preview-tui-chafa-static = ["preview-tui", "dep:patto-chafa-bridge"]
 
 [dependencies]
-axum = { version = "0.8.8", features = ["ws"] }
-async-trait = "0.1.89"
+# --- pure core: always available, compiles for wasm/Android/iOS ---
+anyhow = "1.0.100"
 chrono = { version = "0.4.43", features = ["serde"] }
-clap = { version = "4.5.54", features = ["derive"] }
-clap-verbosity-flag = "3.0.4"
-dashmap = "6.1.0"
-futures = "0.3.31"
-fuzzy-matcher = "0.3.7"
-gdsl = "0.2.1"
-glob = "0.3"
 html-escape = "0.2.13"
 log = "0.4.29"
-notify = "8.2.0"
-open = { version = "5", optional = true }
 pest = "2.8.5"
 pest_derive = "2.8.5"
 pulldown-cmark = "0.13"
 regex = "1.12.2"
-reqwest = { version = "0.13.1", features = ["blocking", "json"] }
-ropey = "1.6.1"
-rust-embed = { version = "8.11", features = ["include-exclude"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
-simplelog = "0.12.2"
 str_indices = "0.4.4"
 thiserror = "2.0.18"
-tokio = { version = "1.49.0", features = ["full"] }
-toml = "0.9.11"
-tower-lsp = { version = "0.20.0", features = ["runtime-tokio", "proposed"]}
+unicode-width = "0.2"
 url = "2.5.8"
 urlencoding = "2.1.3"
-sha2 = "0.10.9"
-anyhow = "1.0.100"
-rand = "0.9.3"
+
+# --- optional: pulled in by the features above ---
+axum = { version = "0.8.8", features = ["ws"], optional = true }
+async-trait = { version = "0.1.89", optional = true }
+clap = { version = "4.5.54", features = ["derive"], optional = true }
+clap-verbosity-flag = { version = "3.0.4", optional = true }
+dashmap = { version = "6.1.0", optional = true }
+futures = { version = "0.3.31", optional = true }
+fuzzy-matcher = { version = "0.3.7", optional = true }
+gdsl = { version = "0.2.1", optional = true }
+glob = { version = "0.3", optional = true }
+notify = { version = "8.2.0", optional = true }
+open = { version = "5", optional = true }
+reqwest = { version = "0.13.1", features = ["blocking", "json"], optional = true }
+ropey = { version = "1.6.1", optional = true }
+rust-embed = { version = "8.11", features = ["include-exclude"], optional = true }
+simplelog = { version = "0.12.2", optional = true }
+tokio = { version = "1.49.0", features = ["full"], optional = true }
+toml = { version = "0.9.11", optional = true }
+tower-lsp = { version = "0.20.0", features = ["runtime-tokio", "proposed"], optional = true }
 zotero-rs = { version = "0.2.5", optional = true }
 ratatui = { version = "0.30.2", features = ["crossterm"], optional = true }
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"], optional = true }
 crossterm = { version = "0.29.0", features = ["event-stream"], optional = true }
 image = { version = "0.25.9", optional = true }
 tui-widget-list = { version = "0.15.0", optional = true }
-unicode-width = "0.2"
 patto-chafa-bridge = { path = "patto-chafa-bridge", optional = true }
 tex2typst-rs = { version = "0.4.1", optional = true }
 syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"], optional = true }
@@ -74,6 +91,26 @@ typst-render = { version = "0.14.2", optional = true }
 typst-kit = { version = "0.14.2", default-features = false, features = ["embed-fonts"], optional = true }
 
 [[bin]]
+name = "patto-lsp"
+required-features = ["lsp", "cli"]
+
+[[bin]]
+name = "patto-preview"
+required-features = ["preview", "cli"]
+
+[[bin]]
+name = "patto-html-renderer"
+required-features = ["cli"]
+
+[[bin]]
+name = "patto-markdown-renderer"
+required-features = ["cli"]
+
+[[bin]]
+name = "patto-markdown-importer"
+required-features = ["cli"]
+
+[[bin]]
 name = "patto-preview-tui"
 required-features = ["preview-tui"]
 
@@ -81,8 +118,64 @@ required-features = ["preview-tui"]
 features = ["preview-tui-chafa-static"]
 
 [dev-dependencies]
+futures = "0.3.31"
 tempfile = "3.24"
+tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
+tower-lsp = { version = "0.20.0", features = ["runtime-tokio", "proposed"] }
+
+# Integration suites that drive the language server in-process.
+[[test]]
+name = "common_tests"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_completion"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_document_lifecycle"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_execute_command"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_folding_range"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_goto_definition"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_references"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_rename_anchors"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_rename_basic"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_rename_current_file"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_semantic_tokens"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_task_completion"
+required-features = ["lsp"]
+
+[[test]]
+name = "lsp_task_time_tracking"
+required-features = ["lsp"]
 
 # Optimize pest parser even in debug builds for acceptable TUI performance
 [profile.dev.package.pest]
