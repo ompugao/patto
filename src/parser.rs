@@ -1,4 +1,5 @@
 use chrono;
+use log;
 use pest::Parser;
 use pest_derive::Parser;
 use std::cmp;
@@ -6,8 +7,6 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops;
 use std::sync::{Arc, Mutex, MutexGuard};
-//use std::time::{Instant};
-use log;
 use thiserror::Error;
 
 use crate::line_tracker::LineTracker;
@@ -56,9 +55,6 @@ where
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", self.input)?;
-        // if self.span.0 >= self.input.len() {
-        //     log::warn!("input: {}, span: {:?}", self.input, self.span);
-        // }
         write!(
             f,
             "{}",
@@ -119,15 +115,6 @@ pub struct Annotation<T> {
     pub location: Location,
 }
 
-//impl<T> fmt::Display for Annotation<'_, T>
-// where
-//     T: fmt::Display,
-//{
-//    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//        write!(f, "{}", self.location)
-//    }
-//}
-
 #[derive(Debug, Default, Serialize)]
 pub struct AstNodeInternal {
     #[serde(serialize_with = "serialize_mutex_vec")]
@@ -157,12 +144,6 @@ where
     let opt = mutex.lock().unwrap();
     opt.serialize(serializer)
 }
-
-// impl<'a> fmt::Display for AstNodeInternal<'a> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.contents)
-//     }
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub enum Deadline {
@@ -287,12 +268,6 @@ pub enum AstNodeKind {
         title: Option<String>,
     },
 
-    //Bold {
-    //    size: usize
-    //},
-    //Italic,
-    //Underline,
-    //Deleted,
     Decoration {
         fontsize: isize,
         italic: bool,
@@ -1039,11 +1014,8 @@ pub fn parse_text_with_persistent_line_tracking(
     line_tracker: &mut LineTracker,
 ) -> ParserResult {
     // First, run regular parsing
-    //let start = Instant::now();
     let result = parse_text(text);
-    //println!("-- {} ms for parsing", start.elapsed().as_millis());
 
-    //let start = Instant::now();
     let _line_ids = match line_tracker.process_file_content(text) {
         Ok(ids) => ids,
         Err(_) => {
@@ -1051,7 +1023,6 @@ pub fn parse_text_with_persistent_line_tracking(
             return result;
         }
     };
-    //println!("-- {} ms for processing file", start.elapsed().as_millis());
 
     // Apply line IDs to Line and relevant nodes in the AST
     apply_line_ids_to_ast(&result.ast, line_tracker, text);
@@ -1208,12 +1179,6 @@ fn transform_img<'a>(
                 .as_str();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
             // inner2.chunks(2).map(|(k,v)| {
-            //     match k.unwrap().as_str() {
-            //         "width" => {
-            //             match v.parse::<isize>() {
-            //                 Ok(v) =>
-            //     }
-            // }
             Some(AstNode::image(
                 line,
                 row,
@@ -1916,7 +1881,6 @@ fn transform_statement<'a>(
                 }
             }
             Rule::expr_anchor => {
-                //println!("non-trailing anchor will be treated as a text");
                 //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
                 if let Some(prop) = transform_property(inner, line, row, indent) {
                     props.push(prop);
@@ -1968,11 +1932,8 @@ mod tests {
     #[test]
     fn test_parse_code_command() {
         let input = "[@code rust]";
-        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
@@ -1992,11 +1953,8 @@ mod tests {
     #[test]
     fn test_parse_code_emtpy_lang() {
         let input = "[@code   ]";
-        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
@@ -2056,7 +2014,6 @@ mod tests {
     #[test]
     fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>> {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
-        //let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2 {@anchor anchor3}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
@@ -2086,12 +2043,6 @@ mod tests {
             panic!("anchor2 is not extracted properly");
         };
 
-        // let anchor3 = &props[3];
-        // if let Property::Anchor { name, .. } = anchor3 {
-        //     assert_eq!(name, "anchor3");
-        // } else {
-        //     panic!("anchor3 is not extracted properly");
-        // };
         Ok(())
     }
 
@@ -2547,7 +2498,6 @@ mod tests {
                 panic! {"it is weird"};
             }
         }
-        //println!("{:?}", code.value.contents[0].extract_str());
         //
         let raw_text = &nodes[1];
         if let AstNodeKind::Text = raw_text.kind() {
@@ -2908,13 +2858,6 @@ mod tests {
     }
 
     // #[test]
-    // fn test_parse_error() {
-    //     let err = PattoLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
-    //     println!("{:?}", err);
-    //     log::debug!("{:?}", err.variant.message());
-    //     todo!();
-    //     ()
-    // }
 }
 
 #[cfg(test)]

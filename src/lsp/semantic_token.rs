@@ -176,15 +176,7 @@ fn collect_semantic_tokens(
                 });
             }
             AstNodeKind::MathContent => {
-                // NOTE: allow editor to render text as tex for now. should we call tree-sitter?
-                // let start = utf16_from_byte_idx(line_text, span.0) as u32;
-                // let length = (utf16_from_byte_idx(line_text, span.1) - utf16_from_byte_idx(line_text, span.0)) as u32;
-                // tokens.push(ImCompleteSemanticToken {
-                //     line: row,
-                //     start,
-                //     length,
-                //     token_type: TOKEN_TYPE_ENUM,
-                // });
+                // Left untokenised so the editor renders the body as TeX.
             }
             AstNodeKind::CodeContent => {
                 let start = utf16_from_byte_idx(line_text, span.0) as u32;

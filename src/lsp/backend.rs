@@ -92,25 +92,6 @@ fn get_node_range(from: &AstNode) -> Range {
     Range::new(Position::new(row, s), Position::new(row, e))
 }
 
-// fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
-//     if base.scheme() != uri.scheme() {
-//         log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
-//         return None;
-//     }
-//
-//     let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-//     let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-//
-//     if !uri_path.starts_with(&base_path) {
-//         log::debug!("uri is not inside base: {}, {}", uri, base);
-//         return None; // uri is not inside base
-//     }
-//
-//     // Extract the remainder after the base path
-//     let relative_path = &uri_path[base_path.len()..];
-//     Some(relative_path.join("/"))
-// }
-
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
     let translator = DiagnosticTranslator::default();
@@ -724,24 +705,8 @@ impl LanguageServer for Backend {
             }
         }
 
-        // vscode sets both root_uri and workspace_folders.
-        // Using root_uri for now, since vim-lsp experimentally support workspace_folers.
-        //
-        // if let Some(workspace_folders) = params.workspace_folders {
-        //     for folder in workspace_folders {
-        //         self.client.log_message(MessageType::INFO, &format!("scanning folder {:?}", folder)).await;
-        //         let path = folder.uri.to_file_path();
-        //         if path.is_ok() {
-        //             let client = self.client.clone();
-        //             let ast_map = Arc::clone(&self.ast_map);
-        //             tokio::spawn(async move {
-        //                 if let Err(e) = scan_workspace(client, path.unwrap(), ast_map).await {
-        //                     log::warn!("Failed to scan workspace: {:?}", e);
-        //                 }
-        //             });
-        //         }
-        //     }
-        // }
+        // vscode sets both root_uri and workspace_folders; we use root_uri
+        // because vim-lsp supports workspace_folders only experimentally.
 
         Ok(InitializeResult {
             server_info: None,
@@ -942,8 +907,6 @@ impl LanguageServer for Backend {
             let rope = repo.document_map.get(&uri)?;
 
             let position = params.text_document_position_params.position;
-            // let char = rope.try_line_to_char(position.line as usize).ok()?;
-            // self.client.log_message(MessageType::INFO, &format!("{:#?}, {}", ast.value(), offset)).await;
             let line = rope.get_line(position.line as usize)?;
             // NOTE: spans in our parser (and in pest) are in bytes, not chars
             let posbyte = utf16_to_byte_idx(line.as_str()?, position.character as usize);
@@ -951,10 +914,6 @@ impl LanguageServer for Backend {
                 log::debug!("Node not found at {:?}, posbyte: {:?}", position, posbyte);
                 return None;
             };
-            //if node_route.len() == 0 {
-            //    log::info!("-- route.len() is 0");
-            //    return None;
-            // }
             let Some((link, anchor)) = node_route.iter().find_map(|n| {
                 if let AstNodeKind::WikiLink { link, anchor } = &n.kind() {
                     Some((link, anchor))

@@ -271,15 +271,6 @@ impl Repository {
         Url::parse(&normalized).unwrap_or(url.clone())
     }
 
-    //// Count links in a patto file using the parser
-    // pub fn count_links_in_file(&self, path: &Path) -> std::io::Result<u32> {
-    //     let content = std::fs::read_to_string(path)?;
-    //     let result = parser::parse_text(&content);
-    //     let mut wikilinks = vec![];
-    //     Self::gather_wikilinks(&result.ast, &mut wikilinks);
-    //     Ok(wikilinks.len() as u32)
-    // }
-
     /// Collect patto files with metadata
     pub fn collect_patto_files_with_metadata(
         &self,
