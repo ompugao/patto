@@ -1,0 +1,19 @@
+# Android cross-compilation for standalone `cargo build --target ...` checks.
+# The Flutter build goes through Cargokit, which sets its own CC/AR/linker, but
+# the linker flags and the NDK path below still apply there.
+#
+# ANDROID_NDK_ROOT is what openssl-src's Android configuration looks for; set
+# ANDROID_NDK_HOME in the environment to override the path baked in here.
+
+[env]
+ANDROID_NDK_ROOT = { value = "/home/shohei/Android/Sdk/ndk/27.2.12479018", force = false }
+ANDROID_NDK_HOME = { value = "/home/shohei/Android/Sdk/ndk/27.2.12479018", force = false }
+
+# Android 15 requires 16 KB page alignment; NDK 27 still defaults to 4 KB.
+[target.aarch64-linux-android]
+linker = "/home/shohei/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+linker = "/home/shohei/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

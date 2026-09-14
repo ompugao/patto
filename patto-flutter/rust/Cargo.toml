@@ -1,0 +1,57 @@
+[package]
+name = "rust_lib_patto_flutter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust core of the Patto notes mobile app, exposed to Dart via flutter_rust_bridge"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+# Turned on by the Flutter build. Requires `flutter_rust_bridge_codegen generate`
+# to have written src/frb_generated.rs.
+frb = []
+
+[dependencies]
+patto = { path = "../..", default-features = false }
+
+flutter_rust_bridge = "2"
+
+chrono = { version = "0.4", features = ["serde"] }
+fuzzy-matcher = "0.3.7"
+git2 = { version = "0.21", default-features = false, features = [
+    "https",
+    "vendored-libgit2",
+    "vendored-openssl",
+] }
+log = "0.4"
+parking_lot = "0.12"
+thiserror = "2"
+walkdir = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+
+[dev-dependencies]
+tempfile = "3"
+
+# The pest-generated parser is unusably slow in a debug build; mirror the root
+# crate's profile so tests on large notes stay fast.
+[profile.dev.package.pest]
+opt-level = 2
+[profile.dev.package.pest_generator]
+opt-level = 2
+[profile.dev.package.pest_derive]
+opt-level = 2
+[profile.dev.package.pest_meta]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+codegen-units = 1
+strip = true

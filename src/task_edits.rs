@@ -365,7 +365,7 @@ fn build_longform_full_rewrite(
 
     // Start from the snapshot's current field values.
     let mut status = snapshot.status.clone();
-    let mut due = snapshot.due.clone();
+    let due = snapshot.due.clone();
     let mut scheduled = snapshot.scheduled.clone();
     let mut completed_at = snapshot.completed_at.clone();
     let mut started_at = snapshot.started_at.clone();
