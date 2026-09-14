@@ -7,21 +7,20 @@ use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as ut
 
 use super::paper::{PaperCatalog, PaperProviderError};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::lsp::commands::SUPPORTED_COMMANDS;
 use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use crate::lsp::task_edits::{
     collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
 };
-use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
     self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
 };
-use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
 use pest::Parser as _;
 
@@ -34,7 +33,7 @@ use fuzzy_matcher::FuzzyMatcher;
 pub struct PattoSettings {
     /// Markdown export settings
     #[serde(default)]
-    markdown: MarkdownSettings,
+    pub(super) markdown: MarkdownSettings,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -42,7 +41,7 @@ pub struct PattoSettings {
 pub struct MarkdownSettings {
     /// Default markdown flavor for export (standard, obsidian, github)
     #[serde(default)]
-    default_flavor: Option<String>,
+    pub(super) default_flavor: Option<String>,
 }
 
 //#[derive(Debug)]
@@ -348,7 +347,7 @@ fn task_label(line: &AstNode) -> String {
 }
 
 /// Build a TaskInformation from an AstNode that has a Task property.
-fn task_information(
+pub(super) fn task_information(
     uri: &tower_lsp::lsp_types::Url,
     line: &AstNode,
     due: &Deadline,
@@ -1032,14 +1031,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![
-                        "experimental/aggregate_tasks".to_string(),
-                        "experimental/retrieve_two_hop_notes".to_string(),
-                        "experimental/scan_workspace".to_string(),
-                        "experimental/tasks_review".to_string(),
-                        "patto/snapshotPapers".to_string(),
-                        "patto/renderAsMarkdown".to_string(),
-                    ],
+                    commands: SUPPORTED_COMMANDS.iter().map(|c| c.to_string()).collect(),
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -1201,235 +1193,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::LOG, format!("command executed!: {:?}", params))
             .await;
-
-        match params.command.as_str() {
-            "experimental/aggregate_tasks" => {
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let tasks = repo.aggregate_tasks();
-                let ret = json!(tasks
-                    .iter()
-                    .map(|(uri, line, due)| task_information(uri, line, due))
-                    .collect::<Vec<_>>());
-                return Ok(Some(ret));
-            }
-            "experimental/tasks_review" => {
-                // Arguments: [timeframe, from_date?, to_date?]
-                // timeframe: "today" | "this_week" | "custom"
-                // from_date / to_date: "YYYY-MM-DD" strings (required for "custom")
-                // Returns: list of completed tasks sorted by completed_at, each with
-                //   { location, text, completed_at }
-                let today = chrono::Local::now().date_naive();
-                let timeframe = params
-                    .arguments
-                    .first()
-                    .and_then(|a| a.as_str())
-                    .unwrap_or("today");
-
-                let (from, to) = match timeframe {
-                    "today" => (Some(today), Some(today)),
-                    "yesterday" => {
-                        let yesterday = today - chrono::Duration::days(1);
-                        (Some(yesterday), Some(yesterday))
-                    }
-                    "this_week" => {
-                        use chrono::Datelike;
-                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
-                        let start = today - chrono::Duration::days(weekday as i64);
-                        (Some(start), Some(today))
-                    }
-                    "last_week" => {
-                        use chrono::Datelike;
-                        let weekday = today.weekday().num_days_from_monday(); // Mon=0
-                        let this_week_start = today - chrono::Duration::days(weekday as i64);
-                        let last_week_start = this_week_start - chrono::Duration::days(7);
-                        let last_week_end = this_week_start - chrono::Duration::days(1);
-                        (Some(last_week_start), Some(last_week_end))
-                    }
-                    "this_month" => {
-                        use chrono::Datelike;
-                        let start = today.with_day(1).unwrap_or(today);
-                        (Some(start), Some(today))
-                    }
-                    "custom" => {
-                        let parse = |a: Option<&serde_json::Value>| {
-                            a.and_then(|v| v.as_str())
-                                .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-                        };
-                        (
-                            parse(params.arguments.get(1)),
-                            parse(params.arguments.get(2)),
-                        )
-                    }
-                    _ => (Some(today), Some(today)),
-                };
-
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let tasks = repo.aggregate_completed_tasks(from, to);
-                let ret = json!(tasks
-                    .iter()
-                    .map(|(uri, line, date)| {
-                        let info =
-                            task_information(uri, line, &crate::parser::Deadline::Date(*date));
-                        // Override completed_at with the authoritative value from repository
-                        // (already set by task_information, but ensure the date string matches).
-                        // started_at is intentionally omitted: for a done task it is stale and
-                        // must not be used to compute additional elapsed time on the review side.
-                        // The time_spent field already contains the correct accumulated total.
-                        json!({
-                            "location":    info.location,
-                            "text":        info.text,
-                            "status":      info.status,
-                            "due":         info.due,
-                            "scheduled":   info.scheduled,
-                            "completed_at": date.format("%Y-%m-%d").to_string(),
-                            "time_spent":  info.time_spent,
-                        })
-                    })
-                    .collect::<Vec<_>>());
-                return Ok(Some(ret));
-            }
-            "experimental/retrieve_two_hop_notes" => {
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(graph) = repo.document_graph.lock() else {
-                    return Ok(None);
-                };
-                let Some(url) = params
-                    .arguments
-                    .first()
-                    .and_then(|a| a.as_str())
-                    .and_then(|url| Url::parse(url).ok())
-                else {
-                    return Ok(None);
-                };
-                let Some(node) = graph.get(&url) else {
-                    return Ok(None);
-                };
-                let mut twohop_urls = node
-                    .iter_out()
-                    .map(|edge| {
-                        let target = edge.target();
-                        let connected_urls = target
-                            .iter_in()
-                            .map(|edge| edge.source().key().clone())
-                            .filter(|n| n != target.key() && n != &url)
-                            .collect::<Vec<Url>>();
-                        (target.key().clone(), connected_urls)
-                    })
-                    .filter(|x| !x.1.is_empty())
-                    .collect::<Vec<(Url, Vec<_>)>>();
-                twohop_urls.sort_by_key(|x| -(x.1.len() as i16));
-                twohop_urls.dedup();
-                log::debug!("urls: {:?}", twohop_urls);
-                return Ok(Some(json!(twohop_urls)));
-            }
-            "patto/snapshotPapers" => {
-                self.client
-                    .log_message(MessageType::INFO, "Taking snapshot of papers...")
-                    .await;
-                match self.paper_catalog.refresh().await {
-                    Ok(_) => {
-                        self.client
-                            .show_message(
-                                MessageType::INFO,
-                                "Paper snapshot completed successfully.",
-                            )
-                            .await;
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        let msg = format!("Failed to take paper snapshot: {}", e);
-                        self.client.show_message(MessageType::ERROR, &msg).await;
-                        log::error!("{}", msg);
-                        return Ok(None);
-                    }
-                }
-            }
-            "patto/renderAsMarkdown" => {
-                // Arguments: [uri, startLine?, endLine?, flavor?]
-                // If startLine/endLine not provided, render entire document
-                // If flavor not provided, use default from settings
-                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
-                    return Ok(None);
-                };
-                let Ok(uri) = Url::parse(uri_str) else {
-                    return Ok(None);
-                };
-                let uri = Repository::normalize_url_percent_encoding(&uri);
-
-                // Parse optional range (0-indexed, inclusive)
-                let start_line = params
-                    .arguments
-                    .get(1)
-                    .and_then(|a| a.as_u64())
-                    .map(|n| n as usize);
-                let end_line = params
-                    .arguments
-                    .get(2)
-                    .and_then(|a| a.as_u64())
-                    .map(|n| n as usize);
-
-                // Parse optional flavor, falling back to settings default, then "standard"
-                let flavor_str = params
-                    .arguments
-                    .get(3)
-                    .and_then(|a| a.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        self.settings
-                            .lock()
-                            .unwrap()
-                            .markdown
-                            .default_flavor
-                            .clone()
-                    })
-                    .unwrap_or_else(|| "standard".to_string());
-                let flavor = match flavor_str.to_lowercase().as_str() {
-                    "obsidian" => MarkdownFlavor::Obsidian,
-                    "github" => MarkdownFlavor::GitHub,
-                    _ => MarkdownFlavor::Standard,
-                };
-
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(ast) = repo.ast_map.get(&uri) else {
-                    return Ok(None);
-                };
-
-                let options = MarkdownRendererOptions::new(flavor).with_frontmatter(false);
-                let renderer = MarkdownRenderer::new(options);
-                let mut output = Vec::new();
-
-                let result = if let (Some(start), Some(end)) = (start_line, end_line) {
-                    renderer.format_range(ast.value(), &mut output, start, end)
-                } else {
-                    renderer.format(ast.value(), &mut output)
-                };
-
-                if result.is_err() {
-                    log::error!("Failed to render markdown: {:?}", result);
-                    return Ok(None);
-                }
-
-                let markdown = String::from_utf8_lossy(&output).to_string();
-                return Ok(Some(json!(markdown)));
-            }
-            c => {
-                log::info!("unknown command: {}", c);
-            }
-        }
-        log::info!("unhandled command execution: {:?}", params);
-        Ok(None)
+        Ok(self.dispatch_command(params).await)
     }
 
     async fn goto_definition(
