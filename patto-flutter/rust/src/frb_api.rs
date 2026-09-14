@@ -14,8 +14,8 @@ pub use crate::api::git::{GitCreds, GitPhase, GitProgress, GitStatus, MergeOutco
 pub use crate::api::index::{BackLink, IndexProgress, IndexStats, LinkCount, TwoHop};
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
-    AnchorRef, Block, BlockKind, DateKind, EmbedKind, ImageRef, InlineSpan, NoteMeta, ParseIssue,
-    RenderedNote, TableCell, TableRow, TaskDate, TaskInfo, TaskStatus,
+    AnchorRef, Block, BlockKind, DateKind, EmbedKind, ImageRef, NoteSpan, NoteMeta, ParseIssue,
+    RenderedNote, NoteTableCell, NoteTableRow, TaskDate, TaskInfo, TaskStatus,
 };
 
 use crate::api::error::PattoResult;

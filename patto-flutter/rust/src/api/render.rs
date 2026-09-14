@@ -198,21 +198,21 @@ fn first_content_text(node: &AstNode) -> String {
         .join("")
 }
 
-fn table_rows(table: &AstNode) -> Vec<TableRow> {
+fn table_rows(table: &AstNode) -> Vec<NoteTableRow> {
     table
         .value()
         .children
         .lock()
         .unwrap()
         .iter()
-        .map(|row| TableRow {
+        .map(|row| NoteTableRow {
             cells: row
                 .value()
                 .contents
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|col| TableCell {
+                .map(|col| NoteTableCell {
                     spans: col
                         .value()
                         .contents
@@ -258,9 +258,9 @@ fn embed_kind(link: &str) -> EmbedKind {
     EmbedKind::Other
 }
 
-fn inline_span(node: &AstNode) -> Option<InlineSpan> {
+fn inline_span(node: &AstNode) -> Option<NoteSpan> {
     match node.kind() {
-        AstNodeKind::Text => Some(InlineSpan::Text {
+        AstNodeKind::Text => Some(NoteSpan::Text {
             text: node.extract_str().to_string(),
         }),
         AstNodeKind::Decoration {
@@ -268,7 +268,7 @@ fn inline_span(node: &AstNode) -> Option<InlineSpan> {
             italic,
             underline,
             deleted,
-        } => Some(InlineSpan::Decoration {
+        } => Some(NoteSpan::Decoration {
             fontsize: *fontsize as i32,
             italic: *italic,
             underline: *underline,
@@ -282,26 +282,26 @@ fn inline_span(node: &AstNode) -> Option<InlineSpan> {
                 .filter_map(inline_span)
                 .collect(),
         }),
-        AstNodeKind::WikiLink { link, anchor } => Some(InlineSpan::WikiLink {
+        AstNodeKind::WikiLink { link, anchor } => Some(NoteSpan::WikiLink {
             name: link.clone(),
             anchor: anchor.clone(),
         }),
-        AstNodeKind::Link { link, title } => Some(InlineSpan::Url {
+        AstNodeKind::Link { link, title } => Some(NoteSpan::Url {
             url: link.clone(),
             title: title.clone(),
         }),
-        AstNodeKind::Embed { link, title } => Some(InlineSpan::Embed {
+        AstNodeKind::Embed { link, title } => Some(NoteSpan::Embed {
             kind: embed_kind(link),
             url: link.clone(),
             title: title.clone(),
         }),
-        AstNodeKind::Code { inline: true, .. } => Some(InlineSpan::InlineCode {
+        AstNodeKind::Code { inline: true, .. } => Some(NoteSpan::InlineCode {
             code: first_content_text(node),
         }),
-        AstNodeKind::Math { inline: true } => Some(InlineSpan::InlineMath {
+        AstNodeKind::Math { inline: true } => Some(NoteSpan::InlineMath {
             tex: first_content_text(node),
         }),
-        AstNodeKind::Image { .. } => image_ref(node).map(|image| InlineSpan::Image { image }),
+        AstNodeKind::Image { .. } => image_ref(node).map(|image| NoteSpan::Image { image }),
         // Block containers mixed into a line cannot be rendered inline; the
         // caller handles the single-content case and anything else is dropped.
         _ => None,

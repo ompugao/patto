@@ -104,7 +104,7 @@ pub enum EmbedKind {
 
 /// A run of inline content inside a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InlineSpan {
+pub enum NoteSpan {
     Text {
         text: String,
     },
@@ -114,7 +114,7 @@ pub enum InlineSpan {
         italic: bool,
         underline: bool,
         deleted: bool,
-        children: Vec<InlineSpan>,
+        children: Vec<NoteSpan>,
     },
     /// `[note]`, `[note#anchor]`, or `[#anchor]` (self link, `name` empty).
     WikiLink {
@@ -142,19 +142,19 @@ pub enum InlineSpan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableRow {
-    pub cells: Vec<TableCell>,
+pub struct NoteTableRow {
+    pub cells: Vec<NoteTableCell>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableCell {
-    pub spans: Vec<InlineSpan>,
+pub struct NoteTableCell {
+    pub spans: Vec<NoteSpan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockKind {
     Line {
-        spans: Vec<InlineSpan>,
+        spans: Vec<NoteSpan>,
     },
     /// A line with no visible content; kept so vertical rhythm survives.
     Blank,
@@ -167,7 +167,7 @@ pub enum BlockKind {
     },
     Table {
         caption: Option<String>,
-        rows: Vec<TableRow>,
+        rows: Vec<NoteTableRow>,
     },
     /// A line whose entire content is images.
     Images {

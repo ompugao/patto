@@ -5,28 +5,28 @@ fn blocks(src: &str) -> Vec<Block> {
     render_note(src.to_string()).blocks
 }
 
-fn line_spans(block: &Block) -> &[InlineSpan] {
+fn line_spans(block: &Block) -> &[NoteSpan] {
     match &block.kind {
         BlockKind::Line { spans } => spans,
         other => panic!("expected a line block, got {other:?}"),
     }
 }
 
-fn plain_text(spans: &[InlineSpan]) -> String {
+fn plain_text(spans: &[NoteSpan]) -> String {
     spans
         .iter()
         .map(|s| match s {
-            InlineSpan::Text { text } => text.clone(),
-            InlineSpan::Decoration { children, .. } => plain_text(children),
-            InlineSpan::WikiLink { name, anchor } => match anchor {
+            NoteSpan::Text { text } => text.clone(),
+            NoteSpan::Decoration { children, .. } => plain_text(children),
+            NoteSpan::WikiLink { name, anchor } => match anchor {
                 Some(a) => format!("{name}#{a}"),
                 None => name.clone(),
             },
-            InlineSpan::Url { url, title } => title.clone().unwrap_or_else(|| url.clone()),
-            InlineSpan::InlineCode { code } => code.clone(),
-            InlineSpan::InlineMath { tex } => tex.clone(),
-            InlineSpan::Image { image } => image.src.clone(),
-            InlineSpan::Embed { url, title, .. } => title.clone().unwrap_or_else(|| url.clone()),
+            NoteSpan::Url { url, title } => title.clone().unwrap_or_else(|| url.clone()),
+            NoteSpan::InlineCode { code } => code.clone(),
+            NoteSpan::InlineMath { tex } => tex.clone(),
+            NoteSpan::Image { image } => image.src.clone(),
+            NoteSpan::Embed { url, title, .. } => title.clone().unwrap_or_else(|| url.clone()),
         })
         .collect()
 }
@@ -46,14 +46,14 @@ fn wiki_links_and_anchors_are_separate_spans() {
     let spans = line_spans(&blocks[0]);
     assert_eq!(
         spans[1],
-        InlineSpan::WikiLink {
+        NoteSpan::WikiLink {
             name: "other".to_string(),
             anchor: None
         }
     );
     assert_eq!(
         spans[3],
-        InlineSpan::WikiLink {
+        NoteSpan::WikiLink {
             name: "note".to_string(),
             anchor: Some("sec".to_string())
         }
@@ -66,7 +66,7 @@ fn self_link_has_an_empty_name() {
     let spans = line_spans(&blocks[0]);
     assert_eq!(
         spans[1],
-        InlineSpan::WikiLink {
+        NoteSpan::WikiLink {
             name: String::new(),
             anchor: Some("target".to_string())
         }
@@ -77,7 +77,7 @@ fn self_link_has_an_empty_name() {
 fn decorations_nest() {
     let blocks = blocks("x [* bold [/ italic]] y\n");
     let spans = line_spans(&blocks[0]);
-    let InlineSpan::Decoration {
+    let NoteSpan::Decoration {
         fontsize, children, ..
     } = &spans[1]
     else {
@@ -86,7 +86,7 @@ fn decorations_nest() {
     assert!(*fontsize > 0);
     assert!(matches!(
         children[1],
-        InlineSpan::Decoration { italic: true, .. }
+        NoteSpan::Decoration { italic: true, .. }
     ));
     assert_eq!(plain_text(spans), "x bold italic y");
 }
@@ -141,7 +141,7 @@ fn table_cells_keep_inline_spans() {
     assert_eq!(plain_text(&rows[0].cells[0].spans), "h1");
     assert_eq!(
         rows[1].cells[1].spans[0],
-        InlineSpan::WikiLink {
+        NoteSpan::WikiLink {
             name: "b".to_string(),
             anchor: None
         }
@@ -172,14 +172,14 @@ fn a_remote_image_is_not_local() {
 fn an_image_among_text_stays_inline() {
     let blocks = blocks("before [@img ./a.png] after\n");
     let spans = line_spans(&blocks[0]);
-    assert!(matches!(spans[1], InlineSpan::Image { .. }));
+    assert!(matches!(spans[1], NoteSpan::Image { .. }));
 }
 
 #[test]
 fn youtube_embeds_carry_the_video_id() {
     let blocks = blocks("[@embed https://www.youtube.com/watch?v=dQw4w9WgXcQ Title]\n");
     let spans = line_spans(&blocks[0]);
-    let InlineSpan::Embed { kind, title, .. } = &spans[0] else {
+    let NoteSpan::Embed { kind, title, .. } = &spans[0] else {
         panic!("expected an embed, got {:?}", spans[0]);
     };
     assert_eq!(
@@ -195,7 +195,7 @@ fn youtube_embeds_carry_the_video_id() {
 fn pdf_embeds_are_recognised() {
     let blocks = blocks("[@embed ./paper.pdf Paper]\n");
     let spans = line_spans(&blocks[0]);
-    let InlineSpan::Embed { kind, .. } = &spans[0] else {
+    let NoteSpan::Embed { kind, .. } = &spans[0] else {
         panic!("expected an embed, got {:?}", spans[0]);
     };
     assert_eq!(kind, &EmbedKind::Pdf);
@@ -207,13 +207,13 @@ fn inline_code_and_math_are_extracted() {
     let spans = line_spans(&blocks[0]);
     assert_eq!(
         spans[1],
-        InlineSpan::InlineCode {
+        NoteSpan::InlineCode {
             code: "let x = 1 ".to_string()
         }
     );
     assert_eq!(
         spans[3],
-        InlineSpan::InlineMath {
+        NoteSpan::InlineMath {
             tex: "x^2 ".to_string()
         }
     );

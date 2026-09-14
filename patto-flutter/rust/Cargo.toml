@@ -8,15 +8,10 @@ description = "Rust core of the Patto notes mobile app, exposed to Dart via flut
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
 
-[features]
-# Turned on by the Flutter build. Requires `flutter_rust_bridge_codegen generate`
-# to have written src/frb_generated.rs.
-frb = []
-
 [dependencies]
 patto = { path = "../..", default-features = false }
 
-flutter_rust_bridge = "2"
+flutter_rust_bridge = "=2.13.0"
 
 chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher = "0.3.7"
