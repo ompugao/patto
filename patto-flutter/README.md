@@ -72,6 +72,17 @@ flutter analyze
 ./rust/build-android.sh            # cross-compile check for both ABIs
 ```
 
+## Continuous integration
+
+`.github/workflows/android.yml` builds the release APKs on every push and pull
+request that touches the app or the core crate, and uploads them as a build
+artifact named `patto-notes-apk`. It also fails if the committed bridge
+bindings differ from a fresh `flutter_rust_bridge_codegen generate`.
+
+The workflow pins the Flutter version, the NDK and the codegen version; they
+have to stay in step with `pubspec.yaml`, `android/app/build.gradle.kts` and
+`rust/Cargo.toml`.
+
 ## Notes for maintainers
 
 **Certificates.** `openssl-src` configures Android builds with `no-stdio`, so
