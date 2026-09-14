@@ -1,7 +1,7 @@
 use std::io;
 use std::io::Write;
 
-use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
+use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 
 use super::Renderer;
 use crate::utils::get_youtube_id;
@@ -24,7 +24,7 @@ impl Renderer for MarkdownRenderer {
         }
 
         let depth: usize = 0;
-        self._format_impl(ast, output, depth, false)?;
+        self.write_node(ast, output, depth, false)?;
         Ok(())
     }
 }
@@ -74,7 +74,7 @@ impl MarkdownRenderer {
                 let row = ast.location().row;
                 if row >= start_line && row <= end_line {
                     // This line is in range, render it normally
-                    self._format_impl(ast, output, depth, in_quote)?;
+                    self.write_node(ast, output, depth, in_quote)?;
                 } else if row < start_line {
                     // This line is before range, but check children
                     let children = ast.children();
@@ -96,360 +96,317 @@ impl MarkdownRenderer {
             }
             _ => {
                 // For other node types, delegate to regular format
-                self._format_impl(ast, output, depth, in_quote)?;
+                self.write_node(ast, output, depth, in_quote)?;
             }
         }
         Ok(())
     }
 
-    fn _format_impl(
+    fn write_node(
         &self,
         ast: &AstNode,
         output: &mut dyn Write,
         depth: usize,
         in_quote: bool,
     ) -> io::Result<()> {
-        match &ast.kind() {
+        match ast.kind() {
             AstNodeKind::Dummy => {
-                let children = ast.children();
-                for child in children.iter() {
-                    self._format_impl(child, output, depth, in_quote)?;
+                for child in ast.children().iter() {
+                    self.write_node(child, output, depth, in_quote)?;
                 }
+                Ok(())
             }
-            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-                let has_children = !ast.children().is_empty();
-                let is_quote_content = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
-
-                // Check if this line only contains a block element (quote, code, math, table)
-                let contents = ast.contents();
-                let is_block_container = contents.len() == 1
-                    && matches!(
-                        contents[0].kind(),
-                        AstNodeKind::Quote
-                            | AstNodeKind::Code { inline: false, .. }
-                            | AstNodeKind::Math { inline: false }
-                            | AstNodeKind::Table { .. }
-                    );
-
-                // Check if this is an empty line (no contents, no properties, no children)
-                let is_empty = contents.is_empty() && properties.is_empty() && !has_children;
-                drop(contents);
-
-                // For empty lines, just output a blank line
-                if is_empty {
-                    writeln!(output)?;
-                    return Ok(());
-                }
-
-                // Indentation for nested items (skip for quote content - handled by Quote)
-                if !in_quote && !is_block_container {
-                    for _ in 0..depth {
-                        write!(output, "  ")?;
-                    }
-                }
-
-                // Determine if this is a task
-                let mut task_due: Option<&crate::parser::Deadline> = None;
-                let mut task_scheduled: Option<&crate::parser::Deadline> = None;
-                let mut task_completed_at: Option<&crate::parser::Deadline> = None;
-                let mut is_done = false;
-                for property in properties {
-                    if let Property::Task {
-                        status,
-                        due,
-                        scheduled,
-                        completed_at,
-                        ..
-                    } = property
-                    {
-                        task_due = Some(due);
-                        task_scheduled = scheduled.as_ref();
-                        task_completed_at = completed_at.as_ref();
-                        is_done = matches!(status, TaskStatus::Done);
-                        break;
-                    }
-                }
-
-                // List marker for nested items or items with children (not for quote content or block containers)
-                if !is_quote_content && !is_block_container && (depth > 0 || has_children) {
-                    write!(output, "- ")?;
-                }
-
-                // Task checkbox
-                if task_due.is_some() {
-                    if is_done {
-                        write!(output, "[x] ")?;
-                    } else {
-                        write!(output, "[ ] ")?;
-                    }
-                }
-
-                // Render contents
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, depth, in_quote)?;
-                }
-
-                // Append due date (only if not done and has non-empty due date)
-                if let Some(due) = task_due {
-                    if !is_done {
-                        let due_str = due.to_string();
-                        if !due_str.is_empty() {
-                            match self.options.task_format() {
-                                TaskFormat::Checkbox => write!(output, " (due: {})", due_str)?,
-                                TaskFormat::ObsidianEmoji => write!(output, " 📅 {}", due_str)?,
-                                TaskFormat::ObsidianDataview => {
-                                    write!(output, " [due:: {}]", due_str)?
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Append scheduled date (only for non-done tasks)
-                if !is_done {
-                    if let Some(scheduled) = task_scheduled {
-                        let s_str = scheduled.to_string();
-                        if !s_str.is_empty() {
-                            match self.options.task_format() {
-                                TaskFormat::Checkbox => write!(output, " (scheduled: {})", s_str)?,
-                                TaskFormat::ObsidianEmoji => write!(output, " ⏳ {}", s_str)?,
-                                TaskFormat::ObsidianDataview => {
-                                    write!(output, " [scheduled:: {}]", s_str)?
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Append completed_at date for done tasks
-                if is_done {
-                    if let Some(completed_at) = task_completed_at {
-                        let c_str = completed_at.to_string();
-                        if !c_str.is_empty() {
-                            match self.options.task_format() {
-                                TaskFormat::Checkbox => write!(output, " (completed: {})", c_str)?,
-                                TaskFormat::ObsidianEmoji => write!(output, " ✅ {}", c_str)?,
-                                TaskFormat::ObsidianDataview => {
-                                    write!(output, " [completed_at:: {}]", c_str)?
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Append anchors
-                for property in properties {
-                    if let Property::Anchor { name, .. } = property {
-                        match self.options.anchor_format() {
-                            AnchorFormat::HtmlAnchor => write!(output, " <a id=\"{}\"></a>", name)?,
-                            AnchorFormat::HtmlComment => {
-                                write!(output, " <!-- anchor: {} -->", name)?
-                            }
-                            AnchorFormat::ObsidianBlock => write!(output, " ^{}", name)?,
-                            AnchorFormat::Inline => write!(output, " #{}", name)?,
-                        }
-                    }
-                }
-
-                // Block containers handle their own newlines
-                if !is_block_container {
-                    writeln!(output)?;
-                }
-
-                // Render children
-                let children = ast.children();
-                for child in children.iter() {
-                    self._format_impl(child, output, depth + 1, in_quote)?;
-                }
+            AstNodeKind::Line { properties } => {
+                self.write_line(ast, properties, false, output, depth, in_quote)
             }
-            AstNodeKind::Quote => {
-                // Render quote children with a helper to track inner indentation
-                self.render_quote_children(ast, output, depth, 0)?;
+            AstNodeKind::QuoteContent { properties } => {
+                self.write_line(ast, properties, true, output, depth, in_quote)
             }
-            AstNodeKind::Math { inline } => {
-                if *inline {
-                    write!(output, "$")?;
-                    let contents = ast.contents();
-                    if !contents.is_empty() {
-                        write!(output, "{}", contents[0].extract_str())?;
-                    }
-                    write!(output, "$")?;
-                } else {
-                    writeln!(output, "$$")?;
-                    let children = ast.children();
-                    for child in children.iter() {
-                        writeln!(output, "{}", child.extract_str())?;
-                    }
-                    writeln!(output, "$$")?;
-                }
-            }
-            AstNodeKind::Code { lang, inline } => {
-                if *inline {
-                    write!(output, "`")?;
-                    let contents = ast.contents();
-                    if !contents.is_empty() {
-                        write!(output, "{}", contents[0].extract_str())?;
-                    }
-                    write!(output, "`")?;
-                } else {
-                    // Proper fenced code block (NOT nested in list)
-                    writeln!(output, "```{}", lang)?;
-                    let children = ast.children();
-                    for child in children.iter() {
-                        writeln!(output, "{}", child.extract_str())?;
-                    }
-                    writeln!(output, "```")?;
-                }
-            }
+            AstNodeKind::Quote => self.render_quote_children(ast, output, depth, 0),
+            AstNodeKind::Math { inline } => self.write_math(ast, *inline, output),
+            AstNodeKind::Code { lang, inline } => self.write_code(ast, lang, *inline, output),
             AstNodeKind::Image { src, alt } => {
-                if let Some(alt) = alt {
-                    write!(output, "![{}]({})", alt, src)?;
-                } else {
-                    write!(output, "![]({})", src)?;
-                }
+                write!(output, "![{}]({})", alt.as_deref().unwrap_or(""), src)
             }
             AstNodeKind::WikiLink { link, anchor } => {
-                match self.options.wiki_link_format() {
-                    WikiLinkFormat::WikiStyle => {
-                        if let Some(anchor) = anchor {
-                            if link.is_empty() {
-                                // Self-link to anchor
-                                write!(output, "[[#{}]]", anchor)?;
-                            } else {
-                                write!(output, "[[{}#{}]]", link, anchor)?;
-                            }
-                        } else {
-                            write!(output, "[[{}]]", link)?;
-                        }
-                    }
-                    WikiLinkFormat::Markdown => {
-                        let ext = self.options.file_extension();
-                        if let Some(anchor) = anchor {
-                            if link.is_empty() {
-                                // Self-link to anchor
-                                write!(output, "[#{}](#{})", anchor, anchor)?;
-                            } else {
-                                write!(
-                                    output,
-                                    "[{}#{}]({}{}#{})",
-                                    link, anchor, link, ext, anchor
-                                )?;
-                            }
-                        } else {
-                            write!(output, "[{}]({}{})", link, link, ext)?;
-                        }
-                    }
-                }
+                self.write_wikilink(link, anchor.as_deref(), output)
             }
-            AstNodeKind::Link { link, title } => {
-                if let Some(title) = title {
-                    write!(output, "[{}]({})", title, link)?;
-                } else {
-                    write!(output, "[{}]({})", link, link)?;
-                }
-            }
-            AstNodeKind::Embed { link, title } => {
-                if let Some(youtube_id) = get_youtube_id(link) {
-                    // YouTube embed as link (markdown doesn't support iframe)
-                    write!(
-                        output,
-                        "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
-                        youtube_id, youtube_id
-                    )?;
-                } else if link.contains("slideshare.net") {
-                    if let Some(title) = title {
-                        write!(output, "[{}]({})", title, link)?;
-                    } else {
-                        write!(output, "[{}]({})", link, link)?;
-                    }
-                } else if let Some(title) = title {
-                    write!(output, "[{}]({})", title, link)?;
-                } else {
-                    write!(output, "[{}]({})", link, link)?;
-                }
-            }
+            AstNodeKind::Link { link, title } => self.write_link(link, title.as_deref(), output),
+            AstNodeKind::Embed { link, title } => match get_youtube_id(link) {
+                // Markdown has no iframe, so a YouTube embed becomes a
+                // thumbnail linking to the video.
+                Some(youtube_id) => write!(
+                    output,
+                    "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
+                    youtube_id, youtube_id
+                ),
+                None => self.write_link(link, title.as_deref(), output),
+            },
             AstNodeKind::Decoration {
                 fontsize,
                 italic,
                 underline,
                 deleted,
-            } => {
-                // Open tags
-                if *fontsize > 0 && !*italic {
-                    write!(output, "**")?; // bold
-                } else if *italic && *fontsize <= 0 {
-                    write!(output, "*")?; // italic
-                } else if *italic && *fontsize > 0 {
-                    write!(output, "***")?; // bold italic
-                }
-                if *underline {
-                    write!(output, "<ins>")?;
-                }
-                if *deleted {
-                    write!(output, "~~")?;
-                }
-
-                // Content
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, depth, in_quote)?;
-                }
-
-                // Close tags (reverse order)
-                if *deleted {
-                    write!(output, "~~")?;
-                }
-                if *underline {
-                    write!(output, "</ins>")?;
-                }
-                if *fontsize > 0 && !*italic {
-                    write!(output, "**")?;
-                } else if *italic && *fontsize <= 0 {
-                    write!(output, "*")?;
-                } else if *italic && *fontsize > 0 {
-                    write!(output, "***")?;
-                }
-            }
+            } => self.write_decoration(
+                ast, *fontsize, *italic, *underline, *deleted, output, depth, in_quote,
+            ),
             AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
-                write!(output, "{}", ast.extract_str())?;
+                write!(output, "{}", ast.extract_str())
             }
-            AstNodeKind::HorizontalLine => {
-                write!(output, "---")?;
-            }
+            AstNodeKind::HorizontalLine => write!(output, "---"),
             AstNodeKind::Table { caption } => {
-                // Caption as emphasized text
-                if let Some(caption) = caption {
-                    writeln!(output, "*{}*", caption)?;
-                }
-
-                let children = ast.children();
-                for (i, child) in children.iter().enumerate() {
-                    self._format_impl(child, output, depth, in_quote)?;
-
-                    // Add header separator after first row
-                    if i == 0 {
-                        let col_count = child.contents().len();
-                        write!(output, "|")?;
-                        for _ in 0..col_count {
-                            write!(output, " --- |")?;
-                        }
-                        writeln!(output)?;
-                    }
-                }
+                self.write_table(ast, caption.as_deref(), output, depth, in_quote)
             }
             AstNodeKind::TableRow => {
                 write!(output, "|")?;
-                let contents = ast.contents();
-                for content in contents.iter() {
+                for content in ast.contents().iter() {
                     write!(output, " ")?;
-                    self._format_impl(content, output, depth, in_quote)?;
+                    self.write_node(content, output, depth, in_quote)?;
                     write!(output, " |")?;
                 }
-                writeln!(output)?;
+                writeln!(output)
             }
             AstNodeKind::TableColumn => {
                 for content in ast.contents().iter() {
-                    self._format_impl(content, output, depth, in_quote)?;
+                    self.write_node(content, output, depth, in_quote)?;
                 }
+                Ok(())
+            }
+        }
+    }
+
+    fn write_line(
+        &self,
+        ast: &AstNode,
+        properties: &[Property],
+        is_quote_content: bool,
+        output: &mut dyn Write,
+        depth: usize,
+        in_quote: bool,
+    ) -> io::Result<()> {
+        let has_children = !ast.children().is_empty();
+
+        let (is_block_container, is_empty) = {
+            let contents = ast.contents();
+            // A line holding nothing but a block writes its own markers and
+            // newlines, so the list marker and indent are skipped for it.
+            let is_block_container = contents.len() == 1
+                && matches!(
+                    contents[0].kind(),
+                    AstNodeKind::Quote
+                        | AstNodeKind::Code { inline: false, .. }
+                        | AstNodeKind::Math { inline: false }
+                        | AstNodeKind::Table { .. }
+                );
+            let is_empty = contents.is_empty() && properties.is_empty() && !has_children;
+            (is_block_container, is_empty)
+        };
+
+        if is_empty {
+            return writeln!(output);
+        }
+
+        // Quote content is indented by the quote itself.
+        if !in_quote && !is_block_container {
+            for _ in 0..depth {
+                write!(output, "  ")?;
+            }
+        }
+
+        let task = line_task(properties);
+
+        if !is_quote_content && !is_block_container && (depth > 0 || has_children) {
+            write!(output, "- ")?;
+        }
+        if let Some(task) = &task {
+            write!(output, "{}", if task.is_done { "[x] " } else { "[ ] " })?;
+        }
+
+        for content in ast.contents().iter() {
+            self.write_node(content, output, depth, in_quote)?;
+        }
+
+        if let Some(task) = &task {
+            if task.is_done {
+                self.write_task_date(&COMPLETED, task.completed_at, output)?;
+            } else {
+                self.write_task_date(&DUE, Some(task.due), output)?;
+                self.write_task_date(&SCHEDULED, task.scheduled, output)?;
+            }
+        }
+
+        for property in properties {
+            if let Property::Anchor { name, .. } = property {
+                match self.options.anchor_format() {
+                    AnchorFormat::HtmlAnchor => write!(output, " <a id=\"{}\"></a>", name)?,
+                    AnchorFormat::HtmlComment => write!(output, " <!-- anchor: {} -->", name)?,
+                    AnchorFormat::ObsidianBlock => write!(output, " ^{}", name)?,
+                    AnchorFormat::Inline => write!(output, " #{}", name)?,
+                }
+            }
+        }
+
+        // Block containers handle their own newlines
+        if !is_block_container {
+            writeln!(output)?;
+        }
+
+        for child in ast.children().iter() {
+            self.write_node(child, output, depth + 1, in_quote)?;
+        }
+        Ok(())
+    }
+
+    /// One of a task's dates, in whichever form the flavor uses.
+    fn write_task_date(
+        &self,
+        format: &TaskDateFormat,
+        deadline: Option<&Deadline>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let Some(deadline) = deadline else {
+            return Ok(());
+        };
+        let date = deadline.to_string();
+        if date.is_empty() {
+            return Ok(());
+        }
+
+        match self.options.task_format() {
+            TaskFormat::Checkbox => write!(output, " ({}: {})", format.label, date),
+            TaskFormat::ObsidianEmoji => write!(output, " {} {}", format.emoji, date),
+            TaskFormat::ObsidianDataview => write!(output, " [{}:: {}]", format.dataview_key, date),
+        }
+    }
+
+    fn write_math(&self, ast: &AstNode, inline: bool, output: &mut dyn Write) -> io::Result<()> {
+        if inline {
+            write!(output, "$")?;
+            if let Some(content) = ast.contents().first() {
+                write!(output, "{}", content.extract_str())?;
+            }
+            return write!(output, "$");
+        }
+
+        writeln!(output, "$$")?;
+        write_block_body(ast, output)?;
+        writeln!(output, "$$")
+    }
+
+    fn write_code(
+        &self,
+        ast: &AstNode,
+        lang: &str,
+        inline: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        if inline {
+            write!(output, "`")?;
+            if let Some(content) = ast.contents().first() {
+                write!(output, "{}", content.extract_str())?;
+            }
+            return write!(output, "`");
+        }
+
+        writeln!(output, "```{}", lang)?;
+        write_block_body(ast, output)?;
+        writeln!(output, "```")
+    }
+
+    fn write_wikilink(
+        &self,
+        link: &str,
+        anchor: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        match self.options.wiki_link_format() {
+            WikiLinkFormat::WikiStyle => match anchor {
+                Some(anchor) if link.is_empty() => write!(output, "[[#{}]]", anchor),
+                Some(anchor) => write!(output, "[[{}#{}]]", link, anchor),
+                None => write!(output, "[[{}]]", link),
+            },
+            WikiLinkFormat::Markdown => {
+                let ext = self.options.file_extension();
+                match anchor {
+                    Some(anchor) if link.is_empty() => {
+                        write!(output, "[#{}](#{})", anchor, anchor)
+                    }
+                    Some(anchor) => {
+                        write!(output, "[{}#{}]({}{}#{})", link, anchor, link, ext, anchor)
+                    }
+                    None => write!(output, "[{}]({}{})", link, link, ext),
+                }
+            }
+        }
+    }
+
+    fn write_link(
+        &self,
+        link: &str,
+        title: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        write!(output, "[{}]({})", title.unwrap_or(link), link)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_decoration(
+        &self,
+        ast: &AstNode,
+        fontsize: isize,
+        italic: bool,
+        underline: bool,
+        deleted: bool,
+        output: &mut dyn Write,
+        depth: usize,
+        in_quote: bool,
+    ) -> io::Result<()> {
+        let emphasis = emphasis_marker(fontsize, italic);
+
+        write!(output, "{}", emphasis)?;
+        if underline {
+            write!(output, "<ins>")?;
+        }
+        if deleted {
+            write!(output, "~~")?;
+        }
+
+        for content in ast.contents().iter() {
+            self.write_node(content, output, depth, in_quote)?;
+        }
+
+        if deleted {
+            write!(output, "~~")?;
+        }
+        if underline {
+            write!(output, "</ins>")?;
+        }
+        write!(output, "{}", emphasis)
+    }
+
+    fn write_table(
+        &self,
+        ast: &AstNode,
+        caption: Option<&str>,
+        output: &mut dyn Write,
+        depth: usize,
+        in_quote: bool,
+    ) -> io::Result<()> {
+        // Markdown tables have no caption, so it becomes emphasised text above.
+        if let Some(caption) = caption {
+            writeln!(output, "*{}*", caption)?;
+        }
+
+        for (i, child) in ast.children().iter().enumerate() {
+            self.write_node(child, output, depth, in_quote)?;
+
+            // Markdown needs a separator row for the first row to be a header.
+            if i == 0 {
+                write!(output, "|")?;
+                for _ in 0..child.contents().len() {
+                    write!(output, " --- |")?;
+                }
+                writeln!(output)?;
             }
         }
         Ok(())
@@ -476,7 +433,7 @@ impl MarkdownRenderer {
                         write!(output, "  ")?;
                     }
                     write!(output, "> ")?;
-                    self._format_impl(child, output, depth, true)?;
+                    self.write_node(child, output, depth, true)?;
                 }
             }
         }
@@ -517,13 +474,13 @@ impl MarkdownRenderer {
                                        // Render nested quote with extra "> " marker
                     self.render_nested_quote(content, output, depth, inner_depth + 1)?;
                 } else {
-                    self._format_impl(content, output, depth, true)?;
+                    self.write_node(content, output, depth, true)?;
                 }
             }
         } else {
             // Regular content
             for content in contents.iter() {
-                self._format_impl(content, output, depth, true)?;
+                self.write_node(content, output, depth, true)?;
             }
             drop(contents);
 
@@ -536,7 +493,7 @@ impl MarkdownRenderer {
             };
 
             if !properties.is_empty() {
-                // We already output newline in _format_impl for lines with properties
+                // The newline was already written by write_line for lines with properties
             }
             writeln!(output)?;
         }
@@ -555,7 +512,7 @@ impl MarkdownRenderer {
                 for _ in 0..inner_depth {
                     write!(output, "    ")?;
                 }
-                self._format_impl(child, output, depth, true)?;
+                self.write_node(child, output, depth, true)?;
             }
         }
 
@@ -581,7 +538,7 @@ impl MarkdownRenderer {
                 for _ in 0..=quote_level {
                     write!(output, "> ")?;
                 }
-                self._format_impl(child, output, depth, true)?;
+                self.write_node(child, output, depth, true)?;
             }
         }
         Ok(())
@@ -606,7 +563,7 @@ impl MarkdownRenderer {
         // Render contents
         let contents = quote_content.contents();
         for content in contents.iter() {
-            self._format_impl(content, output, depth, true)?;
+            self.write_node(content, output, depth, true)?;
         }
         drop(contents);
 
@@ -622,4 +579,74 @@ impl MarkdownRenderer {
 
         Ok(())
     }
+}
+
+/// How one of a task's dates is written in each markdown flavor.
+struct TaskDateFormat {
+    /// `(label: date)` in the plain checkbox form.
+    label: &'static str,
+    /// The Obsidian Tasks emoji.
+    emoji: &'static str,
+    /// `[key:: date]` in the Dataview form.
+    dataview_key: &'static str,
+}
+
+const DUE: TaskDateFormat = TaskDateFormat {
+    label: "due",
+    emoji: "\u{1F4C5}",
+    dataview_key: "due",
+};
+const SCHEDULED: TaskDateFormat = TaskDateFormat {
+    label: "scheduled",
+    emoji: "\u{23F3}",
+    dataview_key: "scheduled",
+};
+const COMPLETED: TaskDateFormat = TaskDateFormat {
+    label: "completed",
+    emoji: "\u{2705}",
+    dataview_key: "completed_at",
+};
+
+/// The task recorded on a line, if it has one.
+struct LineTask<'a> {
+    is_done: bool,
+    due: &'a Deadline,
+    scheduled: Option<&'a Deadline>,
+    completed_at: Option<&'a Deadline>,
+}
+
+fn line_task(properties: &[Property]) -> Option<LineTask<'_>> {
+    properties.iter().find_map(|property| match property {
+        Property::Task {
+            status,
+            due,
+            scheduled,
+            completed_at,
+            ..
+        } => Some(LineTask {
+            is_done: matches!(status, TaskStatus::Done),
+            due,
+            scheduled: scheduled.as_ref(),
+            completed_at: completed_at.as_ref(),
+        }),
+        _ => None,
+    })
+}
+
+/// The `*`/`**`/`***` wrapper for a decoration, or nothing.
+fn emphasis_marker(fontsize: isize, italic: bool) -> &'static str {
+    match (fontsize > 0, italic) {
+        (true, false) => "**",
+        (false, true) => "*",
+        (true, true) => "***",
+        (false, false) => "",
+    }
+}
+
+/// The body of a fenced code or math block, one line per child.
+fn write_block_body(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+    for child in ast.children().iter() {
+        writeln!(output, "{}", child.extract_str())?;
+    }
+    Ok(())
 }
