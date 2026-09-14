@@ -43,7 +43,12 @@ NDK 27.2.12479018.
 rustup target add aarch64-linux-android x86_64-linux-android
 cargo install flutter_rust_bridge_codegen --version 2.13.0
 flutter pub get
-flutter run                     # or: flutter build apk --release
+flutter run
+
+# Release APKs, one per ABI. Name the platforms explicitly: Flutter otherwise
+# also emits an armeabi-v7a slice, for which no Rust library is built.
+flutter build apk --release --split-per-abi \
+  --target-platform android-arm64,android-x64
 ```
 
 Cargokit looks for the SDK command-line tools at `$ANDROID_HOME/cmdline-tools/latest`,
