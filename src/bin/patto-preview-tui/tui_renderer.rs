@@ -657,3 +657,250 @@ fn render_inline(
     }
     InlineResult::Inline
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(text: &str) -> RenderedDoc {
+        let result = patto::parser::parse_text(text);
+        assert!(
+            result.parse_errors.is_empty(),
+            "parse errors: {:?}",
+            result.parse_errors
+        );
+        render_ast(&result.ast, None)
+    }
+
+    /// Plain text of every `TextLine`, in order.
+    fn text_lines(doc: &RenderedDoc) -> Vec<String> {
+        doc.elements
+            .iter()
+            .filter_map(|element| match element {
+                DocElement::TextLine(line, _) => Some(
+                    line.spans
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn assert_any_line_contains(doc: &RenderedDoc, needle: &str) {
+        let lines = text_lines(doc);
+        assert!(
+            lines.iter().any(|line| line.contains(needle)),
+            "expected a line containing {needle:?} in {lines:#?}"
+        );
+    }
+
+    #[test]
+    fn plain_lines_keep_their_source_rows() {
+        let doc = render("first\nsecond\n");
+        let rows: Vec<usize> = doc
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                DocElement::TextLine(_, row) => Some(*row),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rows, vec![0, 1]);
+        assert_eq!(text_lines(&doc), vec!["first", "second"]);
+    }
+
+    #[test]
+    fn nested_lines_get_a_bullet_and_indent() {
+        let doc = render("parent\n\tchild\n");
+        assert_eq!(text_lines(&doc), vec!["parent", "  • child"]);
+    }
+
+    #[test]
+    fn blank_nested_lines_get_no_bullet() {
+        let doc = render("parent\n\t\n");
+        assert_eq!(text_lines(&doc), vec!["parent", ""]);
+    }
+
+    #[test]
+    fn task_status_picks_an_icon_and_shows_the_deadline() {
+        for (status, icon) in [
+            ("todo", "○ "),
+            ("doing", "◑ "),
+            ("paused", "⏸ "),
+            ("done", "✓ "),
+        ] {
+            let doc = render(&format!("{{@task status={status} due=2024-12-31}} item\n"));
+            assert_any_line_contains(&doc, icon);
+        }
+
+        let doc = render("{@task status=todo due=2024-12-31} item\n");
+        assert_any_line_contains(&doc, "[2024-12-31]");
+
+        // A finished task no longer shows its deadline.
+        let doc = render("{@task status=done due=2024-12-31} item\n");
+        assert!(
+            !text_lines(&doc).iter().any(|l| l.contains("2024-12-31")),
+            "a done task should not show its deadline"
+        );
+    }
+
+    #[test]
+    fn done_tasks_are_struck_through() {
+        let doc = render("{@task status=done due=2024-12-31} item\n");
+        let DocElement::TextLine(line, _) = &doc.elements[0] else {
+            panic!("expected a text line, got {:?}", doc.elements[0]);
+        };
+        assert!(
+            line.spans
+                .iter()
+                .any(|span| span.style.add_modifier.contains(Modifier::CROSSED_OUT)),
+            "no struck-through span in {line:?}"
+        );
+    }
+
+    #[test]
+    fn quote_content_is_prefixed() {
+        let doc = render("[@quote]\n\tquoted\n");
+        assert_any_line_contains(&doc, "│ ");
+        assert_any_line_contains(&doc, "quoted");
+    }
+
+    #[test]
+    fn code_block_shows_its_language_then_its_body() {
+        let doc = render("[@code python]\n\tprint(1)\n");
+        let lines = text_lines(&doc);
+        assert!(
+            lines.iter().any(|l| l.contains(" python ")),
+            "no language label in {lines:#?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("print(1)")),
+            "no code body in {lines:#?}"
+        );
+    }
+
+    #[test]
+    fn math_block_becomes_a_math_element() {
+        let doc = render("[@math]\n\tx = 1\n");
+        let math: Vec<_> = doc
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                DocElement::Math { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(math, vec!["x = 1".to_string()]);
+    }
+
+    #[test]
+    fn an_image_is_an_element_and_a_focusable() {
+        let doc = render("[@img ./cat.png]\n");
+        assert!(
+            doc.elements
+                .iter()
+                .any(|e| matches!(e, DocElement::Image { src, .. } if src == "./cat.png")),
+            "no image element in {:?}",
+            doc.elements
+        );
+        assert!(
+            doc.focusables
+                .iter()
+                .any(|f| matches!(&f.action, LinkAction::ViewImage(src) if src == "./cat.png")),
+            "image is not focusable"
+        );
+    }
+
+    #[test]
+    fn consecutive_images_share_a_row() {
+        let doc = render("[@img ./a.png][@img ./b.png]\n");
+        let rows: Vec<usize> = doc
+            .elements
+            .iter()
+            .filter_map(|element| match element {
+                DocElement::ImageRow(images, _) => Some(images.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rows, vec![2], "expected one row of two images");
+    }
+
+    /// A horizontal line is inline content of a line, so `render_inline`
+    /// handles it — through its raw-text fallback. `render_node`'s
+    /// `HorizontalLine` arm, which draws a box-drawing rule, is never reached.
+    #[test]
+    fn horizontal_line_is_shown_as_its_source_text() {
+        let doc = render("------\n");
+        assert_eq!(text_lines(&doc), vec!["------"]);
+    }
+
+    #[test]
+    fn table_renders_its_caption_and_cells() {
+        let doc = render("[@table cap]\n\ta\tb\n");
+        assert_any_line_contains(&doc, "cap");
+        assert_any_line_contains(&doc, "a");
+        assert_any_line_contains(&doc, " │ ");
+    }
+
+    #[test]
+    fn anchors_map_to_the_element_that_defines_them() {
+        let doc = render("first\nsecond #here\n");
+        assert_eq!(doc.anchors.get("here"), Some(&1));
+    }
+
+    #[test]
+    fn wikilinks_and_urls_become_focusables() {
+        let doc = render("[other note] and [https://example.com Site] and [#anchor]\n");
+        let actions: Vec<String> = doc
+            .focusables
+            .iter()
+            .map(|f| format!("{:?}", f.action))
+            .collect();
+
+        assert!(
+            doc.focusables.iter().any(
+                |f| matches!(&f.action, LinkAction::OpenNote { name, .. } if name == "other note")
+            ),
+            "no OpenNote in {actions:#?}"
+        );
+        assert!(
+            doc.focusables.iter().any(
+                |f| matches!(&f.action, LinkAction::OpenUrl(url) if url == "https://example.com")
+            ),
+            "no OpenUrl in {actions:#?}"
+        );
+        assert!(
+            doc.focusables.iter().any(
+                |f| matches!(&f.action, LinkAction::JumpToAnchor { anchor } if anchor == "anchor")
+            ),
+            "no JumpToAnchor in {actions:#?}"
+        );
+    }
+
+    #[test]
+    fn a_focusable_spans_the_characters_it_covers() {
+        let doc = render("see [other note] here\n");
+        let link = doc
+            .focusables
+            .iter()
+            .find(|f| matches!(&f.action, LinkAction::OpenNote { .. }))
+            .expect("no wikilink focusable");
+
+        let DocElement::TextLine(line, _) = &doc.elements[link.elem_idx] else {
+            panic!("focusable does not point at a text line");
+        };
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        let covered: String = text
+            .chars()
+            .skip(link.char_start)
+            .take(link.char_end - link.char_start)
+            .collect();
+        assert_eq!(covered, "[other note]");
+    }
+}
