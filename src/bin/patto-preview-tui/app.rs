@@ -3,14 +3,10 @@ use crate::config;
 use crate::image_cache::ImageCache;
 use crate::search::{SearchDirection, SearchState};
 use crate::tasks::TasksPanel;
+use crate::tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc};
 use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
-use patto::{
-    line_tracker::LineTracker,
-    parser,
-    repository::Repository,
-    tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
-};
+use patto::{line_tracker::LineTracker, parser, repository::Repository};
 use std::path::{Path, PathBuf};
 
 /// Action returned by `App::handle_key()` to signal side-effects to the caller.

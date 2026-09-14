@@ -1,4 +1,3 @@
-pub mod diagnostic_translator;
 pub mod importer;
 pub mod line_tracker;
 pub mod lsp;
@@ -6,10 +5,5 @@ pub mod markdown;
 pub mod parser;
 pub mod renderer;
 pub mod repository;
-pub mod semantic_token;
-#[cfg(feature = "preview-tui")]
-pub mod syntax_highlight;
 pub mod task;
-#[cfg(feature = "preview-tui")]
-pub mod tui_renderer;
 pub mod utils;

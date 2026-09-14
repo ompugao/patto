@@ -55,7 +55,7 @@ pub(crate) fn get_twitter_embed(tweet_url: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn get_gyazo_img_src(url: &str) -> Option<String> {
+pub fn get_gyazo_img_src(url: &str) -> Option<String> {
     let parsed_url = Url::parse(url).ok()?;
 
     match parsed_url.host_str()? {

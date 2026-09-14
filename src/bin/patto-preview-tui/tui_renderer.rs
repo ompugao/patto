@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
-use crate::utils::get_gyazo_img_src;
+use patto::parser::{AstNode, AstNodeKind, Property, TaskStatus};
+use patto::utils::get_gyazo_img_src;
 
 /// Action to perform when a focusable item is activated.
 #[derive(Debug, Clone)]

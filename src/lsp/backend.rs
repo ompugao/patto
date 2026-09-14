@@ -12,7 +12,8 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use crate::lsp::task_edits::{
     collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
 };
@@ -22,7 +23,6 @@ use crate::parser::{
 };
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
-use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use pest::Parser as _;
 
 use fuzzy_matcher::skim::SkimMatcherV2;

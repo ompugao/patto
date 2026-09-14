@@ -6,7 +6,7 @@
 //! `total_height` — which replaces `DocElement::height` / `RenderedDoc::total_height`
 //! so that the data model stays free of rendering parameters.
 
-use patto::tui_renderer::DocElement;
+use crate::tui_renderer::DocElement;
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},

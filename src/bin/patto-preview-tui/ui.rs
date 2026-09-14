@@ -1,7 +1,7 @@
 use crate::backlinks::FlatEntry;
 use crate::config::TasksPanelPosition;
 use crate::tasks::TaskEntry;
-use patto::tui_renderer::{DocElement, LinkAction};
+use crate::tui_renderer::{DocElement, LinkAction};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
