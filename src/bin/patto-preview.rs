@@ -11,7 +11,9 @@ use clap::Parser;
 use patto::{
     line_tracker::LineTracker,
     parser,
+    preview::lsp_bridge::{self, BridgeOptions},
     repository::{BackLinkData, FileMetadata, Repository, RepositoryMessage},
+    utils::mime_type_for_path,
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -19,14 +21,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::fs;
-use tokio::sync::oneshot;
-use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-    InitializedParams, MessageType, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, Url,
-};
-use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 // Embed the new Vite/React frontend (built with `npm run build` in patto-preview-ui/)
 #[derive(RustEmbed)]
@@ -59,164 +53,6 @@ struct Args {
 struct AppState {
     repository: Arc<Repository>,
     line_trackers: Arc<Mutex<HashMap<PathBuf, LineTracker>>>,
-}
-
-struct PreviewLspBackend {
-    client: Client,
-    repository: Arc<Repository>,
-    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
-}
-
-impl PreviewLspBackend {
-    fn new(
-        client: Client,
-        repository: Arc<Repository>,
-        shutdown_tx: Option<oneshot::Sender<()>>,
-    ) -> Self {
-        Self {
-            client,
-            repository,
-            shutdown_tx: Mutex::new(shutdown_tx),
-        }
-    }
-
-    async fn handle_text_change(&self, uri: Url, text: String) {
-        let normalized = Repository::normalize_url_percent_encoding(&uri);
-        let Ok(path) = normalized.to_file_path() else {
-            self.client
-                .log_message(
-                    MessageType::WARNING,
-                    format!("Preview LSP ignoring non-file URI: {}", normalized),
-                )
-                .await;
-            return;
-        };
-
-        let path = std::fs::canonicalize(&path).unwrap_or(path);
-
-        if path.extension().and_then(|s| s.to_str()) != Some("pn") {
-            return;
-        }
-
-        if !path.starts_with(&self.repository.root_dir) {
-            self.client
-                .log_message(
-                    MessageType::WARNING,
-                    format!(
-                        "Preview LSP ignoring file outside workspace: {}",
-                        path.display()
-                    ),
-                )
-                .await;
-            return;
-        }
-
-        self.repository.handle_live_file_change(path, text).await;
-    }
-}
-
-#[tower_lsp::async_trait]
-impl LanguageServer for PreviewLspBackend {
-    async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
-        Ok(InitializeResult {
-            server_info: None,
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Options(
-                    TextDocumentSyncOptions {
-                        open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::FULL),
-                        will_save: Some(false),
-                        will_save_wait_until: Some(false),
-                        save: Some(
-                            tower_lsp::lsp_types::TextDocumentSyncSaveOptions::Supported(true),
-                        ),
-                    },
-                )),
-                ..ServerCapabilities::default()
-            },
-            ..InitializeResult::default()
-        })
-    }
-
-    async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "Preview LSP bridge connected")
-            .await;
-    }
-
-    async fn shutdown(&self) -> LspResult<()> {
-        if let Some(tx) = self.shutdown_tx.lock().unwrap().take() {
-            let _ = tx.send(());
-        }
-        Ok(())
-    }
-
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.handle_text_change(params.text_document.uri, params.text_document.text)
-            .await;
-    }
-
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        if let Some(change) = params.content_changes.into_iter().last() {
-            self.handle_text_change(params.text_document.uri, change.text)
-                .await;
-        }
-    }
-}
-
-async fn start_preview_lsp_server(repository: Arc<Repository>, port: u16) -> std::io::Result<()> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    eprintln!("Preview LSP server listening on 127.0.0.1:{}", port);
-
-    tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    let repo = repository.clone();
-                    tokio::spawn(async move {
-                        let (reader, writer) = tokio::io::split(stream);
-                        let (service, socket) = LspService::new(|client| {
-                            PreviewLspBackend::new(client, repo.clone(), None)
-                        });
-                        Server::new(reader, writer, socket).serve(service).await;
-                        eprintln!("Preview LSP connection {} closed", addr);
-                    });
-                }
-                Err(err) => {
-                    eprintln!("Preview LSP accept error: {err}");
-                }
-            }
-        }
-    });
-
-    Ok(())
-}
-
-fn start_preview_lsp_stdio(repository: Arc<Repository>) -> oneshot::Receiver<()> {
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
-    let (tx, rx) = oneshot::channel();
-    // PreviewLspBackend needs its own copy of the sender so it can fire it exactly once when Neovim calls the LSP shutdown() method; the stdio server
-    // task also needs the same sender so it can notify the main process if the LSP loop exits on its own. If we stored Option<Arc<Mutex<_>>>, every
-    // backend clone would hold the same Arc, so calling take() inside one backend wouldn’t remove the sender for others—they’d still see Some. By
-    // storing the Option inside each backend (and cloning the Arc<Mutex<Option<_>>> wrapper instead), the sender itself lives only once in the shared
-    // mutex and take() truly consumes it, preventing double-send/panic and ensuring whichever context notices shutdown first owns the signal.
-    let shutdown_tx = Arc::new(Mutex::new(Some(tx)));
-
-    let shutdown_tx_server = shutdown_tx.clone();
-
-    tokio::spawn(async move {
-        let (service, socket) = LspService::new(move |client| {
-            let sender = shutdown_tx.lock().unwrap().take();
-            PreviewLspBackend::new(client, repository, sender)
-        });
-        Server::new(stdin, stdout, socket).serve(service).await;
-        if let Some(tx) = shutdown_tx_server.lock().unwrap().take() {
-            let _ = tx.send(());
-        }
-    });
-
-    rx
 }
 
 // WebSocket messages sent to client
@@ -262,80 +98,6 @@ enum WsClientMessage {
 }
 
 // Helper function to get file extension
-fn get_extension(path: &Path) -> String {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-// Helper function to get MIME type based on file extension
-fn get_mime_type(path: &Path) -> &str {
-    match get_extension(path).as_str() {
-        // Web formats
-        "html" => "text/html",
-        "css" => "text/css",
-        "js" => "application/javascript",
-        "json" => "application/json",
-
-        // Image formats
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "svg" => "image/svg+xml",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "tiff" | "tif" => "image/tiff",
-        "ico" => "image/x-icon",
-        "heic" => "image/heic",
-        "avif" => "image/avif",
-
-        // Video formats
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "ogv" => "video/ogg",
-        "avi" => "video/x-msvideo",
-        "mov" => "video/quicktime",
-        "wmv" => "video/x-ms-wmv",
-        "flv" => "video/x-flv",
-        "mkv" => "video/x-matroska",
-        "m4v" => "video/x-m4v",
-
-        // Audio formats
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" | "oga" => "audio/ogg",
-        "aac" => "audio/aac",
-        "flac" => "audio/flac",
-        "m4a" => "audio/mp4",
-        "wma" => "audio/x-ms-wma",
-
-        // Document formats
-        "pdf" => "application/pdf",
-        "txt" => "text/plain",
-        "md" => "text/markdown",
-        "pn" => "text/plain",
-        "rtf" => "application/rtf",
-        "doc" => "application/msword",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls" => "application/vnd.ms-excel",
-        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "ppt" => "application/vnd.ms-powerpoint",
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-
-        // Programming languages
-        "py" => "text/x-python",
-
-        // Archive formats
-        "zip" => "application/zip",
-        "rar" => "application/vnd.rar",
-        "7z" => "application/x-7z-compressed",
-        "tar" => "application/x-tar",
-        "gz" => "application/gzip",
-
-        _ => "application/octet-stream",
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -368,9 +130,12 @@ async fn main() {
 
     let mut shutdown_signal = None;
     if args.preview_lsp_stdio {
-        shutdown_signal = Some(start_preview_lsp_stdio(repository.clone()));
+        shutdown_signal = Some(lsp_bridge::serve_stdio(repository.clone()));
     } else if let Some(lsp_port) = args.preview_lsp_port {
-        if let Err(e) = start_preview_lsp_server(repository.clone(), lsp_port).await {
+        let options = BridgeOptions {
+            log_connections: true,
+        };
+        if let Err(e) = lsp_bridge::serve_tcp(repository.clone(), lsp_port, options).await {
             eprintln!("Failed to start preview LSP server: {}", e);
         }
     }
@@ -443,7 +208,7 @@ async fn vite_static_handler(uri: axum::http::Uri) -> impl IntoResponse {
             let ct = if path.ends_with(".html") {
                 "text/html; charset=utf-8"
             } else {
-                get_content_type_from_path(path)
+                mime_type_for_path(Path::new(path))
             };
             serve_file(f.data.to_vec(), ct)
         }
@@ -633,7 +398,7 @@ async fn user_files_handler(
     // Read and serve the file
     match fs::read(&canonical_file).await {
         Ok(contents) => {
-            let mime_type = get_mime_type(&canonical_file);
+            let mime_type = mime_type_for_path(&canonical_file);
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime_type)
@@ -649,28 +414,6 @@ async fn user_files_handler(
 }
 
 // Helper function to determine content type from path
-fn get_content_type_from_path(path: &str) -> &'static str {
-    if path.ends_with(".js") {
-        "application/javascript"
-    } else if path.ends_with(".css") {
-        "text/css"
-    } else if path.ends_with(".json") {
-        "application/json"
-    } else if path.ends_with(".html") {
-        "text/html"
-    } else if path.ends_with(".ico") {
-        "image/x-icon"
-    } else if path.ends_with(".svg") {
-        "image/svg+xml"
-    } else if path.ends_with(".png") {
-        "image/png"
-    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
-        "image/jpeg"
-    } else {
-        "application/octet-stream"
-    }
-}
-
 // WebSocket handler
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(|socket| async move {

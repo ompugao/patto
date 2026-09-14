@@ -1,8 +1,10 @@
+pub mod cli;
 pub mod importer;
 pub mod line_tracker;
 pub mod lsp;
 pub mod markdown;
 pub mod parser;
+pub mod preview;
 pub mod renderer;
 pub mod repository;
 pub mod task;

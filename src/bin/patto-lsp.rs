@@ -1,9 +1,10 @@
 use clap::Parser as ClapParser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use std::fs::File;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tower_lsp::{LspService, Server};
 
+use patto::cli::init_logger;
 use patto::lsp::{lsp_config::load_config, paper::PaperCatalog, Backend, PattoSettings};
 
 #[derive(ClapParser)]
@@ -13,26 +14,14 @@ struct Cli {
     verbose: Verbosity<InfoLevel>,
 
     #[arg(long)]
-    debuglogfile: Option<String>,
-}
-
-fn init_logger(filter_level: log::LevelFilter, logfile: Option<String>) {
-    let mut loggers: Vec<Box<dyn simplelog::SharedLogger>> = vec![];
-
-    if let Some(filename) = logfile {
-        loggers.push(simplelog::WriteLogger::new(
-            filter_level,
-            simplelog::Config::default(),
-            File::create(filename).unwrap(),
-        ) as Box<dyn simplelog::SharedLogger>)
-    }
-    simplelog::CombinedLogger::init(loggers).unwrap();
+    debuglogfile: Option<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Cli::parse();
-    init_logger(args.verbose.log_level_filter(), args.debuglogfile);
+    init_logger(args.verbose.log_level_filter(), args.debuglogfile)
+        .expect("failed to initialise the logger");
 
     let config = match load_config() {
         Ok(Some(result)) => {
