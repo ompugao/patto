@@ -89,6 +89,8 @@ enum WsServerMessage {
 }
 
 // WebSocket messages received from client
+// Variant names are the wire protocol shared with patto-preview-ui.
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "data")]
 enum WsClientMessage {

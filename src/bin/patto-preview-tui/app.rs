@@ -558,7 +558,7 @@ impl App {
                     // Commit the navigation: drop preview state, keep current view.
                     self.task_preview_state = None;
                     self.tasks.close();
-                    if let Some(path) = uri.to_file_path().ok() {
+                    if let Ok(path) = uri.to_file_path() {
                         if path != self.file_path {
                             // Push history so the user can go back.
                             let content = match std::fs::read_to_string(&path) {

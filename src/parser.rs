@@ -2633,7 +2633,7 @@ mod tests {
 
     #[test]
     fn test_parse_img() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_path, g_alt) in vec![
+        for (input, g_path, g_alt) in [
             (
                 "[@img \"img alt title\" https://gyazo.com/path/to/icon.png]",
                 "https://gyazo.com/path/to/icon.png",
@@ -2687,8 +2687,7 @@ mod tests {
 
     #[test]
     fn test_parse_urls() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_url, g_title) in vec![
-            (
+        for (input, g_url, g_title) in [(
                 "[https://username@example.com google]",
                 "https://username@example.com",
                 Some("google".to_string()),
@@ -2723,8 +2722,7 @@ mod tests {
                 "[https://google.com https://google.com]",
                 "https://google.com",
                 Some("https://google.com".to_string()),
-            ),
-        ] {
+            )] {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_url_link, input) {
                 Ok(mut parsed) => {
@@ -2802,11 +2800,12 @@ mod tests {
 
     #[test]
     fn test_parse_mails() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_mail, g_title) in [(
-            "[mailto:hoge@example.com example email]",
-            "mailto:hoge@example.com",
-            Some("example email".to_string()),
-        )] {
+        {
+            let (input, g_mail, g_title) = (
+                "[mailto:hoge@example.com example email]",
+                "mailto:hoge@example.com",
+                Some("example email".to_string()),
+            );
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_mail_link, input) {
                 Ok(mut parsed) => {
@@ -2957,7 +2956,7 @@ mod tab_indentation_tests {
 
         // Should have parsed successfully
         assert!(
-            children.len() > 0,
+            !children.is_empty(),
             "Should have at least one top-level line"
         );
     }

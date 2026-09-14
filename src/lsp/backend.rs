@@ -580,11 +580,8 @@ impl Backend {
 
                         RepositoryMessage::ScanProgress { scanned, total } => {
                             if progress_active {
-                                let percentage = if total > 0 {
-                                    ((scanned * 100) / total) as u32
-                                } else {
-                                    0
-                                };
+                                let percentage =
+                                    (scanned * 100).checked_div(total).unwrap_or(0) as u32;
 
                                 let _ = client
                                     .send_notification::<notification::Progress>(ProgressParams {

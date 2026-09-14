@@ -158,11 +158,9 @@ impl ConversionReport {
         output.push_str(&format!(
             "Converted:       {} ({}%)\n",
             self.statistics.converted_lines,
-            if self.statistics.total_lines > 0 {
-                self.statistics.converted_lines * 100 / self.statistics.total_lines
-            } else {
-                100
-            }
+            (self.statistics.converted_lines * 100)
+                .checked_div(self.statistics.total_lines)
+                .unwrap_or(100)
         ));
         output.push_str(&format!(
             "Failed:          {}\n",

@@ -1,4 +1,4 @@
-use image::{DynamicImage, GenericImage, GenericImageView, Rgba};
+use image::{DynamicImage, Rgba};
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     protocol::StatefulProtocol,
@@ -8,6 +8,9 @@ use std::path::Path;
 
 use crate::math_render;
 
+// `Loaded` is the common case, so boxing it to even out the variants would add
+// an indirection on every draw.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
     Failed(String),

@@ -244,18 +244,6 @@ impl CompletedCategory {
             CompletedCategory::Older => "✓ Older",
         }
     }
-
-    /// Ordering index (smaller = more recent).
-    pub(crate) fn order(&self) -> usize {
-        match self {
-            CompletedCategory::Today => 0,
-            CompletedCategory::Yesterday => 1,
-            CompletedCategory::ThisWeek => 2,
-            CompletedCategory::LastWeek => 3,
-            CompletedCategory::ThisMonth => 4,
-            CompletedCategory::Older => 5,
-        }
-    }
 }
 
 /// Classify a completed task's `completed_at` date into a recency bucket.
@@ -306,7 +294,6 @@ pub(crate) enum ReviewEntry {
         completed_at: String,
         /// Total time spent (accumulated; no live session for completed tasks).
         time_spent: TimeDelta,
-        category: CompletedCategory,
     },
     /// Placeholder text when list is empty.
     Placeholder(String),
@@ -403,7 +390,7 @@ impl TasksPanel {
         if self
             .list_state
             .selected
-            .map_or(true, |i| i >= self.entries.len())
+            .is_none_or(|i| i >= self.entries.len())
         {
             self.list_state = ListState::default();
             self.select_first_item();
@@ -427,7 +414,7 @@ impl TasksPanel {
         if self
             .review_list_state
             .selected
-            .map_or(true, |i| i >= self.review_entries.len())
+            .is_none_or(|i| i >= self.review_entries.len())
         {
             self.review_list_state = ListState::default();
             self.select_first_review_item();
@@ -534,7 +521,6 @@ impl TasksPanel {
                 line,
                 completed_at,
                 time_spent,
-                category: cat,
             });
         }
 

@@ -982,7 +982,7 @@ mod tests {
     #[test]
     fn test_lossy_mode_drops_html() {
         let result = import_lossy("<div>html</div>");
-        assert!(result.report.warnings.len() >= 1);
+        assert!(!result.report.warnings.is_empty());
         assert!(result.report.warnings.iter().any(|w| w.feature == "html"));
     }
 

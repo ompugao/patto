@@ -53,15 +53,6 @@ pub enum DocElement {
     ImageRow(Vec<(String, Option<String>)>, usize),
     /// A math block to render as an image (LaTeX source).
     Math { content: String, indent: usize },
-    /// A blank line.
-    Spacer,
-}
-
-impl DocElement {
-    /// Whether this element is an image.
-    pub fn is_image(&self) -> bool {
-        matches!(self, DocElement::Image { .. } | DocElement::ImageRow(..))
-    }
 }
 
 /// A fully rendered document ready for display.

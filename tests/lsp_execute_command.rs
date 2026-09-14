@@ -13,9 +13,7 @@ async fn test_aggregate_tasks_empty() {
     assert!(response.is_some(), "No result in aggregate_tasks");
     let result = response.unwrap();
     assert!(
-        result
-            .as_ref()
-            .map_or(true, |r| r.is_array() || r.is_null()),
+        result.as_ref().is_none_or(|r| r.is_array() || r.is_null()),
         "Result should be array or null"
     );
 

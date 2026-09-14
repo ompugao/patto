@@ -812,7 +812,7 @@ mod edge_cases {
     #[test]
     fn test_very_long_line() {
         let long_text = "A".repeat(1000);
-        let input = format!("{}", long_text);
+        let input = long_text.clone();
         let output = render_markdown(&input, MarkdownFlavor::Standard);
 
         assert!(output.contains(&long_text));

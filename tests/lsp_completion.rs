@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use tower_lsp::lsp_types::{CompletionItem, CompletionResponse};
+use tower_lsp::lsp_types::CompletionResponse;
 
 #[tokio::test]
 async fn test_completion_note_names() {

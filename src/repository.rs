@@ -724,7 +724,7 @@ impl Repository {
             let mut completed = Vec::new();
             gather_completed_tasks(entry.value(), &mut completed);
             for (node, date) in completed {
-                let in_range = from.map_or(true, |f| date >= f) && to.map_or(true, |t| date <= t);
+                let in_range = from.is_none_or(|f| date >= f) && to.is_none_or(|t| date <= t);
                 if in_range {
                     tasks.push((entry.key().clone(), node, date));
                 }

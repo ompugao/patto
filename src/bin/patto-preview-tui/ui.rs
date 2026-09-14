@@ -66,8 +66,8 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         app.images.height_rows,
         Some(&app.images.elem_heights),
     );
-    let (pos, pct) = if total > 0 {
-        let p = ((app.scroll_offset + 1) * 100 / total).min(100);
+    let (pos, pct) = if let Some(p) = ((app.scroll_offset + 1) * 100).checked_div(total) {
+        let p = p.min(100);
         (
             format!(" {}:{} ", app.scroll_offset + 1, total),
             format!(" {}% ", p),
@@ -515,9 +515,6 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
                     }
                 }
                 y += lh as usize;
-            }
-            DocElement::Spacer => {
-                y += 1;
             }
             DocElement::Image { src, alt, indent } => {
                 let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
@@ -1021,7 +1018,7 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
     // Show at most 3 tasks.
     let max_rows = 3usize;
     let tasks_to_show: Vec<_> = active.iter().take(max_rows).collect();
-    let num_rows = tasks_to_show.len() as u16;
+    let _num_rows = tasks_to_show.len() as u16;
 
     // Max width cap: 60% of content width, min 20 cols.
     let max_w = (content_area.width * 60 / 100)

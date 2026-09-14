@@ -1,7 +1,6 @@
 mod common;
 
 use common::*;
-use tower_lsp::lsp_types::WorkspaceEdit;
 
 #[tokio::test]
 async fn test_initialize_lsp() {
@@ -80,8 +79,7 @@ async fn test_rename_note_with_references() {
 
     assert!(response.is_some(), "Rename failed");
     let workspace_edit = response.unwrap();
-    let doc_changes_value =
-        serde_json::to_value(&workspace_edit.document_changes.unwrap()).unwrap();
+    let doc_changes_value = serde_json::to_value(workspace_edit.document_changes.unwrap()).unwrap();
     let doc_changes = &doc_changes_value;
 
     // Should have file rename operation

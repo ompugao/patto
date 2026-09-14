@@ -315,22 +315,22 @@ fn build_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEd
 /// - If the field is new (and value is non-empty), insert before the closing `}`.
 /// - If the value is empty, delete the existing `key=value` (and any leading space).
 fn build_longform_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
-    let line = snapshot.prop_span.0; // row (0-indexed)
-                                     // We need the raw line text — extract from the snapshot's prop_span context.
-                                     // The Location stores the full line input as `input`.
-                                     // We reconstruct it from the AstNode indirectly via the span; however we
-                                     // don't have the AstNode here.  Instead we locate the text via the
-                                     // `prop_span` within the source string that we do not store in TaskSnapshot.
-                                     //
-                                     // To keep TaskSnapshot lean we store the raw line string in the snapshot
-                                     // itself.  We add a `line_text` field to TaskSnapshot below, OR we accept
-                                     // the text via a parameter.
-                                     //
-                                     // **Design decision**: accept `line_text` as an argument so we can stay pure.
-                                     // This is called from `generate_edits_for_transition` which has no line text.
-                                     //
-                                     // ► We propagate line_text through TaskSnapshot instead.
-                                     //   (See the `line_text` field added to TaskSnapshot in src/task.rs.)
+    let _line = snapshot.prop_span.0; // row (0-indexed)
+                                      // We need the raw line text — extract from the snapshot's prop_span context.
+                                      // The Location stores the full line input as `input`.
+                                      // We reconstruct it from the AstNode indirectly via the span; however we
+                                      // don't have the AstNode here.  Instead we locate the text via the
+                                      // `prop_span` within the source string that we do not store in TaskSnapshot.
+                                      //
+                                      // To keep TaskSnapshot lean we store the raw line string in the snapshot
+                                      // itself.  We add a `line_text` field to TaskSnapshot below, OR we accept
+                                      // the text via a parameter.
+                                      //
+                                      // **Design decision**: accept `line_text` as an argument so we can stay pure.
+                                      // This is called from `generate_edits_for_transition` which has no line text.
+                                      //
+                                      // ► We propagate line_text through TaskSnapshot instead.
+                                      //   (See the `line_text` field added to TaskSnapshot in src/task.rs.)
 
     // For now, build a single replacement edit that rewrites the entire property
     // block.  This is simpler than per-field surgery and avoids offset
@@ -347,7 +347,7 @@ fn build_longform_full_rewrite(
 
     // Start from the snapshot's current field values.
     let mut status = snapshot.status.clone();
-    let mut due = snapshot.due.clone();
+    let due = snapshot.due.clone();
     let mut scheduled = snapshot.scheduled.clone();
     let mut completed_at = snapshot.completed_at.clone();
     let mut started_at = snapshot.started_at.clone();
@@ -458,7 +458,7 @@ mod tests {
     use super::*;
     use crate::parser::Deadline;
     use crate::parser::TaskStatus;
-    use crate::task::{Duration, TaskSnapshot, TaskTransition};
+    use crate::task::{TaskSnapshot, TaskTransition};
 
     fn make_snapshot(row: usize, status: TaskStatus, started_at: Option<&str>) -> TaskSnapshot {
         TaskSnapshot {
@@ -468,7 +468,7 @@ mod tests {
             due: Deadline::Uninterpretable("".to_string()),
             scheduled: None,
             completed_at: None,
-            started_at: started_at.map(|s| crate::parser::parse_deadline_pub(s)),
+            started_at: started_at.map(crate::parser::parse_deadline_pub),
             time_spent: None,
             prop_span: crate::parser::Span(0, 10),
             is_shorthand: false,
