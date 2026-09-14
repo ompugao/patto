@@ -4,7 +4,7 @@ use std::io::Write;
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 
 use super::Renderer;
-use crate::utils::{get_twitter_embed, get_youtube_id};
+use crate::utils::get_youtube_id;
 
 use crate::markdown::{AnchorFormat, MarkdownRendererOptions, TaskFormat, WikiLinkFormat};
 
@@ -356,8 +356,6 @@ impl MarkdownRenderer {
                         "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
                         youtube_id, youtube_id
                     )?;
-                } else if let Some(embed) = get_twitter_embed(link) {
-                    write!(output, "{}", embed)?;
                 } else if link.contains("slideshare.net") {
                     if let Some(title) = title {
                         write!(output, "[{}]({})", title, link)?;
