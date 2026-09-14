@@ -117,6 +117,7 @@ async fn main() {
 
     // Create repository and app state
     let repository = Arc::new(Repository::new(dir.clone()));
+    repository.spawn_initial_scan();
     let state = AppState {
         repository: repository.clone(),
         line_trackers: Arc::new(Mutex::new(HashMap::new())),

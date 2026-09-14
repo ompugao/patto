@@ -115,7 +115,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Create repository
     let repository = Arc::new(Repository::new(dir.clone()));
+    // Subscribe before scanning, so no scan progress is missed.
     let mut rx = repository.subscribe();
+    repository.spawn_initial_scan();
 
     // Start file watcher
     let repository_clone = repository.clone();

@@ -132,12 +132,15 @@ pub struct Repository {
 }
 
 impl Repository {
-    /// Create a new repository and build initial document graph
+    /// Open the repository at `root_dir`.
+    ///
+    /// Nothing is scanned or watched yet: call `spawn_initial_scan` and
+    /// `start_watcher` once there is a subscriber for the messages they emit.
     pub fn new(root_dir: PathBuf) -> Self {
         let (tx, _) = broadcast::channel(100);
         let workspace_config = load_workspace_config(&root_dir);
 
-        let repo = Self {
+        Self {
             root_dir,
             tx,
             document_graph: Arc::new(Mutex::new(Graph::new())),
@@ -145,15 +148,16 @@ impl Repository {
             ast_map: Arc::new(DashMap::new()),
             document_map: Arc::new(DashMap::new()),
             workspace_config: Arc::new(Mutex::new(workspace_config)),
-        };
+        }
+    }
 
-        // Spawn background task for initial scanning to avoid blocking
-        let repo_clone = repo.clone();
+    /// Scan the workspace in the background, reporting progress through the
+    /// `RepositoryMessage::Scan*` messages.
+    pub fn spawn_initial_scan(&self) {
+        let repository = self.clone();
         tokio::spawn(async move {
-            repo_clone.build_initial_graph().await;
+            repository.build_initial_graph().await;
         });
-
-        repo
     }
 
     /// Subscribe to repository change notifications

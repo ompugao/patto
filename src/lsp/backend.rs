@@ -42,15 +42,47 @@ pub struct MarkdownSettings {
 
 //#[derive(Debug)]
 pub struct Backend {
-    pub client: Client,
-    pub repository: Arc<Mutex<Option<Repository>>>,
-    pub root_uri: Arc<Mutex<Option<Url>>>,
-    pub paper_catalog: PaperCatalog,
-    pub settings: Arc<Mutex<PattoSettings>>,
+    pub(super) client: Client,
+    /// Set once the client sends `initialize` with a workspace root.
+    pub(super) repository: Arc<Mutex<Option<Repository>>>,
+    pub(super) root_uri: Arc<Mutex<Option<Url>>>,
+    pub(super) paper_catalog: PaperCatalog,
+    pub(super) settings: Arc<Mutex<PattoSettings>>,
     /// Last *valid* (successfully parsed) task snapshot per file, keyed by row.
     /// Retained across keystrokes so that mid-edit parse failures (e.g. `status=`)
     /// don't lose the `Doing` state needed to compute elapsed time on clock-out.
-    pub last_valid_task_snapshots: Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
+    pub(super) last_valid_task_snapshots:
+        Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
+}
+
+impl Backend {
+    /// The workspace root is not known yet; it arrives with `initialize`.
+    pub fn new(client: Client, paper_catalog: PaperCatalog) -> Self {
+        Self {
+            client,
+            repository: Arc::new(Mutex::new(None)),
+            root_uri: Arc::new(Mutex::new(None)),
+            paper_catalog,
+            settings: Arc::new(Mutex::new(PattoSettings::default())),
+            last_valid_task_snapshots: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Parsed AST of a document the workspace knows about.
+    pub fn document_ast(&self, uri: &Url) -> Option<AstNode> {
+        let uri = Repository::normalize_url_percent_encoding(uri);
+        let repository = self.repository.lock().unwrap();
+        let ast = repository.as_ref()?.ast_map.get(&uri)?;
+        Some(ast.value().clone())
+    }
+
+    /// Task snapshots from the last successful parse of a document.
+    pub fn task_snapshots(&self, uri: &Url) -> Option<HashMap<usize, crate::task::TaskSnapshot>> {
+        let uri = Repository::normalize_url_percent_encoding(uri);
+        self.last_valid_task_snapshots
+            .get(&uri)
+            .map(|entry| entry.value().clone())
+    }
 }
 
 fn get_node_range(from: &AstNode) -> Range {
@@ -683,14 +715,12 @@ impl LanguageServer for Backend {
                     )
                     .await;
 
-                // Create repository (scanning happens in background)
-                {
-                    let mut repo = self.repository.lock().unwrap();
-                    *repo = Some(Repository::new(path));
-                } // Drop repo here
+                let repository = Repository::new(path);
+                *self.repository.lock().unwrap() = Some(repository.clone());
 
-                // Start listening to repository messages (including scan progress)
+                // Subscribe before scanning, so no scan progress is missed.
                 self.start_repository_listener().await;
+                repository.spawn_initial_scan();
             }
         }
 

@@ -1,11 +1,10 @@
 use clap::Parser as ClapParser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tower_lsp::{LspService, Server};
 
 use patto::cli::init_logger;
-use patto::lsp::{lsp_config::load_config, paper::PaperCatalog, Backend, PattoSettings};
+use patto::lsp::{lsp_config::load_config, paper::PaperCatalog, Backend};
 
 #[derive(ClapParser)]
 #[command(version, about, long_about=None)]
@@ -46,18 +45,8 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let shared_catalog = paper_catalog.clone();
-    let (service, socket) = LspService::new(move |client| {
-        let repository = Arc::new(Mutex::new(None)); // Root will be set in initialize
-        Backend {
-            client,
-            repository,
-            root_uri: Arc::new(Mutex::new(None)),
-            paper_catalog: shared_catalog.clone(),
-            settings: Arc::new(Mutex::new(PattoSettings::default())),
-            last_valid_task_snapshots: Arc::new(dashmap::DashMap::new()),
-        }
-    });
+    let (service, socket) =
+        LspService::new(move |client| Backend::new(client, paper_catalog.clone()));
     log::info!("Patto Language Server Protocol started");
     Server::new(stdin, stdout, socket).serve(service).await;
     log::info!("Patto Language Server Protocol exits");
