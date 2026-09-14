@@ -84,6 +84,32 @@ jobs:
             exit 1
           fi
 
+  mobile-core:
+    name: Mobile Rust core
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      # Builds vendored libgit2 and OpenSSL, so it is slower than the other jobs.
+      - name: Run tests
+        working-directory: patto-flutter/rust
+        run: cargo test --verbose
+
+      - name: Check formatting
+        working-directory: patto-flutter/rust
+        run: cargo fmt --all -- --check
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
