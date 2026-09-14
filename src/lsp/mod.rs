@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod commands;
+pub mod completion;
 pub mod diagnostic_translator;
 pub mod lsp_config;
 pub mod paper;
