@@ -92,7 +92,7 @@ pub struct FileMetadata {
     pub link_count: u32,
 }
 
-/// Messages for repository change notifications
+/// Repository change notifications. Every path is absolute.
 #[derive(Clone, Debug)]
 pub enum RepositoryMessage {
     FileChanged(PathBuf, FileMetadata, String),
@@ -789,9 +789,9 @@ impl Repository {
     }
 
     fn handle_file_created(&self, path: &Path) {
-        let Ok(rel_path) = path.strip_prefix(&self.root_dir) else {
+        if !path.starts_with(&self.root_dir) {
             return;
-        };
+        }
         let Ok(content) = std::fs::read_to_string(path) else {
             return;
         };
@@ -800,20 +800,19 @@ impl Repository {
         let Ok(metadata) = self.collect_file_metadata(&path.to_path_buf()) else {
             return;
         };
-        let _ = self.tx.send(RepositoryMessage::FileAdded(
-            rel_path.to_path_buf(),
-            metadata,
-        ));
+        let _ = self
+            .tx
+            .send(RepositoryMessage::FileAdded(path.to_path_buf(), metadata));
     }
 
     fn handle_file_removed(&self, path: &Path) {
-        let Ok(rel_path) = path.strip_prefix(&self.root_dir) else {
+        if !path.starts_with(&self.root_dir) {
             return;
-        };
+        }
         self.remove_file_from_graph(path);
         let _ = self
             .tx
-            .send(RepositoryMessage::FileRemoved(rel_path.to_path_buf()));
+            .send(RepositoryMessage::FileRemoved(path.to_path_buf()));
     }
 
     /// Editors write a file in several bursts, so wait out the burst and reload

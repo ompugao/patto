@@ -1,4 +1,4 @@
-use axum::extract::ws::WebSocket;
+use axum::extract::ws::{Message, WebSocket};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State, WebSocketUpgrade},
@@ -416,247 +416,231 @@ async fn user_files_handler(
 // Helper function to determine content type from path
 // WebSocket handler
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(|socket| async move {
-        handle_socket(socket, state).await;
-    })
+    ws.on_upgrade(|socket| async move { PreviewSession { socket, state }.run().await })
 }
 
 // Handle WebSocket connection
-async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    eprintln!("WebSocket client connected");
+/// One connected preview client: pushes repository changes to the browser and
+/// serves what the browser asks for.
+struct PreviewSession {
+    socket: WebSocket,
+    state: AppState,
+}
 
-    // Subscribe to broadcast channel
-    let mut rx = state.repository.subscribe();
+impl PreviewSession {
+    async fn run(mut self) {
+        eprintln!("WebSocket client connected");
+        let mut repository_messages = self.state.repository.subscribe();
 
-    // Send initial file list (use spawn_blocking to avoid blocking the async runtime
-    // with synchronous std::fs calls on a potentially large notes directory)
-    let repo_for_scan = state.repository.clone();
-    let (file_paths, file_metadata) = tokio::task::spawn_blocking(move || {
-        let mut file_paths = Vec::new();
-        let mut file_metadata = HashMap::new();
-        if repo_for_scan.root_dir.is_dir() {
-            repo_for_scan.collect_patto_files_with_metadata(
-                &repo_for_scan.root_dir,
-                &mut file_paths,
-                &mut file_metadata,
-            );
-        }
-        (file_paths, file_metadata)
-    })
-    .await
-    .unwrap_or_default();
-
-    let message = WsServerMessage::FileList {
-        files: file_paths,
-        metadata: file_metadata,
-    };
-
-    if let Ok(json) = serde_json::to_string(&message) {
-        if let Err(e) = socket
-            .send(axum::extract::ws::Message::Text(json.into()))
-            .await
-        {
-            eprintln!("Error sending initial file list: {}", e);
+        if !self.send_initial_state().await {
             return;
         }
-    }
 
-    // Send initial pinned files list
-    let pinned = state
-        .repository
-        .workspace_config
-        .lock()
-        .unwrap()
-        .pinned_files
-        .clone();
-    let pinned_msg = WsServerMessage::PinnedFiles { pinned };
-    if let Ok(json) = serde_json::to_string(&pinned_msg) {
-        if let Err(e) = socket
-            .send(axum::extract::ws::Message::Text(json.into()))
-            .await
-        {
-            eprintln!("Error sending initial pinned files: {}", e);
-            return;
-        }
-    }
-    //let root_dir = state.repository.root_dir.clone();
-    // Main loop - handle both broadcast messages and websocket messages
-    loop {
-        tokio::select! {
-            // Handle broadcast messages
-            msg = rx.recv() => {
-                match msg {
-                    Ok(msg) => {
-                        let ws_msg = match msg {
-                            RepositoryMessage::FileChanged(path, metadata, content) => {
-                                let Ok(ast) =
-                                    parse_patto_ast(&content, &path.to_string_lossy(), &state).await else {
-                                        continue;
-                                };
-
-                                let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
-                                    continue;
-                                };
-                                WsServerMessage::FileChanged {
-                                    path: rel_path.to_string_lossy().to_string(),
-                                    metadata,
-                                    ast,
-                                }
-                            },
-                            //RepositoryMessage::FileList(files) => {
-                            //    WsServerMessage::FileList {
-                            //        files: files.iter().map(|p| p.to_string_lossy().to_string()).collect(),
-                            //        metadata: HashMap::new(), // Empty metadata for now since FileList isn't used
-                            //    }
-                            //},
-                            RepositoryMessage::FileAdded(path, metadata) => {
-                                let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
-                                    continue;
-                                };
-                                WsServerMessage::FileAdded {
-                                    path: rel_path.to_string_lossy().to_string(),
-                                    metadata,
-                                }
-                            },
-                            RepositoryMessage::FileRemoved(path) => {
-                                // Note: path is already relative (stripped in repository.rs)
-                                WsServerMessage::FileRemoved {
-                                    path: path.to_string_lossy().to_string(),
-                                }
-                            },
-                            RepositoryMessage::BackLinksChanged(path, back_links) => {
-                                let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
-                                    continue;
-                                };
-                                WsServerMessage::BackLinksData {
-                                    path: rel_path.to_string_lossy().to_string(),
-                                    back_links,
-                                }
-                            },
-                            RepositoryMessage::TwoHopLinksChanged(path, two_hop_links) => {
-                                let Ok(rel_path) = path.strip_prefix(&state.repository.root_dir) else {
-                                    continue;
-                                };
-                                WsServerMessage::TwoHopLinksData {
-                                    path: rel_path.to_string_lossy().to_string(),
-                                    two_hop_links,
-                                }
-                            }
-                            RepositoryMessage::WorkspaceConfigChanged(cfg) => {
-                                WsServerMessage::PinnedFiles {
-                                    pinned: cfg.pinned_files,
-                                }
-                            }
-                            // Ignore scan progress messages in preview
-                            RepositoryMessage::ScanStarted { .. } |
-                            RepositoryMessage::ScanProgress { .. } |
-                            RepositoryMessage::ScanCompleted { .. } => {
-                                continue;
-                            }
-                        };
-
-                        if let Ok(json) = serde_json::to_string(&ws_msg) {
-                            if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
-                                eprintln!("Error sending WebSocket message: {e}");
+        loop {
+            tokio::select! {
+                message = repository_messages.recv() => {
+                    match message {
+                        Ok(message) => {
+                            if !self.forward_repository_message(message).await {
                                 break;
                             }
                         }
-                    },
-                    Err(e) => {
-                        eprintln!("Error receiving broadcast: {e}");
-                        continue;
+                        Err(err) => eprintln!("Error receiving broadcast: {err}"),
                     }
                 }
-            },
-
-            // Handle WebSocket messages
-            msg = socket.recv() => {
-                match msg {
-                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
-                        if let Ok(WsClientMessage::SelectFile { path }) = serde_json::from_str(&text) {
-                            eprintln!("Client selected file: {}", path);
-
-                            // Load and render the selected file
-                            let file_path = state.repository.root_dir.join(&path);
-                            if let Ok(content) = fs::read_to_string(&file_path).await {
-                                //TODO add function to retrieve metadata in crate::Repository
-                                let metadata = state.repository.collect_file_metadata(&file_path).unwrap();
-
-                                if let Ok(ast) = parse_patto_ast(&content, &file_path.to_string_lossy(), &state).await {
-                                    // Send the parsed AST to the client
-                                    let message = WsServerMessage::FileChanged {
-                                        path: path.clone(),
-                                        metadata,
-                                        ast,
-                                    };
-
-                                    if let Ok(json) = serde_json::to_string(&message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
-                                            eprintln!("Error sending file content: {}", e);
-                                        }
-                                    }
-
-                                    // Calculate and send back-links
-                                    let back_links = state.repository.calculate_back_links(&file_path);
-                                    let back_links_message = WsServerMessage::BackLinksData {
-                                        path: path.clone(),
-                                        back_links,
-                                    };
-
-                                    if let Ok(json) = serde_json::to_string(&back_links_message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
-                                            eprintln!("Error sending back-links: {}", e);
-                                        }
-                                    }
-
-                                    // Calculate and send two-hop links
-                                    let two_hop_links = state.repository.calculate_two_hop_links(&file_path).await;
-                                    let two_hop_message = WsServerMessage::TwoHopLinksData {
-                                        path: path.clone(),
-                                        two_hop_links,
-                                    };
-
-                                    if let Ok(json) = serde_json::to_string(&two_hop_message) {
-                                        if let Err(e) = socket.send(axum::extract::ws::Message::Text(json.into())).await {
-                                            eprintln!("Error sending two-hop links: {}", e);
-                                        }
-                                    }
-                                } else {
-                                    eprintln!("Error rendering file: {}", path);
-                                }
-                            } else {
-                                eprintln!("Error reading file: {}", file_path.display());
-                            }
-                        } else if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
-                            match msg {
-                                WsClientMessage::PinFile { path } => {
-                                    if let Err(e) = state.repository.pin_file(&path) {
-                                        eprintln!("Error pinning file: {}", e);
-                                    }
-                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
-                                }
-                                WsClientMessage::UnpinFile { path } => {
-                                    if let Err(e) = state.repository.unpin_file(&path) {
-                                        eprintln!("Error unpinning file: {}", e);
-                                    }
-                                    // WorkspaceConfigChanged broadcast will carry the update to all clients
-                                }
-                                _ => {}
-                            }
+                message = self.socket.recv() => {
+                    match message {
+                        Some(Ok(Message::Text(text))) => self.handle_client_message(&text).await,
+                        Some(Ok(_)) => {}
+                        Some(Err(err)) => {
+                            eprintln!("WebSocket error: {err}");
+                            break;
                         }
-                    },
-                    Some(Ok(_)) => { /* Ignore other message types */ },
-                    Some(Err(e)) => {
-                        eprintln!("WebSocket error: {}", e);
-                        break;
-                    },
-                    None => {
-                        eprintln!("WebSocket client disconnected");
-                        break;
+                        None => {
+                            eprintln!("WebSocket client disconnected");
+                            break;
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// Send one message. `false` once the connection can no longer be used.
+    async fn send(&mut self, message: &WsServerMessage) -> bool {
+        let Ok(json) = serde_json::to_string(message) else {
+            eprintln!("Failed to serialize a WebSocket message");
+            return true;
+        };
+        match self.socket.send(Message::Text(json.into())).await {
+            Ok(()) => true,
+            Err(err) => {
+                eprintln!("Error sending WebSocket message: {err}");
+                false
+            }
+        }
+    }
+
+    async fn send_initial_state(&mut self) -> bool {
+        // Scanning a large notes directory is synchronous `std::fs` work, so it
+        // runs off the async runtime.
+        let repository = self.state.repository.clone();
+        let (files, metadata) = tokio::task::spawn_blocking(move || {
+            let mut files = Vec::new();
+            let mut metadata = HashMap::new();
+            if repository.root_dir.is_dir() {
+                repository.collect_patto_files_with_metadata(
+                    &repository.root_dir,
+                    &mut files,
+                    &mut metadata,
+                );
+            }
+            (files, metadata)
+        })
+        .await
+        .unwrap_or_default();
+
+        if !self
+            .send(&WsServerMessage::FileList { files, metadata })
+            .await
+        {
+            return false;
+        }
+
+        let pinned = self
+            .state
+            .repository
+            .workspace_config
+            .lock()
+            .unwrap()
+            .pinned_files
+            .clone();
+        self.send(&WsServerMessage::PinnedFiles { pinned }).await
+    }
+
+    async fn forward_repository_message(&mut self, message: RepositoryMessage) -> bool {
+        let Some(message) = to_client_message(&self.state, message).await else {
+            return true;
+        };
+        self.send(&message).await
+    }
+
+    async fn handle_client_message(&mut self, text: &str) {
+        let Ok(message) = serde_json::from_str::<WsClientMessage>(text) else {
+            return;
+        };
+        match message {
+            WsClientMessage::SelectFile { path } => self.select_file(&path).await,
+            WsClientMessage::PinFile { path } => {
+                if let Err(err) = self.state.repository.pin_file(&path) {
+                    eprintln!("Error pinning file: {err}");
+                }
+                // The WorkspaceConfigChanged broadcast carries the update to every client.
+            }
+            WsClientMessage::UnpinFile { path } => {
+                if let Err(err) = self.state.repository.unpin_file(&path) {
+                    eprintln!("Error unpinning file: {err}");
+                }
+            }
+        }
+    }
+
+    /// Send the note the client asked for, together with its link context.
+    async fn select_file(&mut self, path: &str) {
+        eprintln!("Client selected file: {}", path);
+        let file_path = self.state.repository.root_dir.join(path);
+
+        let Ok(content) = fs::read_to_string(&file_path).await else {
+            eprintln!("Error reading file: {}", file_path.display());
+            return;
+        };
+        let Ok(metadata) = self.state.repository.collect_file_metadata(&file_path) else {
+            eprintln!("Error reading metadata: {}", file_path.display());
+            return;
+        };
+        let Ok(ast) = parse_patto_ast(&content, &file_path.to_string_lossy(), &self.state).await
+        else {
+            eprintln!("Error rendering file: {}", path);
+            return;
+        };
+
+        let back_links = self.state.repository.calculate_back_links(&file_path);
+        let two_hop_links = self
+            .state
+            .repository
+            .calculate_two_hop_links(&file_path)
+            .await;
+
+        let messages = [
+            WsServerMessage::FileChanged {
+                path: path.to_string(),
+                metadata,
+                ast,
+            },
+            WsServerMessage::BackLinksData {
+                path: path.to_string(),
+                back_links,
+            },
+            WsServerMessage::TwoHopLinksData {
+                path: path.to_string(),
+                two_hop_links,
+            },
+        ];
+        for message in &messages {
+            self.send(message).await;
+        }
+    }
+}
+
+/// Translate a repository event into what the browser expects, or `None` when
+/// the browser has no use for it.
+async fn to_client_message(
+    state: &AppState,
+    message: RepositoryMessage,
+) -> Option<WsServerMessage> {
+    let root_dir = &state.repository.root_dir;
+    let relative = |path: &Path| {
+        path.strip_prefix(root_dir)
+            .ok()
+            .map(|path| path.to_string_lossy().to_string())
+    };
+
+    match message {
+        RepositoryMessage::FileChanged(path, metadata, content) => {
+            let ast = parse_patto_ast(&content, &path.to_string_lossy(), state)
+                .await
+                .ok()?;
+            Some(WsServerMessage::FileChanged {
+                path: relative(&path)?,
+                metadata,
+                ast,
+            })
+        }
+        RepositoryMessage::FileAdded(path, metadata) => Some(WsServerMessage::FileAdded {
+            path: relative(&path)?,
+            metadata,
+        }),
+        RepositoryMessage::FileRemoved(path) => Some(WsServerMessage::FileRemoved {
+            path: relative(&path)?,
+        }),
+        RepositoryMessage::BackLinksChanged(path, back_links) => {
+            Some(WsServerMessage::BackLinksData {
+                path: relative(&path)?,
+                back_links,
+            })
+        }
+        RepositoryMessage::TwoHopLinksChanged(path, two_hop_links) => {
+            Some(WsServerMessage::TwoHopLinksData {
+                path: relative(&path)?,
+                two_hop_links,
+            })
+        }
+        RepositoryMessage::WorkspaceConfigChanged(config) => Some(WsServerMessage::PinnedFiles {
+            pinned: config.pinned_files,
+        }),
+        RepositoryMessage::ScanStarted { .. }
+        | RepositoryMessage::ScanProgress { .. }
+        | RepositoryMessage::ScanCompleted { .. } => None,
     }
 }
 
