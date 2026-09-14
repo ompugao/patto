@@ -19,8 +19,7 @@ pub struct HtmlRenderer {
 
 impl Renderer for HtmlRenderer {
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        self._format_impl(ast, output)?;
-        Ok(())
+        self.write_node(ast, output)
     }
 }
 
@@ -29,420 +28,437 @@ impl HtmlRenderer {
         Self { options }
     }
 
-    fn get_stable_id_attr(&self, ast: &AstNode) -> String {
-        if let Some(stable_id) = ast.stable_id() {
-            format!(" data-line-id=\"{}\"", stable_id)
-        } else {
-            String::new()
-        }
-    }
-
-    fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        match &ast.kind() {
-            AstNodeKind::Dummy => {
-                write!(output, "<ul class=\"patto-document\">")?;
-                let children = ast.children();
-                for child in children.iter() {
-                    let id_attr = self.get_stable_id_attr(child);
-                    write!(output, "<li class=\"patto-line\"{}>", id_attr)?;
-                    self._format_impl(child, output)?;
-                    write!(output, "</li>")?;
-                }
-                write!(output, "</ul>")?;
+    fn write_node(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        match ast.kind() {
+            AstNodeKind::Dummy => self.write_document(ast, output),
+            AstNodeKind::Line { properties } => self.write_line(ast, properties, false, output),
+            AstNodeKind::QuoteContent { properties } => {
+                self.write_line(ast, properties, true, output)
             }
-            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
-                let is_quote = matches!(ast.kind(), AstNodeKind::QuoteContent { .. });
-                let mut task_status: Option<&TaskStatus> = None;
-                for property in properties {
-                    if let Property::Task { status, .. } = property {
-                        task_status = Some(status);
-                    }
-                }
-                let isdone = matches!(task_status, Some(TaskStatus::Done));
-
-                write!(output, "<div class=\"patto-task-row\">")?;
-                if let Some(status) = task_status {
-                    let (icon, cls) = match status {
-                        TaskStatus::Done => ("✓", "patto-task-icon-done"),
-                        TaskStatus::Doing => ("◑", "patto-task-icon-doing"),
-                        _ => ("○", "patto-task-icon-todo"),
-                    };
-                    write!(
-                        output,
-                        "<span class=\"patto-task-icon {}\">{}</span>",
-                        cls, icon
-                    )?;
-                }
-
-                let done_cls = if isdone { " patto-task-done-text" } else { "" };
-                let quote_cls = if is_quote { " text-quote" } else { "" };
-                write!(
-                    output,
-                    "<div class=\"patto-task-content{}{}\">",
-                    done_cls, quote_cls
-                )?;
-                let contents = ast.contents();
-                for content in contents.iter() {
-                    self._format_impl(content, output)?;
-                }
-                write!(output, "</div>")?;
-
-                // Deadline chip
-                for property in properties {
-                    match property {
-                        Property::Anchor { name, .. } => {
-                            write!(
-                                output,
-                                "<span id=\"{}\" class=\"anchor\">{}</span>",
-                                name, name
-                            )?;
-                        }
-                        Property::Task { status, due, .. } => {
-                            if !matches!(status, TaskStatus::Done) {
-                                write!(
-                                    output,
-                                    "<span class=\"patto-deadline patto-deadline-default\">{}</span>",
-                                    due
-                                )?;
-                            }
-                        }
-                    }
-                }
-                write!(output, "</div>")?; // close patto-task-row
-
-                let children = ast.children();
-                if !children.is_empty() {
-                    write!(output, "<ul class=\"patto-children\">")?;
-                    for child in children.iter() {
-                        let id_attr = self.get_stable_id_attr(child);
-                        write!(output, "<li class=\"patto-item\"{}>", id_attr)?;
-                        self._format_impl(child, output)?;
-                        write!(output, "</li>")?;
-                    }
-                    write!(output, "</ul>")?;
-                }
-            }
-            AstNodeKind::Quote => {
-                write!(output, "<blockquote class=\"patto-quote\">")?;
-                let children = ast.children();
-                for child in children.iter() {
-                    self.render_quote_content_html(child, output, 0)?;
-                }
-                write!(output, "</blockquote>")?;
-            }
-            AstNodeKind::Math { inline } => {
-                if *inline {
-                    write!(output, "<span class=\"patto-math-inline\">\\(")?;
-                    let contents = ast.contents();
-                    write!(output, "{}", contents[0].extract_str())?;
-                    write!(output, "\\)</span>")?;
-                } else {
-                    write!(output, "<div class=\"patto-math-block\">")?;
-                    // see https://github.com/mathjax/MathJax/issues/2312
-                    write!(output, "\\[\\displaylines{{")?;
-                    let children = ast.children();
-                    for child in children.iter() {
-                        write!(output, "{}", child.extract_str())?;
-                    }
-                    write!(output, "}}\\]")?;
-                    write!(output, "</div>")?;
-                }
-            }
-            AstNodeKind::Code { lang, inline } => {
-                if *inline {
-                    write!(output, "<code class=\"patto-inline-code\">")?;
-                    let contents = ast.contents();
-                    write!(output, "{}", encode_text(contents[0].extract_str()))?;
-                    write!(output, "</code>")?;
-                } else {
-                    if lang == "mermaid" {
-                        write!(output, "<pre class=\"mermaid\">")?;
-                        let children = ast.children();
-                        for child in children.iter() {
-                            writeln!(output, "{}", child.extract_str())?;
-                        }
-                        write!(output, "</pre>")?;
-                    } else {
-                        write!(
-                            output,
-                            "<pre class=\"hljs patto-code-block\"><code class=\"language-{}\">",
-                            lang
-                        )?;
-                        let children = ast.children();
-                        for child in children.iter() {
-                            writeln!(output, "{}", encode_text(child.extract_str()))?;
-                        }
-                        write!(output, "</code></pre>")?;
-                    }
-                }
-            }
-            AstNodeKind::Image { src, alt } => {
-                let mut src_exported = src.clone();
-                if let Some(src) = get_gyazo_img_src(src) {
-                    src_exported = src.clone();
-                }
-                write!(output, "<figure class=\"patto-figure\">")?;
-                // The exported page has no lightbox, so images are capped in CSS
-                // and the anchor is how a reader gets to the full-size original.
-                write!(
-                    output,
-                    "<a class=\"patto-image-link\" href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">",
-                    src_exported
-                )?;
-                if let Some(alt) = alt {
-                    write!(
-                        output,
-                        "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
-                        alt, src_exported
-                    )?;
-                    write!(output, "</a>")?;
-                    write!(output, "<figcaption>{}</figcaption>", encode_text(alt))?;
-                } else {
-                    write!(
-                        output,
-                        "<img class=\"patto-image\" src=\"{}\"/>",
-                        src_exported
-                    )?;
-                    write!(output, "</a>")?;
-                }
-                write!(output, "</figure>")?;
-            }
+            AstNodeKind::Quote => self.write_quote(ast, output),
+            AstNodeKind::Math { inline } => self.write_math(ast, *inline, output),
+            AstNodeKind::Code { lang, inline } => self.write_code(ast, lang, *inline, output),
+            AstNodeKind::Image { src, alt } => self.write_image(src, alt.as_deref(), output),
             AstNodeKind::WikiLink { link, anchor } => {
-                if let Some(anchor) = anchor {
-                    // TODO eliminate the logic that self-link if link is empty
-                    if link.is_empty() {
-                        write!(
-                            output,
-                            "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>",
-                            anchor, anchor
-                        )?;
-                    } else {
-                        write!(
-                            output,
-                            "<a class=\"patto-wikilink\" href=\"{}.pn#{}\">{}#{}</a>",
-                            link, anchor, link, anchor
-                        )?;
-                    }
-                } else {
-                    write!(
-                        output,
-                        "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>",
-                        link, link
-                    )?;
-                }
+                self.write_wikilink(link, anchor.as_deref(), output)
             }
-            AstNodeKind::Link { link, title } => {
-                if let Some(title) = title {
-                    write!(
-                        output,
-                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
-                        link, title
-                    )?;
-                } else {
-                    write!(
-                        output,
-                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
-                        link, link
-                    )?;
-                }
-            }
-            AstNodeKind::Embed { link, title } => {
-                let is_pdf = link.to_lowercase().ends_with(".pdf");
-                if is_pdf {
-                    let is_local = !link.contains("://");
-                    let (data_attr, href) = if is_local {
-                        (
-                            format!("data-src=\"{}\"", link),
-                            format!("/api/files/{}", link),
-                        )
-                    } else {
-                        (format!("data-url=\"{}\"", link), link.to_string())
-                    };
-                    write!(
-                        output,
-                        "<div class=\"patto-embed-pdf\" {data_attr}><a href=\"{href}\">{}</a></div>",
-                        title.as_deref().unwrap_or(link)
-                    )?;
-                } else if let Some(youtube_id) = get_youtube_id(link) {
-                    write!(
-                        output,
-                        "<div class=\"patto-embed-youtube\"><iframe src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>")?;
-                } else if link.contains("twitter.com") || link.contains("x.com") {
-                    // Render as placeholder that can be enhanced client-side
-                    write!(
-                        output,
-                        "<div class=\"twitter-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
-                        link,
-                        link,
-                        title.as_deref().unwrap_or(link)
-                    )?;
-                } else if link.contains("speakerdeck.com") {
-                    // Render as placeholder that can be enhanced client-side
-                    write!(
-                        output,
-                        "<div class=\"speakerdeck-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
-                        link,
-                        link,
-                        title.as_deref().unwrap_or(link)
-                    )?;
-                } else if link.contains("slideshare.net") {
-                    write!(
-                        output,
-                        "<div class=\"slideshare-placeholder\" data-url=\"{}\"><a href=\"{}\">{}</a></div>",
-                        link,
-                        link,
-                        title.as_deref().unwrap_or(link)
-                    )?;
-                } else if let Some(title) = title {
-                    write!(
-                        output,
-                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
-                        link, title
-                    )?;
-                } else {
-                    write!(
-                        output,
-                        "<a class=\"patto-link\" href=\"{}\">{}</a>",
-                        link, link
-                    )?;
-                }
-            }
+            AstNodeKind::Link { link, title } => self.write_link(link, title.as_deref(), output),
+            AstNodeKind::Embed { link, title } => self.write_embed(link, title.as_deref(), output),
             AstNodeKind::Decoration {
                 fontsize,
                 italic,
                 underline,
                 deleted,
-            } => {
-                let font_pct = 100isize + (fontsize - 1).max(0) * 20;
-                let fontweight = if *fontsize > 0 {
-                    " font-weight: bold;"
-                } else {
-                    ""
-                };
-                let mut cls = String::new();
-                if *italic {
-                    cls.push_str(" italic");
-                }
-                if *underline {
-                    cls.push_str(" underline");
-                }
-                if *deleted {
-                    cls.push_str(" patto-deleted");
-                }
-                write!(
-                    output,
-                    "<span class=\"{}\" style=\"font-size: {font_pct}%;{fontweight}\">",
-                    cls.trim()
-                )?;
-                let contents = ast.contents();
-                for content in contents.iter() {
-                    self._format_impl(content, output)?;
-                }
-                write!(output, "</span>")?;
-            }
+            } => self.write_decoration(ast, *fontsize, *italic, *underline, *deleted, output),
+            AstNodeKind::Table { caption } => self.write_table(ast, caption.as_deref(), output),
+            AstNodeKind::TableRow => self.write_cells(ast, "tr", output),
+            AstNodeKind::TableColumn => self.write_cells(ast, "td", output),
             AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
-                write!(output, "{}", ast.extract_str())?;
+                write!(output, "{}", ast.extract_str())
             }
-            AstNodeKind::HorizontalLine => {
-                write!(output, "<hr class=\"patto-hr\"/>")?;
-            }
-            AstNodeKind::Table { caption } => {
-                write!(output, "<div class=\"patto-table-wrapper\">")?;
-                if let Some(caption) = caption {
+            AstNodeKind::HorizontalLine => write!(output, "<hr class=\"patto-hr\"/>"),
+        }
+    }
+
+    /// Identifies the line for the preview, which patches changed lines in place.
+    fn stable_id_attr(&self, ast: &AstNode) -> String {
+        match ast.stable_id() {
+            Some(stable_id) => format!(" data-line-id=\"{}\"", stable_id),
+            None => String::new(),
+        }
+    }
+
+    fn write_document(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        write!(output, "<ul class=\"patto-document\">")?;
+        for child in ast.children().iter() {
+            self.write_list_item(child, "patto-line", output)?;
+        }
+        write!(output, "</ul>")
+    }
+
+    fn write_list_item(
+        &self,
+        ast: &AstNode,
+        class: &str,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        write!(
+            output,
+            "<li class=\"{}\"{}>",
+            class,
+            self.stable_id_attr(ast)
+        )?;
+        self.write_node(ast, output)?;
+        write!(output, "</li>")
+    }
+
+    fn write_line(
+        &self,
+        ast: &AstNode,
+        properties: &[Property],
+        is_quote: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let task_status = properties.iter().rev().find_map(|property| match property {
+            Property::Task { status, .. } => Some(status),
+            _ => None,
+        });
+        let is_done = matches!(task_status, Some(TaskStatus::Done));
+
+        write!(output, "<div class=\"patto-task-row\">")?;
+        if let Some(status) = task_status {
+            let (icon, class) = match status {
+                TaskStatus::Done => ("✓", "patto-task-icon-done"),
+                TaskStatus::Doing => ("◑", "patto-task-icon-doing"),
+                _ => ("○", "patto-task-icon-todo"),
+            };
+            write!(
+                output,
+                "<span class=\"patto-task-icon {}\">{}</span>",
+                class, icon
+            )?;
+        }
+
+        let done_class = if is_done { " patto-task-done-text" } else { "" };
+        let quote_class = if is_quote { " text-quote" } else { "" };
+        write!(
+            output,
+            "<div class=\"patto-task-content{}{}\">",
+            done_class, quote_class
+        )?;
+        for content in ast.contents().iter() {
+            self.write_node(content, output)?;
+        }
+        write!(output, "</div>")?;
+
+        for property in properties {
+            match property {
+                Property::Anchor { name, .. } => {
                     write!(
                         output,
-                        "<p class=\"patto-table-caption\">{}</p>",
-                        encode_text(caption)
+                        "<span id=\"{}\" class=\"anchor\">{}</span>",
+                        name, name
                     )?;
                 }
-                write!(output, "<table class=\"patto-table\">")?;
-                write!(output, "<tbody>")?;
-                let children = ast.children();
-                for child in children.iter() {
-                    self._format_impl(child, output)?;
+                // A done task's deadline is no longer interesting.
+                Property::Task { status, due, .. } if !matches!(status, TaskStatus::Done) => {
+                    write!(
+                        output,
+                        "<span class=\"patto-deadline patto-deadline-default\">{}</span>",
+                        due
+                    )?;
                 }
-                write!(output, "</tbody></table></div>")?;
+                Property::Task { .. } => {}
             }
-            AstNodeKind::TableRow => {
-                write!(output, "<tr>")?;
-                let contents = ast.contents();
-                for content in contents.iter() {
-                    self._format_impl(content, output)?;
-                }
-                write!(output, "</tr>")?;
+        }
+        write!(output, "</div>")?;
+
+        let children = ast.children();
+        if !children.is_empty() {
+            write!(output, "<ul class=\"patto-children\">")?;
+            for child in children.iter() {
+                self.write_list_item(child, "patto-item", output)?;
             }
-            AstNodeKind::TableColumn => {
-                write!(output, "<td>")?;
-                let contents = ast.contents();
-                for content in contents.iter() {
-                    self._format_impl(content, output)?;
-                }
-                write!(output, "</td>")?;
-            }
+            write!(output, "</ul>")?;
         }
         Ok(())
     }
 
-    /// Render quote content with visual indentation using margin-left
-    fn render_quote_content_html(
+    fn write_quote(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        write!(output, "<blockquote class=\"patto-quote\">")?;
+        for child in ast.children().iter() {
+            self.write_quote_content(child, output, 0)?;
+        }
+        write!(output, "</blockquote>")
+    }
+
+    /// Quote content is indented with a margin rather than nested blockquotes,
+    /// so that one quote renders as one block.
+    fn write_quote_content(
         &self,
         quote_content: &AstNode,
         output: &mut dyn Write,
         indent_level: usize,
     ) -> io::Result<()> {
-        // Check if this contains a nested Quote block
-        let contents = quote_content.contents();
-        let has_nested_quote =
-            contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
+        {
+            let contents = quote_content.contents();
+            let is_nested_quote =
+                contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
 
-        if has_nested_quote {
-            // Render the nested quote as a nested blockquote
-            for content in contents.iter() {
-                if let AstNodeKind::Quote = content.kind() {
-                    self._format_impl(content, output)?;
-                } else {
-                    self._format_impl(content, output)?;
+            if is_nested_quote {
+                for content in contents.iter() {
+                    self.write_node(content, output)?;
                 }
-            }
-            drop(contents);
-        } else {
-            // Render with indentation if needed
-            if indent_level > 0 {
-                write!(
-                    output,
-                    "<div style=\"margin-left: {}em\">",
-                    indent_level * 2
-                )?;
             } else {
-                write!(output, "<div>")?;
+                self.open_indent(output, indent_level)?;
+                for content in contents.iter() {
+                    self.write_node(content, output)?;
+                }
+                write!(output, "</div>")?;
             }
-
-            for content in contents.iter() {
-                self._format_impl(content, output)?;
-            }
-            drop(contents);
-
-            write!(output, "</div>")?;
         }
 
-        // Render children (nested QuoteContent) with increased indent
-        let children = quote_content.children();
-        for child in children.iter() {
+        for child in quote_content.children().iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
-                self.render_quote_content_html(child, output, indent_level + 1)?;
+                self.write_quote_content(child, output, indent_level + 1)?;
             } else if indent_level > 0 {
-                write!(
-                    output,
-                    "<div style=\"margin-left: {}em\">",
-                    indent_level * 2
-                )?;
-                self._format_impl(child, output)?;
+                self.open_indent(output, indent_level)?;
+                self.write_node(child, output)?;
                 write!(output, "</div>")?;
             } else {
-                self._format_impl(child, output)?;
+                self.write_node(child, output)?;
             }
         }
-
         Ok(())
+    }
+
+    fn open_indent(&self, output: &mut dyn Write, indent_level: usize) -> io::Result<()> {
+        if indent_level > 0 {
+            write!(
+                output,
+                "<div style=\"margin-left: {}em\">",
+                indent_level * 2
+            )
+        } else {
+            write!(output, "<div>")
+        }
+    }
+
+    fn write_math(&self, ast: &AstNode, inline: bool, output: &mut dyn Write) -> io::Result<()> {
+        if inline {
+            write!(output, "<span class=\"patto-math-inline\">\\(")?;
+            write!(output, "{}", ast.contents()[0].extract_str())?;
+            return write!(output, "\\)</span>");
+        }
+
+        write!(output, "<div class=\"patto-math-block\">")?;
+        // see https://github.com/mathjax/MathJax/issues/2312
+        write!(output, "\\[\\displaylines{{")?;
+        for child in ast.children().iter() {
+            write!(output, "{}", child.extract_str())?;
+        }
+        write!(output, "}}\\]")?;
+        write!(output, "</div>")
+    }
+
+    fn write_code(
+        &self,
+        ast: &AstNode,
+        lang: &str,
+        inline: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        if inline {
+            write!(output, "<code class=\"patto-inline-code\">")?;
+            write!(output, "{}", encode_text(ast.contents()[0].extract_str()))?;
+            return write!(output, "</code>");
+        }
+
+        // mermaid ships its own renderer, which reads the source unescaped.
+        if lang == "mermaid" {
+            write!(output, "<pre class=\"mermaid\">")?;
+            for child in ast.children().iter() {
+                writeln!(output, "{}", child.extract_str())?;
+            }
+            return write!(output, "</pre>");
+        }
+
+        write!(
+            output,
+            "<pre class=\"hljs patto-code-block\"><code class=\"language-{}\">",
+            lang
+        )?;
+        for child in ast.children().iter() {
+            writeln!(output, "{}", encode_text(child.extract_str()))?;
+        }
+        write!(output, "</code></pre>")
+    }
+
+    fn write_image(&self, src: &str, alt: Option<&str>, output: &mut dyn Write) -> io::Result<()> {
+        let src = get_gyazo_img_src(src).unwrap_or_else(|| src.to_string());
+
+        write!(output, "<figure class=\"patto-figure\">")?;
+        // The exported page has no lightbox, so images are capped in CSS
+        // and the anchor is how a reader gets to the full-size original.
+        write!(
+            output,
+            "<a class=\"patto-image-link\" href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">",
+            src
+        )?;
+        match alt {
+            Some(alt) => {
+                write!(
+                    output,
+                    "<img class=\"patto-image\" alt=\"{}\" src=\"{}\"/>",
+                    alt, src
+                )?;
+                write!(output, "</a>")?;
+                write!(output, "<figcaption>{}</figcaption>", encode_text(alt))?;
+            }
+            None => {
+                write!(output, "<img class=\"patto-image\" src=\"{}\"/>", src)?;
+                write!(output, "</a>")?;
+            }
+        }
+        write!(output, "</figure>")
+    }
+
+    fn write_wikilink(
+        &self,
+        link: &str,
+        anchor: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        match anchor {
+            // TODO eliminate the logic that self-link if link is empty
+            Some(anchor) if link.is_empty() => write!(
+                output,
+                "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>",
+                anchor, anchor
+            ),
+            Some(anchor) => write!(
+                output,
+                "<a class=\"patto-wikilink\" href=\"{}.pn#{}\">{}#{}</a>",
+                link, anchor, link, anchor
+            ),
+            None => write!(
+                output,
+                "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>",
+                link, link
+            ),
+        }
+    }
+
+    fn write_link(
+        &self,
+        link: &str,
+        title: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        write!(
+            output,
+            "<a class=\"patto-link\" href=\"{}\">{}</a>",
+            link,
+            title.unwrap_or(link)
+        )
+    }
+
+    /// Embeds the page cannot render server-side become placeholders carrying
+    /// the source URL; the preview's client-side code fills them in.
+    fn write_embed(
+        &self,
+        link: &str,
+        title: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let label = title.unwrap_or(link);
+
+        if link.to_lowercase().ends_with(".pdf") {
+            let is_local = !link.contains("://");
+            let (data_attr, href) = if is_local {
+                (
+                    format!("data-src=\"{}\"", link),
+                    format!("/api/files/{}", link),
+                )
+            } else {
+                (format!("data-url=\"{}\"", link), link.to_string())
+            };
+            return write!(
+                output,
+                "<div class=\"patto-embed-pdf\" {data_attr}><a href=\"{href}\">{label}</a></div>"
+            );
+        }
+
+        if let Some(youtube_id) = get_youtube_id(link) {
+            return write!(
+                output,
+                "<div class=\"patto-embed-youtube\"><iframe src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>");
+        }
+
+        let placeholder = if link.contains("twitter.com") || link.contains("x.com") {
+            Some("twitter-placeholder")
+        } else if link.contains("speakerdeck.com") {
+            Some("speakerdeck-placeholder")
+        } else if link.contains("slideshare.net") {
+            Some("slideshare-placeholder")
+        } else {
+            None
+        };
+
+        match placeholder {
+            Some(class) => write!(
+                output,
+                "<div class=\"{class}\" data-url=\"{link}\"><a href=\"{link}\">{label}</a></div>"
+            ),
+            None => self.write_link(link, title, output),
+        }
+    }
+
+    fn write_decoration(
+        &self,
+        ast: &AstNode,
+        fontsize: isize,
+        italic: bool,
+        underline: bool,
+        deleted: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let font_pct = 100isize + (fontsize - 1).max(0) * 20;
+        let font_weight = if fontsize > 0 {
+            " font-weight: bold;"
+        } else {
+            ""
+        };
+
+        let mut class = String::new();
+        if italic {
+            class.push_str(" italic");
+        }
+        if underline {
+            class.push_str(" underline");
+        }
+        if deleted {
+            class.push_str(" patto-deleted");
+        }
+
+        write!(
+            output,
+            "<span class=\"{}\" style=\"font-size: {font_pct}%;{font_weight}\">",
+            class.trim()
+        )?;
+        for content in ast.contents().iter() {
+            self.write_node(content, output)?;
+        }
+        write!(output, "</span>")
+    }
+
+    fn write_table(
+        &self,
+        ast: &AstNode,
+        caption: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        write!(output, "<div class=\"patto-table-wrapper\">")?;
+        if let Some(caption) = caption {
+            write!(
+                output,
+                "<p class=\"patto-table-caption\">{}</p>",
+                encode_text(caption)
+            )?;
+        }
+        write!(output, "<table class=\"patto-table\">")?;
+        write!(output, "<tbody>")?;
+        for child in ast.children().iter() {
+            self.write_node(child, output)?;
+        }
+        write!(output, "</tbody></table></div>")
+    }
+
+    fn write_cells(&self, ast: &AstNode, tag: &str, output: &mut dyn Write) -> io::Result<()> {
+        write!(output, "<{}>", tag)?;
+        for content in ast.contents().iter() {
+            self.write_node(content, output)?;
+        }
+        write!(output, "</{}>", tag)
     }
 }
