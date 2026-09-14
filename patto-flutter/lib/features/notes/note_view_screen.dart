@@ -258,6 +258,8 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 class _NoteFooter extends ConsumerWidget {
   const _NoteFooter({required this.relPath, required this.errors});
 
+  static const _backlinkLimit = 50;
+
   final String relPath;
   final List<ParseIssue> errors;
 
@@ -297,7 +299,9 @@ class _NoteFooter extends ConsumerWidget {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        for (final link in links)
+                        // A note linked from thousands of lines would otherwise
+                        // make the footer longer than the note itself.
+                        for (final link in links.take(_backlinkLimit))
                           ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
@@ -311,6 +315,14 @@ class _NoteFooter extends ConsumerWidget {
                               context,
                               link.sourceRelPath,
                               row: link.row,
+                            ),
+                          ),
+                        if (links.length > _backlinkLimit)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'and ${links.length - _backlinkLimit} more',
+                              style: theme.textTheme.bodySmall,
                             ),
                           ),
                       ],

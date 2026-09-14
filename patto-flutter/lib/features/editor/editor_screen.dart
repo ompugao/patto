@@ -38,8 +38,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Timer? _completionDebounce;
 
   bool _loading = true;
-  bool _dirty = false;
   String? _error;
+
+  /// The text as loaded or last saved; compared on demand rather than tracked
+  /// by a flag, so a missed rebuild can never disable saving.
+  String _savedText = '';
   List<NoteMeta> _candidates = const [];
   ({int line, int start, int end})? _pendingLink;
 
@@ -66,6 +69,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       );
       if (!mounted) return;
 
+      _savedText = content;
       _controller.text = content;
       _controller.addListener(_onChanged);
       setState(() => _loading = false);
@@ -83,8 +87,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
+  bool get _dirty => _controller.text != _savedText;
+
   void _onChanged() {
-    if (!_dirty) setState(() => _dirty = true);
     _updateCompletion();
   }
 
@@ -174,15 +179,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   Future<bool> _save() async {
+    final text = _controller.text;
+    if (text == _savedText) return true;
+
     final workspace = await ref.read(workspaceProvider.future);
     try {
       await rust.writeNote(
         root: workspace.root,
         relPath: widget.relPath,
-        content: _controller.text,
+        content: text,
       );
+      _savedText = text;
       ref.read(notesRevisionProvider.notifier).value++;
-      if (mounted) setState(() => _dirty = false);
       return true;
     } catch (e) {
       if (mounted) {
@@ -243,13 +251,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             IconButton(
               icon: const Icon(Icons.check),
               tooltip: 'Save',
-              onPressed: _dirty
-                  ? () async {
-                      final saved = await _save();
-                      if (!saved || !mounted) return;
-                      Navigator.of(this.context).pop();
-                    }
-                  : null,
+              onPressed: () async {
+                final saved = await _save();
+                if (!saved || !mounted) return;
+                Navigator.of(this.context).pop();
+              },
             ),
           ],
         ),
