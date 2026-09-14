@@ -12,6 +12,12 @@ pub struct PattoRenderer {
     base_indent: usize,
 }
 
+impl Renderer for PattoRenderer {
+    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        self.write_node(ast, output, 0)
+    }
+}
+
 impl PattoRenderer {
     pub fn new() -> Self {
         Self { base_indent: 0 }
@@ -21,289 +27,240 @@ impl PattoRenderer {
         Self { base_indent }
     }
 
-    fn _format_impl(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
+    fn write_node(&self, ast: &AstNode, output: &mut dyn Write, depth: usize) -> io::Result<()> {
         match ast.kind() {
+            // The tree structure carries the nesting, so children all start at
+            // the base indent.
             AstNodeKind::Dummy => {
-                // Render all children at base indent level
-                // The tree structure provides proper nesting for list items
-                let children = ast.children();
-                for child in children.iter() {
-                    self._format_impl(child, output, self.base_indent)?;
-                }
-            }
-            AstNodeKind::Line { properties } => {
-                // Indentation
-                for _ in 0..depth {
-                    write!(output, "\t")?;
-                }
-
-                // Check for task property
-                let mut task_prop: Option<(
-                    &TaskStatus,
-                    &crate::parser::Deadline,
-                    Option<&crate::parser::Deadline>,
-                    Option<&crate::parser::Deadline>,
-                )> = None;
-                for property in properties {
-                    if let Property::Task {
-                        status,
-                        due,
-                        scheduled,
-                        completed_at,
-                        ..
-                    } = property
-                    {
-                        task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
-                        break;
-                    }
-                }
-
-                // Render contents
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, 0)?;
-                }
-
-                // Add task property if present
-                if let Some((status, due, scheduled, completed_at)) = task_prop {
-                    let status_str = match status {
-                        TaskStatus::Todo => "todo",
-                        TaskStatus::Doing => "doing",
-                        TaskStatus::Paused => "paused",
-                        TaskStatus::Done => "done",
-                    };
-                    let due_str = due.to_string();
-                    write!(output, " {{@task status={}", status_str)?;
-                    if !due_str.is_empty() {
-                        write!(output, " due={}", due_str)?;
-                    }
-                    if let Some(s) = scheduled {
-                        write!(output, " scheduled={}", s)?;
-                    }
-                    if let Some(c) = completed_at {
-                        write!(output, " completed_at={}", c)?;
-                    }
-                    write!(output, "}}")?;
-                }
-
-                writeln!(output)?;
-
-                // Children
                 for child in ast.children().iter() {
-                    self._format_impl(child, output, depth + 1)?;
+                    self.write_node(child, output, self.base_indent)?;
                 }
+                Ok(())
             }
-            AstNodeKind::QuoteContent { properties } => {
-                // Indentation based on structural depth
-                for _ in 0..depth {
-                    write!(output, "\t")?;
-                }
-
-                // Check for task property
-                let mut task_prop: Option<(
-                    &TaskStatus,
-                    &crate::parser::Deadline,
-                    Option<&crate::parser::Deadline>,
-                    Option<&crate::parser::Deadline>,
-                )> = None;
-                for property in properties {
-                    if let Property::Task {
-                        status,
-                        due,
-                        scheduled,
-                        completed_at,
-                        ..
-                    } = property
-                    {
-                        task_prop = Some((status, due, scheduled.as_ref(), completed_at.as_ref()));
-                        break;
-                    }
-                }
-
-                // Render contents (clean text, no embedded tabs)
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, 0)?;
-                }
-
-                // Add task property if present
-                if let Some((status, due, scheduled, completed_at)) = task_prop {
-                    let status_str = match status {
-                        TaskStatus::Todo => "todo",
-                        TaskStatus::Doing => "doing",
-                        TaskStatus::Paused => "paused",
-                        TaskStatus::Done => "done",
-                    };
-                    let due_str = due.to_string();
-                    write!(output, " {{@task status={}", status_str)?;
-                    if !due_str.is_empty() {
-                        write!(output, " due={}", due_str)?;
-                    }
-                    if let Some(s) = scheduled {
-                        write!(output, " scheduled={}", s)?;
-                    }
-                    if let Some(c) = completed_at {
-                        write!(output, " completed_at={}", c)?;
-                    }
-                    write!(output, "}}")?;
-                }
-
-                writeln!(output)?;
-
-                // Recursively render nested children at depth+1
-                for child in ast.children().iter() {
-                    self._format_impl(child, output, depth + 1)?;
-                }
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
+                self.write_line(ast, properties, output, depth)
             }
-            AstNodeKind::Text => {
-                write!(output, "{}", ast.extract_str())?;
+            AstNodeKind::Text | AstNodeKind::CodeContent | AstNodeKind::MathContent => {
+                write!(output, "{}", ast.extract_str())
             }
             AstNodeKind::Decoration {
                 fontsize,
                 italic,
                 underline,
                 deleted,
-            } => {
-                // Determine decoration markers
-                let mut markers = String::new();
-                if *fontsize > 0 {
-                    markers.push('*');
-                }
-                if *italic {
-                    markers.push('/');
-                }
-                if *underline {
-                    markers.push('_');
-                }
-                if *deleted {
-                    markers.push('-');
-                }
-
-                if !markers.is_empty() {
-                    write!(output, "[{} ", markers)?;
-                }
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, 0)?;
-                }
-                if !markers.is_empty() {
-                    write!(output, "]")?;
-                }
-            }
-            AstNodeKind::Code { lang, inline } => {
-                if *inline {
-                    write!(output, "[` ")?;
-                    for content in ast.contents().iter() {
-                        write!(output, "{}", content.extract_str())?;
-                    }
-                    write!(output, " `]")?;
-                } else {
-                    if lang.is_empty() {
-                        writeln!(output, "[@code]")?;
-                    } else {
-                        writeln!(output, "[@code {}]", lang)?;
-                    }
-                    for child in ast.children().iter() {
-                        write!(output, "\t")?;
-                        write!(output, "{}", child.extract_str())?;
-                        writeln!(output)?;
-                    }
-                }
-            }
-            AstNodeKind::CodeContent | AstNodeKind::MathContent => {
-                write!(output, "{}", ast.extract_str())?;
-            }
-            AstNodeKind::Math { inline } => {
-                if *inline {
-                    write!(output, "[$ ")?;
-                    for content in ast.contents().iter() {
-                        write!(output, "{}", content.extract_str())?;
-                    }
-                    write!(output, " $]")?;
-                } else {
-                    writeln!(output, "[@math]")?;
-                    for child in ast.children().iter() {
-                        write!(output, "\t")?;
-                        write!(output, "{}", child.extract_str())?;
-                        writeln!(output)?;
-                    }
-                }
-            }
+            } => self.write_decoration(ast, *fontsize, *italic, *underline, *deleted, output),
+            AstNodeKind::Code { lang, inline } => self.write_code(ast, lang, *inline, output),
+            AstNodeKind::Math { inline } => self.write_math(ast, *inline, output),
             AstNodeKind::Quote => {
                 writeln!(output, "[@quote]")?;
-                // Render children (QuoteContent and nested Line/Quote) with depth+1
                 for child in ast.children().iter() {
-                    self._format_impl(child, output, depth + 1)?;
+                    self.write_node(child, output, depth + 1)?;
                 }
+                Ok(())
             }
             AstNodeKind::Table { caption } => {
-                if let Some(cap) = caption {
-                    writeln!(output, "[@table caption=\"{}\"]", cap)?;
-                } else {
-                    writeln!(output, "[@table]")?;
-                }
-                for child in ast.children().iter() {
-                    self._format_impl(child, output, depth)?;
-                }
+                self.write_table(ast, caption.as_deref(), output, depth)
             }
-            AstNodeKind::TableRow => {
-                write!(output, "\t")?;
-                let contents = ast.contents();
-                for (i, cell) in contents.iter().enumerate() {
-                    if i > 0 {
-                        write!(output, "\t")?;
-                    }
-                    for content in cell.contents().iter() {
-                        self._format_impl(content, output, 0)?;
-                    }
-                }
-                writeln!(output)?;
-            }
-            AstNodeKind::TableColumn => {
-                for content in ast.contents().iter() {
-                    self._format_impl(content, output, 0)?;
-                }
-            }
-            AstNodeKind::WikiLink { link, anchor } => {
-                if let Some(anc) = anchor {
-                    if link.is_empty() {
-                        write!(output, "[#{}]", anc)?;
-                    } else {
-                        write!(output, "[{}#{}]", link, anc)?;
-                    }
-                } else {
-                    write!(output, "[{}]", link)?;
-                }
-            }
-            AstNodeKind::Link { link, title } => {
-                if let Some(t) = title {
-                    write!(output, "[{} {}]", t, link)?;
-                } else {
-                    write!(output, "[{}]", link)?;
-                }
-            }
-            AstNodeKind::Embed { link, title } => {
-                if let Some(t) = title {
-                    write!(output, "[@embed {} {}]", link, t)?;
-                } else {
-                    write!(output, "[@embed {}]", link)?;
-                }
-            }
-            AstNodeKind::Image { src, alt } => {
-                if let Some(a) = alt {
-                    write!(output, "[@img {} \"{}\"]", src, a)?;
-                } else {
-                    write!(output, "[@img {}]", src)?;
-                }
-            }
+            AstNodeKind::TableRow => self.write_table_row(ast, output),
+            AstNodeKind::TableColumn => self.write_contents(ast, output),
+            AstNodeKind::WikiLink { link, anchor } => match anchor.as_deref() {
+                Some(anchor) if link.is_empty() => write!(output, "[#{}]", anchor),
+                Some(anchor) => write!(output, "[{}#{}]", link, anchor),
+                None => write!(output, "[{}]", link),
+            },
+            AstNodeKind::Link { link, title } => match title {
+                Some(title) => write!(output, "[{} {}]", title, link),
+                None => write!(output, "[{}]", link),
+            },
+            AstNodeKind::Embed { link, title } => match title {
+                Some(title) => write!(output, "[@embed {} {}]", link, title),
+                None => write!(output, "[@embed {}]", link),
+            },
+            AstNodeKind::Image { src, alt } => match alt {
+                Some(alt) => write!(output, "[@img {} \"{}\"]", src, alt),
+                None => write!(output, "[@img {}]", src),
+            },
             AstNodeKind::HorizontalLine => {
                 // The grammar needs at least five dashes; fewer re-parse as text.
-                writeln!(output, "-----")?;
+                writeln!(output, "-----")
             }
+        }
+    }
+
+    fn write_indent(&self, output: &mut dyn Write, depth: usize) -> io::Result<()> {
+        for _ in 0..depth {
+            write!(output, "\t")?;
         }
         Ok(())
     }
+
+    fn write_contents(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        for content in ast.contents().iter() {
+            self.write_node(content, output, 0)?;
+        }
+        Ok(())
+    }
+
+    /// A line and a line of quote content are written the same way; only where
+    /// they sit in the tree differs.
+    fn write_line(
+        &self,
+        ast: &AstNode,
+        properties: &[Property],
+        output: &mut dyn Write,
+        depth: usize,
+    ) -> io::Result<()> {
+        self.write_indent(output, depth)?;
+        self.write_contents(ast, output)?;
+        write_task_property(properties, output)?;
+        writeln!(output)?;
+
+        for child in ast.children().iter() {
+            self.write_node(child, output, depth + 1)?;
+        }
+        Ok(())
+    }
+
+    fn write_decoration(
+        &self,
+        ast: &AstNode,
+        fontsize: isize,
+        italic: bool,
+        underline: bool,
+        deleted: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let mut markers = String::new();
+        if fontsize > 0 {
+            markers.push('*');
+        }
+        if italic {
+            markers.push('/');
+        }
+        if underline {
+            markers.push('_');
+        }
+        if deleted {
+            markers.push('-');
+        }
+
+        if markers.is_empty() {
+            return self.write_contents(ast, output);
+        }
+        write!(output, "[{} ", markers)?;
+        self.write_contents(ast, output)?;
+        write!(output, "]")
+    }
+
+    fn write_code(
+        &self,
+        ast: &AstNode,
+        lang: &str,
+        inline: bool,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        if inline {
+            write!(output, "[` ")?;
+            write_raw_contents(ast, output)?;
+            return write!(output, " `]");
+        }
+
+        if lang.is_empty() {
+            writeln!(output, "[@code]")?;
+        } else {
+            writeln!(output, "[@code {}]", lang)?;
+        }
+        write_block_body(ast, output)
+    }
+
+    fn write_math(&self, ast: &AstNode, inline: bool, output: &mut dyn Write) -> io::Result<()> {
+        if inline {
+            write!(output, "[$ ")?;
+            write_raw_contents(ast, output)?;
+            return write!(output, " $]");
+        }
+
+        writeln!(output, "[@math]")?;
+        write_block_body(ast, output)
+    }
+
+    fn write_table(
+        &self,
+        ast: &AstNode,
+        caption: Option<&str>,
+        output: &mut dyn Write,
+        depth: usize,
+    ) -> io::Result<()> {
+        match caption {
+            Some(caption) => writeln!(output, "[@table caption=\"{}\"]", caption)?,
+            None => writeln!(output, "[@table]")?,
+        }
+        for child in ast.children().iter() {
+            self.write_node(child, output, depth)?;
+        }
+        Ok(())
+    }
+
+    fn write_table_row(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+        write!(output, "\t")?;
+        for (i, cell) in ast.contents().iter().enumerate() {
+            if i > 0 {
+                write!(output, "\t")?;
+            }
+            self.write_contents(cell, output)?;
+        }
+        writeln!(output)
+    }
 }
 
-impl Renderer for PattoRenderer {
-    fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        self._format_impl(ast, output, 0)
+/// The `{@task ...}` suffix, written after the line's text.
+fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::Result<()> {
+    let Some(Property::Task {
+        status,
+        due,
+        scheduled,
+        completed_at,
+        ..
+    }) = properties
+        .iter()
+        .find(|property| matches!(property, Property::Task { .. }))
+    else {
+        return Ok(());
+    };
+
+    let status = match status {
+        TaskStatus::Todo => "todo",
+        TaskStatus::Doing => "doing",
+        TaskStatus::Paused => "paused",
+        TaskStatus::Done => "done",
+    };
+    write!(output, " {{@task status={}", status)?;
+
+    let due = due.to_string();
+    if !due.is_empty() {
+        write!(output, " due={}", due)?;
     }
+    if let Some(scheduled) = scheduled {
+        write!(output, " scheduled={}", scheduled)?;
+    }
+    if let Some(completed_at) = completed_at {
+        write!(output, " completed_at={}", completed_at)?;
+    }
+    write!(output, "}}")
+}
+
+/// Inline code and math keep their body exactly as written.
+fn write_raw_contents(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+    for content in ast.contents().iter() {
+        write!(output, "{}", content.extract_str())?;
+    }
+    Ok(())
+}
+
+/// The indented body of a `[@code]` or `[@math]` block.
+fn write_block_body(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
+    for child in ast.children().iter() {
+        writeln!(output, "\t{}", child.extract_str())?;
+    }
+    Ok(())
 }

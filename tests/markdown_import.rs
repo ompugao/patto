@@ -266,8 +266,15 @@ fn test_image_conversion() {
 #[test]
 fn test_horizontal_rule() {
     let patto = import_lossy("Above\n\n---\n\nBelow");
-    let dash_lines = patto.lines().filter(|l| l.trim() == "---").count();
-    assert!(dash_lines >= 1, "Horizontal rule should be preserved");
+    // The grammar needs five or more dashes for a horizontal line.
+    let rule_lines = patto
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            line.len() >= 5 && line.chars().all(|c| c == '-')
+        })
+        .count();
+    assert!(rule_lines >= 1, "Horizontal rule should be preserved");
 }
 
 #[test]
