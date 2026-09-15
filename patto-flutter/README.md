@@ -4,6 +4,8 @@ A mobile client for [patto](../README.md) notes. Notes live in a git repository
 that the app clones onto the device, so everything works offline and syncs when
 you ask it to.
 
+- Several workspaces, each its own repository and its own folder on the device,
+  switched from the note list or from settings
 - Note list with fuzzy title search and sorting by recency, backlinks or name
 - Note view rendering the full syntax: nesting, links, anchors, decorations,
   code with highlighting, tables, math, images, embeds and task markers
@@ -22,9 +24,9 @@ you ask it to.
 patto-flutter/
   lib/
     main.dart          entry point; loads the CA bundle and starts the app
-    app.dart           theme, onboarding gate, bottom navigation
-    core/              settings, workspace, Riverpod providers
-    features/          notes, tasks, editor, sync, settings
+    app.dart           theme, first-run gate, bottom navigation
+    core/              settings, workspaces, Riverpod providers
+    features/          notes, tasks, editor, sync, settings, workspaces
     src/rust/          GENERATED Dart bindings
   rust/                the Rust core (see rust/src/api)
   rust_builder/        Cargokit, builds the Rust library during a Flutter build
@@ -71,6 +73,7 @@ committed, so a plain `flutter run` works without the codegen installed.
 cd rust && cargo test              # 71 tests: rendering, index, tasks, git
 cd rust && cargo test -- --ignored # also clones over HTTPS, needs network
 flutter analyze
+flutter test                       # settings and workspace storage
 ./rust/build-android.sh            # cross-compile check for both ABIs
 ```
 
@@ -103,6 +106,12 @@ with the time of the clone, so the note list would otherwise show one date for
 everything and "Recent" would mean nothing. The history is walked once per index
 to find the last commit touching each note. A note whose working copy differs
 from HEAD keeps its file time, because it really was edited here.
+
+**Workspaces.** A workspace is a repository plus the folder it was cloned into,
+named after the workspace id. An upgrade from the single-workspace version keeps
+the folder that one used (`notes`), so the clone already on the device is not
+thrown away. The link index is keyed by root, so switching back to a workspace
+does not rebuild it.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

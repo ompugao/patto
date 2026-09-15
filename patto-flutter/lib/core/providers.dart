@@ -38,13 +38,54 @@ class SettingsNotifier extends AsyncNotifier<Settings> {
     state = AsyncData(next);
     await ref.read(settingsStoreProvider).save(next);
   }
+
+  /// Add a workspace, or replace the one with the same id.
+  Future<void> saveWorkspace(Workspace workspace) async {
+    final current = state.value ?? const Settings();
+    await save(current.withWorkspace(workspace));
+  }
+
+  Future<void> removeWorkspace(String id) async {
+    final current = state.value ?? const Settings();
+    await save(current.withoutWorkspace(id));
+    await ref.read(settingsStoreProvider).forgetToken(id);
+  }
+
+  Future<void> setActiveWorkspace(String id) async {
+    final current = state.value ?? const Settings();
+    if (current.activeWorkspaceId == id) return;
+    await save(current.copyWith(activeWorkspaceId: id));
+  }
 }
 
 final settingsProvider = AsyncNotifierProvider<SettingsNotifier, Settings>(
   SettingsNotifier.new,
 );
 
-final workspaceProvider = FutureProvider<Workspace>((ref) => Workspace.resolve());
+/// Where workspace folders live. Resolved once; the path never changes.
+final workspaceBaseDirProvider = FutureProvider<String>(
+  (ref) => WorkspaceStorage.baseDir(),
+);
+
+/// The workspace the app is currently showing, or null before the first one is
+/// configured. Everything derived from notes watches this, so switching
+/// workspace re-reads the lot.
+final workspaceProvider = FutureProvider<ActiveWorkspace?>((ref) async {
+  final settings = await ref.watch(settingsProvider.future);
+  final workspace = settings.active;
+  if (workspace == null) return null;
+
+  final baseDir = await ref.watch(workspaceBaseDirProvider.future);
+  return ActiveWorkspace(
+    config: workspace,
+    root: WorkspaceStorage.rootFor(baseDir, workspace),
+  );
+});
+
+/// Every configured workspace, for the switcher and the settings list.
+final workspacesProvider = Provider<List<Workspace>>((ref) {
+  return ref.watch(settingsProvider).value?.workspaces ?? const [];
+});
 
 /// Multiplier for note text, from the appearance setting.
 final fontScaleProvider = Provider<double>((ref) {
@@ -79,8 +120,21 @@ class IndexState {
 }
 
 class IndexNotifier extends Notifier<IndexState> {
+  /// Roots indexed during this run. The Rust index is kept per root for the
+  /// life of the process, so switching back to a workspace needs no rescan.
+  final _built = <String>{};
+
   @override
   IndexState build() => const IndexState();
+
+  /// Index a workspace unless it has already been indexed in this run.
+  Future<void> ensureBuilt(String root) async {
+    if (_built.contains(root)) {
+      state = const IndexState(ready: true);
+      return;
+    }
+    await rebuild(root);
+  }
 
   /// Scans the whole notes directory. Safe to call again; a second call while
   /// one is running is ignored.
@@ -98,6 +152,7 @@ class IndexNotifier extends Notifier<IndexState> {
               total: progress.total,
             );
           case IndexEvent_Done():
+            _built.add(root);
             state = IndexState(
               ready: true,
               scanned: state.scanned,
@@ -117,11 +172,19 @@ class IndexNotifier extends Notifier<IndexState> {
   Future<void> refresh(String root) async {
     try {
       await rust.indexRefresh(root: root);
+      _built.add(root);
       state = IndexState(ready: true, scanned: state.scanned, total: state.total);
       ref.read(notesRevisionProvider.notifier).state++;
     } catch (e) {
       state = IndexState(error: e.toString(), ready: state.ready);
     }
+  }
+
+  /// Forget a root, so it is scanned afresh next time. Used when a workspace is
+  /// re-cloned or deleted.
+  void forget(String root) {
+    _built.remove(root);
+    state = const IndexState();
   }
 }
 
@@ -135,7 +198,7 @@ final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
   final query = ref.watch(noteSearchProvider);
   final sort = ref.watch(noteSortProvider);
 
-  if (!workspace.exists) return const [];
+  if (workspace == null || !workspace.exists) return const [];
 
   final notes = query.trim().isEmpty
       ? await rust.listNotes(root: workspace.root)
@@ -169,7 +232,7 @@ final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
 final linkCountsProvider = FutureProvider<Map<String, int>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!ref.watch(indexProvider).ready) return const {};
+  if (workspace == null || !ref.watch(indexProvider).ready) return const {};
 
   try {
     return {
@@ -185,6 +248,9 @@ final renderedNoteProvider =
     FutureProvider.autoDispose.family<RenderedNote, String>((ref, relPath) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
+  if (workspace == null) {
+    throw StateError('no workspace is active');
+  }
 
   // Keep recently viewed notes parsed so going back is instant.
   final link = ref.keepAlive();
@@ -199,7 +265,7 @@ final backlinksProvider =
     FutureProvider.autoDispose.family<List<BackLink>, String>((ref, relPath) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!ref.watch(indexProvider).ready) return const [];
+  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
 
   try {
     return await rust.backlinks(root: workspace.root, relPath: relPath);
@@ -212,7 +278,7 @@ final twoHopProvider =
     FutureProvider.autoDispose.family<List<TwoHop>, String>((ref, relPath) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!ref.watch(indexProvider).ready) return const [];
+  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
 
   try {
     return await rust.twoHopLinks(root: workspace.root, relPath: relPath);
@@ -224,7 +290,7 @@ final twoHopProvider =
 final pendingTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!ref.watch(indexProvider).ready) return const [];
+  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
 
   try {
     return await rust.pendingTasks(root: workspace.root);
@@ -240,7 +306,7 @@ final reviewRangeProvider = valueProvider<DateTimeRange?>(null);
 final completedTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!ref.watch(indexProvider).ready) return const [];
+  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
 
   final timeframe = ref.watch(reviewTimeframeProvider);
   final range = ref.watch(reviewRangeProvider);
@@ -264,7 +330,7 @@ final completedTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
 final gitStatusProvider = FutureProvider.autoDispose<GitStatus?>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  if (!workspace.isCloned) return null;
+  if (workspace == null || !workspace.isCloned) return null;
 
   try {
     return await rust.gitStatus(root: workspace.root);

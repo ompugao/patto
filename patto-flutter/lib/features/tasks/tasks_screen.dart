@@ -216,6 +216,7 @@ class _TaskTile extends ConsumerWidget {
     if (next == null || !context.mounted) return;
 
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     try {
       await rust.setTaskStatus(
         root: workspace.root,
