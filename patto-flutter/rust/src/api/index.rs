@@ -16,6 +16,7 @@ use patto::parser::{self, AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 
 use crate::api::error::{PattoError, PattoResult};
 use crate::api::store::{self, rel_path_to_name};
+use crate::api::types::NoteMeta;
 
 /// One wiki link found in a note.
 #[derive(Debug, Clone)]
@@ -57,6 +58,10 @@ pub(crate) struct NoteIndex {
     pub notes: HashMap<String, NoteRecord>,
     /// target name -> source names that link to it.
     pub backlinks: HashMap<String, BTreeSet<String>>,
+    /// When each note was last committed, by repo-relative path. `None` until
+    /// the history has been walked; cleared whenever new commits may have
+    /// arrived.
+    pub commit_times: Option<HashMap<String, i64>>,
 }
 
 impl NoteIndex {
@@ -250,6 +255,7 @@ pub fn index_build(root: String, on_progress: impl Fn(IndexProgress)) -> PattoRe
     }
 
     let result = stats(&fresh);
+    // A fresh index has no commit times yet; the next listing walks the history.
     *index_for(&root).write() = fresh;
     on_progress(IndexProgress {
         scanned: total,
@@ -286,6 +292,8 @@ pub fn index_update_file(root: String, rel_path: String) -> PattoResult<()> {
 pub fn index_refresh(root: String) -> PattoResult<IndexStats> {
     let metas = store::list_notes(root.clone())?;
     let index = index_for(&root);
+    // A sync may have brought new commits, so the cached times are stale.
+    index.write().commit_times = None;
 
     let stale: Vec<_> = {
         let guard = index.read();
@@ -433,6 +441,45 @@ pub fn link_counts(root: String) -> PattoResult<Vec<LinkCount>> {
         out.sort_by(|a, b| b.backlinks.cmp(&a.backlinks).then(a.name.cmp(&b.name)));
         Ok(out)
     })
+}
+
+/// Replace file modification times with the time each note was last committed.
+///
+/// Git does not preserve modification times, so every file in a fresh clone
+/// carries the moment of the clone. The commit time is what the reader means by
+/// "when was this note last changed".
+///
+/// A note whose working copy differs from HEAD keeps its file time: it was
+/// genuinely edited here, after whatever it was last committed as. Notes with no
+/// commit yet, and directories that are not repositories, are left alone.
+pub fn apply_commit_times(root: &str, notes: &mut [NoteMeta]) -> PattoResult<()> {
+    if notes.is_empty() {
+        return Ok(());
+    }
+
+    let index = index_for(root);
+    if index.read().commit_times.is_none() {
+        // Walking the history is the expensive part, so it is done once per
+        // index and reused until a sync or a rebuild clears it.
+        let times = crate::api::git::note_commit_times(root)?;
+        index.write().commit_times = Some(times);
+    }
+
+    let dirty = crate::api::git::locally_modified_notes(root)?;
+    let guard = index.read();
+    let Some(times) = guard.commit_times.as_ref() else {
+        return Ok(());
+    };
+
+    for note in notes.iter_mut() {
+        if dirty.contains(&note.rel_path) {
+            continue;
+        }
+        if let Some(committed) = times.get(&note.rel_path) {
+            note.modified_ms = *committed;
+        }
+    }
+    Ok(())
 }
 
 /// Whether a wiki-link target exists, so the UI can flag dangling links.

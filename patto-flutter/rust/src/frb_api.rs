@@ -34,8 +34,15 @@ pub fn init_app() {
 
 // ─── notes ───────────────────────────────────────────────────────────────────
 
+/// Every note, most recently changed first.
+///
+/// The timestamps come from git where possible; see
+/// [`index::apply_commit_times`] for why the filesystem cannot be trusted.
 pub fn list_notes(root: String) -> PattoResult<Vec<NoteMeta>> {
-    store::list_notes(root)
+    let mut notes = store::list_notes(root.clone())?;
+    index::apply_commit_times(&root, &mut notes)?;
+    notes.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then(a.name.cmp(&b.name)));
+    Ok(notes)
 }
 
 pub fn read_note(root: String, rel_path: String) -> PattoResult<String> {
@@ -59,7 +66,17 @@ pub fn delete_note(root: String, rel_path: String) -> PattoResult<()> {
 }
 
 pub fn search_notes(root: String, query: String, limit: u32) -> PattoResult<Vec<NoteMeta>> {
-    store::search_notes(root, query, limit)
+    // An empty query means "everything, newest first", which has to be ordered
+    // by the git timestamps before it is truncated.
+    if query.trim().is_empty() {
+        let mut notes = list_notes(root)?;
+        notes.truncate(limit as usize);
+        return Ok(notes);
+    }
+
+    let mut notes = store::search_notes(root.clone(), query, limit)?;
+    index::apply_commit_times(&root, &mut notes)?;
+    Ok(notes)
 }
 
 #[frb(sync)]

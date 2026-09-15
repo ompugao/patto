@@ -96,5 +96,11 @@ an error would surface on a future nobody awaits. Clone, sync and index build
 therefore report their outcome as a terminal event on the stream; see
 `rust/src/api/events.rs`.
 
+**Note timestamps** come from git, not the filesystem. A clone stamps every file
+with the time of the clone, so the note list would otherwise show one date for
+everything and "Recent" would mean nothing. The history is walked once per index
+to find the last commit touching each note. A note whose working copy differs
+from HEAD keeps its file time, because it really was edited here.
+
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

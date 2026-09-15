@@ -4,6 +4,7 @@
 //! fast-forward or merge → push, with conflicts resolved in favour of the local
 //! copy so the phone never blocks on a merge it cannot show.
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -247,17 +248,91 @@ fn current_branch(repo: &Repository) -> PattoResult<String> {
     Ok(head.shorthand()?.to_string())
 }
 
-pub fn git_status(root: String) -> PattoResult<GitStatus> {
-    let repo = Repository::open(&root)?;
-
+/// Note paths that differ from HEAD, including untracked ones.
+fn dirty_notes(repo: &Repository) -> PattoResult<Vec<String>> {
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(true);
-    let dirty: Vec<String> = repo
+    Ok(repo
         .statuses(Some(&mut opts))?
         .iter()
         .filter_map(|e| e.path().ok().map(str::to_string))
         .filter(|p| p.ends_with(".pn"))
-        .collect();
+        .collect())
+}
+
+/// Note paths whose working copy differs from what was committed.
+///
+/// Empty when the directory is not a repository, so callers can treat "no git"
+/// and "nothing changed" alike.
+pub fn locally_modified_notes(root: &str) -> PattoResult<HashSet<String>> {
+    let Ok(repo) = Repository::open(root) else {
+        return Ok(HashSet::new());
+    };
+    Ok(dirty_notes(&repo)?.into_iter().collect())
+}
+
+/// When each note was last committed, in milliseconds since the epoch.
+///
+/// A clone gives every file the same modification time, so the filesystem says
+/// nothing about when a note was actually written. This walks the history once,
+/// newest first, and records the first commit that touched each note.
+///
+/// Merges are followed along the first parent only: what matters is when a
+/// change arrived on this branch. The walk stops after [`MAX_COMMITS`] so a long
+/// history cannot stall the app; notes older than that keep their file time.
+pub fn note_commit_times(root: &str) -> PattoResult<HashMap<String, i64>> {
+    /// Deep enough for any personal notes repository.
+    const MAX_COMMITS: usize = 20_000;
+
+    let mut times: HashMap<String, i64> = HashMap::new();
+
+    let Ok(repo) = Repository::open(root) else {
+        return Ok(times);
+    };
+    let mut walk = repo.revwalk()?;
+    if walk.push_head().is_err() {
+        // An unborn branch has no history yet.
+        return Ok(times);
+    }
+    walk.simplify_first_parent()?;
+    walk.set_sorting(git2::Sort::TIME)?;
+
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec("*.pn");
+
+    for oid in walk.take(MAX_COMMITS) {
+        let commit = repo.find_commit(oid?)?;
+        let tree = commit.tree()?;
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+
+        let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
+        let millis = commit.time().seconds() * 1000;
+
+        diff.foreach(
+            &mut |delta, _| {
+                for file in [delta.new_file(), delta.old_file()] {
+                    if let Some(path) = file.path().and_then(|p| p.to_str()) {
+                        if path.ends_with(".pn") {
+                            // Newest first, so the first time seen is the answer.
+                            times.entry(path.to_string()).or_insert(millis);
+                        }
+                    }
+                }
+                true
+            },
+            None,
+            None,
+            None,
+        )
+        .ok();
+    }
+
+    Ok(times)
+}
+
+pub fn git_status(root: String) -> PattoResult<GitStatus> {
+    let repo = Repository::open(&root)?;
+    let dirty = dirty_notes(&repo)?;
 
     let branch = current_branch(&repo).unwrap_or_else(|_| "HEAD".to_string());
     let has_remote = repo.find_remote("origin").is_ok();
