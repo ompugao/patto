@@ -98,7 +98,9 @@ class _Broken extends StatelessWidget {
           Flexible(
             child: Text(
               alt,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),

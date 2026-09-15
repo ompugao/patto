@@ -13,6 +13,10 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+/// Every note, most recently changed first.
+///
+/// The timestamps come from git where possible; see
+/// [`index::apply_commit_times`] for why the filesystem cannot be trusted.
 Future<List<NoteMeta>> listNotes({required String root}) =>
     RustLib.instance.api.crateFrbApiListNotes(root: root);
 

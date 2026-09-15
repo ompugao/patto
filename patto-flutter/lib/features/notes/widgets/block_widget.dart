@@ -188,7 +188,15 @@ class BlockWidget extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       image.alt!,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      // A caption, not prose: muted so it reads as a label on
+                      // the image rather than as part of the note.
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontSize:
+                            (Theme.of(context).textTheme.bodySmall?.fontSize ??
+                                    12) *
+                                textScale,
+                      ),
                     ),
                   ),
               ],
