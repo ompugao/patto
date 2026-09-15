@@ -733,15 +733,17 @@ impl Repository {
     pub async fn start_watcher(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel(100);
         // Registered before returning, so changes made right after this call are seen.
-        let watcher = watch_dir(&self.root_dir, tx.clone())?;
-        keep_alive_until_closed(watcher, tx);
-        self.clone().spawn_event_loop(rx);
+        let watcher = watch_dir(&self.root_dir, tx)?;
+        self.clone().spawn_event_loop(rx, watcher);
         Ok(())
     }
 
-    fn spawn_event_loop(self, mut rx: mpsc::Receiver<notify::Event>) {
+    fn spawn_event_loop(self, mut rx: mpsc::Receiver<notify::Event>, watcher: RecommendedWatcher) {
         let debouncer = Debouncer::new(Duration::from_millis(10));
         tokio::spawn(async move {
+            // A watcher stops delivering events once dropped, so the loop that
+            // consumes them owns it, and both end together.
+            let _watcher = watcher;
             while let Some(event) = rx.recv().await {
                 self.handle_fs_event(event, &debouncer).await;
             }
@@ -842,15 +844,6 @@ fn watch_dir(dir: &Path, tx: mpsc::Sender<notify::Event>) -> notify::Result<Reco
     )?;
     watcher.watch(dir, RecursiveMode::Recursive)?;
     Ok(watcher)
-}
-
-/// A watcher stops delivering events once dropped, so park it in a task that
-/// outlives every event consumer.
-fn keep_alive_until_closed(watcher: RecommendedWatcher, tx: mpsc::Sender<notify::Event>) {
-    tokio::spawn(async move {
-        tx.closed().await;
-        drop(watcher);
-    });
 }
 
 /// Collapses a burst of modify events into a single reload per path.
