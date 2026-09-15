@@ -736,10 +736,11 @@ packages:
   re_editor:
     dependency: "direct main"
     description:
-      name: re_editor
-      sha256: "66671c4774a6b4c5254c9a53ab35a083e7e7da9ae371c519bcf491c70a2a4e56"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: c0b2985f4711664572d9d860a3e3297b758bdfbb
+      resolved-ref: c0b2985f4711664572d9d860a3e3297b758bdfbb
+      url: "https://github.com/ompugao/re-editor.git"
+    source: git
     version: "0.10.0"
   re_highlight:
     dependency: "direct main"

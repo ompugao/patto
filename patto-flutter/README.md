@@ -106,3 +106,12 @@ from HEAD keeps its file time, because it really was edited here.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.
+
+**The editor is pinned to a fork of re_editor**
+([ompugao/re-editor](https://github.com/ompugao/re-editor), branch
+`fix/mobile-cursor-left-at-line-start`), which is 0.10.0 plus one fix. On
+Android the editor sends only the current line to the keyboard, prefixed with a
+zero-width space so a backspace at the line start can be recognised; a caret
+arriving at offset 0 was always taken for that backspace, so moving the cursor
+left at the start of a line deleted the line break. Point `pubspec.yaml` back at
+the published package once the fix is released upstream.

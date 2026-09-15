@@ -46,7 +46,14 @@ dependencies:
   intl: ^0.20.3
   flutter_math_fork: ^0.7.4
   super_sliver_list: ^0.4.1
-  re_editor: ^0.10.0
+  # 0.10.0 plus one fix: moving the caret left at the start of a line made the
+  # editor delete the line break, because it cannot tell that move from a
+  # backspace. Drop this back to the published package once the fix is
+  # upstream (ompugao/re-editor, branch fix/mobile-cursor-left-at-line-start).
+  re_editor:
+    git:
+      url: https://github.com/ompugao/re-editor.git
+      ref: c0b2985f4711664572d9d860a3e3297b758bdfbb
   re_highlight: ^0.0.3
   cached_network_image: ^4.0.0
 
