@@ -139,11 +139,18 @@ jobs:
             ~/.cargo/bin
           key: ${{ runner.os }}-frb-${{ env.FRB_VERSION }}-${{ hashFiles('patto-flutter/rust/Cargo.lock') }}
 
+      # The cache restores ~/.cargo/bin, and `cargo install` refuses to overwrite
+      # a binary that is already there. Its key carries the version, so anything
+      # restored is the version this job wants.
       - name: Install the bridge codegen
         run: |
-          cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked || \
-            cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION"
-          cargo install cargo-expand --locked
+          if ! command -v flutter_rust_bridge_codegen > /dev/null; then
+            cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked \
+              || cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION"
+          fi
+          if ! command -v cargo-expand > /dev/null; then
+            cargo install cargo-expand --locked
+          fi
 
       - name: Fetch packages
         working-directory: patto-flutter
