@@ -71,6 +71,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
       _savedText = content;
       _controller.text = content;
+      // Loading the note is itself an edit, and undoing it would empty the
+      // buffer.
+      _controller.clearHistory();
       _controller.addListener(_onChanged);
       setState(() => _loading = false);
 
@@ -147,29 +150,85 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _hideCompletion();
   }
 
-  /// Soft keyboards have no Tab key, and patto nests with tabs, so the toolbar
-  /// is the real way to indent. re_editor's own indent inserts spaces, which
-  /// patto does not read as nesting.
+  /// Soft keyboards have no Tab key, and patto nests with leading tabs, so the
+  /// toolbar is the real way to indent. re_editor's own indent inserts spaces,
+  /// which patto does not read as nesting.
   void _reindent({required bool add}) {
     final selection = _controller.selection;
-    if (add && selection.isCollapsed) {
-      _controller.replaceSelection('\t');
-      return;
-    }
-
     final lines = CodeLines.from(_controller.codeLines);
+    final shift = <int, int>{};
+
     for (var i = selection.startIndex; i <= selection.endIndex && i < lines.length; i++) {
       final text = lines[i].text;
       if (add) {
         lines[i] = lines[i].copyWith(text: '\t$text');
+        shift[i] = 1;
       } else if (text.startsWith('\t')) {
         lines[i] = lines[i].copyWith(text: text.substring(1));
+        shift[i] = -1;
       }
     }
+    if (shift.isEmpty) return;
+
     _controller.codeLines = lines;
+    // Keep the caret on the same character now that the line moved under it.
+    _controller.selection = selection.copyWith(
+      baseOffset: (selection.baseOffset + (shift[selection.baseIndex] ?? 0))
+          .clamp(0, lines[selection.baseIndex].length),
+      extentOffset:
+          (selection.extentOffset + (shift[selection.extentIndex] ?? 0)).clamp(
+            0,
+            lines[selection.extentIndex].length,
+          ),
+    );
   }
 
   void _insert(String text) => _controller.replaceSelection(text);
+
+  void _moveCursor(AxisDirection direction) =>
+      _controller.moveCursor(direction);
+
+  /// re_editor implements the long-press menu but leaves the widget to the
+  /// application, so without this there is no cut, copy or paste.
+  Widget _buildSelectionMenu({
+    required BuildContext context,
+    required TextSelectionToolbarAnchors anchors,
+    required CodeLineEditingController controller,
+    required VoidCallback onDismiss,
+    required VoidCallback onRefresh,
+  }) {
+    void run(void Function() action) {
+      action();
+      onDismiss();
+    }
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: anchors,
+      buttonItems: [
+        if (!controller.selection.isCollapsed) ...[
+          ContextMenuButtonItem(
+            type: ContextMenuButtonType.cut,
+            onPressed: () => run(controller.cut),
+          ),
+          ContextMenuButtonItem(
+            type: ContextMenuButtonType.copy,
+            onPressed: () => run(controller.copy),
+          ),
+        ],
+        ContextMenuButtonItem(
+          type: ContextMenuButtonType.paste,
+          onPressed: () => run(controller.paste),
+        ),
+        ContextMenuButtonItem(
+          type: ContextMenuButtonType.selectAll,
+          onPressed: () {
+            controller.selectAll();
+            onRefresh();
+          },
+        ),
+      ],
+    );
+  }
 
   String _today() {
     final now = DateTime.now();
@@ -276,6 +335,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           wordWrap: true,
                           autofocus: false,
                           padding: const EdgeInsets.all(12),
+                          toolbarController: MobileSelectionToolbarController(
+                            builder: _buildSelectionMenu,
+                          ),
                           style: CodeEditorStyle(
                             fontFamily: 'monospace',
                             fontSize: 14 * ref.watch(fontScaleProvider),
@@ -284,16 +346,29 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           ),
                         ),
                       ),
-                      if (_candidates.isNotEmpty)
-                        _CandidateBar(
-                          candidates: _candidates,
-                          onPick: _acceptCandidate,
+                      // Without this the editor treats a tap on the bars below
+                      // as a tap outside itself, drops focus and closes the
+                      // keyboard, taking the caret with it.
+                      CodeEditorTapRegion(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_candidates.isNotEmpty)
+                              _CandidateBar(
+                                candidates: _candidates,
+                                onPick: _acceptCandidate,
+                              ),
+                            _Toolbar(
+                              onIndent: () => _reindent(add: true),
+                              onOutdent: () => _reindent(add: false),
+                              onInsert: _insert,
+                              onMoveCursor: _moveCursor,
+                              onUndo: _controller.undo,
+                              onRedo: _controller.redo,
+                              today: _today,
+                            ),
+                          ],
                         ),
-                      _Toolbar(
-                        onIndent: () => _reindent(add: true),
-                        onOutdent: () => _reindent(add: false),
-                        onInsert: _insert,
-                        today: _today,
                       ),
                     ],
                   ),
@@ -335,12 +410,18 @@ class _Toolbar extends StatelessWidget {
     required this.onIndent,
     required this.onOutdent,
     required this.onInsert,
+    required this.onMoveCursor,
+    required this.onUndo,
+    required this.onRedo,
     required this.today,
   });
 
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
   final void Function(String) onInsert;
+  final void Function(AxisDirection) onMoveCursor;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
   final String Function() today;
 
   @override
@@ -364,6 +445,30 @@ class _Toolbar extends StatelessWidget {
                 icon: const Icon(Icons.format_indent_decrease),
                 tooltip: 'Outdent',
                 onPressed: onOutdent,
+              ),
+              const VerticalDivider(width: 8),
+              // The keyboard's own cursor drag cannot cross a line boundary,
+              // so these are the reliable way to step over one.
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                tooltip: 'Move left',
+                onPressed: () => onMoveCursor(AxisDirection.left),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                tooltip: 'Move right',
+                onPressed: () => onMoveCursor(AxisDirection.right),
+              ),
+              const VerticalDivider(width: 8),
+              IconButton(
+                icon: const Icon(Icons.undo),
+                tooltip: 'Undo',
+                onPressed: onUndo,
+              ),
+              IconButton(
+                icon: const Icon(Icons.redo),
+                tooltip: 'Redo',
+                onPressed: onRedo,
               ),
               const VerticalDivider(width: 8),
               TextButton(onPressed: () => onInsert('[]'), child: const Text('[ ]')),
