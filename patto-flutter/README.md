@@ -13,6 +13,8 @@ you ask it to.
   server does
 - Plain-text editor with tab nesting and wiki-link completion
 - Sync: commit, fetch, fast-forward or merge, push
+- Appearance: light, dark or system theme, and a note text size from 80% to
+  180% that applies to the note view and the editor
 
 ## Layout
 

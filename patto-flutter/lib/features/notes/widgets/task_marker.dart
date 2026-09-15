@@ -4,10 +4,18 @@ import '../../../src/rust/api/types.dart';
 
 /// Status icon shown at the start of a task line.
 class TaskMarker extends StatelessWidget {
-  const TaskMarker({super.key, required this.status, this.onTap});
+  const TaskMarker({
+    super.key,
+    required this.status,
+    this.onTap,
+    this.textScale = 1.0,
+  });
 
   final TaskStatus status;
   final VoidCallback? onTap;
+
+  /// Keeps the marker in proportion with the note text size.
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +27,7 @@ class TaskMarker extends StatelessWidget {
       TaskStatus.done => (Icons.check_circle, Colors.green.shade600),
     };
 
-    final marker = Icon(icon, size: 18, color: color);
+    final marker = Icon(icon, size: 18 * textScale, color: color);
     if (onTap == null) return marker;
 
     return InkResponse(
@@ -32,10 +40,11 @@ class TaskMarker extends StatelessWidget {
 
 /// Due-date chip. Red once overdue, amber within a week, plain after that.
 class DueChip extends StatelessWidget {
-  const DueChip({super.key, required this.due, this.now});
+  const DueChip({super.key, required this.due, this.now, this.textScale = 1.0});
 
   final TaskDate due;
   final DateTime? now;
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +77,10 @@ class DueChip extends StatelessWidget {
       ),
       child: Text(
         due.text,
-        style: theme.textTheme.labelSmall?.copyWith(color: foreground),
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontSize: (theme.textTheme.labelSmall?.fontSize ?? 11) * textScale,
+        ),
       ),
     );
   }

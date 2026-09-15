@@ -187,6 +187,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   Widget build(BuildContext context) {
     final note = ref.watch(renderedNoteProvider(widget.relPath));
     final workspace = ref.watch(workspaceProvider).value;
+    final textScale = ref.watch(fontScaleProvider);
 
     return Scaffold(
       // Nothing on this screen takes text input, so the keyboard must never
@@ -227,7 +228,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
           return SuperListView.builder(
             listController: _listController,
             controller: _scrollController,
-            extentEstimation: (_, _) => 30,
+            extentEstimation: (_, _) => 30 * textScale,
             padding: const EdgeInsets.only(top: 8, bottom: 32),
             itemCount: data.blocks.length + 1,
             itemBuilder: (context, i) {
@@ -243,6 +244,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
                   block: data.blocks[i],
                   actions: actions,
                   root: workspace?.root,
+                  textScale: textScale,
                   highlighted: i == _flashed,
                   onTaskTap: _changeTaskStatus,
                 ),

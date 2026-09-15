@@ -46,6 +46,11 @@ final settingsProvider = AsyncNotifierProvider<SettingsNotifier, Settings>(
 
 final workspaceProvider = FutureProvider<Workspace>((ref) => Workspace.resolve());
 
+/// Multiplier for note text, from the appearance setting.
+final fontScaleProvider = Provider<double>((ref) {
+  return ref.watch(settingsProvider).value?.fontScale ?? 1.0;
+});
+
 /// Bumped whenever notes change on disk, to invalidate everything derived.
 final notesRevisionProvider = valueProvider<int>(0);
 

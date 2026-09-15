@@ -19,6 +19,7 @@ class BlockWidget extends StatelessWidget {
     required this.block,
     required this.actions,
     required this.root,
+    this.textScale = 1.0,
     this.highlighted = false,
     this.onTaskTap,
     this.onLongPress,
@@ -29,9 +30,18 @@ class BlockWidget extends StatelessWidget {
   final Block block;
   final SpanActions actions;
   final String? root;
+
+  /// Multiplier from the appearance setting, applied to every size this block
+  /// draws so code, math and tables grow with the prose.
+  final double textScale;
   final bool highlighted;
   final void Function(Block block)? onTaskTap;
   final void Function(Block block)? onLongPress;
+
+  TextStyle _bodyStyle(ThemeData theme) {
+    final base = theme.textTheme.bodyLarge!;
+    return base.copyWith(fontSize: (base.fontSize ?? 16) * textScale);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,14 +49,19 @@ class BlockWidget extends StatelessWidget {
     final quoted = block.quoteDepth > 0;
 
     Widget content = switch (block.kind) {
-      BlockKind_Blank() => const SizedBox(height: 10),
+      BlockKind_Blank() => SizedBox(height: 10 * textScale),
       BlockKind_Rule() => const Divider(height: 20),
       BlockKind_Line(:final spans) => _line(context, spans),
       BlockKind_Code(:final lang, :final lines) =>
-        _CodeBlock(lang: lang, lines: lines),
-      BlockKind_Math(:final tex) => _MathBlock(tex: tex),
-      BlockKind_Table(:final caption, :final rows) =>
-        _TableBlock(caption: caption, rows: rows, actions: actions, root: root),
+        _CodeBlock(lang: lang, lines: lines, textScale: textScale),
+      BlockKind_Math(:final tex) => _MathBlock(tex: tex, textScale: textScale),
+      BlockKind_Table(:final caption, :final rows) => _TableBlock(
+        caption: caption,
+        rows: rows,
+        actions: actions,
+        root: root,
+        textScale: textScale,
+      ),
       BlockKind_Images(:final images) => _images(context, images),
     };
 
@@ -91,11 +106,12 @@ class BlockWidget extends StatelessWidget {
       spans: spans,
       actions: actions,
       noteRoot: root,
+      style: _bodyStyle(theme),
       strikeThrough: done,
       trailing: task?.due != null && !done
           ? WidgetSpan(
               alignment: PlaceholderAlignment.middle,
-              child: DueChip(due: task!.due!),
+              child: DueChip(due: task!.due!, textScale: textScale),
             )
           : null,
     );
@@ -113,6 +129,8 @@ class BlockWidget extends StatelessWidget {
                   anchors.map((a) => '#$a').join(' '),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.outline,
+                    fontSize:
+                        (theme.textTheme.labelSmall?.fontSize ?? 11) * textScale,
                   ),
                 ),
               ),
@@ -129,6 +147,7 @@ class BlockWidget extends StatelessWidget {
             padding: const EdgeInsets.only(top: 3, right: 6),
             child: TaskMarker(
               status: task.status,
+              textScale: textScale,
               onTap: onTaskTap == null ? null : () => onTaskTap!(block),
             ),
           ),
@@ -181,10 +200,15 @@ class BlockWidget extends StatelessWidget {
 }
 
 class _CodeBlock extends StatefulWidget {
-  const _CodeBlock({required this.lang, required this.lines});
+  const _CodeBlock({
+    required this.lang,
+    required this.lines,
+    required this.textScale,
+  });
 
   final String lang;
   final List<String> lines;
+  final double textScale;
 
   @override
   State<_CodeBlock> createState() => _CodeBlockState();
@@ -223,7 +247,7 @@ class _CodeBlockState extends State<_CodeBlock> {
     final mono = TextStyle(
       fontFamily: 'monospace',
       fontFamilyFallback: const ['Roboto Mono', 'Noto Sans Mono CJK JP'],
-      fontSize: 13,
+      fontSize: 13 * widget.textScale,
       height: 1.4,
       color: theme.colorScheme.onSurface,
     );
@@ -278,9 +302,10 @@ class _CodeBlockState extends State<_CodeBlock> {
 }
 
 class _MathBlock extends StatelessWidget {
-  const _MathBlock({required this.tex});
+  const _MathBlock({required this.tex, required this.textScale});
 
   final String tex;
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
@@ -293,11 +318,14 @@ class _MathBlock extends StatelessWidget {
         child: Math.tex(
           tex,
           mathStyle: MathStyle.display,
-          textStyle: theme.textTheme.bodyLarge,
+          textStyle: theme.textTheme.bodyLarge?.copyWith(
+            fontSize: (theme.textTheme.bodyLarge?.fontSize ?? 16) * textScale,
+          ),
           onErrorFallback: (_) => Text(
             tex,
             style: theme.textTheme.bodyMedium?.copyWith(
               fontFamily: 'monospace',
+              fontSize: (theme.textTheme.bodyMedium?.fontSize ?? 14) * textScale,
             ),
           ),
         ),
@@ -312,12 +340,14 @@ class _TableBlock extends StatelessWidget {
     required this.rows,
     required this.actions,
     required this.root,
+    required this.textScale,
   });
 
   final String? caption;
   final List<NoteTableRow> rows;
   final SpanActions actions;
   final String? root;
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
@@ -352,7 +382,12 @@ class _TableBlock extends StatelessWidget {
                                 spans: row.cells[i].spans,
                                 actions: actions,
                                 noteRoot: root,
-                                style: theme.textTheme.bodyMedium,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontSize:
+                                      (theme.textTheme.bodyMedium?.fontSize ??
+                                              14) *
+                                          textScale,
+                                ),
                               )
                             : const SizedBox.shrink(),
                       ),

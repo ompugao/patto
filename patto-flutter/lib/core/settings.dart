@@ -14,7 +14,12 @@ class Settings {
     this.authorName = '',
     this.authorEmail = '',
     this.themeMode = ThemeMode.system,
+    this.fontScale = 1.0,
   });
+
+  /// The smallest and largest note text the appearance setting offers.
+  static const minFontScale = 0.8;
+  static const maxFontScale = 1.8;
 
   final String repoUrl;
 
@@ -26,6 +31,9 @@ class Settings {
   final String authorEmail;
   final ThemeMode themeMode;
 
+  /// Multiplier for note text, applied in the note view and the editor.
+  final double fontScale;
+
   bool get hasRemote => repoUrl.trim().isNotEmpty;
 
   Settings copyWith({
@@ -36,6 +44,7 @@ class Settings {
     String? authorName,
     String? authorEmail,
     ThemeMode? themeMode,
+    double? fontScale,
   }) {
     return Settings(
       repoUrl: repoUrl ?? this.repoUrl,
@@ -45,6 +54,7 @@ class Settings {
       authorName: authorName ?? this.authorName,
       authorEmail: authorEmail ?? this.authorEmail,
       themeMode: themeMode ?? this.themeMode,
+      fontScale: fontScale ?? this.fontScale,
     );
   }
 }
@@ -74,6 +84,10 @@ class SettingsStore {
       themeMode: ThemeMode.values.byName(
         prefs.getString('themeMode') ?? ThemeMode.system.name,
       ),
+      fontScale: (prefs.getDouble('fontScale') ?? 1.0).clamp(
+        Settings.minFontScale,
+        Settings.maxFontScale,
+      ),
     );
   }
 
@@ -85,6 +99,7 @@ class SettingsStore {
     await prefs.setString('authorName', settings.authorName);
     await prefs.setString('authorEmail', settings.authorEmail);
     await prefs.setString('themeMode', settings.themeMode.name);
+    await prefs.setDouble('fontScale', settings.fontScale);
 
     try {
       if (settings.token.isEmpty) {

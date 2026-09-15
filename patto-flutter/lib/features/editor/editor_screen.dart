@@ -278,7 +278,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           padding: const EdgeInsets.all(12),
                           style: CodeEditorStyle(
                             fontFamily: 'monospace',
-                            fontSize: 14,
+                            fontSize: 14 * ref.watch(fontScaleProvider),
                             fontHeight: 1.45,
                             textColor: Theme.of(context).colorScheme.onSurface,
                           ),
