@@ -85,6 +85,10 @@ jobs:
         working-directory: patto-flutter
         run: flutter analyze
 
+      - name: Run Dart tests
+        working-directory: patto-flutter
+        run: flutter test
+
       - name: Build release APKs
         working-directory: patto-flutter
         # Name the platforms explicitly: Flutter otherwise also emits an

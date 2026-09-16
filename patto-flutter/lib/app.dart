@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/providers.dart';
 import 'features/notes/note_list_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/settings/workspace_editor.dart';
 import 'features/tasks/tasks_screen.dart';
+import 'features/workspaces/workspace_switcher.dart';
+import 'core/workspace.dart';
 
 class PattoApp extends ConsumerWidget {
   const PattoApp({super.key});
@@ -59,19 +62,68 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
         ),
       ),
       data: (data) {
+        if (data == null) {
+          return const WorkspaceEditorScreen(onboarding: true);
+        }
         if (!data.exists) {
-          return const SettingsScreen(onboarding: true);
+          // Chosen but never cloned: offer to fetch it rather than pretending
+          // this is a first run, which would hide the other workspaces.
+          return _WorkspaceNotReady(workspace: data);
         }
 
+        // Switching workspace lands here with a new root, which is what
+        // triggers indexing the one just chosen.
         if (_indexedRoot != data.root) {
           _indexedRoot = data.root;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            ref.read(indexProvider.notifier).rebuild(data.root);
+            ref.read(indexProvider.notifier).ensureBuilt(data.root);
           });
         }
 
         return const RootShell();
       },
+    );
+  }
+}
+
+/// Shown when the active workspace has no notes folder on the device yet.
+class _WorkspaceNotReady extends ConsumerWidget {
+  const _WorkspaceNotReady({required this.workspace});
+
+  final ActiveWorkspace workspace;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      appBar: AppBar(title: Text(workspace.config.name)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_download_outlined, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'This workspace has not been cloned onto this device yet.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () => WorkspaceEditorScreen.open(
+                  context,
+                  existing: workspace.config,
+                ),
+                child: const Text('Clone it'),
+              ),
+              TextButton(
+                onPressed: () => WorkspaceSwitcher.show(context),
+                child: const Text('Switch workspace'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

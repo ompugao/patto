@@ -63,6 +63,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Future<void> _load() async {
     try {
       final workspace = await ref.read(workspaceProvider.future);
+      if (workspace == null) {
+        throw StateError('no workspace is active');
+      }
       final content = await rust.readNote(
         root: workspace.root,
         relPath: widget.relPath,
@@ -117,6 +120,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _completionDebounce?.cancel();
     _completionDebounce = Timer(const Duration(milliseconds: 120), () async {
       final workspace = await ref.read(workspaceProvider.future);
+      if (workspace == null) return;
       try {
         final hits = await rust.searchNotes(
           root: workspace.root,
@@ -242,6 +246,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (text == _savedText) return true;
 
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return false;
     try {
       await rust.writeNote(
         root: workspace.root,

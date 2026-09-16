@@ -119,6 +119,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 
   Future<void> _openWikiLink(String name, String? anchor) async {
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     final target = rust.resolveWikiLink(root: workspace.root, name: name);
 
     if (!mounted) return;
@@ -141,6 +142,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 
   Future<void> _createAndOpen(String name) async {
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     try {
       final meta = await rust.createNote(
         root: workspace.root,
@@ -170,6 +172,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     if (next == null || !mounted) return;
 
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     try {
       await rust.setTaskStatus(
         root: workspace.root,
@@ -373,6 +376,7 @@ class _NoteFooter extends ConsumerWidget {
 
   Future<void> _openByName(BuildContext context, WidgetRef ref, String name) async {
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     final target = rust.resolveWikiLink(root: workspace.root, name: name);
     if (!context.mounted || target == null) return;
     await NoteViewScreen.open(context, target);

@@ -34,8 +34,10 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
     final settings = await ref.read(settingsProvider.future);
     final workspace = await ref.read(workspaceProvider.future);
 
-    if (!settings.hasRemote) {
-      setState(() => _error = 'Set the repository URL in settings first.');
+    if (workspace == null || !workspace.config.hasRemote) {
+      setState(
+        () => _error = 'Set this workspace\'s repository URL in settings first.',
+      );
       return;
     }
 
@@ -53,7 +55,10 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
         authorEmail: settings.authorEmail.isEmpty
             ? 'patto@localhost'
             : settings.authorEmail,
-        creds: GitCreds(username: settings.username, token: settings.token),
+        creds: GitCreds(
+          username: workspace.config.username,
+          token: workspace.config.token,
+        ),
       );
 
       await for (final event in stream) {
@@ -128,7 +133,13 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
           children: [
             Row(
               children: [
-                Text('Sync', style: theme.textTheme.titleLarge),
+                Flexible(
+                  child: Text(
+                    ref.watch(workspaceProvider).value?.config.name ?? 'Sync',
+                    style: theme.textTheme.titleLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.settings),

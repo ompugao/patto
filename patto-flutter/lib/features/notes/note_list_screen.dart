@@ -9,6 +9,7 @@ import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
 import '../sync/sync_sheet.dart';
+import '../workspaces/workspace_switcher.dart';
 import 'note_view_screen.dart';
 
 class NoteListScreen extends ConsumerStatefulWidget {
@@ -64,6 +65,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
     if (name == null || name.trim().isEmpty || !mounted) return;
 
     final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return;
     try {
       final meta = await rust.createNote(
         root: workspace.root,
@@ -90,7 +92,24 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notes'),
+        // The title names the workspace and opens the switcher: with several
+        // repositories it is the fastest way to tell them apart and move
+        // between them.
+        title: InkWell(
+          onTap: () => WorkspaceSwitcher.show(context),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  ref.watch(workspaceProvider).value?.config.name ?? 'Notes',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Icon(Icons.arrow_drop_down),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.sync),
