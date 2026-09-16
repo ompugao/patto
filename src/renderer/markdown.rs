@@ -4,7 +4,7 @@ use std::io::Write;
 use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 
 use super::Renderer;
-use crate::utils::get_youtube_id;
+use crate::utils::{get_twitter_embed, get_youtube_id};
 
 use crate::markdown::{AnchorFormat, MarkdownRendererOptions, TaskFormat, WikiLinkFormat};
 
@@ -132,16 +132,7 @@ impl MarkdownRenderer {
                 self.write_wikilink(link, anchor.as_deref(), output)
             }
             AstNodeKind::Link { link, title } => self.write_link(link, title.as_deref(), output),
-            AstNodeKind::Embed { link, title } => match get_youtube_id(link) {
-                // Markdown has no iframe, so a YouTube embed becomes a
-                // thumbnail linking to the video.
-                Some(youtube_id) => write!(
-                    output,
-                    "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
-                    youtube_id, youtube_id
-                ),
-                None => self.write_link(link, title.as_deref(), output),
-            },
+            AstNodeKind::Embed { link, title } => self.write_embed(link, title.as_deref(), output),
             AstNodeKind::Decoration {
                 fontsize,
                 italic,
@@ -347,6 +338,29 @@ impl MarkdownRenderer {
         output: &mut dyn Write,
     ) -> io::Result<()> {
         write!(output, "[{}]({})", title.unwrap_or(link), link)
+    }
+
+    fn write_embed(
+        &self,
+        link: &str,
+        title: Option<&str>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        // Markdown has no iframe, so a YouTube embed becomes a thumbnail
+        // linking to the video.
+        if let Some(youtube_id) = get_youtube_id(link) {
+            return write!(
+                output,
+                "[![YouTube](https://img.youtube.com/vi/{}/0.jpg)](https://www.youtube.com/watch?v={})",
+                youtube_id, youtube_id
+            );
+        }
+        // Without the `oembed` feature this is a no-op and the link is written
+        // plainly. Note that it blocks on an HTTP request while rendering.
+        if let Some(embed) = get_twitter_embed(link) {
+            return write!(output, "{}", embed);
+        }
+        self.write_link(link, title, output)
     }
 
     #[allow(clippy::too_many_arguments)]

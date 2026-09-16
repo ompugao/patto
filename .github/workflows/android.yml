@@ -1,0 +1,175 @@
+name: Android app
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - 'patto-flutter/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - 'patto-flutter/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Must match android/app/build.gradle.kts; the Rust library is cross-compiled
+  # against this NDK.
+  NDK_VERSION: 27.2.12479018
+  FLUTTER_VERSION: 3.47.4
+  # Must match pubspec.yaml and patto-flutter/rust/Cargo.toml.
+  FRB_VERSION: 2.13.0
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-android-cargo-${{ hashFiles('patto-flutter/rust/Cargo.lock') }}
+
+      # The build directory is deliberately not cached: two Android ABIs of
+      # vendored OpenSSL and libgit2 would be several gigabytes and crowd out
+      # the other jobs' caches. Expect this job to take around fifteen minutes.
+
+      # Cargokit resolves the NDK through the SDK command-line tools; install the
+      # pinned version up front so the build does not depend on the image's.
+      - name: Install Android NDK
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # `yes` exits non-zero once sdkmanager stops reading, which is not a
+          # failure; the licences are already accepted on the runner image.
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "ndk;${NDK_VERSION}"
+
+      - name: Fetch packages
+        working-directory: patto-flutter
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: patto-flutter
+        run: flutter analyze
+
+      - name: Run Dart tests
+        working-directory: patto-flutter
+        run: flutter test
+
+      - name: Build release APKs
+        working-directory: patto-flutter
+        # Name the platforms explicitly: Flutter otherwise also emits an
+        # armeabi-v7a slice, for which no Rust library is built.
+        run: |
+          flutter build apk --release --split-per-abi \
+            --target-platform android-arm64,android-x64
+
+      - name: Check the Rust library made it into the APK
+        working-directory: patto-flutter
+        run: |
+          apk=build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if ! unzip -l "$apk" | grep -q 'lib/arm64-v8a/librust_lib_patto_flutter.so'; then
+            echo "::error::the Rust library is missing from $apk"
+            exit 1
+          fi
+          unzip -l "$apk" | grep '\.so$'
+
+      # Signed with the debug key, as the Gradle template's release config does.
+      # A real release needs a keystore before these are worth distributing.
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: patto-notes-apk
+          path: patto-flutter/build/app/outputs/flutter-apk/*-release.apk
+          if-no-files-found: error
+
+  codegen:
+    name: Generated bindings are current
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: ${{ runner.os }}-frb-${{ env.FRB_VERSION }}-${{ hashFiles('patto-flutter/rust/Cargo.lock') }}
+
+      # The cache restores ~/.cargo/bin, and `cargo install` refuses to overwrite
+      # a binary that is already there. Its key carries the version, so anything
+      # restored is the version this job wants.
+      - name: Install the bridge codegen
+        run: |
+          if ! command -v flutter_rust_bridge_codegen > /dev/null; then
+            cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked \
+              || cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION"
+          fi
+          if ! command -v cargo-expand > /dev/null; then
+            cargo install cargo-expand --locked
+          fi
+
+      - name: Fetch packages
+        working-directory: patto-flutter
+        run: flutter pub get
+
+      # The generated Dart and Rust are committed so a plain `flutter run` works
+      # without the codegen installed; this catches an API change that was not
+      # regenerated.
+      - name: Regenerate
+        working-directory: patto-flutter
+        run: flutter_rust_bridge_codegen generate
+
+      - name: Fail if the checked-in bindings differ
+        run: |
+          if ! git diff --exit-code -- patto-flutter/lib/src/rust patto-flutter/rust/src/frb_generated.rs; then
+            echo "::error::run 'flutter_rust_bridge_codegen generate' and commit the result"
+            exit 1
+          fi

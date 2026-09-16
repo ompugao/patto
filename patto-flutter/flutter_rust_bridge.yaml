@@ -1,0 +1,4 @@
+# Only `frb_api` is exposed to Dart; `crate::api` holds the implementation.
+rust_input: crate::frb_api
+rust_root: rust/
+dart_output: lib/src/rust

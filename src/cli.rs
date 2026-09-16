@@ -1,18 +1,25 @@
 //! Helpers shared by the `patto-*` binaries.
+//!
+//! Reading input is pure std, so it stays in the lean build: `patto-syntax-checker`
+//! needs no features. Logging pulls in `simplelog` and rides on the `cli` feature.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Install the logger. With no `logfile` nothing is logged: the LSP and the
 /// renderers speak a protocol on stdout/stderr, so logging must be opt-in.
-pub fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) -> io::Result<()> {
+#[cfg(feature = "cli")]
+pub fn init_logger(
+    filter_level: log::LevelFilter,
+    logfile: Option<std::path::PathBuf>,
+) -> io::Result<()> {
     let mut loggers: Vec<Box<dyn simplelog::SharedLogger>> = Vec::new();
     if let Some(filename) = logfile {
         loggers.push(simplelog::WriteLogger::new(
             filter_level,
             simplelog::Config::default(),
-            File::create(filename)?,
+            fs::File::create(filename)?,
         ));
     }
     simplelog::CombinedLogger::init(loggers).map_err(io::Error::other)

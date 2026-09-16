@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use url::Url;
 
-pub(crate) fn get_youtube_id(value: &str) -> Option<String> {
+pub fn get_youtube_id(value: &str) -> Option<String> {
     let parsed_url = Url::parse(value).ok()?;
 
     match parsed_url.host_str()? {
@@ -28,6 +28,40 @@ pub(crate) fn get_youtube_id(value: &str) -> Option<String> {
 
         _ => None,
     }
+}
+
+#[cfg(feature = "oembed")]
+pub fn get_twitter_embed(tweet_url: &str) -> Option<String> {
+    use serde_json::Value;
+
+    let parsed_url = Url::parse(tweet_url).ok()?;
+
+    match parsed_url.host_str()? {
+        "twitter.com" | "x.com" => {
+            // Construct the Twitter embed API URL
+            let api_url = format!("https://publish.twitter.com/oembed?url={}", tweet_url);
+
+            //Send the request to the API
+            let response = reqwest::blocking::get(&api_url).ok()?;
+
+            // Parse the response as JSON
+            let json: Value = response.json().ok()?;
+
+            // Check if the JSON contains the 'html' field
+            if let Some(html) = json.get("html") {
+                return html.as_str().map(|s| s.to_string());
+            }
+            None
+        }
+        _ => None, // Return None if the domain is not twitter.com or x.com
+    }
+}
+
+/// Without the `oembed` feature there is no network stack, so the renderer falls
+/// back to emitting a plain link for twitter/x URLs.
+#[cfg(not(feature = "oembed"))]
+pub fn get_twitter_embed(_tweet_url: &str) -> Option<String> {
+    None
 }
 
 pub fn get_gyazo_img_src(url: &str) -> Option<String> {

@@ -10,7 +10,14 @@ fn main() {
     const NPM: &str = "npm";
 
     // Only rerun build script if something in the frontend changes
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", watch_dir);
+
+    // The preview server is the only consumer of the bundled web UI. Skipping npm
+    // here is what lets the crate cross-compile (Android/iOS/wasm) as a library.
+    if std::env::var_os("CARGO_FEATURE_PREVIEW").is_none() {
+        return;
+    }
 
     // Run `npm install`
     let status = Command::new(NPM)

@@ -171,45 +171,16 @@ impl DeadlineCategory {
 
 /// Classify a `Deadline` into a display category relative to today.
 pub(crate) fn deadline_category(due: &Deadline) -> DeadlineCategory {
-    let today = Local::now().date_naive();
-    match due {
-        Deadline::Date(d) => {
-            let diff = (*d - today).num_days();
-            if diff < 0 {
-                DeadlineCategory::Overdue
-            } else if diff == 0 {
-                DeadlineCategory::Today
-            } else if diff == 1 {
-                DeadlineCategory::Tomorrow
-            } else {
-                // days until the next Saturday (weekday 5 in chrono = Saturday)
-                use chrono::Datelike;
-                let days_until_sat =
-                    (5 - today.weekday().num_days_from_monday() as i64).rem_euclid(7);
-                if diff <= days_until_sat {
-                    DeadlineCategory::ThisWeek
-                } else {
-                    // end of current month
-                    let month_end = if today.month() == 12 {
-                        chrono::NaiveDate::from_ymd_opt(today.year() + 1, 1, 1)
-                    } else {
-                        chrono::NaiveDate::from_ymd_opt(today.year(), today.month() + 1, 1)
-                    }
-                    .map(|d| d.pred_opt().unwrap_or(d));
-                    if let Some(end) = month_end {
-                        if *d <= end {
-                            DeadlineCategory::ThisMonth
-                        } else {
-                            DeadlineCategory::Later
-                        }
-                    } else {
-                        DeadlineCategory::Later
-                    }
-                }
-            }
-        }
-        Deadline::DateTime(dt) => deadline_category(&Deadline::Date(dt.date())),
-        Deadline::Uninterpretable(_) => DeadlineCategory::Uninterpretable,
+    use patto::tasks_view::{pending_group, PendingGroup};
+
+    match pending_group(due, Local::now().date_naive()) {
+        PendingGroup::Overdue => DeadlineCategory::Overdue,
+        PendingGroup::Today => DeadlineCategory::Today,
+        PendingGroup::Tomorrow => DeadlineCategory::Tomorrow,
+        PendingGroup::ThisWeek => DeadlineCategory::ThisWeek,
+        PendingGroup::ThisMonth => DeadlineCategory::ThisMonth,
+        PendingGroup::Later => DeadlineCategory::Later,
+        PendingGroup::Uninterpretable => DeadlineCategory::Uninterpretable,
     }
 }
 
@@ -248,33 +219,15 @@ impl CompletedCategory {
 
 /// Classify a completed task's `completed_at` date into a recency bucket.
 pub(crate) fn completed_category(date: chrono::NaiveDate) -> CompletedCategory {
-    use chrono::Datelike;
-    let today = Local::now().date_naive();
-    let diff = (today - date).num_days();
-    if diff == 0 {
-        CompletedCategory::Today
-    } else if diff == 1 {
-        CompletedCategory::Yesterday
-    } else {
-        // Day of week: Monday=0 … Sunday=6
-        let dow = today.weekday().num_days_from_monday() as i64;
-        // Start of this week (Monday)
-        let this_week_start = today - chrono::Duration::days(dow);
-        // Start of last week
-        let last_week_start = this_week_start - chrono::Duration::days(7);
-        // Start of this month
-        let this_month_start =
-            chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    use patto::tasks_view::{completed_group, CompletedGroup};
 
-        if date >= this_week_start {
-            CompletedCategory::ThisWeek
-        } else if date >= last_week_start {
-            CompletedCategory::LastWeek
-        } else if date >= this_month_start {
-            CompletedCategory::ThisMonth
-        } else {
-            CompletedCategory::Older
-        }
+    match completed_group(date, Local::now().date_naive()) {
+        CompletedGroup::Today => CompletedCategory::Today,
+        CompletedGroup::Yesterday => CompletedCategory::Yesterday,
+        CompletedGroup::ThisWeek => CompletedCategory::ThisWeek,
+        CompletedGroup::LastWeek => CompletedCategory::LastWeek,
+        CompletedGroup::ThisMonth => CompletedCategory::ThisMonth,
+        CompletedGroup::Older => CompletedCategory::Older,
     }
 }
 

@@ -3,7 +3,7 @@
 //! Every handler returns the JSON value sent back to the client, or `None` when
 //! the request cannot be served (no workspace, unknown document, bad argument).
 
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use serde_json::{json, Value};
 use tower_lsp::lsp_types::{ExecuteCommandParams, MessageType, Url};
 
@@ -12,6 +12,7 @@ use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::Deadline;
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::Repository;
+use crate::tasks_view::{timeframe_bounds, ReviewTimeframe};
 
 /// Commands this server advertises in its `initialize` response.
 ///
@@ -54,8 +55,12 @@ impl Backend {
 
     /// Arguments: `[timeframe, from_date?, to_date?]`, dates as `YYYY-MM-DD`.
     fn tasks_review(&self, args: &[Value]) -> Option<Value> {
-        let timeframe = args.first().and_then(|a| a.as_str()).unwrap_or("today");
-        let (from, to) = review_range(timeframe, args);
+        let timeframe = ReviewTimeframe::from_name(
+            args.first().and_then(|a| a.as_str()).unwrap_or("today"),
+            parse_date(args.get(1)),
+            parse_date(args.get(2)),
+        );
+        let (from, to) = timeframe_bounds(&timeframe, chrono::Local::now().date_naive());
 
         let repository = self.repository.lock().unwrap();
         let tasks = repository.as_ref()?.aggregate_completed_tasks(from, to);
@@ -183,27 +188,6 @@ fn markdown_flavor(name: &str) -> MarkdownFlavor {
         "obsidian" => MarkdownFlavor::Obsidian,
         "github" => MarkdownFlavor::GitHub,
         _ => MarkdownFlavor::Standard,
-    }
-}
-
-/// Inclusive date range for a review timeframe. Unknown names fall back to today.
-fn review_range(timeframe: &str, args: &[Value]) -> (Option<NaiveDate>, Option<NaiveDate>) {
-    let today = chrono::Local::now().date_naive();
-    let week_start = today - chrono::Duration::days(today.weekday().num_days_from_monday() as i64);
-
-    match timeframe {
-        "yesterday" => {
-            let yesterday = today - chrono::Duration::days(1);
-            (Some(yesterday), Some(yesterday))
-        }
-        "this_week" => (Some(week_start), Some(today)),
-        "last_week" => (
-            Some(week_start - chrono::Duration::days(7)),
-            Some(week_start - chrono::Duration::days(1)),
-        ),
-        "this_month" => (Some(today.with_day(1).unwrap_or(today)), Some(today)),
-        "custom" => (parse_date(args.get(1)), parse_date(args.get(2))),
-        _ => (Some(today), Some(today)),
     }
 }
 

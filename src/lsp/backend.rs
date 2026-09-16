@@ -11,6 +11,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::ast_query::{find_anchor, task_label};
 use crate::lsp::commands::SUPPORTED_COMMANDS;
 use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
 use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
@@ -308,53 +309,6 @@ impl TaskInformation {
     }
 }
 
-fn conceal_urls(text: &str) -> String {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    static URL_TITLE_RE: OnceLock<Regex> = OnceLock::new();
-    static TITLE_URL_RE: OnceLock<Regex> = OnceLock::new();
-
-    let url_title_re =
-        URL_TITLE_RE.get_or_init(|| Regex::new(r"\[\w+://[^\]\s]+\s+([^\]]+)\]").unwrap());
-    let title_url_re =
-        TITLE_URL_RE.get_or_init(|| Regex::new(r"\[([^\]]+?)\s+\w+://[^\]\s]+\]").unwrap());
-
-    let text = url_title_re.replace_all(text, "[🔗$1]");
-    title_url_re.replace_all(&text, "[$1🔗]").into_owned()
-}
-
-/// Return the line text with the task property token stripped and whitespace trimmed.
-/// e.g. "buy milk {@task status=todo due=2026-06-01}" → "buy milk"
-fn task_label(line: &AstNode) -> String {
-    let label = if let AstNodeKind::Line { properties } = &line.kind() {
-        let mut task_prop = None;
-        for prop in properties {
-            if let Property::Task { .. } = prop {
-                task_prop = Some(prop);
-                break;
-            }
-        }
-        if let Some(Property::Task { location, .. }) = task_prop {
-            let raw = line.extract_str();
-            // Remove the property span (byte offsets) and collapse extra whitespace.
-            let before = raw[..location.span.0.min(raw.len())].trim_end();
-            let after = raw[location.span.1.min(raw.len())..].trim_start();
-            match (before.is_empty(), after.is_empty()) {
-                (true, true) => String::new(),
-                (false, true) => before.trim_start().to_string(),
-                (true, false) => after.trim_start().to_string(),
-                (false, false) => format!("{} {}", before.trim_start(), after),
-            }
-        } else {
-            line.extract_str().trim_start().to_string()
-        }
-    } else {
-        line.extract_str().trim_start().to_string()
-    };
-    conceal_urls(&label)
-}
-
 /// Build a TaskInformation from an AstNode that has a Task property.
 pub(super) fn task_information(
     uri: &tower_lsp::lsp_types::Url,
@@ -388,25 +342,6 @@ pub(super) fn task_information(
         }
     }
     info
-}
-
-fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Anchor { name, .. } = prop {
-                if name == anchor {
-                    return Some(parent.clone());
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::map_clone)]
-    return parent
-        .children()
-        .iter()
-        .find_map(|child| find_anchor(child, anchor))
-        .map(|x| x.clone());
 }
 
 /// Find anchor definition at the given row and column position
