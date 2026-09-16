@@ -9,10 +9,10 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::sleep;
-use tower_lsp::lsp_types::Url;
+use url::Url;
 use urlencoding::encode;
 
-use crate::parser::{self, AstNode, AstNodeKind, Deadline, Location, Property, TaskStatus};
+use crate::parser::{self, AstNode, Deadline, Location};
 
 // ---------------------------------------------------------------------------
 // Workspace config (.patto.toml in notes directory)
@@ -192,17 +192,7 @@ impl Repository {
         parent: &AstNode,
         wikilinks: &mut Vec<(String, Option<String>, Location)>,
     ) {
-        if let parser::AstNodeKind::WikiLink { link, anchor } = &parent.kind() {
-            wikilinks.push((link.clone(), anchor.clone(), parent.location().clone()));
-        }
-
-        for content in parent.value().contents.lock().unwrap().iter() {
-            Self::gather_wikilinks(content, wikilinks);
-        }
-
-        for child in parent.value().children.lock().unwrap().iter() {
-            Self::gather_wikilinks(child, wikilinks);
-        }
+        crate::ast_query::gather_wikilinks(parent, wikilinks);
     }
 
     /// Convert link name to file path
@@ -903,48 +893,4 @@ impl Repository {
     }
 }
 
-/// Recursively collect non-Done task lines from an AST node.
-pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Task { status, due, .. } = prop {
-                if !matches!(status, TaskStatus::Done) {
-                    tasklines.push((parent.clone(), due.clone()));
-                    break;
-                }
-            }
-        }
-    }
-    for child in parent.value().children.lock().unwrap().iter() {
-        gather_tasks(child, tasklines);
-    }
-}
-
-/// Recursively collect Done tasks that have a `completed_at` date.
-pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Task {
-                status,
-                completed_at: Some(completed_at),
-                ..
-            } = prop
-            {
-                if matches!(status, TaskStatus::Done) {
-                    let date = match completed_at {
-                        Deadline::Date(d) => Some(*d),
-                        Deadline::DateTime(dt) => Some(dt.date()),
-                        Deadline::Uninterpretable(_) => None,
-                    };
-                    if let Some(date) = date {
-                        tasklines.push((parent.clone(), date));
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    for child in parent.value().children.lock().unwrap().iter() {
-        gather_completed_tasks(child, tasklines);
-    }
-}
+pub use crate::ast_query::{gather_completed_tasks, gather_tasks};

@@ -1,9 +1,7 @@
-use reqwest;
-use serde_json::Value;
 use std::collections::HashMap;
 use url::Url;
 
-pub(crate) fn get_youtube_id(value: &str) -> Option<String> {
+pub fn get_youtube_id(value: &str) -> Option<String> {
     let parsed_url = Url::parse(value).ok()?;
 
     match parsed_url.host_str()? {
@@ -31,7 +29,10 @@ pub(crate) fn get_youtube_id(value: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn get_twitter_embed(tweet_url: &str) -> Option<String> {
+#[cfg(feature = "oembed")]
+pub fn get_twitter_embed(tweet_url: &str) -> Option<String> {
+    use serde_json::Value;
+
     let parsed_url = Url::parse(tweet_url).ok()?;
 
     match parsed_url.host_str()? {
@@ -55,7 +56,14 @@ pub(crate) fn get_twitter_embed(tweet_url: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn get_gyazo_img_src(url: &str) -> Option<String> {
+/// Without the `oembed` feature there is no network stack, so the renderer falls
+/// back to emitting a plain link for twitter/x URLs.
+#[cfg(not(feature = "oembed"))]
+pub fn get_twitter_embed(_tweet_url: &str) -> Option<String> {
+    None
+}
+
+pub fn get_gyazo_img_src(url: &str) -> Option<String> {
     let parsed_url = Url::parse(url).ok()?;
 
     match parsed_url.host_str()? {
