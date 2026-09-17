@@ -11,7 +11,7 @@ pub fn render_note(content: String) -> RenderedNote {
 
     let mut out = Flattener::default();
     let root = result.ast;
-    for child in root.value().children.lock().unwrap().iter() {
+    for child in root.children().iter() {
         out.visit_line(child, 0, 0);
     }
 
@@ -72,7 +72,7 @@ impl Flattener {
         };
 
         let row = line.location().row as u32;
-        let contents = line.value().contents.lock().unwrap().clone();
+        let contents = line.contents().clone();
 
         let make = |kind: BlockKind| Block {
             row,
@@ -151,7 +151,7 @@ impl Flattener {
     }
 
     fn visit_children(&mut self, node: &AstNode, depth: u32, quote_depth: u32) {
-        for child in node.value().children.lock().unwrap().iter() {
+        for child in node.children().iter() {
             self.visit_line(child, depth + 1, quote_depth);
         }
     }
@@ -159,7 +159,7 @@ impl Flattener {
     /// A `[@quote]` block: its children are `QuoteContent` lines, or `Line`
     /// nodes that wrap a further nested quote.
     fn visit_quote(&mut self, quote: &AstNode, depth: u32, quote_depth: u32) {
-        for child in quote.value().children.lock().unwrap().iter() {
+        for child in quote.children().iter() {
             self.visit_line(child, depth, quote_depth);
         }
     }
@@ -178,20 +178,14 @@ fn is_blank_text(node: &AstNode) -> bool {
 }
 
 fn child_texts(node: &AstNode) -> Vec<String> {
-    node.value()
-        .children
-        .lock()
-        .unwrap()
+    node.children()
         .iter()
         .map(|c| c.extract_str().to_string())
         .collect()
 }
 
 fn first_content_text(node: &AstNode) -> String {
-    node.value()
-        .contents
-        .lock()
-        .unwrap()
+    node.contents()
         .iter()
         .map(|c| c.extract_str())
         .collect::<Vec<_>>()
@@ -200,27 +194,14 @@ fn first_content_text(node: &AstNode) -> String {
 
 fn table_rows(table: &AstNode) -> Vec<NoteTableRow> {
     table
-        .value()
-        .children
-        .lock()
-        .unwrap()
+        .children()
         .iter()
         .map(|row| NoteTableRow {
             cells: row
-                .value()
-                .contents
-                .lock()
-                .unwrap()
+                .contents()
                 .iter()
                 .map(|col| NoteTableCell {
-                    spans: col
-                        .value()
-                        .contents
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .filter_map(inline_span)
-                        .collect(),
+                    spans: col.contents().iter().filter_map(inline_span).collect(),
                 })
                 .collect(),
         })
@@ -273,14 +254,7 @@ fn inline_span(node: &AstNode) -> Option<NoteSpan> {
             italic: *italic,
             underline: *underline,
             deleted: *deleted,
-            children: node
-                .value()
-                .contents
-                .lock()
-                .unwrap()
-                .iter()
-                .filter_map(inline_span)
-                .collect(),
+            children: node.contents().iter().filter_map(inline_span).collect(),
         }),
         AstNodeKind::WikiLink { link, anchor } => Some(NoteSpan::WikiLink {
             name: link.clone(),

@@ -10,14 +10,14 @@ fn dump(node: &AstNode, depth: usize) {
         node.location().span,
         node.extract_str()
     );
-    let contents = node.value().contents.lock().unwrap();
+    let contents = node.contents();
     if !contents.is_empty() {
         println!("{pad}  .contents:");
         for c in contents.iter() {
             dump(c, depth + 2);
         }
     }
-    let children = node.value().children.lock().unwrap();
+    let children = node.children();
     if !children.is_empty() {
         println!("{pad}  .children:");
         for c in children.iter() {

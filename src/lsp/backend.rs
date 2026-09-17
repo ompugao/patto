@@ -1,33 +1,28 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use urlencoding::decode;
 
 use dashmap::DashMap;
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 
 use super::paper::{PaperCatalog, PaperProviderError};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::ast_query::{find_anchor, task_label};
-use crate::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use crate::lsp::commands::SUPPORTED_COMMANDS;
+use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
+use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use crate::lsp::task_edits::{
     collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
 };
-use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{
     self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
 };
-use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::{Repository, RepositoryMessage};
-use crate::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
 use pest::Parser as _;
-
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 
 /// LSP settings that can be configured by clients
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -35,7 +30,7 @@ use fuzzy_matcher::FuzzyMatcher;
 pub struct PattoSettings {
     /// Markdown export settings
     #[serde(default)]
-    markdown: MarkdownSettings,
+    pub(super) markdown: MarkdownSettings,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -43,20 +38,52 @@ pub struct PattoSettings {
 pub struct MarkdownSettings {
     /// Default markdown flavor for export (standard, obsidian, github)
     #[serde(default)]
-    default_flavor: Option<String>,
+    pub(super) default_flavor: Option<String>,
 }
 
 //#[derive(Debug)]
 pub struct Backend {
-    pub client: Client,
-    pub repository: Arc<Mutex<Option<Repository>>>,
-    pub root_uri: Arc<Mutex<Option<Url>>>,
-    pub paper_catalog: PaperCatalog,
-    pub settings: Arc<Mutex<PattoSettings>>,
+    pub(super) client: Client,
+    /// Set once the client sends `initialize` with a workspace root.
+    pub(super) repository: Arc<Mutex<Option<Repository>>>,
+    pub(super) root_uri: Arc<Mutex<Option<Url>>>,
+    pub(super) paper_catalog: PaperCatalog,
+    pub(super) settings: Arc<Mutex<PattoSettings>>,
     /// Last *valid* (successfully parsed) task snapshot per file, keyed by row.
     /// Retained across keystrokes so that mid-edit parse failures (e.g. `status=`)
     /// don't lose the `Doing` state needed to compute elapsed time on clock-out.
-    pub last_valid_task_snapshots: Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
+    pub(super) last_valid_task_snapshots:
+        Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
+}
+
+impl Backend {
+    /// The workspace root is not known yet; it arrives with `initialize`.
+    pub fn new(client: Client, paper_catalog: PaperCatalog) -> Self {
+        Self {
+            client,
+            repository: Arc::new(Mutex::new(None)),
+            root_uri: Arc::new(Mutex::new(None)),
+            paper_catalog,
+            settings: Arc::new(Mutex::new(PattoSettings::default())),
+            last_valid_task_snapshots: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Parsed AST of a document the workspace knows about.
+    pub fn document_ast(&self, uri: &Url) -> Option<AstNode> {
+        let uri = Repository::normalize_url_percent_encoding(uri);
+        let repository = self.repository.lock().unwrap();
+        let ast = repository.as_ref()?.ast_map.get(&uri)?;
+        Some(ast.value().clone())
+    }
+
+    /// Task snapshots from the last successful parse of a document.
+    pub fn task_snapshots(&self, uri: &Url) -> Option<HashMap<usize, crate::task::TaskSnapshot>> {
+        let uri = Repository::normalize_url_percent_encoding(uri);
+        self.last_valid_task_snapshots
+            .get(&uri)
+            .map(|entry| entry.value().clone())
+    }
 }
 
 fn get_node_range(from: &AstNode) -> Range {
@@ -65,25 +92,6 @@ fn get_node_range(from: &AstNode) -> Range {
     let e = utf16_from_byte_idx(from.extract_str(), from.location().span.1) as u32;
     Range::new(Position::new(row, s), Position::new(row, e))
 }
-
-// fn uri_to_link(uri: &Url, base: &Url) -> Option<String> {
-//     if base.scheme() != uri.scheme() {
-//         log::debug!("Different scheme, cannot subtract: {}, {}", uri, base);
-//         return None;
-//     }
-//
-//     let base_path = base.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-//     let uri_path = uri.path_segments().map(|c| c.map(|segment| decode(segment).unwrap()).collect::<Vec<_>>()).unwrap_or_default();
-//
-//     if !uri_path.starts_with(&base_path) {
-//         log::debug!("uri is not inside base: {}, {}", uri, base);
-//         return None; // uri is not inside base
-//     }
-//
-//     // Extract the remainder after the base path
-//     let relative_path = &uri_path[base_path.len()..];
-//     Some(relative_path.join("/"))
-// }
 
 fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
     let ParserResult { ast, parse_errors } = parser::parse_text(text);
@@ -233,12 +241,12 @@ fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diag
             }
         }
     }
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         gather_stale_started_at_diagnostics_impl(child, diags);
     }
 }
 
-fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
+pub(super) fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Anchor { name, location } = prop {
@@ -247,7 +255,7 @@ fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
         }
     }
 
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_anchors(child, anchors);
     }
 }
@@ -302,7 +310,7 @@ impl TaskInformation {
 }
 
 /// Build a TaskInformation from an AstNode that has a Task property.
-fn task_information(
+pub(super) fn task_information(
     uri: &tower_lsp::lsp_types::Url,
     line: &AstNode,
     due: &Deadline,
@@ -338,7 +346,7 @@ fn task_information(
 
 /// Find anchor definition at the given row and column position
 /// Returns (anchor_name, anchor_location) if cursor is on an anchor definition
-fn find_anchor_at_position(
+pub(super) fn find_anchor_at_position(
     parent: &AstNode,
     row: usize,
     col: usize,
@@ -355,7 +363,7 @@ fn find_anchor_at_position(
         }
     }
 
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         if let Some(result) = find_anchor_at_position(child, row, col) {
             return Some(result);
         }
@@ -363,7 +371,7 @@ fn find_anchor_at_position(
     None
 }
 
-fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
+pub(super) fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
     if let Some(route) = locate_node_route_impl(parent, row, col) {
         //route.reverse();
         return Some(route);
@@ -380,18 +388,18 @@ fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Ve
         parentrow
     );
     if matches!(parent.kind(), AstNodeKind::Dummy) || parentrow < row {
-        for child in parent.value().children.lock().unwrap().iter() {
+        for child in parent.children().iter() {
             if let Some(mut route) = locate_node_route_impl(child, row, col) {
                 route.push(parent.clone());
                 return Some(route);
             }
         }
     } else if parentrow == row {
-        if parent.value().contents.lock().unwrap().is_empty() {
+        if parent.contents().is_empty() {
             log::debug!("{:?} must be leaf", parent.extract_str());
             return Some(vec![parent.clone()]);
         }
-        for content in parent.value().contents.lock().unwrap().iter() {
+        for content in parent.contents().iter() {
             if content.location().span.contains(col) {
                 log::debug!(
                     "in content: {:?}, spanning ({}, {})",
@@ -520,11 +528,8 @@ impl Backend {
 
                         RepositoryMessage::ScanProgress { scanned, total } => {
                             if progress_active {
-                                let percentage = if total > 0 {
-                                    ((scanned * 100) / total) as u32
-                                } else {
-                                    0
-                                };
+                                let percentage =
+                                    (scanned * 100).checked_div(total).unwrap_or(0) as u32;
 
                                 let _ = client
                                     .send_notification::<notification::Progress>(ProgressParams {
@@ -574,302 +579,11 @@ impl Backend {
         }
     }
 
-    async fn gather_completion_items(
+    pub(super) async fn paper_completion_items(
         &self,
-        uri: &Url,
-        position: Position,
-    ) -> Option<Vec<CompletionItem>> {
-        let mut deferred: Option<(Vec<CompletionItem>, Range, String)> = None;
-
-        {
-            let repo_guard = self.repository.lock().unwrap();
-            let repo = repo_guard.as_ref()?;
-            let rope = repo.document_map.get(uri)?;
-            let line = rope.value().get_line(position.line as usize)?;
-            let line_str = line.as_str()?;
-
-            let cur_col =
-                line.byte_to_char(utf16_to_byte_idx(line_str, position.character as usize));
-            let prev_col = cur_col.saturating_sub(1);
-            let c = line.char(prev_col);
-            if c == '#' {
-                let slice = line.slice(..cur_col);
-                if let Some(foundbracket) =
-                    slice.chars_at(cur_col).reversed().position(|c| c == '[')
-                {
-                    let maybelink = slice.len_chars().saturating_sub(foundbracket);
-                    let s = line.slice(maybelink..prev_col).as_str()?;
-                    log::debug!("link? {}, from {}, found at {}", s, maybelink, foundbracket);
-                    let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
-                        log::debug!("root_uri is not set");
-                        return None;
-                    };
-                    let linkuri = repo.link_to_uri(s, &root_uri).unwrap_or(uri.clone());
-                    log::debug!("linkuri: {}", linkuri);
-                    if let Some(ast) = repo.ast_map.get(&linkuri) {
-                        let mut anchors = vec![];
-                        gather_anchors(ast.value(), &mut anchors);
-                        let link_rope = repo.document_map.get(&linkuri);
-                        return Some(
-                            anchors
-                                .iter()
-                                .map(|(anchor, row)| {
-                                    let documentation = link_rope.as_ref().and_then(|rope| {
-                                        let rope = rope.value();
-                                        let total_lines = rope.len_lines();
-                                        if *row >= total_lines {
-                                            return None;
-                                        }
-                                        let preview_lines = 5;
-                                        let end_line = (row + preview_lines).min(total_lines);
-                                        let preview: String = (*row..end_line)
-                                            .filter_map(|l| {
-                                                rope.get_line(l).map(|line| line.to_string())
-                                            })
-                                            .collect();
-                                        Some(Documentation::String(preview.trim_end().to_string()))
-                                    });
-                                    CompletionItem {
-                                        label: format!("#{}", anchor),
-                                        kind: Some(CompletionItemKind::REFERENCE),
-                                        filter_text: Some(anchor.to_string()),
-                                        insert_text: Some(anchor.to_string()),
-                                        documentation,
-                                        ..Default::default()
-                                    }
-                                })
-                                .collect(),
-                        );
-                    }
-                }
-            }
-
-            let slice = line.slice(..cur_col);
-            let slicelen = slice.len_chars();
-            if let Some(foundbracket) = slice.chars_at(cur_col).reversed().position(|c| c == '[') {
-                let maybelink = slicelen.saturating_sub(foundbracket);
-                let s = line.slice(maybelink..cur_col).as_str()?;
-                log::debug!(
-                    "matching {}, from {}, found at {}",
-                    s,
-                    maybelink,
-                    foundbracket
-                );
-
-                if let Some(root_uri_str) = self
-                    .root_uri
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(|root_uri| root_uri.to_file_path().ok())
-                {
-                    let baselen = root_uri_str.to_string_lossy().len();
-                    let matcher = SkimMatcherV2::default();
-                    let start_char =
-                        utf16_from_byte_idx(line_str, line.char_to_byte(maybelink)) as u32;
-                    let replacement_range = Range {
-                        start: Position {
-                            line: position.line,
-                            character: start_char,
-                        },
-                        end: position,
-                    };
-
-                    let files: Vec<CompletionItem> = repo
-                        .document_map
-                        .iter()
-                        .filter_map(|e| {
-                            let mut path = decode(
-                                &e.key().to_file_path().unwrap().to_string_lossy()[baselen + 1..],
-                            )
-                            .unwrap()
-                            .to_string();
-                            if path.ends_with(".pn") {
-                                path = path.strip_suffix(".pn").unwrap().to_string();
-                            }
-                            if matcher.fuzzy_match(&path, s).is_some() {
-                                let rope = e.value();
-                                let preview_lines = 5;
-                                let total_lines = rope.len_lines();
-                                let end_line = preview_lines.min(total_lines);
-                                let preview: String = (0..end_line)
-                                    .filter_map(|l| rope.get_line(l).map(|line| line.to_string()))
-                                    .collect();
-                                let documentation = if !preview.trim().is_empty() {
-                                    Some(Documentation::String(preview.trim_end().to_string()))
-                                } else {
-                                    None
-                                };
-                                return Some(CompletionItem {
-                                    label: path.clone(),
-                                    detail: Some(path.clone()),
-                                    kind: Some(CompletionItemKind::FILE),
-                                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                        new_text: path.clone(),
-                                        range: replacement_range,
-                                    })),
-                                    documentation,
-                                    ..Default::default()
-                                });
-                            }
-                            None
-                        })
-                        .collect();
-
-                    deferred = Some((files, replacement_range, s.to_string()));
-                }
-            }
-
-            let slice = line.slice(..cur_col);
-            let slicelen = slice.len_chars();
-            if let Some(foundat) = slice.chars_at(cur_col).reversed().position(|c| c == '@') {
-                // foundat is the position in the reversed iterator, so actual position from start is:
-                // slicelen - 1 - foundat
-                let maybecommand = slicelen.saturating_sub(foundat + 1);
-                let s = line.slice(maybecommand..cur_col).as_str()?;
-                log::debug!(
-                    "command? {}, from {}, found at {}",
-                    s,
-                    maybecommand,
-                    foundat
-                );
-                match s {
-                    "@code" => {
-                        let item = CompletionItem {
-                            label: "@code".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("code command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                new_text: "[@code ${1:lang}]$0".to_string(),
-                                range: Range {
-                                    start: Position {
-                                        line: position.line,
-                                        character: utf16_from_byte_idx(
-                                            line_str,
-                                            line.char_to_byte(maybecommand),
-                                        ) as u32,
-                                    },
-                                    end: position,
-                                },
-                            })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    }
-                    "@math" => {
-                        let item = CompletionItem {
-                            label: "@math".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("math command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                new_text: "[@math]$0".to_string(),
-                                range: Range {
-                                    start: Position {
-                                        line: position.line,
-                                        character: utf16_from_byte_idx(
-                                            line_str,
-                                            line.char_to_byte(maybecommand),
-                                        ) as u32,
-                                    },
-                                    end: position,
-                                },
-                            })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    }
-                    "@quote" => {
-                        let item = CompletionItem {
-                            label: "@quote".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("quote command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                new_text: "[@quote]$0".to_string(),
-                                range: Range {
-                                    start: Position {
-                                        line: position.line,
-                                        character: utf16_from_byte_idx(
-                                            line_str,
-                                            line.char_to_byte(maybecommand),
-                                        ) as u32,
-                                    },
-                                    end: position,
-                                },
-                            })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    }
-                    "@img" => {
-                        let item = CompletionItem {
-                            label: "@img".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("img command".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                new_text: "[@img ${1:path} \"${2:alt_text}\"]$0".to_string(),
-                                range: Range {
-                                    start: Position {
-                                        line: position.line,
-                                        character: utf16_from_byte_idx(
-                                            line_str,
-                                            line.char_to_byte(maybecommand),
-                                        ) as u32,
-                                    },
-                                    end: position,
-                                },
-                            })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    }
-                    "@task" => {
-                        let item = CompletionItem {
-                            label: "@task".to_string(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            detail: Some("task property".to_string()),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                                new_text: format!(
-                                    "{{@task status=${{1:todo}} due=${{2:{}}}}}$0",
-                                    chrono::Local::now().format("%Y-%m-%d")
-                                ),
-                                range: Range {
-                                    start: Position {
-                                        line: position.line,
-                                        character: utf16_from_byte_idx(
-                                            line_str,
-                                            line.char_to_byte(maybecommand),
-                                        ) as u32,
-                                    },
-                                    end: position,
-                                },
-                            })),
-                            ..Default::default()
-                        };
-                        return Some(vec![item]);
-                    }
-                    &_ => {}
-                }
-            }
-        }
-
-        if let Some((mut files, replacement_range, query)) = deferred {
-            let mut papers = self
-                .paper_completion_items(&query, &replacement_range)
-                .await;
-            files.append(&mut papers);
-            return Some(files);
-        }
-
-        None
-    }
-
-    async fn paper_completion_items(&self, query: &str, range: &Range) -> Vec<CompletionItem> {
+        query: &str,
+        range: &Range,
+    ) -> Vec<CompletionItem> {
         match self.paper_catalog.search(query).await {
             Ok(papers) => papers
                 .into_iter()
@@ -917,35 +631,17 @@ impl LanguageServer for Backend {
                     )
                     .await;
 
-                // Create repository (scanning happens in background)
-                {
-                    let mut repo = self.repository.lock().unwrap();
-                    *repo = Some(Repository::new(path));
-                } // Drop repo here
+                let repository = Repository::new(path);
+                *self.repository.lock().unwrap() = Some(repository.clone());
 
-                // Start listening to repository messages (including scan progress)
+                // Subscribe before scanning, so no scan progress is missed.
                 self.start_repository_listener().await;
+                repository.spawn_initial_scan();
             }
         }
 
-        // vscode sets both root_uri and workspace_folders.
-        // Using root_uri for now, since vim-lsp experimentally support workspace_folers.
-        //
-        // if let Some(workspace_folders) = params.workspace_folders {
-        //     for folder in workspace_folders {
-        //         self.client.log_message(MessageType::INFO, &format!("scanning folder {:?}", folder)).await;
-        //         let path = folder.uri.to_file_path();
-        //         if path.is_ok() {
-        //             let client = self.client.clone();
-        //             let ast_map = Arc::clone(&self.ast_map);
-        //             tokio::spawn(async move {
-        //                 if let Err(e) = scan_workspace(client, path.unwrap(), ast_map).await {
-        //                     log::warn!("Failed to scan workspace: {:?}", e);
-        //                 }
-        //             });
-        //         }
-        //     }
-        // }
+        // vscode sets both root_uri and workspace_folders; we use root_uri
+        // because vim-lsp supports workspace_folders only experimentally.
 
         Ok(InitializeResult {
             server_info: None,
@@ -967,14 +663,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![
-                        "experimental/aggregate_tasks".to_string(),
-                        "experimental/retrieve_two_hop_notes".to_string(),
-                        "experimental/scan_workspace".to_string(),
-                        "experimental/tasks_review".to_string(),
-                        "patto/snapshotPapers".to_string(),
-                        "patto/renderAsMarkdown".to_string(),
-                    ],
+                    commands: SUPPORTED_COMMANDS.iter().map(|c| c.to_string()).collect(),
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -1136,208 +825,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::LOG, format!("command executed!: {:?}", params))
             .await;
-
-        match params.command.as_str() {
-            "experimental/aggregate_tasks" => {
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let tasks = repo.aggregate_tasks();
-                let ret = json!(tasks
-                    .iter()
-                    .map(|(uri, line, due)| task_information(uri, line, due))
-                    .collect::<Vec<_>>());
-                return Ok(Some(ret));
-            }
-            "experimental/tasks_review" => {
-                // Arguments: [timeframe, from_date?, to_date?]
-                // timeframe: "today" | "this_week" | "custom"
-                // from_date / to_date: "YYYY-MM-DD" strings (required for "custom")
-                // Returns: list of completed tasks sorted by completed_at, each with
-                //   { location, text, completed_at }
-                let today = chrono::Local::now().date_naive();
-                let timeframe = params
-                    .arguments
-                    .first()
-                    .and_then(|a| a.as_str())
-                    .unwrap_or("today");
-
-                let parse_date = |a: Option<&serde_json::Value>| {
-                    a.and_then(|v| v.as_str())
-                        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-                };
-                let timeframe = crate::tasks_view::ReviewTimeframe::from_name(
-                    timeframe,
-                    parse_date(params.arguments.get(1)),
-                    parse_date(params.arguments.get(2)),
-                );
-                let (from, to) = crate::tasks_view::timeframe_bounds(&timeframe, today);
-
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let tasks = repo.aggregate_completed_tasks(from, to);
-                let ret = json!(tasks
-                    .iter()
-                    .map(|(uri, line, date)| {
-                        let info =
-                            task_information(uri, line, &crate::parser::Deadline::Date(*date));
-                        // Override completed_at with the authoritative value from repository
-                        // (already set by task_information, but ensure the date string matches).
-                        // started_at is intentionally omitted: for a done task it is stale and
-                        // must not be used to compute additional elapsed time on the review side.
-                        // The time_spent field already contains the correct accumulated total.
-                        json!({
-                            "location":    info.location,
-                            "text":        info.text,
-                            "status":      info.status,
-                            "due":         info.due,
-                            "scheduled":   info.scheduled,
-                            "completed_at": date.format("%Y-%m-%d").to_string(),
-                            "time_spent":  info.time_spent,
-                        })
-                    })
-                    .collect::<Vec<_>>());
-                return Ok(Some(ret));
-            }
-            "experimental/retrieve_two_hop_notes" => {
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(graph) = repo.document_graph.lock() else {
-                    return Ok(None);
-                };
-                let Some(url) = params
-                    .arguments
-                    .first()
-                    .and_then(|a| a.as_str())
-                    .and_then(|url| Url::parse(url).ok())
-                else {
-                    return Ok(None);
-                };
-                let Some(node) = graph.get(&url) else {
-                    return Ok(None);
-                };
-                let mut twohop_urls = node
-                    .iter_out()
-                    .map(|edge| {
-                        let target = edge.target();
-                        let connected_urls = target
-                            .iter_in()
-                            .map(|edge| edge.source().key().clone())
-                            .filter(|n| n != target.key() && n != &url)
-                            .collect::<Vec<Url>>();
-                        (target.key().clone(), connected_urls)
-                    })
-                    .filter(|x| !x.1.is_empty())
-                    .collect::<Vec<(Url, Vec<_>)>>();
-                twohop_urls.sort_by_key(|x| -(x.1.len() as i16));
-                twohop_urls.dedup();
-                log::debug!("urls: {:?}", twohop_urls);
-                return Ok(Some(json!(twohop_urls)));
-            }
-            "patto/snapshotPapers" => {
-                self.client
-                    .log_message(MessageType::INFO, "Taking snapshot of papers...")
-                    .await;
-                match self.paper_catalog.refresh().await {
-                    Ok(_) => {
-                        self.client
-                            .show_message(
-                                MessageType::INFO,
-                                "Paper snapshot completed successfully.",
-                            )
-                            .await;
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        let msg = format!("Failed to take paper snapshot: {}", e);
-                        self.client.show_message(MessageType::ERROR, &msg).await;
-                        log::error!("{}", msg);
-                        return Ok(None);
-                    }
-                }
-            }
-            "patto/renderAsMarkdown" => {
-                // Arguments: [uri, startLine?, endLine?, flavor?]
-                // If startLine/endLine not provided, render entire document
-                // If flavor not provided, use default from settings
-                let Some(uri_str) = params.arguments.first().and_then(|a| a.as_str()) else {
-                    return Ok(None);
-                };
-                let Ok(uri) = Url::parse(uri_str) else {
-                    return Ok(None);
-                };
-                let uri = Repository::normalize_url_percent_encoding(&uri);
-
-                // Parse optional range (0-indexed, inclusive)
-                let start_line = params
-                    .arguments
-                    .get(1)
-                    .and_then(|a| a.as_u64())
-                    .map(|n| n as usize);
-                let end_line = params
-                    .arguments
-                    .get(2)
-                    .and_then(|a| a.as_u64())
-                    .map(|n| n as usize);
-
-                // Parse optional flavor, falling back to settings default, then "standard"
-                let flavor_str = params
-                    .arguments
-                    .get(3)
-                    .and_then(|a| a.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        self.settings
-                            .lock()
-                            .unwrap()
-                            .markdown
-                            .default_flavor
-                            .clone()
-                    })
-                    .unwrap_or_else(|| "standard".to_string());
-                let flavor = match flavor_str.to_lowercase().as_str() {
-                    "obsidian" => MarkdownFlavor::Obsidian,
-                    "github" => MarkdownFlavor::GitHub,
-                    _ => MarkdownFlavor::Standard,
-                };
-
-                let repo_bind = self.repository.lock().unwrap();
-                let Some(repo) = repo_bind.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(ast) = repo.ast_map.get(&uri) else {
-                    return Ok(None);
-                };
-
-                let options = MarkdownRendererOptions::new(flavor).with_frontmatter(false);
-                let renderer = MarkdownRenderer::new(options);
-                let mut output = Vec::new();
-
-                let result = if let (Some(start), Some(end)) = (start_line, end_line) {
-                    renderer.format_range(ast.value(), &mut output, start, end)
-                } else {
-                    renderer.format(ast.value(), &mut output)
-                };
-
-                if result.is_err() {
-                    log::error!("Failed to render markdown: {:?}", result);
-                    return Ok(None);
-                }
-
-                let markdown = String::from_utf8_lossy(&output).to_string();
-                return Ok(Some(json!(markdown)));
-            }
-            c => {
-                log::info!("unknown command: {}", c);
-            }
-        }
-        log::info!("unhandled command execution: {:?}", params);
-        Ok(None)
+        Ok(self.dispatch_command(params).await)
     }
 
     async fn goto_definition(
@@ -1354,8 +842,6 @@ impl LanguageServer for Backend {
             let rope = repo.document_map.get(&uri)?;
 
             let position = params.text_document_position_params.position;
-            // let char = rope.try_line_to_char(position.line as usize).ok()?;
-            // self.client.log_message(MessageType::INFO, &format!("{:#?}, {}", ast.value(), offset)).await;
             let line = rope.get_line(position.line as usize)?;
             // NOTE: spans in our parser (and in pest) are in bytes, not chars
             let posbyte = utf16_to_byte_idx(line.as_str()?, position.character as usize);
@@ -1363,10 +849,6 @@ impl LanguageServer for Backend {
                 log::debug!("Node not found at {:?}, posbyte: {:?}", position, posbyte);
                 return None;
             };
-            //if node_route.len() == 0 {
-            //    log::info!("-- route.len() is 0");
-            //    return None;
-            // }
             let Some((link, anchor)) = node_route.iter().find_map(|n| {
                 if let AstNodeKind::WikiLink { link, anchor } = &n.kind() {
                     Some((link, anchor))
@@ -1604,342 +1086,11 @@ impl LanguageServer for Backend {
         let uri = Repository::normalize_url_percent_encoding(
             &params.text_document_position.text_document.uri,
         );
-        let position = params.text_document_position.position;
-        let new_name = params.new_name.trim();
-
-        // Validate new name
-        if new_name.is_empty() {
-            return Err(tower_lsp::jsonrpc::Error {
-                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
-                message: "Name cannot be empty".into(),
-                data: None,
-            });
-        }
-
-        // Check if we're renaming an anchor
-        let anchor_rename_result = || -> Option<WorkspaceEdit> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-
-            let line = rope.value().get_line(position.line as usize)?;
-            let line_str = line.as_str()?;
-            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
-
-            // Check if cursor is on an anchor definition
-            let (old_anchor_name, anchor_loc) =
-                find_anchor_at_position(&ast, position.line as usize, posbyte)?;
-
-            log::info!("Renaming anchor '{}' to '{}'", old_anchor_name, new_name);
-
-            // Validate anchor name (similar rules to note names but allow # prefix)
-            let clean_new_name = new_name.trim_start_matches('#');
-            if clean_new_name.is_empty() {
-                return None;
-            }
-            if clean_new_name.contains('/')
-                || clean_new_name.contains('\\')
-                || clean_new_name.contains('#')
-            {
-                return None;
-            }
-
-            let mut document_changes = Vec::new();
-
-            // Get the current file's link name for finding references
-            let current_file_link = if let Ok(path) = uri.to_file_path() {
-                repo.path_to_link(&path)?
-            } else {
-                return None;
-            };
-
-            // 1. Update the anchor definition in the current file
-            // The anchor definition can be in two forms:
-            // - Short form: #anchor_name (span includes #)
-            // - Long form: {@anchor anchor_name} (span includes the whole expression)
-            let anchor_text = &line_str[anchor_loc.span.0..anchor_loc.span.1];
-            let new_anchor_text = if anchor_text.starts_with("{@anchor") {
-                format!("{{@anchor {}}}", clean_new_name)
-            } else {
-                // Short form #anchor
-                format!("#{}", clean_new_name)
-            };
-
-            let start_char = utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32;
-            let end_char = utf16_from_byte_idx(line_str, anchor_loc.span.1) as u32;
-
-            let anchor_edit = TextEdit {
-                range: Range::new(
-                    Position::new(anchor_loc.row as u32, start_char),
-                    Position::new(anchor_loc.row as u32, end_char),
-                ),
-                new_text: new_anchor_text,
-            };
-
-            document_changes.push(DocumentChangeOperation::Edit(TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier {
-                    uri: uri.clone(),
-                    version: None,
-                },
-                edits: vec![OneOf::Left(anchor_edit)],
-            }));
-
-            // 2. Find all links in the repository that reference this file with this anchor
-            if let Ok(graph) = repo.document_graph.lock() {
-                if let Some(target_node) = graph.get(&uri) {
-                    // Iterate through all incoming edges (links pointing to this file)
-                    for edge in target_node.iter_in() {
-                        let source_uri = edge.source().key();
-                        let edge_data = edge.value();
-
-                        // Get source document rope for line access
-                        let source_rope = repo.document_map.get(source_uri)?;
-
-                        let mut edits = Vec::new();
-
-                        // Create TextEdit for each link location that references this anchor
-                        for link_loc in &edge_data.locations {
-                            if link_loc.target_anchor.as_ref() == Some(&old_anchor_name) {
-                                if let Some(line) =
-                                    source_rope.value().get_line(link_loc.source_line)
-                                {
-                                    if let Some(src_line_str) = line.as_str() {
-                                        // Build new link text with updated anchor
-                                        let new_link_text =
-                                            format!("[{}#{}]", current_file_link, clean_new_name);
-
-                                        // Convert byte offsets to UTF-16
-                                        let start_char = utf16_from_byte_idx(
-                                            src_line_str,
-                                            link_loc.source_col_range.0,
-                                        )
-                                            as u32;
-                                        let end_char = utf16_from_byte_idx(
-                                            src_line_str,
-                                            link_loc.source_col_range.1,
-                                        )
-                                            as u32;
-
-                                        let range = Range::new(
-                                            Position::new(link_loc.source_line as u32, start_char),
-                                            Position::new(link_loc.source_line as u32, end_char),
-                                        );
-
-                                        edits.push(OneOf::Left(TextEdit {
-                                            range,
-                                            new_text: new_link_text,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-
-                        if !edits.is_empty() {
-                            document_changes.push(DocumentChangeOperation::Edit(
-                                TextDocumentEdit {
-                                    text_document: OptionalVersionedTextDocumentIdentifier {
-                                        uri: source_uri.clone(),
-                                        version: None,
-                                    },
-                                    edits,
-                                },
-                            ));
-                        }
-                    }
-                }
-            }
-
-            Some(WorkspaceEdit {
-                document_changes: Some(DocumentChanges::Operations(document_changes)),
-                ..Default::default()
-            })
-        }();
-
-        // If anchor rename succeeded, return it
-        if anchor_rename_result.is_some() {
-            return Ok(anchor_rename_result);
-        }
-
-        // Otherwise, try note renaming (existing logic)
-        if new_name.contains('/') || new_name.contains('\\') {
-            return Err(tower_lsp::jsonrpc::Error {
-                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
-                message: "Note name cannot contain path separators".into(),
-                data: None,
-            });
-        }
-
-        if new_name.ends_with(".pn") {
-            return Err(tower_lsp::jsonrpc::Error {
-                code: tower_lsp::jsonrpc::ErrorCode::InvalidParams,
-                message: "Note name should not include .pn extension".into(),
-                data: None,
-            });
-        }
-
-        let rename_result = || -> Option<WorkspaceEdit> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-
-            // Find what's being renamed
-            let line = rope.value().get_line(position.line as usize)?;
-            let line_str = line.as_str()?;
-            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
-
-            let old_name = if let Some(node_route) =
-                locate_node_route(&ast, position.line as usize, posbyte)
-            {
-                // Find WikiLink in the route
-                node_route.iter().find_map(|node| {
-                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
-                        Some(link.clone())
-                    } else {
-                        None
-                    }
-                })
-            } else {
-                None
-            };
-
-            // If no WikiLink found at cursor, rename the current file
-            let old_name = if let Some(name) = old_name {
-                name
-            } else {
-                // Get the current file name
-                if let Ok(path) = uri.to_file_path() {
-                    if let Some(file_stem) = path.file_stem() {
-                        if let Some(name) = file_stem.to_str() {
-                            name.to_string()
-                        } else {
-                            return None;
-                        }
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
-            };
-
-            log::info!("Renaming note '{}' to '{}'", old_name, new_name);
-
-            // Check if new name conflicts
-            let root_uri = self.root_uri.lock().unwrap().as_ref().cloned()?;
-            if let Some(new_uri) = repo.link_to_uri(new_name, &root_uri) {
-                if let Ok(new_path) = new_uri.to_file_path() {
-                    if new_path.exists() {
-                        log::warn!("Target file already exists: {:?}", new_path);
-                        return None;
-                    }
-                }
-            }
-
-            // Find all references to the old note
-            let old_uri = repo.link_to_uri(&old_name, &root_uri)?;
-
-            // Check if the target file actually exists
-            if let Ok(old_path) = old_uri.to_file_path() {
-                if !old_path.exists() {
-                    log::warn!("Target file does not exist: {:?}", old_path);
-                    return None;
-                }
-            }
-
-            let mut document_changes = Vec::new();
-
-            // Collect all references and build text edits
-            if let Ok(graph) = repo.document_graph.lock() {
-                if let Some(target_node) = graph.get(&old_uri) {
-                    // Iterate through all incoming edges
-                    for edge in target_node.iter_in() {
-                        let source_uri = edge.source().key();
-                        let edge_data = edge.value();
-
-                        // Get source document rope for line access
-                        let source_rope = repo.document_map.get(source_uri)?;
-
-                        let mut edits = Vec::new();
-
-                        // Create TextEdit for each link location
-                        for link_loc in &edge_data.locations {
-                            if let Some(line) = source_rope.value().get_line(link_loc.source_line) {
-                                if let Some(line_str) = line.as_str() {
-                                    // Build new link text preserving anchor
-                                    let new_link_text =
-                                        if let Some(ref anchor_name) = link_loc.target_anchor {
-                                            format!("[{}#{}]", new_name, anchor_name)
-                                        } else {
-                                            format!("[{}]", new_name)
-                                        };
-
-                                    // Convert byte offsets to UTF-16
-                                    let start_char =
-                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
-                                            as u32;
-                                    let end_char =
-                                        utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
-                                            as u32;
-
-                                    let range = Range::new(
-                                        Position::new(link_loc.source_line as u32, start_char),
-                                        Position::new(link_loc.source_line as u32, end_char),
-                                    );
-
-                                    edits.push(OneOf::Left(TextEdit {
-                                        range,
-                                        new_text: new_link_text,
-                                    }));
-                                }
-                            }
-                        }
-
-                        if !edits.is_empty() {
-                            document_changes.push(DocumentChangeOperation::Edit(
-                                TextDocumentEdit {
-                                    text_document: OptionalVersionedTextDocumentIdentifier {
-                                        uri: source_uri.clone(),
-                                        version: None,
-                                    },
-                                    edits,
-                                },
-                            ));
-                        }
-                    }
-                }
-            }
-
-            // Add file rename operation
-            let new_uri = repo.link_to_uri(new_name, &root_uri)?;
-            document_changes.push(DocumentChangeOperation::Op(ResourceOp::Rename(
-                RenameFile {
-                    old_uri: old_uri.clone(),
-                    new_uri: new_uri.clone(),
-                    options: Some(RenameFileOptions {
-                        overwrite: Some(false),
-                        ignore_if_exists: Some(false),
-                    }),
-                    annotation_id: None,
-                },
-            )));
-
-            Some(WorkspaceEdit {
-                document_changes: Some(DocumentChanges::Operations(document_changes)),
-                ..Default::default()
-            })
-        }();
-
-        if rename_result.is_none() {
-            return Err(tower_lsp::jsonrpc::Error {
-                code: tower_lsp::jsonrpc::ErrorCode::InternalError,
-                message: "Failed to prepare rename operation".into(),
-                data: None,
-            });
-        }
-
-        Ok(rename_result)
+        self.rename_workspace_edit(
+            &uri,
+            params.text_document_position.position,
+            params.new_name.trim(),
+        )
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
@@ -1964,14 +1115,14 @@ impl LanguageServer for Backend {
 fn last_row_of(node: &AstNode) -> usize {
     let mut max = node.location().row;
 
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         let child_row = last_row_of(child);
         if child_row > max {
             max = child_row;
         }
     }
 
-    for content in node.value().contents.lock().unwrap().iter() {
+    for content in node.contents().iter() {
         let content_row = last_row_of(content);
         if content_row > max {
             max = content_row;
@@ -1991,7 +1142,7 @@ fn last_row_of(node: &AstNode) -> usize {
 fn collect_folding_ranges(root: &AstNode) -> Vec<FoldingRange> {
     let mut ranges = Vec::new();
     // The Dummy root has no location; iterate its children directly
-    let children = root.value().children.lock().unwrap().clone();
+    let children = root.children().clone();
     for child in children.iter() {
         collect_folding_ranges_node(child, &mut ranges);
     }
@@ -2027,13 +1178,13 @@ fn collect_folding_ranges_node(node: &AstNode, ranges: &mut Vec<FoldingRange>) {
 
     // Recurse into children and contents (depth-first, so inner folds are added first)
     {
-        let children = node.value().children.lock().unwrap().clone();
+        let children = node.children().clone();
         for child in children.iter() {
             collect_folding_ranges_node(child, ranges);
         }
     }
     {
-        let contents = node.value().contents.lock().unwrap().clone();
+        let contents = node.contents().clone();
         for content in contents.iter() {
             collect_folding_ranges_node(content, ranges);
         }
@@ -2151,7 +1302,7 @@ mod tests {
         let (ast, _) = parse_text(
             "buy milk [https://example.com/foo milk title] {@task status=todo due=2026-06-01}",
         );
-        let children = ast.value().children.lock().unwrap();
+        let children = ast.children();
         let line = &children[0];
         let label = task_label(line);
         assert_eq!(label, "buy milk [🔗milk title]");
@@ -2159,14 +1310,14 @@ mod tests {
         let (ast2, _) = parse_text(
             "[milk title https://example.com/foo] buy milk {@task status=todo due=2026-06-01}",
         );
-        let children2 = ast2.value().children.lock().unwrap();
+        let children2 = ast2.children();
         let line2 = &children2[0];
         let label2 = task_label(line2);
         assert_eq!(label2, "[milk title🔗] buy milk");
 
         let (ast3, _) =
             parse_text("buy milk [https://example.com/foo] {@task status=todo due=2026-06-01}");
-        let children3 = ast3.value().children.lock().unwrap();
+        let children3 = ast3.children();
         let line3 = &children3[0];
         let label3 = task_label(line3);
         assert_eq!(label3, "buy milk [https://example.com/foo]");
@@ -2175,7 +1326,7 @@ mod tests {
         let (ast4, _) = parse_text(
             "牛乳を買う [https://example.com/foo 牛乳] {@task status=todo due=2026-06-01}",
         );
-        let children4 = ast4.value().children.lock().unwrap();
+        let children4 = ast4.children();
         let line4 = &children4[0];
         let label4 = task_label(line4);
         assert_eq!(label4, "牛乳を買う [🔗牛乳]");
@@ -2183,7 +1334,7 @@ mod tests {
         let (ast5, _) = parse_text(
             "[牛乳 https://example.com/foo] 牛乳を買う {@task status=todo due=2026-06-01}",
         );
-        let children5 = ast5.value().children.lock().unwrap();
+        let children5 = ast5.children();
         let line5 = &children5[0];
         let label5 = task_label(line5);
         assert_eq!(label5, "[牛乳🔗] 牛乳を買う");

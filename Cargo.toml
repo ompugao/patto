@@ -35,7 +35,7 @@ cli = ["dep:clap", "dep:clap-verbosity-flag", "dep:simplelog", "dep:glob"]
 # Fetch oEmbed HTML for twitter/x links while rendering (needs a network stack).
 oembed = ["dep:reqwest"]
 zotero = ["lsp", "dep:zotero-rs"]
-preview-tui = ["repository", "lsp", "cli", "dep:futures", "dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list", "dep:tex2typst-rs", "dep:typst", "dep:typst-library", "dep:typst-render", "dep:typst-kit", "dep:syntect"]
+preview-tui = ["repository", "lsp", "cli", "dep:futures", "dep:reqwest", "dep:ratatui", "dep:ratatui-image", "dep:crossterm", "dep:image", "dep:open", "dep:tui-widget-list", "dep:tex2typst-rs", "dep:typst", "dep:typst-library", "dep:typst-render", "dep:typst-kit", "dep:syntect"]
 preview-tui-chafa-dyn = ["preview-tui", "ratatui-image?/chafa-dyn"]
 preview-tui-chafa-static = ["preview-tui", "dep:patto-chafa-bridge"]
 
@@ -176,6 +176,10 @@ required-features = ["lsp"]
 [[test]]
 name = "lsp_task_time_tracking"
 required-features = ["lsp"]
+
+[[test]]
+name = "repository_watcher"
+required-features = ["repository"]
 
 # Optimize pest parser even in debug builds for acceptable TUI performance
 [profile.dev.package.pest]

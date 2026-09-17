@@ -12,11 +12,11 @@ pub fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<St
         wikilinks.push((link.clone(), anchor.clone(), parent.location().clone()));
     }
 
-    for content in parent.value().contents.lock().unwrap().iter() {
+    for content in parent.contents().iter() {
         gather_wikilinks(content, wikilinks);
     }
 
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_wikilinks(child, wikilinks);
     }
 }
@@ -33,7 +33,7 @@ pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) 
             }
         }
     }
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_tasks(child, tasklines);
     }
 }
@@ -62,7 +62,7 @@ pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, ch
             }
         }
     }
-    for child in parent.value().children.lock().unwrap().iter() {
+    for child in parent.children().iter() {
         gather_completed_tasks(child, tasklines);
     }
 }
@@ -80,10 +80,7 @@ pub fn find_anchor(parent: &AstNode, anchor: &str) -> Option<AstNode> {
     }
 
     parent
-        .value()
-        .children
-        .lock()
-        .unwrap()
+        .children()
         .iter()
         .find_map(|child| find_anchor(child, anchor))
 }
@@ -95,13 +92,13 @@ pub fn walk_lines(parent: &AstNode, f: &mut impl FnMut(&AstNode, usize)) {
         if matches!(node.kind(), AstNodeKind::Line { .. }) {
             f(node, depth);
         }
-        for child in node.value().children.lock().unwrap().iter() {
+        for child in node.children().iter() {
             inner(child, depth + 1, f);
         }
     }
 
     if matches!(parent.kind(), AstNodeKind::Dummy) {
-        for child in parent.value().children.lock().unwrap().iter() {
+        for child in parent.children().iter() {
             inner(child, 0, f);
         }
     } else {

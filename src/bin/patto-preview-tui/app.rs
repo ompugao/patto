@@ -3,14 +3,10 @@ use crate::config;
 use crate::image_cache::ImageCache;
 use crate::search::{SearchDirection, SearchState};
 use crate::tasks::TasksPanel;
+use crate::tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc};
 use crate::wrap::{elem_height, total_height, WrapConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
-use patto::{
-    line_tracker::LineTracker,
-    parser,
-    repository::Repository,
-    tui_renderer::{self, DocElement, FocusableItem, LinkAction, RenderedDoc},
-};
+use patto::{line_tracker::LineTracker, parser, repository::Repository};
 use std::path::{Path, PathBuf};
 
 /// Action returned by `App::handle_key()` to signal side-effects to the caller.
@@ -562,7 +558,7 @@ impl App {
                     // Commit the navigation: drop preview state, keep current view.
                     self.task_preview_state = None;
                     self.tasks.close();
-                    if let Some(path) = uri.to_file_path().ok() {
+                    if let Ok(path) = uri.to_file_path() {
                         if path != self.file_path {
                             // Push history so the user can go back.
                             let content = match std::fs::read_to_string(&path) {

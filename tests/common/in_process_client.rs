@@ -18,15 +18,8 @@ impl InProcessLspClient {
         let workspace_root = workspace.root_uri();
 
         // Create the LspService
-        let (service, socket) = LspService::build(|client| Backend {
-            client,
-            repository: Arc::new(Mutex::new(None)),
-            root_uri: Arc::new(Mutex::new(None)),
-            paper_catalog: PaperCatalog::default(),
-            settings: Arc::new(Mutex::new(PattoSettings::default())),
-            last_valid_task_snapshots: Arc::new(dashmap::DashMap::new()),
-        })
-        .finish();
+        let (service, socket) =
+            LspService::build(|client| Backend::new(client, PaperCatalog::default())).finish();
 
         // Spawn a task to consume and discard all socket messages (client notifications/requests)
         tokio::spawn(async move {
@@ -307,13 +300,7 @@ impl InProcessLspClient {
 
     /// Get the AST for a document from the repository's ast_map
     pub fn get_ast(&self, uri: &Url) -> Option<patto::parser::AstNode> {
-        let normalized = patto::repository::Repository::normalize_url_percent_encoding(uri);
-        self.backend
-            .repository
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|repo| repo.ast_map.get(&normalized).map(|e| e.value().clone()))
+        self.backend.document_ast(uri)
     }
 
     /// Compute the TextEdits that would be applied for newly-completed tasks,
@@ -356,10 +343,6 @@ impl InProcessLspClient {
         &self,
         uri: &tower_lsp::lsp_types::Url,
     ) -> Option<std::collections::HashMap<usize, patto::task::TaskSnapshot>> {
-        let normalized = patto::repository::Repository::normalize_url_percent_encoding(uri);
-        self.backend
-            .last_valid_task_snapshots
-            .get(&normalized)
-            .map(|e| e.value().clone())
+        self.backend.task_snapshots(uri)
     }
 }

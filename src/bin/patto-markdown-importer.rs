@@ -7,12 +7,13 @@
 //!   cat input.md | patto-markdown-importer > output.pn
 
 use std::fs;
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::{Parser as ClapParser, ValueEnum};
 
+use patto::cli::{self, read_input};
 use patto::importer::{
     ConversionReport, ImportMode, ImportOptions, MarkdownImporter, MarkdownInputFlavor,
 };
@@ -128,15 +129,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return batch_convert(&importer, dir, &args);
     }
 
-    // Single file conversion
-    let (input_content, input_name) = match &args.file {
-        Some(path) => (fs::read_to_string(path)?, path.display().to_string()),
-        None => {
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer)?;
-            (buffer, "stdin".to_string())
-        }
-    };
+    let input_content = read_input(args.file.as_deref())?;
+    let input_name = cli::input_name(args.file.as_deref());
 
     let output_name = args
         .output

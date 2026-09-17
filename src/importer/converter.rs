@@ -119,766 +119,23 @@ impl MarkdownImporter {
             report,
         })
     }
-
     /// Convert markdown content to patto AST
     fn convert_to_ast(
         &self,
         markdown: &str,
         report: &mut ConversionReport,
     ) -> Result<AstNode, ImportError> {
-        let mut current_line: usize = 1;
-
-        // Enable all markdown extensions
         let mut options = Options::empty();
         options.insert(Options::ENABLE_TABLES);
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_FOOTNOTES);
 
-        let parser = Parser::new_ext(markdown, options);
-
-        // Create root node (Dummy)
-        let root = AstNode::new("", 0, None, Some(AstNodeKind::Dummy));
-
-        // State tracking
-        let mut indent_level: usize = 0;
-        let mut in_code_block = false;
-        let mut code_lang: String;
-        let mut code_node: Option<AstNode> = None;
-        let mut in_table = false;
-        let mut table_node: Option<AstNode> = None;
-        let mut current_row: Option<AstNode> = None;
-        let mut current_cell: Option<AstNode> = None;
-        let mut in_blockquote = false;
-        let mut quote_node: Option<AstNode> = None;
-        let mut list_stack: Vec<bool> = Vec::new();
-        let mut list_root_node: Option<AstNode> = None; // Root node for top-level list items
-        let mut current_task_status: Option<bool> = None;
-        let mut in_heading = false;
-        let mut heading_level: u8 = 0;
-        let mut heading_contents: Vec<AstNode> = Vec::new();
-        let mut current_line_node: Option<AstNode> = None;
-        let mut pending_contents: Vec<AstNode> = Vec::new();
-        let mut in_emphasis = false;
-        let mut in_strong = false;
-        let mut in_strikethrough = false;
-        let mut in_link = false;
-        let mut link_url = String::new();
-        let mut link_contents: Vec<AstNode> = Vec::new();
-
-        // Route an inline node to the currently active container.
-        // Table cells must be checked before headings/paragraphs, otherwise inline
-        // content produced inside a table (links, images, ...) leaks into the next line.
-        macro_rules! push_inline_content {
-            ($node:expr) => {{
-                let node = $node;
-                if in_table {
-                    if let Some(cell) = current_cell.as_ref() {
-                        cell.add_content(node);
-                    }
-                } else if in_heading {
-                    heading_contents.push(node);
-                } else {
-                    pending_contents.push(node);
-                }
-            }};
+        let mut conversion = Conversion::new(&self.options, report);
+        for event in Parser::new_ext(markdown, options) {
+            conversion.handle(event)?;
         }
-
-        for event in parser {
-            match event {
-                Event::Start(tag) => {
-                    match tag {
-                        Tag::Heading { level, .. } => {
-                            in_heading = true;
-                            heading_level = match level {
-                                HeadingLevel::H1 => 1,
-                                HeadingLevel::H2 => 2,
-                                HeadingLevel::H3 => 3,
-                                HeadingLevel::H4 => 4,
-                                HeadingLevel::H5 => 5,
-                                HeadingLevel::H6 => 6,
-                            };
-                            heading_contents.clear();
-                            report.statistics.increment_feature("headings");
-                        }
-                        Tag::List(ordered) => {
-                            // Flush any pending line content before nested list
-                            if let Some(line_node) = current_line_node.take() {
-                                if !pending_contents.is_empty() {
-                                    for content in pending_contents.drain(..) {
-                                        line_node.add_content(content);
-                                    }
-                                }
-                                // Add task property if applicable
-                                if let Some(checked) = current_task_status.take() {
-                                    self.add_task_property_to_line(&line_node, checked, report);
-                                }
-                                // Add to parent (use indent_level to find correct parent)
-                                if let Some(ref list_root) = list_root_node {
-                                    self.add_child_at_depth(list_root, line_node, indent_level);
-                                } else {
-                                    self.add_child_at_depth(&root, line_node, indent_level);
-                                }
-                            }
-
-                            // If this is a top-level list (no parent list), create a list root
-                            if list_stack.is_empty() {
-                                let list_root = AstNode::line("", current_line, None, None);
-                                root.add_child(list_root.clone());
-                                list_root_node = Some(list_root);
-                            }
-
-                            list_stack.push(ordered.is_some());
-                            report.statistics.increment_feature("lists");
-                        }
-                        Tag::Item => {
-                            indent_level = list_stack.len();
-                            current_task_status = None;
-                            // Create new line node for this list item
-                            let line_node = AstNode::line("", current_line, None, None);
-                            current_line_node = Some(line_node);
-                        }
-                        Tag::CodeBlock(kind) => {
-                            in_code_block = true;
-                            code_lang = match kind {
-                                pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
-                                pulldown_cmark::CodeBlockKind::Indented => String::new(),
-                            };
-                            code_node =
-                                Some(AstNode::code("", current_line, None, &code_lang, false));
-                            report.statistics.increment_feature("code_blocks");
-                        }
-                        Tag::BlockQuote(_) => {
-                            in_blockquote = true;
-                            quote_node = Some(AstNode::quote("", current_line, None));
-                            report.statistics.increment_feature("blockquotes");
-                        }
-                        Tag::Table(_) => {
-                            in_table = true;
-                            table_node = Some(AstNode::table("", current_line, None, None));
-                            report.statistics.increment_feature("tables");
-                        }
-                        Tag::TableHead | Tag::TableRow => {
-                            current_row = Some(AstNode::tablerow("", current_line, None));
-                        }
-                        Tag::TableCell => {
-                            current_cell = Some(AstNode::tablecolumn("", current_line, None));
-                        }
-                        Tag::Emphasis => {
-                            in_emphasis = true;
-                        }
-                        Tag::Strong => {
-                            in_strong = true;
-                        }
-                        Tag::Strikethrough => {
-                            in_strikethrough = true;
-                        }
-                        Tag::Link { dest_url, .. } => {
-                            in_link = true;
-                            link_url = dest_url.to_string();
-                            link_contents.clear();
-                            report.statistics.increment_feature("links");
-                        }
-                        Tag::Image {
-                            dest_url, title, ..
-                        } => {
-                            let alt = if title.is_empty() {
-                                None
-                            } else {
-                                Some(title.as_ref())
-                            };
-                            let img_node = AstNode::image("", current_line, None, &dest_url, alt);
-                            push_inline_content!(img_node);
-                            report.statistics.increment_feature("images");
-                        }
-                        Tag::Paragraph => {
-                            if !in_heading && current_line_node.is_none() {
-                                current_line_node =
-                                    Some(AstNode::line("", current_line, None, None));
-                            }
-                        }
-                        Tag::FootnoteDefinition(_) => match self.options.mode {
-                            ImportMode::Strict => {
-                                return Err(ImportError {
-                                    line: current_line,
-                                    message: "Footnotes are not supported by patto".to_string(),
-                                });
-                            }
-                            ImportMode::Lossy => {
-                                report.add_warning(ImportWarning {
-                                    line: current_line,
-                                    column: None,
-                                    kind: WarningKind::UnsupportedFeature,
-                                    feature: "footnote".to_string(),
-                                    message: "Dropped footnote definition".to_string(),
-                                    suggestion: Some("Move footnote content inline".to_string()),
-                                });
-                                report.statistics.increment_unsupported("footnotes");
-                            }
-                            ImportMode::Preserve => {}
-                        },
-                        _ => {}
-                    }
-                }
-                Event::End(tag_end) => {
-                    match tag_end {
-                        TagEnd::Heading(_) => {
-                            in_heading = false;
-                            // Create line node for heading
-                            if heading_level == 1 {
-                                // H1: plain text + horizontal line
-                                let line_node = AstNode::line("", current_line, None, None);
-                                for content in heading_contents.drain(..) {
-                                    line_node.add_content(content);
-                                }
-                                root.add_child(line_node);
-                                // Add horizontal line
-                                let hr = AstNode::horizontal_line("-----", current_line, None);
-                                root.add_child(hr);
-                            } else {
-                                // H2-H6: bold decoration
-                                let decoration = AstNode::decoration(
-                                    "",
-                                    current_line,
-                                    None,
-                                    1,
-                                    false,
-                                    false,
-                                    false,
-                                );
-                                for content in heading_contents.drain(..) {
-                                    decoration.add_content(content);
-                                }
-                                let line_node = AstNode::line("", current_line, None, None);
-                                line_node.add_content(decoration);
-                                root.add_child(line_node);
-                            }
-                            report.add_warning(ImportWarning {
-                                line: current_line,
-                                column: None,
-                                kind: WarningKind::LossyConversion,
-                                feature: "heading".to_string(),
-                                message: format!(
-                                    "Converted h{} heading to {}",
-                                    heading_level,
-                                    if heading_level == 1 {
-                                        "text with horizontal line"
-                                    } else {
-                                        "emphasized text"
-                                    }
-                                ),
-                                suggestion: None,
-                            });
-                        }
-                        TagEnd::List(_) => {
-                            list_stack.pop();
-                            indent_level = list_stack.len();
-                            // Clear list_root_node when exiting top-level list
-                            if list_stack.is_empty() {
-                                list_root_node = None;
-                            }
-                        }
-                        TagEnd::Item => {
-                            // Finalize the line node with task property if applicable
-                            let properties = if let Some(checked) = current_task_status.take() {
-                                // Extract text content to get due date
-                                let text: String = pending_contents
-                                    .iter()
-                                    .map(|n| n.extract_str().to_string())
-                                    .collect::<Vec<_>>()
-                                    .join("");
-
-                                let status = if checked {
-                                    TaskStatus::Done
-                                } else {
-                                    TaskStatus::Todo
-                                };
-                                let due = self
-                                    .extract_due_date(&text)
-                                    .and_then(|d| {
-                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
-                                    })
-                                    .map(Deadline::Date)
-                                    .unwrap_or(Deadline::Uninterpretable(String::new()));
-
-                                let scheduled = self
-                                    .extract_scheduled_date(&text)
-                                    .and_then(|d| {
-                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
-                                    })
-                                    .map(Deadline::Date);
-
-                                let completed_at = self
-                                    .extract_completed_at_date(&text)
-                                    .and_then(|d| {
-                                        chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()
-                                    })
-                                    .map(Deadline::Date);
-
-                                report.statistics.increment_feature("tasks");
-
-                                Some(vec![Property::Task {
-                                    status,
-                                    status_is_canonical: true,
-                                    due,
-                                    scheduled,
-                                    completed_at,
-                                    started_at: None,
-                                    time_spent: None,
-                                    location: crate::parser::Location::default(),
-                                }])
-                            } else {
-                                None
-                            };
-
-                            // Create line node with properties
-                            let line_node = AstNode::line("", current_line, None, properties);
-                            for content in pending_contents.drain(..) {
-                                line_node.add_content(content);
-                            }
-
-                            // Discard the old line node if any and use the new one
-                            current_line_node.take();
-
-                            // Add to list_root_node if in top-level list, otherwise use add_child_at_depth
-                            if let Some(ref list_root) = list_root_node {
-                                if indent_level == 1 {
-                                    // First-level list item: add as child of list_root
-                                    list_root.add_child(line_node);
-                                } else {
-                                    // Nested list item: add at proper depth within list_root
-                                    // indent_level=2 means child of a first-level item
-                                    self.add_child_at_depth(list_root, line_node, indent_level);
-                                }
-                            } else {
-                                self.add_child_at_depth(&root, line_node, indent_level);
-                            }
-                        }
-                        TagEnd::CodeBlock => {
-                            in_code_block = false;
-                            if let Some(code) = code_node.take() {
-                                // Wrap in a line node
-                                let line_node = AstNode::line("", current_line, None, None);
-                                line_node.add_content(code);
-                                root.add_child(line_node);
-                            }
-                        }
-                        TagEnd::BlockQuote(_) => {
-                            in_blockquote = false;
-                            if let Some(quote) = quote_node.take() {
-                                let line_node = AstNode::line("", current_line, None, None);
-                                line_node.add_content(quote);
-                                root.add_child(line_node);
-                            }
-                        }
-                        TagEnd::Table => {
-                            in_table = false;
-                            if let Some(table) = table_node.take() {
-                                let line_node = AstNode::line("", current_line, None, None);
-                                line_node.add_content(table);
-                                root.add_child(line_node);
-                            }
-                        }
-                        TagEnd::TableHead | TagEnd::TableRow => {
-                            if let (Some(row), Some(table)) =
-                                (current_row.take(), table_node.as_ref())
-                            {
-                                table.add_child(row);
-                            }
-                        }
-                        TagEnd::TableCell => {
-                            if let (Some(cell), Some(row)) =
-                                (current_cell.take(), current_row.as_ref())
-                            {
-                                row.add_content(cell);
-                            }
-                        }
-                        TagEnd::Emphasis => {
-                            in_emphasis = false;
-                        }
-                        TagEnd::Strong => {
-                            in_strong = false;
-                        }
-                        TagEnd::Strikethrough => {
-                            in_strikethrough = false;
-                        }
-                        TagEnd::Link => {
-                            in_link = false;
-                            // Convert link to patto format
-                            let link_node =
-                                self.create_link_node(&link_url, &link_contents, current_line);
-                            link_contents.clear();
-                            push_inline_content!(link_node);
-                        }
-                        TagEnd::Paragraph => {
-                            // Finalize paragraph as line
-                            if let Some(line_node) = current_line_node.take() {
-                                for content in pending_contents.drain(..) {
-                                    line_node.add_content(content);
-                                }
-                                if !in_blockquote {
-                                    root.add_child(line_node);
-                                } else if let Some(quote) = quote_node.as_ref() {
-                                    // Add as quote content
-                                    let quote_content =
-                                        AstNode::quotecontent("", current_line, None, None);
-                                    for content in line_node.value().contents.lock().unwrap().iter()
-                                    {
-                                        quote_content.add_content(content.clone());
-                                    }
-                                    quote.add_child(quote_content);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Event::Text(text) => {
-                    let text_str = text.to_string();
-                    current_line += text_str.matches('\n').count();
-
-                    if in_code_block {
-                        if let Some(code) = code_node.as_ref() {
-                            for line in text_str.lines() {
-                                let code_content = AstNode::codecontent(line, current_line, None);
-                                code.add_child(code_content);
-                            }
-                        }
-                    } else if in_link {
-                        // Link text is collected first: it becomes the link title, and the
-                        // finished link node is routed on TagEnd::Link.
-                        let text_node = AstNode::text(&text_str, current_line, None);
-                        link_contents.push(text_node);
-                    } else {
-                        // Apply decorations
-                        let content = self.create_text_with_decoration(
-                            &text_str,
-                            current_line,
-                            in_strong,
-                            in_emphasis,
-                            in_strikethrough,
-                        );
-                        push_inline_content!(content);
-                    }
-                }
-                Event::Code(code) => {
-                    // Inline code
-                    let code_str = code.to_string();
-                    let inline_code = AstNode::code(&code_str, current_line, None, "", true);
-                    let code_content = AstNode::codecontent(&code_str, current_line, None);
-                    inline_code.add_content(code_content);
-
-                    push_inline_content!(inline_code);
-                    report.statistics.increment_feature("inline_code");
-                }
-                Event::Html(html) => {
-                    let html_str = html.to_string();
-                    current_line += html_str.matches('\n').count();
-
-                    match self.options.mode {
-                        ImportMode::Strict => {
-                            return Err(ImportError {
-                                line: current_line,
-                                message: format!(
-                                    "HTML is not supported by patto: {}",
-                                    html_str.trim()
-                                ),
-                            });
-                        }
-                        ImportMode::Lossy => {
-                            report.add_warning(ImportWarning {
-                                line: current_line,
-                                column: None,
-                                kind: WarningKind::UnsupportedFeature,
-                                feature: "html".to_string(),
-                                message: format!("Dropped HTML: {}", html_str.trim()),
-                                suggestion: Some(
-                                    "Use plain text or patto markup instead".to_string(),
-                                ),
-                            });
-                            report.statistics.increment_unsupported("html");
-                        }
-                        ImportMode::Preserve => {
-                            // Wrap in code block
-                            let code = AstNode::code("", current_line, None, "html", false);
-                            for line in html_str.lines() {
-                                let code_content = AstNode::codecontent(line, current_line, None);
-                                code.add_child(code_content);
-                            }
-                            let line_node = AstNode::line("", current_line, None, None);
-                            line_node.add_content(code);
-                            root.add_child(line_node);
-                            report.add_warning(ImportWarning {
-                                line: current_line,
-                                column: None,
-                                kind: WarningKind::PreservedContent,
-                                feature: "html".to_string(),
-                                message: "Preserved HTML in code block for manual editing"
-                                    .to_string(),
-                                suggestion: None,
-                            });
-                        }
-                    }
-                }
-                Event::SoftBreak | Event::HardBreak => {
-                    current_line += 1;
-                }
-                Event::Rule => {
-                    let hr = AstNode::horizontal_line("---", current_line, None);
-                    root.add_child(hr);
-                    report.statistics.increment_feature("horizontal_rules");
-                }
-                Event::TaskListMarker(checked) => {
-                    current_task_status = Some(checked);
-                }
-                Event::FootnoteReference(name) => match self.options.mode {
-                    ImportMode::Strict => {
-                        return Err(ImportError {
-                            line: current_line,
-                            message: format!("Footnote reference [^{}] is not supported", name),
-                        });
-                    }
-                    ImportMode::Lossy => {
-                        report.add_warning(ImportWarning {
-                            line: current_line,
-                            column: None,
-                            kind: WarningKind::UnsupportedFeature,
-                            feature: "footnote_ref".to_string(),
-                            message: format!("Dropped footnote reference [^{}]", name),
-                            suggestion: Some("Move footnote content inline".to_string()),
-                        });
-                        report.statistics.increment_unsupported("footnotes");
-                    }
-                    ImportMode::Preserve => {
-                        let text = AstNode::text(&format!("[^{}]", name), current_line, None);
-                        push_inline_content!(text);
-                    }
-                },
-                _ => {}
-            }
-        }
-
-        // Flush any remaining content
-        if let Some(line_node) = current_line_node.take() {
-            for content in pending_contents.drain(..) {
-                line_node.add_content(content);
-            }
-            root.add_child(line_node);
-        }
-
-        Ok(root)
-    }
-
-    /// Create a text node with optional decoration
-    fn create_text_with_decoration(
-        &self,
-        text: &str,
-        line: usize,
-        bold: bool,
-        italic: bool,
-        strikethrough: bool,
-    ) -> AstNode {
-        if bold || italic || strikethrough {
-            let fontsize = if bold { 1 } else { 0 };
-            let decoration =
-                AstNode::decoration(text, line, None, fontsize, italic, false, strikethrough);
-            let text_node = AstNode::text(text, line, None);
-            decoration.add_content(text_node);
-            decoration
-        } else {
-            AstNode::text(text, line, None)
-        }
-    }
-
-    /// Create a link node from URL and content
-    fn create_link_node(&self, url: &str, contents: &[AstNode], line: usize) -> AstNode {
-        // Extract link text from contents
-        let link_text: String = contents
-            .iter()
-            .map(|n| n.extract_str().to_string())
-            .collect::<Vec<_>>()
-            .join("");
-
-        // Check if it's a self-anchor link
-        if let Some(stripped_url) = url.strip_prefix('#') {
-            return AstNode::wikilink("", line, None, "", Some(stripped_url));
-        }
-
-        // Check if it's an internal link (ends with .md or .pn)
-        if url.ends_with(".md")
-            || url.ends_with(".pn")
-            || url.contains(".md#")
-            || url.contains(".pn#")
-        {
-            if let Some(hash_pos) = url.find('#') {
-                let (file_part, anchor) = url.split_at(hash_pos);
-                let note_name = file_part.trim_end_matches(".md").trim_end_matches(".pn");
-                return AstNode::wikilink("", line, None, note_name, Some(&anchor[1..]));
-            }
-            let note_name = url.trim_end_matches(".md").trim_end_matches(".pn");
-            return AstNode::wikilink("", line, None, note_name, None);
-        }
-
-        // External URL
-        let title = if link_text.is_empty() || link_text == url {
-            None
-        } else {
-            Some(link_text.as_str())
-        };
-        AstNode::link("", line, None, url, title)
-    }
-
-    /// Add a child node at the specified depth
-    /// depth=1 means it's a top-level list item (child of root)
-    /// depth=2 means it's a nested item (child of the last depth=1 item)
-    fn add_child_at_depth(&self, root: &AstNode, child: AstNode, depth: usize) {
-        if depth <= 1 {
-            // Top-level items go directly under root
-            root.add_child(child);
-            return;
-        }
-
-        // Find the parent at the right depth
-        self.add_child_at_depth_recursive(root, child, depth - 1);
-    }
-
-    fn add_child_at_depth_recursive(&self, node: &AstNode, child: AstNode, remaining_depth: usize) {
-        let children = node.value().children.lock().unwrap();
-        if let Some(last_child) = children.last() {
-            if remaining_depth == 1 {
-                // Add as child of last_child
-                last_child.add_child(child);
-            } else {
-                // Go deeper
-                self.add_child_at_depth_recursive(last_child, child, remaining_depth - 1);
-            }
-        } else {
-            // No children at this level, add here
-            drop(children);
-            node.add_child(child);
-        }
-    }
-
-    /// Add task property to a line node
-    fn add_task_property_to_line(
-        &self,
-        _line_node: &AstNode,
-        checked: bool,
-        report: &mut ConversionReport,
-    ) {
-        // Extract due date from line content
-        let contents = _line_node.value().contents.lock().unwrap();
-        let mut text = String::new();
-        for content in contents.iter() {
-            text.push_str(content.extract_str());
-        }
-        drop(contents);
-
-        let status = if checked {
-            TaskStatus::Done
-        } else {
-            TaskStatus::Todo
-        };
-        let due = self
-            .extract_due_date(&text)
-            .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
-            .map(Deadline::Date);
-
-        // Create new line node with task property
-        // Note: Due to how AstNode works, we can't easily modify the kind after creation
-        // The task property is tracked in the report for now
-        report.statistics.increment_feature("tasks");
-
-        // For now, we'll track this but the actual property setting
-        // would require modifying how AstNode is created
-        let _ = (status, due);
-    }
-
-    fn extract_due_date(&self, text: &str) -> Option<String> {
-        // Pattern: 📅 2024-12-31
-        if let Some(captures) = Regex::new(r"📅\s*(\d{4}-\d{2}-\d{2})")
-            .unwrap()
-            .captures(text)
-        {
-            return captures.get(1).map(|m| m.as_str().to_string());
-        }
-
-        // Pattern: (due: 2024-12-31)
-        if let Some(captures) = Regex::new(r"\(due:\s*(\d{4}-\d{2}-\d{2})\)")
-            .unwrap()
-            .captures(text)
-        {
-            return captures.get(1).map(|m| m.as_str().to_string());
-        }
-
-        // Pattern: [due:: 2024-12-31]
-        if let Some(captures) = Regex::new(r"\[due::\s*(\d{4}-\d{2}-\d{2})\]")
-            .unwrap()
-            .captures(text)
-        {
-            return captures.get(1).map(|m| m.as_str().to_string());
-        }
-
-        // Pattern: @2024-12-31
-        if let Some(captures) = Regex::new(r"@(\d{4}-\d{2}-\d{2})").unwrap().captures(text) {
-            return captures.get(1).map(|m| m.as_str().to_string());
-        }
-
-        None
-    }
-
-    /// Extract scheduled date from markdown task text.
-    /// Recognises: ⏳ YYYY-MM-DD, (scheduled: YYYY-MM-DD), [scheduled:: YYYY-MM-DD]
-    fn extract_scheduled_date(&self, text: &str) -> Option<String> {
-        // Obsidian emoji: ⏳ 2024-12-31
-        if let Some(cap) = Regex::new(r"⏳\s*(\d{4}-\d{2}-\d{2})")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        // Parentheses: (scheduled: 2024-12-31)
-        if let Some(cap) = Regex::new(r"\(scheduled:\s*(\d{4}-\d{2}-\d{2})\)")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        // Dataview: [scheduled:: 2024-12-31]
-        if let Some(cap) = Regex::new(r"\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        None
-    }
-
-    /// Extract completed_at date from markdown task text.
-    /// Recognises: ✅ YYYY-MM-DD, (completed: YYYY-MM-DD), [completed_at:: YYYY-MM-DD]
-    fn extract_completed_at_date(&self, text: &str) -> Option<String> {
-        // Obsidian emoji: ✅ 2024-12-31
-        if let Some(cap) = Regex::new(r"✅\s*(\d{4}-\d{2}-\d{2})")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        // Parentheses: (completed: 2024-12-31)
-        if let Some(cap) = Regex::new(r"\(completed:\s*(\d{4}-\d{2}-\d{2})\)")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        // Dataview: [completed_at:: 2024-12-31]
-        if let Some(cap) = Regex::new(r"\[completed_at::\s*(\d{4}-\d{2}-\d{2})\]")
-            .unwrap()
-            .captures(text)
-        {
-            return cap.get(1).map(|m| m.as_str().to_string());
-        }
-        None
+        Ok(conversion.finish())
     }
 
     /// Strip due date patterns from text
@@ -898,6 +155,635 @@ impl MarkdownImporter {
         }
         result
     }
+}
+
+/// Markdown patto has no way to express.
+struct Unsupported<'a> {
+    feature: &'a str,
+    statistic: &'a str,
+    strict_message: String,
+    lossy_message: String,
+    suggestion: &'a str,
+}
+
+/// A heading being collected; patto has no heading node, so the contents are
+/// buffered and re-emitted as a line when the heading ends.
+struct Heading {
+    level: u8,
+    contents: Vec<AstNode>,
+}
+
+struct Table {
+    node: AstNode,
+    row: Option<AstNode>,
+    cell: Option<AstNode>,
+}
+
+struct Link {
+    url: String,
+    contents: Vec<AstNode>,
+}
+
+/// Nesting of the lists currently open.
+#[derive(Default)]
+struct Lists {
+    /// One entry per open list, `true` when that list is ordered.
+    stack: Vec<bool>,
+    /// Line the outermost list hangs from.
+    root: Option<AstNode>,
+    /// Depth of the item being built, i.e. the stack size when it started.
+    depth: usize,
+    /// `Some` while building a task list item, holding its checkbox state.
+    task_checked: Option<bool>,
+}
+
+#[derive(Default, Clone, Copy)]
+struct Decoration {
+    bold: bool,
+    italic: bool,
+    strikethrough: bool,
+}
+
+/// State of one markdown-to-patto conversion.
+///
+/// A markdown event stream is flat, so each block kind that patto nests keeps an
+/// `Option` here: `Some` means that block is open and new content belongs to it.
+struct Conversion<'a> {
+    options: &'a ImportOptions,
+    report: &'a mut ConversionReport,
+    root: AstNode,
+    /// 1-based line in the markdown source, used for AST locations and warnings.
+    line: usize,
+
+    heading: Option<Heading>,
+    code: Option<AstNode>,
+    quote: Option<AstNode>,
+    table: Option<Table>,
+    link: Option<Link>,
+    lists: Lists,
+    decoration: Decoration,
+
+    /// Line being built, and the inline content collected for it so far.
+    line_node: Option<AstNode>,
+    pending: Vec<AstNode>,
+}
+
+impl<'a> Conversion<'a> {
+    fn new(options: &'a ImportOptions, report: &'a mut ConversionReport) -> Self {
+        Self {
+            options,
+            report,
+            root: AstNode::new("", 0, None, Some(AstNodeKind::Dummy)),
+            line: 1,
+            heading: None,
+            code: None,
+            quote: None,
+            table: None,
+            link: None,
+            lists: Lists::default(),
+            decoration: Decoration::default(),
+            line_node: None,
+            pending: Vec::new(),
+        }
+    }
+
+    fn finish(mut self) -> AstNode {
+        if let Some(line_node) = self.line_node.take() {
+            for content in self.pending.drain(..) {
+                line_node.add_content(content);
+            }
+            self.root.add_child(line_node);
+        }
+        self.root
+    }
+
+    fn handle(&mut self, event: Event) -> Result<(), ImportError> {
+        match event {
+            Event::Start(tag) => self.start(tag)?,
+            Event::End(tag) => self.end(tag),
+            Event::Text(text) => self.text(&text),
+            Event::Code(code) => self.inline_code(&code),
+            Event::Html(html) => self.html(&html)?,
+            Event::SoftBreak | Event::HardBreak => self.line += 1,
+            Event::Rule => {
+                self.root
+                    .add_child(AstNode::horizontal_line("-----", self.line, None));
+                self.report.statistics.increment_feature("horizontal_rules");
+            }
+            Event::TaskListMarker(checked) => self.lists.task_checked = Some(checked),
+            Event::FootnoteReference(name) => self.footnote_reference(&name)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn start(&mut self, tag: Tag) -> Result<(), ImportError> {
+        match tag {
+            Tag::Heading { level, .. } => {
+                self.heading = Some(Heading {
+                    level: match level {
+                        HeadingLevel::H1 => 1,
+                        HeadingLevel::H2 => 2,
+                        HeadingLevel::H3 => 3,
+                        HeadingLevel::H4 => 4,
+                        HeadingLevel::H5 => 5,
+                        HeadingLevel::H6 => 6,
+                    },
+                    contents: Vec::new(),
+                });
+                self.report.statistics.increment_feature("headings");
+            }
+            Tag::List(ordered) => self.start_list(ordered.is_some()),
+            Tag::Item => {
+                self.lists.depth = self.lists.stack.len();
+                self.lists.task_checked = None;
+                self.line_node = Some(AstNode::line("", self.line, None, None));
+            }
+            Tag::CodeBlock(kind) => {
+                let lang = match kind {
+                    pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
+                    pulldown_cmark::CodeBlockKind::Indented => String::new(),
+                };
+                self.code = Some(AstNode::code("", self.line, None, &lang, false));
+                self.report.statistics.increment_feature("code_blocks");
+            }
+            Tag::BlockQuote(_) => {
+                self.quote = Some(AstNode::quote("", self.line, None));
+                self.report.statistics.increment_feature("blockquotes");
+            }
+            Tag::Table(_) => {
+                self.table = Some(Table {
+                    node: AstNode::table("", self.line, None, None),
+                    row: None,
+                    cell: None,
+                });
+                self.report.statistics.increment_feature("tables");
+            }
+            Tag::TableHead | Tag::TableRow => {
+                let row = AstNode::tablerow("", self.line, None);
+                if let Some(table) = self.table.as_mut() {
+                    table.row = Some(row);
+                }
+            }
+            Tag::TableCell => {
+                let cell = AstNode::tablecolumn("", self.line, None);
+                if let Some(table) = self.table.as_mut() {
+                    table.cell = Some(cell);
+                }
+            }
+            Tag::Emphasis => self.decoration.italic = true,
+            Tag::Strong => self.decoration.bold = true,
+            Tag::Strikethrough => self.decoration.strikethrough = true,
+            Tag::Link { dest_url, .. } => {
+                self.link = Some(Link {
+                    url: dest_url.to_string(),
+                    contents: Vec::new(),
+                });
+                self.report.statistics.increment_feature("links");
+            }
+            Tag::Image {
+                dest_url, title, ..
+            } => {
+                let alt = (!title.is_empty()).then(|| title.as_ref());
+                let image = AstNode::image("", self.line, None, &dest_url, alt);
+                self.push_inline(image);
+                self.report.statistics.increment_feature("images");
+            }
+            Tag::Paragraph => {
+                if self.heading.is_none() && self.line_node.is_none() {
+                    self.line_node = Some(AstNode::line("", self.line, None, None));
+                }
+            }
+            Tag::FootnoteDefinition(_) => {
+                self.handle_unsupported(Unsupported {
+                    feature: "footnote",
+                    statistic: "footnotes",
+                    strict_message: "Footnotes are not supported by patto".to_string(),
+                    lossy_message: "Dropped footnote definition".to_string(),
+                    suggestion: "Move footnote content inline",
+                })?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn end(&mut self, tag: TagEnd) {
+        match tag {
+            TagEnd::Heading(_) => self.end_heading(),
+            TagEnd::List(_) => {
+                self.lists.stack.pop();
+                self.lists.depth = self.lists.stack.len();
+                if self.lists.stack.is_empty() {
+                    self.lists.root = None;
+                }
+            }
+            TagEnd::Item => self.end_item(),
+            TagEnd::CodeBlock => {
+                if let Some(code) = self.code.take() {
+                    self.add_block_line(code);
+                }
+            }
+            TagEnd::BlockQuote(_) => {
+                if let Some(quote) = self.quote.take() {
+                    self.add_block_line(quote);
+                }
+            }
+            TagEnd::Table => {
+                if let Some(table) = self.table.take() {
+                    self.add_block_line(table.node);
+                }
+            }
+            TagEnd::TableHead | TagEnd::TableRow => {
+                if let Some(table) = self.table.as_mut() {
+                    if let Some(row) = table.row.take() {
+                        table.node.add_child(row);
+                    }
+                }
+            }
+            TagEnd::TableCell => {
+                if let Some(table) = self.table.as_mut() {
+                    if let (Some(cell), Some(row)) = (table.cell.take(), table.row.as_ref()) {
+                        row.add_content(cell);
+                    }
+                }
+            }
+            TagEnd::Emphasis => self.decoration.italic = false,
+            TagEnd::Strong => self.decoration.bold = false,
+            TagEnd::Strikethrough => self.decoration.strikethrough = false,
+            TagEnd::Link => {
+                if let Some(link) = self.link.take() {
+                    let node = link_node(&link.url, &link.contents, self.line);
+                    self.push_inline(node);
+                }
+            }
+            TagEnd::Paragraph => self.end_paragraph(),
+            _ => {}
+        }
+    }
+
+    fn text(&mut self, text: &str) {
+        self.line += text.matches('\n').count();
+
+        if let Some(code) = self.code.as_ref() {
+            for line in text.lines() {
+                code.add_child(AstNode::codecontent(line, self.line, None));
+            }
+        } else if let Some(link) = self.link.as_mut() {
+            // Link text is the link title; the finished link is routed on TagEnd::Link.
+            link.contents.push(AstNode::text(text, self.line, None));
+        } else {
+            let node = decorated_text(text, self.line, self.decoration);
+            self.push_inline(node);
+        }
+    }
+
+    fn inline_code(&mut self, code: &str) {
+        let node = AstNode::code(code, self.line, None, "", true);
+        node.add_content(AstNode::codecontent(code, self.line, None));
+        self.push_inline(node);
+        self.report.statistics.increment_feature("inline_code");
+    }
+
+    fn html(&mut self, html: &str) -> Result<(), ImportError> {
+        self.line += html.matches('\n').count();
+
+        let preserve = self.handle_unsupported(Unsupported {
+            feature: "html",
+            statistic: "html",
+            strict_message: format!("HTML is not supported by patto: {}", html.trim()),
+            lossy_message: format!("Dropped HTML: {}", html.trim()),
+            suggestion: "Use plain text or patto markup instead",
+        })?;
+        if !preserve {
+            return Ok(());
+        }
+
+        let code = AstNode::code("", self.line, None, "html", false);
+        for line in html.lines() {
+            code.add_child(AstNode::codecontent(line, self.line, None));
+        }
+        self.add_block_line(code);
+        self.report.add_warning(ImportWarning {
+            line: self.line,
+            column: None,
+            kind: WarningKind::PreservedContent,
+            feature: "html".to_string(),
+            message: "Preserved HTML in code block for manual editing".to_string(),
+            suggestion: None,
+        });
+        Ok(())
+    }
+
+    fn footnote_reference(&mut self, name: &str) -> Result<(), ImportError> {
+        let preserve = self.handle_unsupported(Unsupported {
+            feature: "footnote_ref",
+            statistic: "footnotes",
+            strict_message: format!("Footnote reference [^{}] is not supported", name),
+            lossy_message: format!("Dropped footnote reference [^{}]", name),
+            suggestion: "Move footnote content inline",
+        })?;
+        if preserve {
+            let text = AstNode::text(&format!("[^{}]", name), self.line, None);
+            self.push_inline(text);
+        }
+        Ok(())
+    }
+
+    /// Apply the configured import mode. Returns `true` when the caller should
+    /// preserve the content itself.
+    fn handle_unsupported(&mut self, unsupported: Unsupported) -> Result<bool, ImportError> {
+        match self.options.mode {
+            ImportMode::Strict => Err(ImportError {
+                line: self.line,
+                message: unsupported.strict_message,
+            }),
+            ImportMode::Lossy => {
+                self.report.add_warning(ImportWarning {
+                    line: self.line,
+                    column: None,
+                    kind: WarningKind::UnsupportedFeature,
+                    feature: unsupported.feature.to_string(),
+                    message: unsupported.lossy_message,
+                    suggestion: Some(unsupported.suggestion.to_string()),
+                });
+                self.report
+                    .statistics
+                    .increment_unsupported(unsupported.statistic);
+                Ok(false)
+            }
+            ImportMode::Preserve => Ok(true),
+        }
+    }
+
+    /// Route inline content to whichever container is open.
+    ///
+    /// Table cells are checked first: content produced inside a table would
+    /// otherwise leak into the next line.
+    fn push_inline(&mut self, node: AstNode) {
+        if let Some(table) = self.table.as_ref() {
+            if let Some(cell) = table.cell.as_ref() {
+                cell.add_content(node);
+            }
+        } else if let Some(heading) = self.heading.as_mut() {
+            heading.contents.push(node);
+        } else {
+            self.pending.push(node);
+        }
+    }
+
+    /// Patto blocks live inside a line, so wrap and append at the top level.
+    fn add_block_line(&self, block: AstNode) {
+        let line_node = AstNode::line("", self.line, None, None);
+        line_node.add_content(block);
+        self.root.add_child(line_node);
+    }
+
+    fn start_list(&mut self, ordered: bool) {
+        // A nested list interrupts its parent item, so close that item's line first.
+        if let Some(line_node) = self.line_node.take() {
+            for content in self.pending.drain(..) {
+                line_node.add_content(content);
+            }
+            if self.lists.task_checked.take().is_some() {
+                self.report.statistics.increment_feature("tasks");
+            }
+            self.attach_list_item(line_node);
+        }
+
+        if self.lists.stack.is_empty() {
+            let list_root = AstNode::line("", self.line, None, None);
+            self.root.add_child(list_root.clone());
+            self.lists.root = Some(list_root);
+        }
+
+        self.lists.stack.push(ordered);
+        self.report.statistics.increment_feature("lists");
+    }
+
+    fn end_item(&mut self) {
+        let checked = self.lists.task_checked.take();
+        let properties = checked.map(|checked| self.task_property(checked));
+
+        let line_node = AstNode::line("", self.line, None, properties);
+        for content in self.pending.drain(..) {
+            line_node.add_content(content);
+        }
+
+        // The line created on Tag::Item was only a placeholder.
+        self.line_node = None;
+        self.attach_list_item(line_node);
+    }
+
+    /// The task property for a checklist item, with the dates written in its text.
+    fn task_property(&mut self, checked: bool) -> Vec<Property> {
+        let text: String = self.pending.iter().map(|node| node.extract_str()).collect();
+        let date = |value: Option<String>| {
+            value
+                .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
+                .map(Deadline::Date)
+        };
+
+        self.report.statistics.increment_feature("tasks");
+        vec![Property::Task {
+            status: if checked {
+                TaskStatus::Done
+            } else {
+                TaskStatus::Todo
+            },
+            status_is_canonical: true,
+            due: date(extract_due_date(&text)).unwrap_or(Deadline::Uninterpretable(String::new())),
+            scheduled: date(extract_scheduled_date(&text)),
+            completed_at: date(extract_completed_at_date(&text)),
+            started_at: None,
+            time_spent: None,
+            location: crate::parser::Location::default(),
+        }]
+    }
+
+    fn attach_list_item(&self, line_node: AstNode) {
+        let parent = self.lists.root.as_ref().unwrap_or(&self.root);
+        add_child_at_depth(parent, line_node, self.lists.depth);
+    }
+
+    fn end_heading(&mut self) {
+        let Some(heading) = self.heading.take() else {
+            return;
+        };
+
+        let line_node = AstNode::line("", self.line, None, None);
+        if heading.level == 1 {
+            for content in heading.contents {
+                line_node.add_content(content);
+            }
+            self.root.add_child(line_node);
+            self.root
+                .add_child(AstNode::horizontal_line("-----", self.line, None));
+        } else {
+            let decoration = AstNode::decoration("", self.line, None, 1, false, false, false);
+            for content in heading.contents {
+                decoration.add_content(content);
+            }
+            line_node.add_content(decoration);
+            self.root.add_child(line_node);
+        }
+
+        self.report.add_warning(ImportWarning {
+            line: self.line,
+            column: None,
+            kind: WarningKind::LossyConversion,
+            feature: "heading".to_string(),
+            message: format!(
+                "Converted h{} heading to {}",
+                heading.level,
+                if heading.level == 1 {
+                    "text with horizontal line"
+                } else {
+                    "emphasized text"
+                }
+            ),
+            suggestion: None,
+        });
+    }
+
+    fn end_paragraph(&mut self) {
+        let Some(line_node) = self.line_node.take() else {
+            return;
+        };
+        for content in self.pending.drain(..) {
+            line_node.add_content(content);
+        }
+
+        match self.quote.as_ref() {
+            None => self.root.add_child(line_node),
+            Some(quote) => {
+                let quote_content = AstNode::quotecontent("", self.line, None, None);
+                for content in line_node.contents().iter() {
+                    quote_content.add_content(content.clone());
+                }
+                quote.add_child(quote_content);
+            }
+        }
+    }
+}
+
+fn decorated_text(text: &str, line: usize, decoration: Decoration) -> AstNode {
+    let Decoration {
+        bold,
+        italic,
+        strikethrough,
+    } = decoration;
+    if !(bold || italic || strikethrough) {
+        return AstNode::text(text, line, None);
+    }
+
+    let fontsize = if bold { 1 } else { 0 };
+    let node = AstNode::decoration(text, line, None, fontsize, italic, false, strikethrough);
+    node.add_content(AstNode::text(text, line, None));
+    node
+}
+
+/// Convert a markdown link to the closest patto equivalent: a wiki link for
+/// anchors and notes, a plain link otherwise.
+fn link_node(url: &str, contents: &[AstNode], line: usize) -> AstNode {
+    if let Some(anchor) = url.strip_prefix('#') {
+        return AstNode::wikilink("", line, None, "", Some(anchor));
+    }
+
+    let is_note = url.ends_with(".md")
+        || url.ends_with(".pn")
+        || url.contains(".md#")
+        || url.contains(".pn#");
+    if is_note {
+        return match url.split_once('#') {
+            Some((file, anchor)) => {
+                let note = file.trim_end_matches(".md").trim_end_matches(".pn");
+                AstNode::wikilink("", line, None, note, Some(anchor))
+            }
+            None => {
+                let note = url.trim_end_matches(".md").trim_end_matches(".pn");
+                AstNode::wikilink("", line, None, note, None)
+            }
+        };
+    }
+
+    let text: String = contents.iter().map(|node| node.extract_str()).collect();
+    let title = (!text.is_empty() && text != url).then_some(text.as_str());
+    AstNode::link("", line, None, url, title)
+}
+
+/// Attach `child` under the item chain of `root`, `depth` levels down.
+/// `depth <= 1` makes it a direct child.
+fn add_child_at_depth(root: &AstNode, child: AstNode, depth: usize) {
+    if depth <= 1 {
+        root.add_child(child);
+        return;
+    }
+    add_child_at_depth_recursive(root, child, depth - 1);
+}
+
+fn add_child_at_depth_recursive(node: &AstNode, child: AstNode, remaining_depth: usize) {
+    let children = node.children();
+    let Some(last_child) = children.last().cloned() else {
+        drop(children);
+        node.add_child(child);
+        return;
+    };
+    drop(children);
+
+    if remaining_depth == 1 {
+        last_child.add_child(child);
+    } else {
+        add_child_at_depth_recursive(&last_child, child, remaining_depth - 1);
+    }
+}
+
+/// Due date written as `📅 D`, `(due: D)`, `[due:: D]` or `@D`.
+fn extract_due_date(text: &str) -> Option<String> {
+    first_capture(
+        text,
+        &[
+            r"📅\s*(\d{4}-\d{2}-\d{2})",
+            r"\(due:\s*(\d{4}-\d{2}-\d{2})\)",
+            r"\[due::\s*(\d{4}-\d{2}-\d{2})\]",
+            r"@(\d{4}-\d{2}-\d{2})",
+        ],
+    )
+}
+
+/// Scheduled date written as `⏳ D`, `(scheduled: D)` or `[scheduled:: D]`.
+fn extract_scheduled_date(text: &str) -> Option<String> {
+    first_capture(
+        text,
+        &[
+            r"⏳\s*(\d{4}-\d{2}-\d{2})",
+            r"\(scheduled:\s*(\d{4}-\d{2}-\d{2})\)",
+            r"\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]",
+        ],
+    )
+}
+
+/// Completion date written as `✅ D`, `(completed: D)` or `[completed_at:: D]`.
+fn extract_completed_at_date(text: &str) -> Option<String> {
+    first_capture(
+        text,
+        &[
+            r"✅\s*(\d{4}-\d{2}-\d{2})",
+            r"\(completed:\s*(\d{4}-\d{2}-\d{2})\)",
+            r"\[completed_at::\s*(\d{4}-\d{2}-\d{2})\]",
+        ],
+    )
+}
+
+/// First capture group matched by any of `patterns`, tried in order.
+fn first_capture(text: &str, patterns: &[&str]) -> Option<String> {
+    patterns.iter().find_map(|pattern| {
+        Regex::new(pattern)
+            .unwrap()
+            .captures(text)?
+            .get(1)
+            .map(|m| m.as_str().to_string())
+    })
 }
 
 #[cfg(test)]
@@ -1046,7 +932,7 @@ mod tests {
     #[test]
     fn test_horizontal_rule() {
         let result = import_lossy("---");
-        assert!(result.patto_content.contains("---"));
+        assert!(result.patto_content.contains("-----"));
     }
 
     #[test]
@@ -1096,7 +982,7 @@ mod tests {
     #[test]
     fn test_lossy_mode_drops_html() {
         let result = import_lossy("<div>html</div>");
-        assert!(result.report.warnings.len() >= 1);
+        assert!(!result.report.warnings.is_empty());
         assert!(result.report.warnings.iter().any(|w| w.feature == "html"));
     }
 
@@ -1229,25 +1115,23 @@ mod tests {
 
     #[test]
     fn test_extract_due_date() {
-        let importer = MarkdownImporter::new(ImportOptions::default());
-
         assert_eq!(
-            importer.extract_due_date("task 📅 2024-12-31"),
+            extract_due_date("task 📅 2024-12-31"),
             Some("2024-12-31".to_string())
         );
         assert_eq!(
-            importer.extract_due_date("task (due: 2024-12-31)"),
+            extract_due_date("task (due: 2024-12-31)"),
             Some("2024-12-31".to_string())
         );
         assert_eq!(
-            importer.extract_due_date("task [due:: 2024-12-31]"),
+            extract_due_date("task [due:: 2024-12-31]"),
             Some("2024-12-31".to_string())
         );
         assert_eq!(
-            importer.extract_due_date("task @2024-12-31"),
+            extract_due_date("task @2024-12-31"),
             Some("2024-12-31".to_string())
         );
-        assert_eq!(importer.extract_due_date("task without date"), None);
+        assert_eq!(extract_due_date("task without date"), None);
     }
 
     #[test]
