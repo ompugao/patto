@@ -56,6 +56,20 @@ Future<List<NoteMeta>> searchNotes({
   limit: limit,
 );
 
+/// Notes whose name or contents contain `query`, case-insensitively, with the
+/// first `max_lines_per_note` matching lines of each.
+Future<List<TextSearchHit>> searchText({
+  required String root,
+  required String query,
+  required int maxNotes,
+  required int maxLinesPerNote,
+}) => RustLib.instance.api.crateFrbApiSearchText(
+  root: root,
+  query: query,
+  maxNotes: maxNotes,
+  maxLinesPerNote: maxLinesPerNote,
+);
+
 String? resolveWikiLink({required String root, required String name}) =>
     RustLib.instance.api.crateFrbApiResolveWikiLink(root: root, name: name);
 

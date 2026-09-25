@@ -21,6 +21,8 @@ class BlockWidget extends StatelessWidget {
     required this.root,
     this.textScale = 1.0,
     this.highlighted = false,
+    this.matched = false,
+    this.searchTerm,
     this.onTaskTap,
     this.onLongPress,
   });
@@ -35,6 +37,11 @@ class BlockWidget extends StatelessWidget {
   /// draws so code, math and tables grow with the prose.
   final double textScale;
   final bool highlighted;
+
+  /// Contains the text being searched for in the note; tinted so matches stand
+  /// out while scrolling.
+  final bool matched;
+  final String? searchTerm;
   final void Function(Block block)? onTaskTap;
   final void Function(Block block)? onLongPress;
 
@@ -83,7 +90,11 @@ class BlockWidget extends StatelessWidget {
 
     final body = Container(
       width: double.infinity,
-      color: highlighted ? theme.colorScheme.primaryContainer : null,
+      color: highlighted
+          ? theme.colorScheme.primaryContainer
+          : matched
+          ? theme.colorScheme.tertiaryContainer.withValues(alpha: 0.35)
+          : null,
       padding: EdgeInsets.fromLTRB(
         16 + block.depth * indentPerLevel,
         2,
@@ -108,6 +119,7 @@ class BlockWidget extends StatelessWidget {
       noteRoot: root,
       style: _bodyStyle(theme),
       strikeThrough: done,
+      searchTerm: searchTerm,
       trailing: task?.due != null && !done
           ? WidgetSpan(
               alignment: PlaceholderAlignment.middle,

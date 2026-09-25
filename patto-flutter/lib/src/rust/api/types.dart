@@ -341,3 +341,61 @@ class TaskInfo {
 }
 
 enum TaskStatus { todo, doing, paused, done }
+
+/// One line of a note that contains the searched text.
+class TextMatch {
+  /// 0-based source line.
+  final int row;
+
+  /// The line, trimmed, and clipped around the match when it is long.
+  final String line;
+
+  const TextMatch({required this.row, required this.line});
+
+  @override
+  int get hashCode => row.hashCode ^ line.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TextMatch &&
+          runtimeType == other.runtimeType &&
+          row == other.row &&
+          line == other.line;
+}
+
+/// A note whose name or contents contain the searched text.
+class TextSearchHit {
+  final NoteMeta note;
+  final bool nameMatches;
+
+  /// The first few matching lines, in source order.
+  final List<TextMatch> matches;
+
+  /// Every matching line, including those left out of `matches`.
+  final int totalMatches;
+
+  const TextSearchHit({
+    required this.note,
+    required this.nameMatches,
+    required this.matches,
+    required this.totalMatches,
+  });
+
+  @override
+  int get hashCode =>
+      note.hashCode ^
+      nameMatches.hashCode ^
+      matches.hashCode ^
+      totalMatches.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TextSearchHit &&
+          runtimeType == other.runtimeType &&
+          note == other.note &&
+          nameMatches == other.nameMatches &&
+          matches == other.matches &&
+          totalMatches == other.totalMatches;
+}

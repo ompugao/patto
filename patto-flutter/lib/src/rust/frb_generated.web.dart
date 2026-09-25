@@ -183,6 +183,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TaskItem> dco_decode_list_task_item(dynamic raw);
 
   @protected
+  List<TextMatch> dco_decode_list_text_match(dynamic raw);
+
+  @protected
+  List<TextSearchHit> dco_decode_list_text_search_hit(dynamic raw);
+
+  @protected
   List<TwoHop> dco_decode_list_two_hop(dynamic raw);
 
   @protected
@@ -247,6 +253,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskStatus dco_decode_task_status(dynamic raw);
+
+  @protected
+  TextMatch dco_decode_text_match(dynamic raw);
+
+  @protected
+  TextSearchHit dco_decode_text_search_hit(dynamic raw);
 
   @protected
   TwoHop dco_decode_two_hop(dynamic raw);
@@ -431,6 +443,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TaskItem> sse_decode_list_task_item(SseDeserializer deserializer);
 
   @protected
+  List<TextMatch> sse_decode_list_text_match(SseDeserializer deserializer);
+
+  @protected
+  List<TextSearchHit> sse_decode_list_text_search_hit(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<TwoHop> sse_decode_list_two_hop(SseDeserializer deserializer);
 
   @protected
@@ -497,6 +517,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskStatus sse_decode_task_status(SseDeserializer deserializer);
+
+  @protected
+  TextMatch sse_decode_text_match(SseDeserializer deserializer);
+
+  @protected
+  TextSearchHit sse_decode_text_search_hit(SseDeserializer deserializer);
 
   @protected
   TwoHop sse_decode_two_hop(SseDeserializer deserializer);
@@ -727,6 +753,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_task_item(List<TaskItem> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_text_match(
+    List<TextMatch> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_text_search_hit(
+    List<TextSearchHit> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_two_hop(List<TwoHop> self, SseSerializer serializer);
 
   @protected
@@ -803,6 +841,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_task_status(TaskStatus self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_text_match(TextMatch self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_text_search_hit(TextSearchHit self, SseSerializer serializer);
 
   @protected
   void sse_encode_two_hop(TwoHop self, SseSerializer serializer);

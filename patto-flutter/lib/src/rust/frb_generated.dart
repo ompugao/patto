@@ -75,7 +75,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 541956740;
+  int get rustContentHash => -593627914;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -167,6 +167,13 @@ abstract class RustLibApi extends BaseApi {
     required String root,
     required String query,
     required int limit,
+  });
+
+  Future<List<TextSearchHit>> crateFrbApiSearchText({
+    required String root,
+    required String query,
+    required int maxNotes,
+    required int maxLinesPerNote,
   });
 
   Future<TaskEditResult> crateFrbApiSetTaskStatus({
@@ -892,6 +899,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<List<TextSearchHit>> crateFrbApiSearchText({
+    required String root,
+    required String query,
+    required int maxNotes,
+    required int maxLinesPerNote,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(root, serializer);
+          sse_encode_String(query, serializer);
+          sse_encode_u_32(maxNotes, serializer);
+          sse_encode_u_32(maxLinesPerNote, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_text_search_hit,
+          decodeErrorData: sse_decode_patto_error,
+        ),
+        constMeta: kCrateFrbApiSearchTextConstMeta,
+        argValues: [root, query, maxNotes, maxLinesPerNote],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFrbApiSearchTextConstMeta => const TaskConstMeta(
+    debugName: "search_text",
+    argNames: ["root", "query", "maxNotes", "maxLinesPerNote"],
+  );
+
+  @override
   Future<TaskEditResult> crateFrbApiSetTaskStatus({
     required String root,
     required String relPath,
@@ -909,7 +954,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -943,7 +988,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -979,7 +1024,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1459,6 +1504,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TextMatch> dco_decode_list_text_match(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_text_match).toList();
+  }
+
+  @protected
+  List<TextSearchHit> dco_decode_list_text_search_hit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_text_search_hit).toList();
+  }
+
+  @protected
   List<TwoHop> dco_decode_list_two_hop(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_two_hop).toList();
@@ -1742,6 +1799,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskStatus dco_decode_task_status(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return TaskStatus.values[raw as int];
+  }
+
+  @protected
+  TextMatch dco_decode_text_match(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return TextMatch(
+      row: dco_decode_u_32(arr[0]),
+      line: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  TextSearchHit dco_decode_text_search_hit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return TextSearchHit(
+      note: dco_decode_note_meta(arr[0]),
+      nameMatches: dco_decode_bool(arr[1]),
+      matches: dco_decode_list_text_match(arr[2]),
+      totalMatches: dco_decode_u_32(arr[3]),
+    );
   }
 
   @protected
@@ -2324,6 +2407,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TextMatch> sse_decode_list_text_match(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TextMatch>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_text_match(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<TextSearchHit> sse_decode_list_text_search_hit(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TextSearchHit>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_text_search_hit(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<TwoHop> sse_decode_list_two_hop(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2650,6 +2759,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return TaskStatus.values[inner];
+  }
+
+  @protected
+  TextMatch sse_decode_text_match(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_row = sse_decode_u_32(deserializer);
+    var var_line = sse_decode_String(deserializer);
+    return TextMatch(row: var_row, line: var_line);
+  }
+
+  @protected
+  TextSearchHit sse_decode_text_search_hit(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_note = sse_decode_note_meta(deserializer);
+    var var_nameMatches = sse_decode_bool(deserializer);
+    var var_matches = sse_decode_list_text_match(deserializer);
+    var var_totalMatches = sse_decode_u_32(deserializer);
+    return TextSearchHit(
+      note: var_note,
+      nameMatches: var_nameMatches,
+      matches: var_matches,
+      totalMatches: var_totalMatches,
+    );
   }
 
   @protected
@@ -3209,6 +3341,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_text_match(
+    List<TextMatch> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_text_match(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_text_search_hit(
+    List<TextSearchHit> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_text_search_hit(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_two_hop(List<TwoHop> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
@@ -3481,6 +3637,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_task_status(TaskStatus self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_text_match(TextMatch self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.row, serializer);
+    sse_encode_String(self.line, serializer);
+  }
+
+  @protected
+  void sse_encode_text_search_hit(
+    TextSearchHit self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_note_meta(self.note, serializer);
+    sse_encode_bool(self.nameMatches, serializer);
+    sse_encode_list_text_match(self.matches, serializer);
+    sse_encode_u_32(self.totalMatches, serializer);
   }
 
   @protected
