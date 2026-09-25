@@ -5,6 +5,7 @@ import { MathJax } from 'better-react-mathjax';
 import CodeBlock from './CodeBlock';
 import ImageLightbox from './ImageLightbox';
 import TaskIcon, { type Property, type TaskStatus, type Deadline, deadlineText, deadlineChipClass } from './TaskIcon';
+import { bulletMarker, useBulletStyle } from './BulletStyle';
 
 // Matches the actual JSON shape from the Rust backend:
 // AstNode is #[serde(transparent)] -> Annotation<AstNodeInternal>
@@ -75,7 +76,13 @@ const InlineContents: React.FC<{ nodes: AstNode[]; onWikiLinkClick: (l: string, 
     </>
 );
 
-export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, a?: string) => void }> = ({ node, onWikiLinkClick }) => {
+export const RenderNode: React.FC<{
+    node: AstNode;
+    onWikiLinkClick: (l: string, a?: string) => void;
+    /** Nesting level of a line; 0 for top-level lines. */
+    depth?: number;
+}> = ({ node, onWikiLinkClick, depth = 0 }) => {
+    const bulletStyle = useBulletStyle();
     const kind = node.value?.kind;
     const contents = node.value?.contents ?? [];
     const children = node.value?.children ?? [];
@@ -98,11 +105,14 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
             const taskStatus = taskProp?.Task.status ?? null;
             const isDone = taskStatus === 'Done';
             const due = taskProp?.Task.due ?? null;
+            // A task's status icon already marks the line
+            const marker = taskStatus ? null : bulletMarker(bulletStyle, depth);
 
             const inner = (
                 <div className={`leading-snug min-h-[1.5em]${isQuote ? ' text-slate-500' : ''}`} data-line={node.location.row}>
                     {/* Use div instead of span so block-level content nodes (e.g. HorizontalLine) render correctly */}
                     <div className="flex items-baseline gap-1 flex-wrap">
+                        {marker && <span className="text-slate-400 select-none w-3 shrink-0 text-center" aria-hidden>{marker}</span>}
                         {taskStatus && <TaskIcon status={taskStatus} />}
                         <div className={`flex-1 ${isDone ? 'line-through text-slate-400' : ''}`}>
                             {contents.length > 0
@@ -117,8 +127,8 @@ export const RenderNode: React.FC<{ node: AstNode; onWikiLinkClick: (l: string, 
                         )}
                     </div>
                     {children.length > 0 && (
-                        <div className="pl-5 border-l border-slate-100 ml-1 mt-[0.375em] space-y-[0.375em]">
-                            {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} />)}
+                        <div className={`pl-5 border-l ${bulletStyle === 'guide' ? 'border-slate-100' : 'border-transparent'} ml-1 mt-[0.375em] space-y-[0.375em]`}>
+                            {children.map((c, i) => <RenderNode key={i} node={c} onWikiLinkClick={onWikiLinkClick} depth={depth + 1} />)}
                         </div>
                     )}
                 </div>

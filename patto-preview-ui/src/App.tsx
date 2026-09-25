@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
 import PrintRenderer from './components/PrintRenderer'
-import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
+import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff, List } from 'lucide-react'
 import type { FileEntry, ServerMessage } from './protocol'
 import { noteFromLocation, useNoteHistory } from './hooks/useNoteHistory'
 import { usePreviewSocket } from './hooks/usePreviewSocket'
+import { BULLET_STYLES, BulletStyleContext, usePersistedBulletStyle, type BulletStyle } from './components/BulletStyle'
 
 const byNewest = (entries: FileEntry[]) => [...entries].sort((a, b) => b.modified - a.modified)
 
@@ -18,6 +19,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const [hoveredFile, setHoveredFile] = useState<string | null>(null)
+  const [bulletStyle, setBulletStyle] = usePersistedBulletStyle()
 
   // Socket callbacks can run before React has re-rendered, so they read the
   // selection from a ref that moves in the same tick as the state does.
@@ -246,6 +248,20 @@ function App() {
             })
           )}
         </div>
+
+        {/* View settings */}
+        <div className="px-3 py-2 border-t border-slate-200 min-w-[17rem] flex items-center gap-2 text-xs text-slate-500">
+          <List size={14} className="text-slate-400" />
+          <label htmlFor="bullet-style">Bullets</label>
+          <select
+            id="bullet-style"
+            value={bulletStyle}
+            onChange={e => setBulletStyle(e.target.value as BulletStyle)}
+            className="ml-auto px-1.5 py-0.5 bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {BULLET_STYLES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Main Content Area */}
@@ -268,12 +284,12 @@ function App() {
             <p className="text-sm">{selectedFile ? 'Loading...' : (isConnected ? 'Select a file to preview' : 'Connecting to backend...')}</p>
           </div>
         ) : (
-          <>
+          <BulletStyleContext.Provider value={bulletStyle}>
             <div className="screen-only h-full">
               <VirtualRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} scrollElementRef={scrollRef} />
             </div>
             <PrintRenderer ast={ast} onWikiLinkClick={handleWikiLinkClick} />
-          </>
+          </BulletStyleContext.Provider>
         )}
       </div>
     </div>
