@@ -140,6 +140,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 
 ## Recent Updates
 
+- **v0.6.0** - New Patto Notes mobile app (Flutter + Rust core): browse, edit and sync notes over git, several workspaces, tasks view, and full-text search across notes plus find-in-note; patto splits into a lean core with optional server/LSP features; preview gains a selectable bullet style for nested lines; fix image rendering in patto-preview-tui; Markdown import emits valid horizontal lines; dependency updates
 - **v0.5.3** - Refine preview history navigation and roll up recent task/reliability improvements
 - **v0.5.2** - Fix blockquote preview rendering (remove per-line border duplication); warn on done tasks with stale started_at field; fix elapsed time calculation for bare dates; dependency updates
 - **v0.5.1** - Conceal URLs with titles in task labels; apply patto syntax highlighting and custom buffer names to Neovim Trouble buffers; dependency updates
