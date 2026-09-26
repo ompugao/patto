@@ -8,6 +8,7 @@ import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
+import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../workspaces/workspace_switcher.dart';
 import 'note_view_screen.dart';
@@ -112,6 +113,11 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.manage_search),
+            tooltip: 'Search text',
+            onPressed: () => SearchScreen.open(context),
+          ),
+          IconButton(
             icon: const Icon(Icons.sync),
             tooltip: 'Sync',
             onPressed: () => SyncSheet.show(context),
@@ -140,7 +146,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
               onChanged: _onQueryChanged,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Search notes',
+                hintText: 'Filter by title',
                 prefixIcon: const Icon(Icons.search),
                 isDense: true,
                 border: const OutlineInputBorder(),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -7,6 +9,7 @@ import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
+import '../search/highlight.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
 import 'widgets/block_widget.dart';
@@ -51,27 +54,43 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   int? _flashed;
   bool _jumped = false;
 
+  // Find in note. Matching runs over the raw source lines, which are then
+  // mapped onto the blocks that render them.
+  bool _finding = false;
+  final _findController = TextEditingController();
+  Timer? _findDebounce;
+  String _findTerm = '';
+  List<int> _findHits = const [];
+  Set<int> _findHitSet = const {};
+  int _findCurrent = 0;
+  List<String> _sourceLines = const [];
+  RenderedNote? _sourceFor;
+
   String get _title => rust.relPathToNoteName(relPath: widget.relPath);
 
   @override
   void dispose() {
+    _findDebounce?.cancel();
+    _findController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  /// Index of the first block at or after [row]; blocks are in source order.
-  int _indexForRow(List<Block> blocks, int row) {
+  /// Index of the block that renders source line [row]: the last one starting
+  /// at or before it, since code blocks and tables span several lines. Blocks
+  /// are in source order.
+  int _blockForRow(List<Block> blocks, int row) {
     var low = 0;
     var high = blocks.length;
     while (low < high) {
       final mid = (low + high) >> 1;
-      if (blocks[mid].row < row) {
+      if (blocks[mid].row <= row) {
         low = mid + 1;
       } else {
         high = mid;
       }
     }
-    return low.clamp(0, blocks.length - 1);
+    return (low - 1).clamp(0, blocks.length - 1);
   }
 
   void _jumpTo(int index) {
@@ -105,9 +124,132 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       if (widget.initialAnchor != null) {
         _jumpToAnchor(note, widget.initialAnchor!);
       } else if (widget.initialRow != null) {
-        _jumpTo(_indexForRow(note.blocks, widget.initialRow!));
+        _jumpTo(_blockForRow(note.blocks, widget.initialRow!));
       }
     });
+  }
+
+  void _toggleFind() {
+    _findDebounce?.cancel();
+    setState(() {
+      _finding = !_finding;
+      if (!_finding) {
+        _findController.clear();
+        _findTerm = '';
+        _findHits = const [];
+        _findHitSet = const {};
+        _findCurrent = 0;
+      }
+    });
+  }
+
+  void _onFindChanged(String value) {
+    _findDebounce?.cancel();
+    _findDebounce = Timer(const Duration(milliseconds: 150), () {
+      _findTerm = value.trim();
+      _runFind(jump: true);
+    });
+  }
+
+  /// Recompute which blocks contain the find term. Re-run when the note
+  /// changes underneath, without moving the view.
+  Future<void> _runFind({required bool jump}) async {
+    final note = ref.read(renderedNoteProvider(widget.relPath)).value;
+    final term = _findTerm;
+    if (note == null || term.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _findHits = const [];
+          _findHitSet = const {};
+          _findCurrent = 0;
+        });
+      }
+      return;
+    }
+
+    if (!identical(_sourceFor, note)) {
+      final workspace = await ref.read(workspaceProvider.future);
+      if (workspace == null) return;
+      try {
+        final content =
+            await rust.readNote(root: workspace.root, relPath: widget.relPath);
+        _sourceLines = content.split('\n');
+        _sourceFor = note;
+      } catch (e) {
+        _toast('Could not search this note: $e');
+        return;
+      }
+    }
+    if (!mounted || term != _findTerm || note.blocks.isEmpty) return;
+
+    final hits = <int>[];
+    for (var row = 0; row < _sourceLines.length; row++) {
+      if (!containsIgnoringCase(_sourceLines[row], term)) continue;
+      final index = _blockForRow(note.blocks, row);
+      // Rows ascend, so repeats of a multi-line block are adjacent.
+      if (hits.isEmpty || hits.last != index) hits.add(index);
+    }
+
+    setState(() {
+      _findHits = hits;
+      _findHitSet = hits.toSet();
+      _findCurrent = _findCurrent.clamp(0, hits.isEmpty ? 0 : hits.length - 1);
+      if (jump) _findCurrent = 0;
+    });
+    if (jump && hits.isNotEmpty) _jumpTo(hits.first);
+  }
+
+  void _stepFind(int delta) {
+    if (_findHits.isEmpty) return;
+    setState(() {
+      _findCurrent = (_findCurrent + delta) % _findHits.length;
+    });
+    _jumpTo(_findHits[_findCurrent]);
+  }
+
+  PreferredSizeWidget _findBar(BuildContext context) {
+    final theme = Theme.of(context);
+    final count = _findHits.isEmpty
+        ? (_findTerm.isEmpty ? '' : 'No matches')
+        : '${_findCurrent + 1} / ${_findHits.length}';
+
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(52),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 4, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _findController,
+                autofocus: true,
+                onChanged: _onFindChanged,
+                onSubmitted: (_) => _stepFind(1),
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'Find in note',
+                  isDense: true,
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(count, style: theme.textTheme.labelMedium),
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_up),
+              tooltip: 'Previous match',
+              onPressed: _findHits.isEmpty ? null : () => _stepFind(-1),
+            ),
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down),
+              tooltip: 'Next match',
+              onPressed: _findHits.isEmpty ? null : () => _stepFind(1),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _toast(String message) {
@@ -193,12 +335,18 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     final textScale = ref.watch(fontScaleProvider);
 
     return Scaffold(
-      // Nothing on this screen takes text input, so the keyboard must never
-      // relayout the note.
+      // The only text input is the find bar at the top, so the keyboard must
+      // never relayout the note.
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text(_title, overflow: TextOverflow.ellipsis),
+        bottom: _finding ? _findBar(context) : null,
         actions: [
+          IconButton(
+            icon: Icon(_finding ? Icons.search_off : Icons.search),
+            tooltip: _finding ? 'Close find' : 'Find in note',
+            onPressed: _toggleFind,
+          ),
           IconButton(
             icon: const Icon(Icons.sync),
             tooltip: 'Sync',
@@ -221,6 +369,13 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
         ),
         data: (data) {
           _applyInitialJump(data);
+          if (_finding && _findTerm.isNotEmpty && !identical(_sourceFor, data)) {
+            // The note was edited or synced; the old matches point at stale
+            // blocks.
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _runFind(jump: false),
+            );
+          }
 
           final actions = SpanActions(
             onWikiLink: _openWikiLink,
@@ -249,6 +404,8 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
                   root: workspace?.root,
                   textScale: textScale,
                   highlighted: i == _flashed,
+                  matched: _findHitSet.contains(i),
+                  searchTerm: _finding ? _findTerm : null,
                   onTaskTap: _changeTaskStatus,
                 ),
               );

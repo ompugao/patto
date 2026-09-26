@@ -16,7 +16,8 @@ pub use crate::api::index::{BackLink, IndexProgress, IndexStats, LinkCount, TwoH
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
     AnchorRef, Block, BlockKind, DateKind, EmbedKind, ImageRef, NoteMeta, NoteSpan, NoteTableCell,
-    NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo, TaskStatus,
+    NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo, TaskStatus, TextMatch,
+    TextSearchHit,
 };
 
 use crate::api::error::PattoResult;
@@ -77,6 +78,25 @@ pub fn search_notes(root: String, query: String, limit: u32) -> PattoResult<Vec<
     let mut notes = store::search_notes(root.clone(), query, limit)?;
     index::apply_commit_times(&root, &mut notes)?;
     Ok(notes)
+}
+
+/// Notes whose name or contents contain `query`, case-insensitively, with the
+/// first `max_lines_per_note` matching lines of each.
+pub fn search_text(
+    root: String,
+    query: String,
+    max_notes: u32,
+    max_lines_per_note: u32,
+) -> PattoResult<Vec<TextSearchHit>> {
+    // Rank only after the git timestamps are in, since recency breaks ties.
+    let mut hits = store::search_text(root.clone(), query, u32::MAX, max_lines_per_note)?;
+    let mut notes: Vec<NoteMeta> = hits.iter().map(|h| h.note.clone()).collect();
+    index::apply_commit_times(&root, &mut notes)?;
+    for (hit, note) in hits.iter_mut().zip(notes) {
+        hit.note = note;
+    }
+    store::rank_text_hits(&mut hits, max_notes);
+    Ok(hits)
 }
 
 #[frb(sync)]

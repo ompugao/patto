@@ -229,6 +229,22 @@ final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
   return notes;
 });
 
+/// Notes whose name or contents contain the query, for the search screen.
+final textSearchProvider = FutureProvider.autoDispose
+    .family<List<TextSearchHit>, String>((ref, query) async {
+  final workspace = await ref.watch(workspaceProvider.future);
+  ref.watch(notesRevisionProvider);
+  if (workspace == null || !workspace.exists || query.trim().isEmpty) {
+    return const [];
+  }
+  return rust.searchText(
+    root: workspace.root,
+    query: query,
+    maxNotes: 100,
+    maxLinesPerNote: 5,
+  );
+});
+
 final linkCountsProvider = FutureProvider<Map<String, int>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);

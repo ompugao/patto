@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../../../src/rust/api/types.dart';
+import '../../search/highlight.dart';
 import 'note_image.dart';
 
 /// What a tap on a span should do. Supplied by the screen, so span widgets stay
@@ -34,6 +35,7 @@ class SpansText extends StatefulWidget {
     this.trailing,
     this.noteRoot,
     this.strikeThrough = false,
+    this.searchTerm,
   });
 
   final List<NoteSpan> spans;
@@ -44,6 +46,9 @@ class SpansText extends StatefulWidget {
   final InlineSpan? trailing;
   final String? noteRoot;
   final bool strikeThrough;
+
+  /// Text to mark wherever it appears in plain text and inline code.
+  final String? searchTerm;
 
   @override
   State<SpansText> createState() => _SpansTextState();
@@ -87,9 +92,14 @@ class _SpansTextState extends State<SpansText> {
 
   InlineSpan _build(NoteSpan span, TextStyle style, ThemeData theme) {
     final colors = theme.colorScheme;
+    final match = TextStyle(
+      backgroundColor: colors.tertiaryContainer,
+      color: colors.onTertiaryContainer,
+    );
 
     return switch (span) {
-      NoteSpan_Text(:final text) => TextSpan(text: text, style: style),
+      NoteSpan_Text(:final text) =>
+        highlightedSpan(text, widget.searchTerm, style: style, highlight: match),
       NoteSpan_Decoration(
         :final fontsize,
         :final italic,
@@ -136,13 +146,15 @@ class _SpansTextState extends State<SpansText> {
         ),
         recognizer: _tap(() => widget.actions.onUrl(url)),
       ),
-      NoteSpan_InlineCode(:final code) => TextSpan(
-        text: code,
+      NoteSpan_InlineCode(:final code) => highlightedSpan(
+        code,
+        widget.searchTerm,
         style: style.copyWith(
           fontFamily: 'monospace',
           fontFamilyFallback: const ['Roboto Mono', 'Noto Sans Mono CJK JP'],
           backgroundColor: colors.surfaceContainerHighest,
         ),
+        highlight: match,
       ),
       NoteSpan_InlineMath(:final tex) => WidgetSpan(
         alignment: PlaceholderAlignment.middle,

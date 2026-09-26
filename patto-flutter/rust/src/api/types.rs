@@ -219,3 +219,23 @@ pub struct NoteMeta {
     pub modified_ms: i64,
     pub size_bytes: u64,
 }
+
+/// One line of a note that contains the searched text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextMatch {
+    /// 0-based source line.
+    pub row: u32,
+    /// The line, trimmed, and clipped around the match when it is long.
+    pub line: String,
+}
+
+/// A note whose name or contents contain the searched text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSearchHit {
+    pub note: NoteMeta,
+    pub name_matches: bool,
+    /// The first few matching lines, in source order.
+    pub matches: Vec<TextMatch>,
+    /// Every matching line, including those left out of `matches`.
+    pub total_matches: u32,
+}

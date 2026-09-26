@@ -11,7 +11,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use walkdir::WalkDir;
 
 use crate::api::error::{PattoError, PattoResult};
-use crate::api::types::NoteMeta;
+use crate::api::types::{NoteMeta, TextMatch, TextSearchHit};
 
 pub const NOTE_EXT: &str = "pn";
 
@@ -178,4 +178,101 @@ pub fn search_notes(root: String, query: String, limit: u32) -> PattoResult<Vec<
     scored.truncate(limit);
 
     Ok(scored.into_iter().map(|(_, n)| n).collect())
+}
+
+/// How many characters of a matching line are kept around the match.
+const SNIPPET_CHARS: usize = 160;
+
+/// Case-insensitive substring search over note names and contents.
+///
+/// An empty query finds nothing. Hits are ranked by [`rank_text_hits`].
+pub fn search_text(
+    root: String,
+    query: String,
+    max_notes: u32,
+    max_lines_per_note: u32,
+) -> PattoResult<Vec<TextSearchHit>> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let root_path = Path::new(&root);
+    let mut hits = Vec::new();
+    for note in list_notes(root.clone())? {
+        // A note that cannot be read as text is simply not a match.
+        let Ok(content) = std::fs::read_to_string(root_path.join(&note.rel_path)) else {
+            continue;
+        };
+
+        let mut matches = Vec::new();
+        let mut total_matches = 0u32;
+        for (row, line) in content.lines().enumerate() {
+            let lower = line.to_lowercase();
+            let Some(at) = lower.find(&needle) else {
+                continue;
+            };
+            total_matches += 1;
+            if matches.len() < max_lines_per_note as usize {
+                let match_char = lower[..at].chars().count();
+                matches.push(TextMatch {
+                    row: row as u32,
+                    line: snippet(line, match_char),
+                });
+            }
+        }
+
+        let name_matches = note.name.to_lowercase().contains(&needle);
+        if name_matches || total_matches > 0 {
+            hits.push(TextSearchHit {
+                note,
+                name_matches,
+                matches,
+                total_matches,
+            });
+        }
+    }
+
+    rank_text_hits(&mut hits, max_notes);
+    Ok(hits)
+}
+
+/// Notes whose name matches first, then those with the most matching lines,
+/// then the most recently changed.
+pub fn rank_text_hits(hits: &mut Vec<TextSearchHit>, max_notes: u32) {
+    hits.sort_by(|a, b| {
+        b.name_matches
+            .cmp(&a.name_matches)
+            .then(b.total_matches.cmp(&a.total_matches))
+            .then(b.note.modified_ms.cmp(&a.note.modified_ms))
+            .then(a.note.name.cmp(&b.note.name))
+    });
+    hits.truncate(max_notes as usize);
+}
+
+/// Trim a line and, when it is long, keep a window around the match at
+/// `match_char` (a char index into the untrimmed, lowercased line).
+fn snippet(line: &str, match_char: usize) -> String {
+    let leading = line.chars().take_while(|c| c.is_whitespace()).count();
+    let chars: Vec<char> = line.trim().chars().collect();
+    if chars.len() <= SNIPPET_CHARS {
+        return chars.into_iter().collect();
+    }
+
+    // Lowercasing can change the char count slightly, so the index is only a
+    // close estimate; keep a margin before it.
+    let at = match_char.saturating_sub(leading).min(chars.len());
+    let start = at.saturating_sub(SNIPPET_CHARS / 3);
+    let start = start.min(chars.len() - SNIPPET_CHARS);
+    let end = start + SNIPPET_CHARS;
+
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.extend(&chars[start..end]);
+    if end < chars.len() {
+        out.push('…');
+    }
+    out
 }

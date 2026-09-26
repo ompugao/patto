@@ -111,6 +111,82 @@ fn search_ranks_fuzzy_matches_and_an_empty_query_lists_everything() {
 }
 
 #[test]
+fn text_search_matches_contents_case_insensitively() {
+    let ws = Workspace::new();
+    ws.write("a.pn", "first line\n\tThe Quick fox\nlast");
+    ws.write("b.pn", "nothing here");
+
+    let hits = search_text(ws.root(), "quick".to_string(), 10, 5).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].note.name, "a");
+    assert!(!hits[0].name_matches);
+    assert_eq!(hits[0].total_matches, 1);
+    assert_eq!(hits[0].matches[0].row, 1);
+    assert_eq!(hits[0].matches[0].line, "The Quick fox");
+}
+
+#[test]
+fn text_search_caps_lines_per_note_but_counts_them_all() {
+    let ws = Workspace::new();
+    ws.write("many.pn", "hit\nhit\nmiss\nhit\nhit");
+    ws.write("one.pn", "hit");
+
+    let hits = search_text(ws.root(), "hit".to_string(), 10, 2).unwrap();
+    assert_eq!(hits[0].note.name, "many");
+    assert_eq!(hits[0].total_matches, 4);
+    let rows: Vec<u32> = hits[0].matches.iter().map(|m| m.row).collect();
+    assert_eq!(rows, vec![0, 1]);
+
+    assert_eq!(
+        search_text(ws.root(), "hit".to_string(), 1, 2)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn text_search_includes_name_matches_first() {
+    let ws = Workspace::new();
+    ws.write("groceries.pn", "milk");
+    ws.write("other.pn", "groceries groceries\ngroceries");
+
+    let hits = search_text(ws.root(), "Grocer".to_string(), 10, 5).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].note.name, "groceries");
+    assert!(hits[0].name_matches);
+    assert!(hits[0].matches.is_empty());
+    assert_eq!(hits[1].total_matches, 2);
+}
+
+#[test]
+fn text_search_ignores_empty_queries_and_git_internals() {
+    let ws = Workspace::new();
+    ws.write("a.pn", "secret");
+    ws.write(".git/objects/b.pn", "secret");
+
+    assert!(search_text(ws.root(), "  ".to_string(), 10, 5)
+        .unwrap()
+        .is_empty());
+    let hits = search_text(ws.root(), "secret".to_string(), 10, 5).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].note.name, "a");
+}
+
+#[test]
+fn text_search_clips_long_lines_around_the_match() {
+    let ws = Workspace::new();
+    let line = format!("{}目的の言葉{}", "あ".repeat(300), "い".repeat(300));
+    ws.write("long.pn", &line);
+
+    let hits = search_text(ws.root(), "目的".to_string(), 10, 5).unwrap();
+    let snippet = &hits[0].matches[0].line;
+    assert!(snippet.contains("目的の言葉"));
+    assert!(snippet.starts_with('…') && snippet.ends_with('…'));
+    assert!(snippet.chars().count() <= 162);
+}
+
+#[test]
 fn deleting_a_missing_note_reports_not_found() {
     let ws = Workspace::new();
     assert!(matches!(

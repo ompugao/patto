@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 541956740;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -593627914;
 
 // Section: executor
 
@@ -809,6 +809,47 @@ fn wire__crate__frb_api__search_notes_impl(
         },
     )
 }
+fn wire__crate__frb_api__search_text_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "search_text",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_root = <String>::sse_decode(&mut deserializer);
+            let api_query = <String>::sse_decode(&mut deserializer);
+            let api_max_notes = <u32>::sse_decode(&mut deserializer);
+            let api_max_lines_per_note = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::error::PattoError>((move || {
+                    let output_ok = crate::frb_api::search_text(
+                        api_root,
+                        api_query,
+                        api_max_notes,
+                        api_max_lines_per_note,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__frb_api__set_task_status_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1496,6 +1537,30 @@ impl SseDecode for Vec<crate::api::tasks::TaskItem> {
     }
 }
 
+impl SseDecode for Vec<crate::api::types::TextMatch> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::types::TextMatch>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::types::TextSearchHit> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::types::TextSearchHit>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::index::TwoHop> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1904,6 +1969,34 @@ impl SseDecode for crate::api::types::TaskStatus {
     }
 }
 
+impl SseDecode for crate::api::types::TextMatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_row = <u32>::sse_decode(deserializer);
+        let mut var_line = <String>::sse_decode(deserializer);
+        return crate::api::types::TextMatch {
+            row: var_row,
+            line: var_line,
+        };
+    }
+}
+
+impl SseDecode for crate::api::types::TextSearchHit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_note = <crate::api::types::NoteMeta>::sse_decode(deserializer);
+        let mut var_nameMatches = <bool>::sse_decode(deserializer);
+        let mut var_matches = <Vec<crate::api::types::TextMatch>>::sse_decode(deserializer);
+        let mut var_totalMatches = <u32>::sse_decode(deserializer);
+        return crate::api::types::TextSearchHit {
+            note: var_note,
+            name_matches: var_nameMatches,
+            matches: var_matches,
+            total_matches: var_totalMatches,
+        };
+    }
+}
+
 impl SseDecode for crate::api::index::TwoHop {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1969,9 +2062,10 @@ fn pde_ffi_dispatcher_primary_impl(
         18 => wire__crate__frb_api__read_note_impl(port, ptr, rust_vec_len, data_len),
         20 => wire__crate__frb_api__render_note_impl(port, ptr, rust_vec_len, data_len),
         22 => wire__crate__frb_api__search_notes_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__frb_api__search_text_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2804,6 +2898,47 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::TaskStatus>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::types::TextMatch {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.row.into_into_dart().into_dart(),
+            self.line.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::types::TextMatch {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::types::TextMatch>
+    for crate::api::types::TextMatch
+{
+    fn into_into_dart(self) -> crate::api::types::TextMatch {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::types::TextSearchHit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.note.into_into_dart().into_dart(),
+            self.name_matches.into_into_dart().into_dart(),
+            self.matches.into_into_dart().into_dart(),
+            self.total_matches.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::types::TextSearchHit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::types::TextSearchHit>
+    for crate::api::types::TextSearchHit
+{
+    fn into_into_dart(self) -> crate::api::types::TextSearchHit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::index::TwoHop {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -3293,6 +3428,26 @@ impl SseEncode for Vec<crate::api::tasks::TaskItem> {
     }
 }
 
+impl SseEncode for Vec<crate::api::types::TextMatch> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::types::TextMatch>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::types::TextSearchHit> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::types::TextSearchHit>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::index::TwoHop> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3623,6 +3778,24 @@ impl SseEncode for crate::api::types::TaskStatus {
             },
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::types::TextMatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.row, serializer);
+        <String>::sse_encode(self.line, serializer);
+    }
+}
+
+impl SseEncode for crate::api::types::TextSearchHit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::api::types::NoteMeta>::sse_encode(self.note, serializer);
+        <bool>::sse_encode(self.name_matches, serializer);
+        <Vec<crate::api::types::TextMatch>>::sse_encode(self.matches, serializer);
+        <u32>::sse_encode(self.total_matches, serializer);
     }
 }
 
