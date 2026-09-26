@@ -137,7 +137,12 @@ fn text_search_caps_lines_per_note_but_counts_them_all() {
     let rows: Vec<u32> = hits[0].matches.iter().map(|m| m.row).collect();
     assert_eq!(rows, vec![0, 1]);
 
-    assert_eq!(search_text(ws.root(), "hit".to_string(), 1, 2).unwrap().len(), 1);
+    assert_eq!(
+        search_text(ws.root(), "hit".to_string(), 1, 2)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -160,7 +165,9 @@ fn text_search_ignores_empty_queries_and_git_internals() {
     ws.write("a.pn", "secret");
     ws.write(".git/objects/b.pn", "secret");
 
-    assert!(search_text(ws.root(), "  ".to_string(), 10, 5).unwrap().is_empty());
+    assert!(search_text(ws.root(), "  ".to_string(), 10, 5)
+        .unwrap()
+        .is_empty());
     let hits = search_text(ws.root(), "secret".to_string(), 10, 5).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].note.name, "a");
