@@ -26,7 +26,7 @@ fn plain_text(spans: &[NoteSpan]) -> String {
             NoteSpan::InlineCode { code } => code.clone(),
             NoteSpan::InlineMath { tex } => tex.clone(),
             NoteSpan::Image { image } => image.src.clone(),
-            NoteSpan::Embed { url, title, .. } => title.clone().unwrap_or_else(|| url.clone()),
+            NoteSpan::Embed { embed } => embed.title.clone().unwrap_or_else(|| embed.url.clone()),
         })
         .collect()
 }
@@ -175,30 +175,59 @@ fn an_image_among_text_stays_inline() {
     assert!(matches!(spans[1], NoteSpan::Image { .. }));
 }
 
-#[test]
-fn youtube_embeds_carry_the_video_id() {
-    let blocks = blocks("[@embed https://www.youtube.com/watch?v=dQw4w9WgXcQ Title]\n");
-    let spans = line_spans(&blocks[0]);
-    let NoteSpan::Embed { kind, title, .. } = &spans[0] else {
-        panic!("expected an embed, got {:?}", spans[0]);
-    };
-    assert_eq!(
-        kind,
-        &EmbedKind::Youtube {
-            video_id: "dQw4w9WgXcQ".to_string()
-        }
-    );
-    assert_eq!(title.as_deref(), Some("Title"));
+fn sole_embed(block: &Block) -> &EmbedRef {
+    match &block.kind {
+        BlockKind::Embed { embed } => embed,
+        other => panic!("expected an embed block, got {other:?}"),
+    }
 }
 
 #[test]
-fn pdf_embeds_are_recognised() {
+fn youtube_embeds_carry_the_video_id() {
+    let blocks = blocks("[@embed https://www.youtube.com/watch?v=dQw4w9WgXcQ Title]\n");
+    let embed = sole_embed(&blocks[0]);
+    assert_eq!(
+        embed.kind,
+        EmbedKind::Youtube {
+            video_id: "dQw4w9WgXcQ".to_string()
+        }
+    );
+    assert_eq!(embed.title.as_deref(), Some("Title"));
+    assert!(!embed.is_local);
+}
+
+#[test]
+fn local_pdf_embeds_are_recognised() {
     let blocks = blocks("[@embed ./paper.pdf Paper]\n");
+    let embed = sole_embed(&blocks[0]);
+    assert_eq!(embed.kind, EmbedKind::Pdf);
+    assert_eq!(embed.url, "./paper.pdf");
+    assert!(embed.is_local);
+}
+
+#[test]
+fn remote_pdf_embeds_are_not_local() {
+    let blocks = blocks("[@embed https://example.com/a.PDF]\n");
+    let embed = sole_embed(&blocks[0]);
+    assert_eq!(embed.kind, EmbedKind::Pdf);
+    assert!(!embed.is_local);
+}
+
+#[test]
+fn an_embed_among_text_stays_inline() {
+    let blocks = blocks("see [@embed ./paper.pdf] here\n");
     let spans = line_spans(&blocks[0]);
-    let NoteSpan::Embed { kind, .. } = &spans[0] else {
-        panic!("expected an embed, got {:?}", spans[0]);
+    let NoteSpan::Embed { embed } = &spans[1] else {
+        panic!("expected an embed, got {:?}", spans[1]);
     };
-    assert_eq!(kind, &EmbedKind::Pdf);
+    assert_eq!(embed.kind, EmbedKind::Pdf);
+}
+
+#[test]
+fn an_unknown_embed_stays_a_link() {
+    let blocks = blocks("[@embed https://example.com/page Page]\n");
+    let spans = line_spans(&blocks[0]);
+    assert!(matches!(spans[0], NoteSpan::Embed { .. }));
 }
 
 #[test]

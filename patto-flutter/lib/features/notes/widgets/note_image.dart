@@ -6,10 +6,16 @@ import 'package:flutter/material.dart';
 
 import '../../../src/rust/api/types.dart';
 
+/// Absolute path of a file a note refers to by a path relative to the notes
+/// root, such as `./figure.png`.
+String resolveNotePath(String src, String root) {
+  final relative = src.startsWith('./') ? src.substring(2) : src;
+  return '$root/$relative';
+}
+
 String? _resolveLocalPath(ImageRef image, String? root) {
   if (!image.isLocal || root == null) return null;
-  final src = image.src.startsWith('./') ? image.src.substring(2) : image.src;
-  return '$root/$src';
+  return resolveNotePath(image.src, root);
 }
 
 /// An image from a note, decoded at display size so a large photo never costs

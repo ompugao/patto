@@ -56,7 +56,7 @@ extension BlockKindPatterns on BlockKind {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BlockKind_Line value)?  line,TResult Function( BlockKind_Blank value)?  blank,TResult Function( BlockKind_Code value)?  code,TResult Function( BlockKind_Math value)?  math,TResult Function( BlockKind_Table value)?  table,TResult Function( BlockKind_Images value)?  images,TResult Function( BlockKind_Rule value)?  rule,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( BlockKind_Line value)?  line,TResult Function( BlockKind_Blank value)?  blank,TResult Function( BlockKind_Code value)?  code,TResult Function( BlockKind_Math value)?  math,TResult Function( BlockKind_Table value)?  table,TResult Function( BlockKind_Images value)?  images,TResult Function( BlockKind_Embed value)?  embed,TResult Function( BlockKind_Rule value)?  rule,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case BlockKind_Line() when line != null:
@@ -65,7 +65,8 @@ return blank(_that);case BlockKind_Code() when code != null:
 return code(_that);case BlockKind_Math() when math != null:
 return math(_that);case BlockKind_Table() when table != null:
 return table(_that);case BlockKind_Images() when images != null:
-return images(_that);case BlockKind_Rule() when rule != null:
+return images(_that);case BlockKind_Embed() when embed != null:
+return embed(_that);case BlockKind_Rule() when rule != null:
 return rule(_that);case _:
   return orElse();
 
@@ -84,7 +85,7 @@ return rule(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BlockKind_Line value)  line,required TResult Function( BlockKind_Blank value)  blank,required TResult Function( BlockKind_Code value)  code,required TResult Function( BlockKind_Math value)  math,required TResult Function( BlockKind_Table value)  table,required TResult Function( BlockKind_Images value)  images,required TResult Function( BlockKind_Rule value)  rule,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( BlockKind_Line value)  line,required TResult Function( BlockKind_Blank value)  blank,required TResult Function( BlockKind_Code value)  code,required TResult Function( BlockKind_Math value)  math,required TResult Function( BlockKind_Table value)  table,required TResult Function( BlockKind_Images value)  images,required TResult Function( BlockKind_Embed value)  embed,required TResult Function( BlockKind_Rule value)  rule,}){
 final _that = this;
 switch (_that) {
 case BlockKind_Line():
@@ -93,7 +94,8 @@ return blank(_that);case BlockKind_Code():
 return code(_that);case BlockKind_Math():
 return math(_that);case BlockKind_Table():
 return table(_that);case BlockKind_Images():
-return images(_that);case BlockKind_Rule():
+return images(_that);case BlockKind_Embed():
+return embed(_that);case BlockKind_Rule():
 return rule(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
@@ -108,7 +110,7 @@ return rule(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BlockKind_Line value)?  line,TResult? Function( BlockKind_Blank value)?  blank,TResult? Function( BlockKind_Code value)?  code,TResult? Function( BlockKind_Math value)?  math,TResult? Function( BlockKind_Table value)?  table,TResult? Function( BlockKind_Images value)?  images,TResult? Function( BlockKind_Rule value)?  rule,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( BlockKind_Line value)?  line,TResult? Function( BlockKind_Blank value)?  blank,TResult? Function( BlockKind_Code value)?  code,TResult? Function( BlockKind_Math value)?  math,TResult? Function( BlockKind_Table value)?  table,TResult? Function( BlockKind_Images value)?  images,TResult? Function( BlockKind_Embed value)?  embed,TResult? Function( BlockKind_Rule value)?  rule,}){
 final _that = this;
 switch (_that) {
 case BlockKind_Line() when line != null:
@@ -117,7 +119,8 @@ return blank(_that);case BlockKind_Code() when code != null:
 return code(_that);case BlockKind_Math() when math != null:
 return math(_that);case BlockKind_Table() when table != null:
 return table(_that);case BlockKind_Images() when images != null:
-return images(_that);case BlockKind_Rule() when rule != null:
+return images(_that);case BlockKind_Embed() when embed != null:
+return embed(_that);case BlockKind_Rule() when rule != null:
 return rule(_that);case _:
   return null;
 
@@ -135,7 +138,7 @@ return rule(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( List<NoteSpan> spans)?  line,TResult Function()?  blank,TResult Function( String lang,  List<String> lines)?  code,TResult Function( String tex)?  math,TResult Function( String? caption,  List<NoteTableRow> rows)?  table,TResult Function( List<ImageRef> images)?  images,TResult Function()?  rule,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( List<NoteSpan> spans)?  line,TResult Function()?  blank,TResult Function( String lang,  List<String> lines)?  code,TResult Function( String tex)?  math,TResult Function( String? caption,  List<NoteTableRow> rows)?  table,TResult Function( List<ImageRef> images)?  images,TResult Function( EmbedRef embed)?  embed,TResult Function()?  rule,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case BlockKind_Line() when line != null:
 return line(_that.spans);case BlockKind_Blank() when blank != null:
@@ -143,7 +146,8 @@ return blank();case BlockKind_Code() when code != null:
 return code(_that.lang,_that.lines);case BlockKind_Math() when math != null:
 return math(_that.tex);case BlockKind_Table() when table != null:
 return table(_that.caption,_that.rows);case BlockKind_Images() when images != null:
-return images(_that.images);case BlockKind_Rule() when rule != null:
+return images(_that.images);case BlockKind_Embed() when embed != null:
+return embed(_that.embed);case BlockKind_Rule() when rule != null:
 return rule();case _:
   return orElse();
 
@@ -162,7 +166,7 @@ return rule();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( List<NoteSpan> spans)  line,required TResult Function()  blank,required TResult Function( String lang,  List<String> lines)  code,required TResult Function( String tex)  math,required TResult Function( String? caption,  List<NoteTableRow> rows)  table,required TResult Function( List<ImageRef> images)  images,required TResult Function()  rule,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( List<NoteSpan> spans)  line,required TResult Function()  blank,required TResult Function( String lang,  List<String> lines)  code,required TResult Function( String tex)  math,required TResult Function( String? caption,  List<NoteTableRow> rows)  table,required TResult Function( List<ImageRef> images)  images,required TResult Function( EmbedRef embed)  embed,required TResult Function()  rule,}) {final _that = this;
 switch (_that) {
 case BlockKind_Line():
 return line(_that.spans);case BlockKind_Blank():
@@ -170,7 +174,8 @@ return blank();case BlockKind_Code():
 return code(_that.lang,_that.lines);case BlockKind_Math():
 return math(_that.tex);case BlockKind_Table():
 return table(_that.caption,_that.rows);case BlockKind_Images():
-return images(_that.images);case BlockKind_Rule():
+return images(_that.images);case BlockKind_Embed():
+return embed(_that.embed);case BlockKind_Rule():
 return rule();}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -185,7 +190,7 @@ return rule();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( List<NoteSpan> spans)?  line,TResult? Function()?  blank,TResult? Function( String lang,  List<String> lines)?  code,TResult? Function( String tex)?  math,TResult? Function( String? caption,  List<NoteTableRow> rows)?  table,TResult? Function( List<ImageRef> images)?  images,TResult? Function()?  rule,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( List<NoteSpan> spans)?  line,TResult? Function()?  blank,TResult? Function( String lang,  List<String> lines)?  code,TResult? Function( String tex)?  math,TResult? Function( String? caption,  List<NoteTableRow> rows)?  table,TResult? Function( List<ImageRef> images)?  images,TResult? Function( EmbedRef embed)?  embed,TResult? Function()?  rule,}) {final _that = this;
 switch (_that) {
 case BlockKind_Line() when line != null:
 return line(_that.spans);case BlockKind_Blank() when blank != null:
@@ -193,7 +198,8 @@ return blank();case BlockKind_Code() when code != null:
 return code(_that.lang,_that.lines);case BlockKind_Math() when math != null:
 return math(_that.tex);case BlockKind_Table() when table != null:
 return table(_that.caption,_that.rows);case BlockKind_Images() when images != null:
-return images(_that.images);case BlockKind_Rule() when rule != null:
+return images(_that.images);case BlockKind_Embed() when embed != null:
+return embed(_that.embed);case BlockKind_Rule() when rule != null:
 return rule();case _:
   return null;
 
@@ -596,6 +602,74 @@ class _$BlockKind_ImagesCopyWithImpl<$Res>
   return _then(BlockKind_Images(
 images: null == images ? _self._images : images // ignore: cast_nullable_to_non_nullable
 as List<ImageRef>,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class BlockKind_Embed extends BlockKind {
+  const BlockKind_Embed({required this.embed}): super._();
+  
+
+ final  EmbedRef embed;
+
+/// Create a copy of BlockKind
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BlockKind_EmbedCopyWith<BlockKind_Embed> get copyWith => _$BlockKind_EmbedCopyWithImpl<BlockKind_Embed>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockKind_Embed&&(identical(other.embed, embed) || other.embed == embed));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,embed);
+}
+
+@override
+String toString() {
+    return 'BlockKind.embed(embed: $embed)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BlockKind_EmbedCopyWith<$Res> implements $BlockKindCopyWith<$Res> {
+  factory $BlockKind_EmbedCopyWith(BlockKind_Embed value, $Res Function(BlockKind_Embed) _then) = _$BlockKind_EmbedCopyWithImpl;
+@useResult
+$Res call({
+ EmbedRef embed
+});
+
+
+
+
+}
+/// @nodoc
+class _$BlockKind_EmbedCopyWithImpl<$Res>
+    implements $BlockKind_EmbedCopyWith<$Res> {
+  _$BlockKind_EmbedCopyWithImpl(this._self, this._then);
+
+  final BlockKind_Embed _self;
+  final $Res Function(BlockKind_Embed) _then;
+
+/// Create a copy of BlockKind
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? embed = null,}) {
+  return _then(BlockKind_Embed(
+embed: null == embed ? _self.embed : embed // ignore: cast_nullable_to_non_nullable
+as EmbedRef,
   ));
 }
 
@@ -1172,7 +1246,7 @@ return embed(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String text)?  text,TResult Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)?  decoration,TResult Function( String name,  String? anchor)?  wikiLink,TResult Function( String url,  String? title)?  url,TResult Function( String code)?  inlineCode,TResult Function( String tex)?  inlineMath,TResult Function( ImageRef image)?  image,TResult Function( String url,  String? title,  EmbedKind kind)?  embed,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String text)?  text,TResult Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)?  decoration,TResult Function( String name,  String? anchor)?  wikiLink,TResult Function( String url,  String? title)?  url,TResult Function( String code)?  inlineCode,TResult Function( String tex)?  inlineMath,TResult Function( ImageRef image)?  image,TResult Function( EmbedRef embed)?  embed,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NoteSpan_Text() when text != null:
 return text(_that.text);case NoteSpan_Decoration() when decoration != null:
@@ -1182,7 +1256,7 @@ return url(_that.url,_that.title);case NoteSpan_InlineCode() when inlineCode != 
 return inlineCode(_that.code);case NoteSpan_InlineMath() when inlineMath != null:
 return inlineMath(_that.tex);case NoteSpan_Image() when image != null:
 return image(_that.image);case NoteSpan_Embed() when embed != null:
-return embed(_that.url,_that.title,_that.kind);case _:
+return embed(_that.embed);case _:
   return orElse();
 
 }
@@ -1200,7 +1274,7 @@ return embed(_that.url,_that.title,_that.kind);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String text)  text,required TResult Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)  decoration,required TResult Function( String name,  String? anchor)  wikiLink,required TResult Function( String url,  String? title)  url,required TResult Function( String code)  inlineCode,required TResult Function( String tex)  inlineMath,required TResult Function( ImageRef image)  image,required TResult Function( String url,  String? title,  EmbedKind kind)  embed,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String text)  text,required TResult Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)  decoration,required TResult Function( String name,  String? anchor)  wikiLink,required TResult Function( String url,  String? title)  url,required TResult Function( String code)  inlineCode,required TResult Function( String tex)  inlineMath,required TResult Function( ImageRef image)  image,required TResult Function( EmbedRef embed)  embed,}) {final _that = this;
 switch (_that) {
 case NoteSpan_Text():
 return text(_that.text);case NoteSpan_Decoration():
@@ -1210,7 +1284,7 @@ return url(_that.url,_that.title);case NoteSpan_InlineCode():
 return inlineCode(_that.code);case NoteSpan_InlineMath():
 return inlineMath(_that.tex);case NoteSpan_Image():
 return image(_that.image);case NoteSpan_Embed():
-return embed(_that.url,_that.title,_that.kind);}
+return embed(_that.embed);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -1224,7 +1298,7 @@ return embed(_that.url,_that.title,_that.kind);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String text)?  text,TResult? Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)?  decoration,TResult? Function( String name,  String? anchor)?  wikiLink,TResult? Function( String url,  String? title)?  url,TResult? Function( String code)?  inlineCode,TResult? Function( String tex)?  inlineMath,TResult? Function( ImageRef image)?  image,TResult? Function( String url,  String? title,  EmbedKind kind)?  embed,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String text)?  text,TResult? Function( int fontsize,  bool italic,  bool underline,  bool deleted,  List<NoteSpan> children)?  decoration,TResult? Function( String name,  String? anchor)?  wikiLink,TResult? Function( String url,  String? title)?  url,TResult? Function( String code)?  inlineCode,TResult? Function( String tex)?  inlineMath,TResult? Function( ImageRef image)?  image,TResult? Function( EmbedRef embed)?  embed,}) {final _that = this;
 switch (_that) {
 case NoteSpan_Text() when text != null:
 return text(_that.text);case NoteSpan_Decoration() when decoration != null:
@@ -1234,7 +1308,7 @@ return url(_that.url,_that.title);case NoteSpan_InlineCode() when inlineCode != 
 return inlineCode(_that.code);case NoteSpan_InlineMath() when inlineMath != null:
 return inlineMath(_that.tex);case NoteSpan_Image() when image != null:
 return image(_that.image);case NoteSpan_Embed() when embed != null:
-return embed(_that.url,_that.title,_that.kind);case _:
+return embed(_that.embed);case _:
   return null;
 
 }
@@ -1740,12 +1814,10 @@ as ImageRef,
 
 
 class NoteSpan_Embed extends NoteSpan {
-  const NoteSpan_Embed({required this.url, this.title, required this.kind}): super._();
+  const NoteSpan_Embed({required this.embed}): super._();
   
 
- final  String url;
- final  String? title;
- final  EmbedKind kind;
+ final  EmbedRef embed;
 
 /// Create a copy of NoteSpan
 /// with the given fields replaced by the non-null parameter values.
@@ -1757,18 +1829,18 @@ $NoteSpan_EmbedCopyWith<NoteSpan_Embed> get copyWith => _$NoteSpan_EmbedCopyWith
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteSpan_Embed&&(identical(other.url, url) || other.url == url)&&(identical(other.title, title) || other.title == title)&&(identical(other.kind, kind) || other.kind == kind));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteSpan_Embed&&(identical(other.embed, embed) || other.embed == embed));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,url,title,kind);
+    return Object.hash(runtimeType,embed);
 }
 
 @override
 String toString() {
-    return 'NoteSpan.embed(url: $url, title: $title, kind: $kind)';
+    return 'NoteSpan.embed(embed: $embed)';
 }
 
 
@@ -1779,11 +1851,11 @@ abstract mixin class $NoteSpan_EmbedCopyWith<$Res> implements $NoteSpanCopyWith<
   factory $NoteSpan_EmbedCopyWith(NoteSpan_Embed value, $Res Function(NoteSpan_Embed) _then) = _$NoteSpan_EmbedCopyWithImpl;
 @useResult
 $Res call({
- String url, String? title, EmbedKind kind
+ EmbedRef embed
 });
 
 
-$EmbedKindCopyWith<$Res> get kind;
+
 
 }
 /// @nodoc
@@ -1796,25 +1868,14 @@ class _$NoteSpan_EmbedCopyWithImpl<$Res>
 
 /// Create a copy of NoteSpan
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? url = null,Object? title = freezed,Object? kind = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? embed = null,}) {
   return _then(NoteSpan_Embed(
-url: null == url ? _self.url : url // ignore: cast_nullable_to_non_nullable
-as String,title: freezed == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
-as String?,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as EmbedKind,
+embed: null == embed ? _self.embed : embed // ignore: cast_nullable_to_non_nullable
+as EmbedRef,
   ));
 }
 
-/// Create a copy of NoteSpan
-/// with the given fields replaced by the non-null parameter values.
-@override
-@pragma('vm:prefer-inline')
-$EmbedKindCopyWith<$Res> get kind {
-  
-  return $EmbedKindCopyWith<$Res>(_self.kind, (value) {
-    return _then(_self.copyWith(kind: value));
-  });
-}
+
 }
 
 // dart format on

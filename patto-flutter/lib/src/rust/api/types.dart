@@ -94,6 +94,9 @@ sealed class BlockKind with _$BlockKind {
   /// A line whose entire content is images.
   const factory BlockKind.images({required List<ImageRef> images}) =
       BlockKind_Images;
+
+  /// A line whose entire content is one embed the app can preview.
+  const factory BlockKind.embed({required EmbedRef embed}) = BlockKind_Embed;
   const factory BlockKind.rule() = BlockKind_Rule;
 }
 
@@ -112,6 +115,35 @@ sealed class EmbedKind with _$EmbedKind {
   const factory EmbedKind.slideShare() = EmbedKind_SlideShare;
   const factory EmbedKind.pdf() = EmbedKind_Pdf;
   const factory EmbedKind.other() = EmbedKind_Other;
+}
+
+class EmbedRef {
+  /// Remote URL, or a path relative to the notes root for local files.
+  final String url;
+  final String? title;
+  final EmbedKind kind;
+  final bool isLocal;
+
+  const EmbedRef({
+    required this.url,
+    this.title,
+    required this.kind,
+    required this.isLocal,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^ title.hashCode ^ kind.hashCode ^ isLocal.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EmbedRef &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          title == other.title &&
+          kind == other.kind &&
+          isLocal == other.isLocal;
 }
 
 class ImageRef {
@@ -195,11 +227,10 @@ sealed class NoteSpan with _$NoteSpan {
   const factory NoteSpan.inlineMath({required String tex}) =
       NoteSpan_InlineMath;
   const factory NoteSpan.image({required ImageRef image}) = NoteSpan_Image;
-  const factory NoteSpan.embed({
-    required String url,
-    String? title,
-    required EmbedKind kind,
-  }) = NoteSpan_Embed;
+
+  /// An embed among other text; shown as a link so a line never carries a
+  /// preview mid-sentence.
+  const factory NoteSpan.embed({required EmbedRef embed}) = NoteSpan_Embed;
 }
 
 class NoteTableCell {

@@ -7,6 +7,7 @@ import 'package:re_highlight/styles/atom-one-dark.dart';
 import 'package:re_highlight/styles/atom-one-light.dart';
 
 import '../../../src/rust/api/types.dart';
+import 'embed_card.dart';
 import 'note_image.dart';
 import 'spans_text.dart';
 import 'task_marker.dart';
@@ -70,6 +71,11 @@ class BlockWidget extends StatelessWidget {
         textScale: textScale,
       ),
       BlockKind_Images(:final images) => _images(context, images),
+      BlockKind_Embed(:final embed) => EmbedCard(
+        embed: embed,
+        textScale: textScale,
+        onTap: () => actions.onEmbed(embed),
+      ),
     };
 
     if (quoted) {

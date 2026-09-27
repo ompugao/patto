@@ -1097,6 +1097,10 @@ impl SseDecode for crate::api::types::BlockKind {
                 return crate::api::types::BlockKind::Images { images: var_images };
             }
             6 => {
+                let mut var_embed = <crate::api::types::EmbedRef>::sse_decode(deserializer);
+                return crate::api::types::BlockKind::Embed { embed: var_embed };
+            }
+            7 => {
                 return crate::api::types::BlockKind::Rule;
             }
             _ => {
@@ -1183,6 +1187,22 @@ impl SseDecode for crate::api::types::EmbedKind {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseDecode for crate::api::types::EmbedRef {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_url = <String>::sse_decode(deserializer);
+        let mut var_title = <Option<String>>::sse_decode(deserializer);
+        let mut var_kind = <crate::api::types::EmbedKind>::sse_decode(deserializer);
+        let mut var_isLocal = <bool>::sse_decode(deserializer);
+        return crate::api::types::EmbedRef {
+            url: var_url,
+            title: var_title,
+            kind: var_kind,
+            is_local: var_isLocal,
+        };
     }
 }
 
@@ -1665,14 +1685,8 @@ impl SseDecode for crate::api::types::NoteSpan {
                 return crate::api::types::NoteSpan::Image { image: var_image };
             }
             7 => {
-                let mut var_url = <String>::sse_decode(deserializer);
-                let mut var_title = <Option<String>>::sse_decode(deserializer);
-                let mut var_kind = <crate::api::types::EmbedKind>::sse_decode(deserializer);
-                return crate::api::types::NoteSpan::Embed {
-                    url: var_url,
-                    title: var_title,
-                    kind: var_kind,
-                };
+                let mut var_embed = <crate::api::types::EmbedRef>::sse_decode(deserializer);
+                return crate::api::types::NoteSpan::Embed { embed: var_embed };
             }
             _ => {
                 unimplemented!("");
@@ -2173,7 +2187,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::BlockKind {
             crate::api::types::BlockKind::Images { images } => {
                 [5.into_dart(), images.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::types::BlockKind::Rule => [6.into_dart()].into_dart(),
+            crate::api::types::BlockKind::Embed { embed } => {
+                [6.into_dart(), embed.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::types::BlockKind::Rule => [7.into_dart()].into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -2258,6 +2275,26 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::EmbedKind>
     for crate::api::types::EmbedKind
 {
     fn into_into_dart(self) -> crate::api::types::EmbedKind {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::types::EmbedRef {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.url.into_into_dart().into_dart(),
+            self.title.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.is_local.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::types::EmbedRef {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::types::EmbedRef>
+    for crate::api::types::EmbedRef
+{
+    fn into_into_dart(self) -> crate::api::types::EmbedRef {
         self
     }
 }
@@ -2580,13 +2617,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::NoteSpan {
             crate::api::types::NoteSpan::Image { image } => {
                 [6.into_dart(), image.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::types::NoteSpan::Embed { url, title, kind } => [
-                7.into_dart(),
-                url.into_into_dart().into_dart(),
-                title.into_into_dart().into_dart(),
-                kind.into_into_dart().into_dart(),
-            ]
-            .into_dart(),
+            crate::api::types::NoteSpan::Embed { embed } => {
+                [7.into_dart(), embed.into_into_dart().into_dart()].into_dart()
+            }
             _ => {
                 unimplemented!("");
             }
@@ -3056,8 +3089,12 @@ impl SseEncode for crate::api::types::BlockKind {
                 <i32>::sse_encode(5, serializer);
                 <Vec<crate::api::types::ImageRef>>::sse_encode(images, serializer);
             }
-            crate::api::types::BlockKind::Rule => {
+            crate::api::types::BlockKind::Embed { embed } => {
                 <i32>::sse_encode(6, serializer);
+                <crate::api::types::EmbedRef>::sse_encode(embed, serializer);
+            }
+            crate::api::types::BlockKind::Rule => {
+                <i32>::sse_encode(7, serializer);
             }
             _ => {
                 unimplemented!("");
@@ -3139,6 +3176,16 @@ impl SseEncode for crate::api::types::EmbedKind {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseEncode for crate::api::types::EmbedRef {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.url, serializer);
+        <Option<String>>::sse_encode(self.title, serializer);
+        <crate::api::types::EmbedKind>::sse_encode(self.kind, serializer);
+        <bool>::sse_encode(self.is_local, serializer);
     }
 }
 
@@ -3533,11 +3580,9 @@ impl SseEncode for crate::api::types::NoteSpan {
                 <i32>::sse_encode(6, serializer);
                 <crate::api::types::ImageRef>::sse_encode(image, serializer);
             }
-            crate::api::types::NoteSpan::Embed { url, title, kind } => {
+            crate::api::types::NoteSpan::Embed { embed } => {
                 <i32>::sse_encode(7, serializer);
-                <String>::sse_encode(url, serializer);
-                <Option<String>>::sse_encode(title, serializer);
-                <crate::api::types::EmbedKind>::sse_encode(kind, serializer);
+                <crate::api::types::EmbedRef>::sse_encode(embed, serializer);
             }
             _ => {
                 unimplemented!("");

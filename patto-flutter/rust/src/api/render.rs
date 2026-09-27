@@ -134,8 +134,15 @@ impl Flattener {
             .filter(|c| !is_blank_text(c))
             .collect::<Vec<_>>();
 
+        let sole_embed = match visible.as_slice() {
+            [only] => embed_ref(only).filter(|e| e.kind != EmbedKind::Other),
+            _ => None,
+        };
+
         if visible.is_empty() {
             self.push(make(BlockKind::Blank));
+        } else if let Some(embed) = sole_embed {
+            self.push(make(BlockKind::Embed { embed }));
         } else if visible
             .iter()
             .all(|c| matches!(c.kind(), AstNodeKind::Image { .. }))
@@ -239,6 +246,18 @@ fn image_ref(node: &AstNode) -> Option<ImageRef> {
     })
 }
 
+fn embed_ref(node: &AstNode) -> Option<EmbedRef> {
+    let AstNodeKind::Embed { link, title } = node.kind() else {
+        return None;
+    };
+    Some(EmbedRef {
+        url: link.clone(),
+        title: title.clone(),
+        kind: embed_kind(link),
+        is_local: !link.contains("://"),
+    })
+}
+
 fn embed_kind(link: &str) -> EmbedKind {
     if link.to_lowercase().ends_with(".pdf") {
         return EmbedKind::Pdf;
@@ -290,11 +309,7 @@ fn inline_span(node: &AstNode) -> Option<NoteSpan> {
             url: link.clone(),
             title: title.clone(),
         }),
-        AstNodeKind::Embed { link, title } => Some(NoteSpan::Embed {
-            kind: embed_kind(link),
-            url: link.clone(),
-            title: title.clone(),
-        }),
+        AstNodeKind::Embed { .. } => embed_ref(node).map(|embed| NoteSpan::Embed { embed }),
         AstNodeKind::Code { inline: true, .. } => Some(NoteSpan::InlineCode {
             code: first_content_text(node),
         }),

@@ -13,6 +13,8 @@ import '../search/highlight.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
 import 'widgets/block_widget.dart';
+import 'widgets/note_image.dart';
+import 'widgets/pdf_viewer_screen.dart';
 import 'widgets/spans_text.dart';
 
 class NoteViewScreen extends ConsumerStatefulWidget {
@@ -306,6 +308,28 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     }
   }
 
+  /// PDFs open in the app, local ones because nothing else can reach them;
+  /// everything else goes to the app or browser that owns the URL.
+  void _openEmbed(EmbedRef embed, String? root) {
+    final title = embed.title ?? embed.url.split('/').last;
+    if (embed.kind is EmbedKind_Pdf) {
+      if (embed.isLocal) {
+        if (root == null) return;
+        PdfViewerScreen.open(
+          context,
+          PdfViewerScreen.file(path: resolveNotePath(embed.url, root), title: title),
+        );
+        return;
+      }
+      final uri = Uri.tryParse(embed.url);
+      if (uri != null) {
+        PdfViewerScreen.open(context, PdfViewerScreen.uri(uri: uri, title: title));
+        return;
+      }
+    }
+    _openUrl(embed.url);
+  }
+
   Future<void> _changeTaskStatus(Block block) async {
     final task = block.task;
     if (task == null) return;
@@ -381,6 +405,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
             onWikiLink: _openWikiLink,
             onUrl: _openUrl,
             onAnchor: (anchor) => _jumpToAnchor(data, anchor),
+            onEmbed: (embed) => _openEmbed(embed, workspace?.root),
           );
 
           return SuperListView.builder(
