@@ -1144,6 +1144,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 5:
         return BlockKind_Images(images: dco_decode_list_image_ref(raw[1]));
       case 6:
+        return BlockKind_Embed(embed: dco_decode_box_autoadd_embed_ref(raw[1]));
+      case 7:
         return BlockKind_Rule();
       default:
         throw Exception("unreachable");
@@ -1157,9 +1159,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  EmbedKind dco_decode_box_autoadd_embed_kind(dynamic raw) {
+  EmbedRef dco_decode_box_autoadd_embed_ref(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_embed_kind(raw);
+    return dco_decode_embed_ref(raw);
   }
 
   @protected
@@ -1272,6 +1274,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       default:
         throw Exception("unreachable");
     }
+  }
+
+  @protected
+  EmbedRef dco_decode_embed_ref(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return EmbedRef(
+      url: dco_decode_String(arr[0]),
+      title: dco_decode_opt_String(arr[1]),
+      kind: dco_decode_embed_kind(arr[2]),
+      isLocal: dco_decode_bool(arr[3]),
+    );
   }
 
   @protected
@@ -1583,11 +1599,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 6:
         return NoteSpan_Image(image: dco_decode_box_autoadd_image_ref(raw[1]));
       case 7:
-        return NoteSpan_Embed(
-          url: dco_decode_String(raw[1]),
-          title: dco_decode_opt_String(raw[2]),
-          kind: dco_decode_box_autoadd_embed_kind(raw[3]),
-        );
+        return NoteSpan_Embed(embed: dco_decode_box_autoadd_embed_ref(raw[1]));
       default:
         throw Exception("unreachable");
     }
@@ -1971,6 +1983,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_images = sse_decode_list_image_ref(deserializer);
         return BlockKind_Images(images: var_images);
       case 6:
+        var var_embed = sse_decode_box_autoadd_embed_ref(deserializer);
+        return BlockKind_Embed(embed: var_embed);
+      case 7:
         return BlockKind_Rule();
       default:
         throw UnimplementedError('');
@@ -1984,9 +1999,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  EmbedKind sse_decode_box_autoadd_embed_kind(SseDeserializer deserializer) {
+  EmbedRef sse_decode_box_autoadd_embed_ref(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_embed_kind(deserializer));
+    return (sse_decode_embed_ref(deserializer));
   }
 
   @protected
@@ -2109,6 +2124,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       default:
         throw UnimplementedError('');
     }
+  }
+
+  @protected
+  EmbedRef sse_decode_embed_ref(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_url = sse_decode_String(deserializer);
+    var var_title = sse_decode_opt_String(deserializer);
+    var var_kind = sse_decode_embed_kind(deserializer);
+    var var_isLocal = sse_decode_bool(deserializer);
+    return EmbedRef(
+      url: var_url,
+      title: var_title,
+      kind: var_kind,
+      isLocal: var_isLocal,
+    );
   }
 
   @protected
@@ -2517,10 +2547,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_image = sse_decode_box_autoadd_image_ref(deserializer);
         return NoteSpan_Image(image: var_image);
       case 7:
-        var var_url = sse_decode_String(deserializer);
-        var var_title = sse_decode_opt_String(deserializer);
-        var var_kind = sse_decode_box_autoadd_embed_kind(deserializer);
-        return NoteSpan_Embed(url: var_url, title: var_title, kind: var_kind);
+        var var_embed = sse_decode_box_autoadd_embed_ref(deserializer);
+        return NoteSpan_Embed(embed: var_embed);
       default:
         throw UnimplementedError('');
     }
@@ -2932,8 +2960,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case BlockKind_Images(images: final images):
         sse_encode_i_32(5, serializer);
         sse_encode_list_image_ref(images, serializer);
-      case BlockKind_Rule():
+      case BlockKind_Embed(embed: final embed):
         sse_encode_i_32(6, serializer);
+        sse_encode_box_autoadd_embed_ref(embed, serializer);
+      case BlockKind_Rule():
+        sse_encode_i_32(7, serializer);
     }
   }
 
@@ -2944,12 +2975,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_embed_kind(
-    EmbedKind self,
+  void sse_encode_box_autoadd_embed_ref(
+    EmbedRef self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_embed_kind(self, serializer);
+    sse_encode_embed_ref(self, serializer);
   }
 
   @protected
@@ -3084,6 +3115,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case EmbedKind_Other():
         sse_encode_i_32(5, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_embed_ref(EmbedRef self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.url, serializer);
+    sse_encode_opt_String(self.title, serializer);
+    sse_encode_embed_kind(self.kind, serializer);
+    sse_encode_bool(self.isLocal, serializer);
   }
 
   @protected
@@ -3433,11 +3473,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case NoteSpan_Image(image: final image):
         sse_encode_i_32(6, serializer);
         sse_encode_box_autoadd_image_ref(image, serializer);
-      case NoteSpan_Embed(url: final url, title: final title, kind: final kind):
+      case NoteSpan_Embed(embed: final embed):
         sse_encode_i_32(7, serializer);
-        sse_encode_String(url, serializer);
-        sse_encode_opt_String(title, serializer);
-        sse_encode_box_autoadd_embed_kind(kind, serializer);
+        sse_encode_box_autoadd_embed_ref(embed, serializer);
     }
   }
 

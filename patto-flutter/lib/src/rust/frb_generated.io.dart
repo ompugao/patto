@@ -58,7 +58,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
-  EmbedKind dco_decode_box_autoadd_embed_kind(dynamic raw);
+  EmbedRef dco_decode_box_autoadd_embed_ref(dynamic raw);
 
   @protected
   Failure dco_decode_box_autoadd_failure(dynamic raw);
@@ -101,6 +101,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EmbedKind dco_decode_embed_kind(dynamic raw);
+
+  @protected
+  EmbedRef dco_decode_embed_ref(dynamic raw);
 
   @protected
   Failure dco_decode_failure(dynamic raw);
@@ -310,7 +313,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
-  EmbedKind sse_decode_box_autoadd_embed_kind(SseDeserializer deserializer);
+  EmbedRef sse_decode_box_autoadd_embed_ref(SseDeserializer deserializer);
 
   @protected
   Failure sse_decode_box_autoadd_failure(SseDeserializer deserializer);
@@ -357,6 +360,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EmbedKind sse_decode_embed_kind(SseDeserializer deserializer);
+
+  @protected
+  EmbedRef sse_decode_embed_ref(SseDeserializer deserializer);
 
   @protected
   Failure sse_decode_failure(SseDeserializer deserializer);
@@ -580,8 +586,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
-  void sse_encode_box_autoadd_embed_kind(
-    EmbedKind self,
+  void sse_encode_box_autoadd_embed_ref(
+    EmbedRef self,
     SseSerializer serializer,
   );
 
@@ -653,6 +659,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_embed_kind(EmbedKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_embed_ref(EmbedRef self, SseSerializer serializer);
 
   @protected
   void sse_encode_failure(Failure self, SseSerializer serializer);

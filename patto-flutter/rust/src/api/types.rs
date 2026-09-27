@@ -93,6 +93,15 @@ pub struct ImageRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbedRef {
+    /// Remote URL, or a path relative to the notes root for local files.
+    pub url: String,
+    pub title: Option<String>,
+    pub kind: EmbedKind,
+    pub is_local: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbedKind {
     Youtube { video_id: String },
     Twitter,
@@ -134,10 +143,10 @@ pub enum NoteSpan {
     Image {
         image: ImageRef,
     },
+    /// An embed among other text; shown as a link so a line never carries a
+    /// preview mid-sentence.
     Embed {
-        url: String,
-        title: Option<String>,
-        kind: EmbedKind,
+        embed: EmbedRef,
     },
 }
 
@@ -172,6 +181,10 @@ pub enum BlockKind {
     /// A line whose entire content is images.
     Images {
         images: Vec<ImageRef>,
+    },
+    /// A line whose entire content is one embed the app can preview.
+    Embed {
+        embed: EmbedRef,
     },
     Rule,
 }

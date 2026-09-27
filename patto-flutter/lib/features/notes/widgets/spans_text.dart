@@ -15,11 +15,13 @@ class SpanActions {
     required this.onWikiLink,
     required this.onUrl,
     required this.onAnchor,
+    required this.onEmbed,
   });
 
   final void Function(String name, String? anchor) onWikiLink;
   final void Function(String url) onUrl;
   final void Function(String anchor) onAnchor;
+  final void Function(EmbedRef embed) onEmbed;
 }
 
 /// Renders a line's spans as rich text.
@@ -173,14 +175,14 @@ class _SpansTextState extends State<SpansText> {
           child: NoteImage(image: image, root: widget.noteRoot, inline: true),
         ),
       ),
-      NoteSpan_Embed(:final url, :final title) => TextSpan(
-        text: title ?? url,
+      NoteSpan_Embed(:final embed) => TextSpan(
+        text: embed.title ?? embed.url,
         style: style.copyWith(
           color: colors.primary,
           decoration: TextDecoration.underline,
           decorationColor: colors.primary,
         ),
-        recognizer: _tap(() => widget.actions.onUrl(url)),
+        recognizer: _tap(() => widget.actions.onEmbed(embed)),
       ),
     };
   }

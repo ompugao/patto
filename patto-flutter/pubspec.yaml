@@ -56,6 +56,7 @@ dependencies:
       ref: c0b2985f4711664572d9d860a3e3297b758bdfbb
   re_highlight: ^0.0.3
   cached_network_image: ^4.0.0
+  pdfrx: ^2.6.5
 
 dev_dependencies:
   flutter_test:
