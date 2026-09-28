@@ -78,9 +78,13 @@ jobs:
           found=
           for bin in Runner Frameworks/*.framework/*; do
             [ -f "$bin" ] && file "$bin" | grep -q 'Mach-O' || continue
-            count=$(xcrun dyld_info -exports "$bin" | grep -c 'frbgen_rust_lib_patto_flutter' || true)
-            echo "$bin: $count exported bridge symbols"
-            [ "$count" -gt 0 ] && found=1
+            exports=$(xcrun dyld_info -exports "$bin")
+            for sym in frb_get_rust_content_hash frb_pde_ffi_dispatcher_primary; do
+              if grep -qw "_$sym" <<< "$exports"; then
+                echo "$bin exports $sym"
+                found=1
+              fi
+            done
           done
           if [ -z "$found" ]; then
             echo "::error::the Rust bridge symbols are missing from Runner.app"
