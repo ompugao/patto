@@ -1,0 +1,101 @@
+name: iOS app
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - 'patto-flutter/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - 'patto-flutter/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep in step with android.yml.
+  FLUTTER_VERSION: 3.47.4
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-ios-cargo-${{ hashFiles('patto-flutter/rust/Cargo.lock') }}
+
+      # Analysis and the Dart tests already run in android.yml; this job only
+      # checks that the app and the Rust core build for iOS.
+
+      - name: Fetch packages
+        working-directory: patto-flutter
+        run: flutter pub get
+
+      # There is no Apple signing identity here, so the result cannot be
+      # installed as-is. It proves the Rust cross-compile and the Xcode build
+      # work, and a sideloading tool can re-sign it with a personal Apple ID.
+      - name: Build release app
+        working-directory: patto-flutter
+        run: flutter build ios --release --no-codesign
+
+      # Cargokit links the Rust library statically and flutter_rust_bridge
+      # looks its symbols up in the process, so they must be in the app binary
+      # or in a framework bundled with it.
+      - name: Check the Rust library made it into the app
+        working-directory: patto-flutter/build/ios/iphoneos/Runner.app
+        run: |
+          found=
+          for bin in Runner Frameworks/*.framework/*; do
+            [ -f "$bin" ] || continue
+            if nm -gU "$bin" 2>/dev/null | grep -q 'frbgen_rust_lib_patto_flutter'; then
+              echo "bridge symbols found in $bin"
+              found=1
+            fi
+          done
+          if [ -z "$found" ]; then
+            echo "::error::the Rust bridge symbols are missing from Runner.app"
+            exit 1
+          fi
+
+      - name: Package IPA
+        working-directory: patto-flutter/build/ios/iphoneos
+        run: |
+          mkdir Payload
+          cp -R Runner.app Payload/
+          zip -qry patto-notes-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: patto-notes-ipa-unsigned
+          path: patto-flutter/build/ios/iphoneos/patto-notes-unsigned.ipa
+          if-no-files-found: error

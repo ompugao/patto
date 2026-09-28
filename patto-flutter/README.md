@@ -88,6 +88,11 @@ The workflow pins the Flutter version, the NDK and the codegen version; they
 have to stay in step with `pubspec.yaml`, `android/app/build.gradle.kts` and
 `rust/Cargo.toml`.
 
+`.github/workflows/ios.yml` builds the app for iOS on a macOS runner with
+`--no-codesign` and uploads an unsigned IPA named `patto-notes-ipa-unsigned`.
+It cannot be installed as-is; a sideloading tool can re-sign it with a personal
+Apple ID, and TestFlight needs an Apple Developer account and signing secrets.
+
 ## Notes for maintainers
 
 **Certificates.** `openssl-src` configures Android builds with `no-stdio`, so
