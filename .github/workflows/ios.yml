@@ -68,18 +68,19 @@ jobs:
         run: flutter build ios --release --no-codesign
 
       # Cargokit links the Rust library statically and flutter_rust_bridge
-      # looks its symbols up in the process, so they must be in the app binary
-      # or in a framework bundled with it.
+      # looks its symbols up in the process with dlsym, so they must be
+      # exported from the app binary or from a framework bundled with it.
+      # Check the export table, which is what dlsym reads: a release build
+      # strips the symbol table that nm shows.
       - name: Check the Rust library made it into the app
         working-directory: patto-flutter/build/ios/iphoneos/Runner.app
         run: |
           found=
           for bin in Runner Frameworks/*.framework/*; do
-            [ -f "$bin" ] || continue
-            if nm -gU "$bin" 2>/dev/null | grep -q 'frbgen_rust_lib_patto_flutter'; then
-              echo "bridge symbols found in $bin"
-              found=1
-            fi
+            [ -f "$bin" ] && file "$bin" | grep -q 'Mach-O' || continue
+            count=$(xcrun dyld_info -exports "$bin" | grep -c 'frbgen_rust_lib_patto_flutter' || true)
+            echo "$bin: $count exported bridge symbols"
+            [ "$count" -gt 0 ] && found=1
           done
           if [ -z "$found" ]; then
             echo "::error::the Rust bridge symbols are missing from Runner.app"
