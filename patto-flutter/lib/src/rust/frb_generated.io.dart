@@ -3,10 +3,12 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/conflict.dart';
 import 'api/error.dart';
 import 'api/events.dart';
 import 'api/git.dart';
 import 'api/index.dart';
+import 'api/merge.dart';
 import 'api/tasks.dart';
 import 'api/types.dart';
 
@@ -82,6 +84,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IndexStats dco_decode_box_autoadd_index_stats(dynamic raw);
 
   @protected
+  MergedNote dco_decode_box_autoadd_merged_note(dynamic raw);
+
+  @protected
+  PendingConflict dco_decode_box_autoadd_pending_conflict(dynamic raw);
+
+  @protected
+  Suggestion dco_decode_box_autoadd_suggestion(dynamic raw);
+
+  @protected
   SyncReport dco_decode_box_autoadd_sync_report(dynamic raw);
 
   @protected
@@ -95,6 +106,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CloneEvent dco_decode_clone_event(dynamic raw);
+
+  @protected
+  ConflictDetail dco_decode_conflict_detail(dynamic raw);
+
+  @protected
+  ConflictFile dco_decode_conflict_file(dynamic raw);
+
+  @protected
+  ConflictKind dco_decode_conflict_kind(dynamic raw);
 
   @protected
   DateKind dco_decode_date_kind(dynamic raw);
@@ -157,10 +177,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Block> dco_decode_list_block(dynamic raw);
 
   @protected
+  List<ConflictFile> dco_decode_list_conflict_file(dynamic raw);
+
+  @protected
   List<ImageRef> dco_decode_list_image_ref(dynamic raw);
 
   @protected
   List<LinkCount> dco_decode_list_link_count(dynamic raw);
+
+  @protected
+  List<List<String>> dco_decode_list_list_String(dynamic raw);
+
+  @protected
+  List<MergeRegion> dco_decode_list_merge_region(dynamic raw);
 
   @protected
   List<NoteMeta> dco_decode_list_note_meta(dynamic raw);
@@ -181,6 +210,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<Resolution> dco_decode_list_resolution(dynamic raw);
+
+  @protected
   List<TaskItem> dco_decode_list_task_item(dynamic raw);
 
   @protected
@@ -194,6 +226,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MergeOutcome dco_decode_merge_outcome(dynamic raw);
+
+  @protected
+  MergeRegion dco_decode_merge_region(dynamic raw);
+
+  @protected
+  MergedNote dco_decode_merged_note(dynamic raw);
 
   @protected
   NoteMeta dco_decode_note_meta(dynamic raw);
@@ -214,6 +252,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   GitErrorKind? dco_decode_opt_box_autoadd_git_error_kind(dynamic raw);
 
   @protected
+  PendingConflict? dco_decode_opt_box_autoadd_pending_conflict(dynamic raw);
+
+  @protected
+  Suggestion? dco_decode_opt_box_autoadd_suggestion(dynamic raw);
+
+  @protected
   TaskDate? dco_decode_opt_box_autoadd_task_date(dynamic raw);
 
   @protected
@@ -229,10 +273,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PattoError dco_decode_patto_error(dynamic raw);
 
   @protected
+  PendingConflict dco_decode_pending_conflict(dynamic raw);
+
+  @protected
   PendingGroup dco_decode_pending_group(dynamic raw);
 
   @protected
+  RemoteCommit dco_decode_remote_commit(dynamic raw);
+
+  @protected
   RenderedNote dco_decode_rendered_note(dynamic raw);
+
+  @protected
+  Resolution dco_decode_resolution(dynamic raw);
+
+  @protected
+  Suggestion dco_decode_suggestion(dynamic raw);
+
+  @protected
+  SuggestionKind dco_decode_suggestion_kind(dynamic raw);
 
   @protected
   SyncEvent dco_decode_sync_event(dynamic raw);
@@ -341,6 +400,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IndexStats sse_decode_box_autoadd_index_stats(SseDeserializer deserializer);
 
   @protected
+  MergedNote sse_decode_box_autoadd_merged_note(SseDeserializer deserializer);
+
+  @protected
+  PendingConflict sse_decode_box_autoadd_pending_conflict(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Suggestion sse_decode_box_autoadd_suggestion(SseDeserializer deserializer);
+
+  @protected
   SyncReport sse_decode_box_autoadd_sync_report(SseDeserializer deserializer);
 
   @protected
@@ -354,6 +424,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CloneEvent sse_decode_clone_event(SseDeserializer deserializer);
+
+  @protected
+  ConflictDetail sse_decode_conflict_detail(SseDeserializer deserializer);
+
+  @protected
+  ConflictFile sse_decode_conflict_file(SseDeserializer deserializer);
+
+  @protected
+  ConflictKind sse_decode_conflict_kind(SseDeserializer deserializer);
 
   @protected
   DateKind sse_decode_date_kind(SseDeserializer deserializer);
@@ -416,10 +495,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Block> sse_decode_list_block(SseDeserializer deserializer);
 
   @protected
+  List<ConflictFile> sse_decode_list_conflict_file(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ImageRef> sse_decode_list_image_ref(SseDeserializer deserializer);
 
   @protected
   List<LinkCount> sse_decode_list_link_count(SseDeserializer deserializer);
+
+  @protected
+  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<MergeRegion> sse_decode_list_merge_region(SseDeserializer deserializer);
 
   @protected
   List<NoteMeta> sse_decode_list_note_meta(SseDeserializer deserializer);
@@ -444,6 +534,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<Resolution> sse_decode_list_resolution(SseDeserializer deserializer);
+
+  @protected
   List<TaskItem> sse_decode_list_task_item(SseDeserializer deserializer);
 
   @protected
@@ -459,6 +552,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MergeOutcome sse_decode_merge_outcome(SseDeserializer deserializer);
+
+  @protected
+  MergeRegion sse_decode_merge_region(SseDeserializer deserializer);
+
+  @protected
+  MergedNote sse_decode_merged_note(SseDeserializer deserializer);
 
   @protected
   NoteMeta sse_decode_note_meta(SseDeserializer deserializer);
@@ -481,6 +580,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PendingConflict? sse_decode_opt_box_autoadd_pending_conflict(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Suggestion? sse_decode_opt_box_autoadd_suggestion(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TaskDate? sse_decode_opt_box_autoadd_task_date(SseDeserializer deserializer);
 
   @protected
@@ -496,10 +605,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PattoError sse_decode_patto_error(SseDeserializer deserializer);
 
   @protected
+  PendingConflict sse_decode_pending_conflict(SseDeserializer deserializer);
+
+  @protected
   PendingGroup sse_decode_pending_group(SseDeserializer deserializer);
 
   @protected
+  RemoteCommit sse_decode_remote_commit(SseDeserializer deserializer);
+
+  @protected
   RenderedNote sse_decode_rendered_note(SseDeserializer deserializer);
+
+  @protected
+  Resolution sse_decode_resolution(SseDeserializer deserializer);
+
+  @protected
+  Suggestion sse_decode_suggestion(SseDeserializer deserializer);
+
+  @protected
+  SuggestionKind sse_decode_suggestion_kind(SseDeserializer deserializer);
 
   @protected
   SyncEvent sse_decode_sync_event(SseDeserializer deserializer);
@@ -631,6 +755,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_merged_note(
+    MergedNote self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_pending_conflict(
+    PendingConflict self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_suggestion(
+    Suggestion self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_sync_report(
     SyncReport self,
     SseSerializer serializer,
@@ -653,6 +795,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_clone_event(CloneEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_conflict_detail(
+    ConflictDetail self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_conflict_file(ConflictFile self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_conflict_kind(ConflictKind self, SseSerializer serializer);
 
   @protected
   void sse_encode_date_kind(DateKind self, SseSerializer serializer);
@@ -718,11 +872,29 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_block(List<Block> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_conflict_file(
+    List<ConflictFile> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_image_ref(List<ImageRef> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_link_count(
     List<LinkCount> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_list_String(
+    List<List<String>> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_merge_region(
+    List<MergeRegion> self,
     SseSerializer serializer,
   );
 
@@ -757,6 +929,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_resolution(
+    List<Resolution> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_task_item(List<TaskItem> self, SseSerializer serializer);
 
   @protected
@@ -778,6 +956,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_merge_outcome(MergeOutcome self, SseSerializer serializer);
 
   @protected
+  void sse_encode_merge_region(MergeRegion self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_merged_note(MergedNote self, SseSerializer serializer);
+
+  @protected
   void sse_encode_note_meta(NoteMeta self, SseSerializer serializer);
 
   @protected
@@ -795,6 +979,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_git_error_kind(
     GitErrorKind? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_pending_conflict(
+    PendingConflict? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_suggestion(
+    Suggestion? self,
     SseSerializer serializer,
   );
 
@@ -820,10 +1016,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_patto_error(PattoError self, SseSerializer serializer);
 
   @protected
+  void sse_encode_pending_conflict(
+    PendingConflict self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_pending_group(PendingGroup self, SseSerializer serializer);
 
   @protected
+  void sse_encode_remote_commit(RemoteCommit self, SseSerializer serializer);
+
+  @protected
   void sse_encode_rendered_note(RenderedNote self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_resolution(Resolution self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_suggestion(Suggestion self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_suggestion_kind(
+    SuggestionKind self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_sync_event(SyncEvent self, SseSerializer serializer);

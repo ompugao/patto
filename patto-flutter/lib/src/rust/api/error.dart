@@ -19,6 +19,10 @@ enum GitErrorKind {
   noRemote,
   nonFastForward,
   conflict,
+
+  /// The remote or a note changed after the conflict was reviewed, so the
+  /// resolution no longer applies.
+  stale,
   other,
 }
 

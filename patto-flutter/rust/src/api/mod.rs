@@ -1,3 +1,4 @@
+pub mod conflict;
 pub mod error;
 pub mod events;
 pub mod git;

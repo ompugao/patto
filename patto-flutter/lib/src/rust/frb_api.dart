@@ -3,10 +3,12 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import 'api/conflict.dart';
 import 'api/error.dart';
 import 'api/events.dart';
 import 'api/git.dart';
 import 'api/index.dart';
+import 'api/merge.dart';
 import 'api/tasks.dart';
 import 'api/types.dart';
 import 'frb_generated.dart';
@@ -174,4 +176,41 @@ Stream<SyncEvent> gitSync({
   authorName: authorName,
   authorEmail: authorEmail,
   creds: creds,
+);
+
+/// The sync that stopped at a conflict, if one is waiting to be merged.
+Future<PendingConflict?> pendingConflict({required String root}) =>
+    RustLib.instance.api.crateFrbApiPendingConflict(root: root);
+
+/// Base, phone and remote versions of one clashing note, split into regions.
+Future<ConflictDetail> conflictDetail({
+  required String root,
+  required String relPath,
+}) => RustLib.instance.api.crateFrbApiConflictDetail(
+  root: root,
+  relPath: relPath,
+);
+
+/// The text of a merged note once each conflict has been given its lines;
+/// `choices` holds one entry per conflict, in order.
+String assembleMerge({
+  required MergedNote note,
+  required List<List<String>> choices,
+}) =>
+    RustLib.instance.api.crateFrbApiAssembleMerge(note: note, choices: choices);
+
+/// Merge with the user's choice for every clashing note and push. Reports like
+/// [`git_sync`].
+Stream<SyncEvent> gitResolve({
+  required String root,
+  required String authorName,
+  required String authorEmail,
+  required GitCreds creds,
+  required List<Resolution> resolutions,
+}) => RustLib.instance.api.crateFrbApiGitResolve(
+  root: root,
+  authorName: authorName,
+  authorEmail: authorEmail,
+  creds: creds,
+  resolutions: resolutions,
 );

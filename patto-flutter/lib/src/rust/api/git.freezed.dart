@@ -56,13 +56,14 @@ extension MergeOutcomePatterns on MergeOutcome {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( MergeOutcome_UpToDate value)?  upToDate,TResult Function( MergeOutcome_FastForward value)?  fastForward,TResult Function( MergeOutcome_Merged value)?  merged,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( MergeOutcome_UpToDate value)?  upToDate,TResult Function( MergeOutcome_FastForward value)?  fastForward,TResult Function( MergeOutcome_Merged value)?  merged,TResult Function( MergeOutcome_Conflicted value)?  conflicted,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate() when upToDate != null:
 return upToDate(_that);case MergeOutcome_FastForward() when fastForward != null:
 return fastForward(_that);case MergeOutcome_Merged() when merged != null:
-return merged(_that);case _:
+return merged(_that);case MergeOutcome_Conflicted() when conflicted != null:
+return conflicted(_that);case _:
   return orElse();
 
 }
@@ -80,13 +81,14 @@ return merged(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( MergeOutcome_UpToDate value)  upToDate,required TResult Function( MergeOutcome_FastForward value)  fastForward,required TResult Function( MergeOutcome_Merged value)  merged,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( MergeOutcome_UpToDate value)  upToDate,required TResult Function( MergeOutcome_FastForward value)  fastForward,required TResult Function( MergeOutcome_Merged value)  merged,required TResult Function( MergeOutcome_Conflicted value)  conflicted,}){
 final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate():
 return upToDate(_that);case MergeOutcome_FastForward():
 return fastForward(_that);case MergeOutcome_Merged():
-return merged(_that);}
+return merged(_that);case MergeOutcome_Conflicted():
+return conflicted(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -100,13 +102,14 @@ return merged(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( MergeOutcome_UpToDate value)?  upToDate,TResult? Function( MergeOutcome_FastForward value)?  fastForward,TResult? Function( MergeOutcome_Merged value)?  merged,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( MergeOutcome_UpToDate value)?  upToDate,TResult? Function( MergeOutcome_FastForward value)?  fastForward,TResult? Function( MergeOutcome_Merged value)?  merged,TResult? Function( MergeOutcome_Conflicted value)?  conflicted,}){
 final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate() when upToDate != null:
 return upToDate(_that);case MergeOutcome_FastForward() when fastForward != null:
 return fastForward(_that);case MergeOutcome_Merged() when merged != null:
-return merged(_that);case _:
+return merged(_that);case MergeOutcome_Conflicted() when conflicted != null:
+return conflicted(_that);case _:
   return null;
 
 }
@@ -123,12 +126,13 @@ return merged(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  upToDate,TResult Function()?  fastForward,TResult Function( List<String> autoResolved)?  merged,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  upToDate,TResult Function()?  fastForward,TResult Function()?  merged,TResult Function( String sideBranch,  List<String> paths)?  conflicted,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate() when upToDate != null:
 return upToDate();case MergeOutcome_FastForward() when fastForward != null:
 return fastForward();case MergeOutcome_Merged() when merged != null:
-return merged(_that.autoResolved);case _:
+return merged();case MergeOutcome_Conflicted() when conflicted != null:
+return conflicted(_that.sideBranch,_that.paths);case _:
   return orElse();
 
 }
@@ -146,12 +150,13 @@ return merged(_that.autoResolved);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  upToDate,required TResult Function()  fastForward,required TResult Function( List<String> autoResolved)  merged,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  upToDate,required TResult Function()  fastForward,required TResult Function()  merged,required TResult Function( String sideBranch,  List<String> paths)  conflicted,}) {final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate():
 return upToDate();case MergeOutcome_FastForward():
 return fastForward();case MergeOutcome_Merged():
-return merged(_that.autoResolved);}
+return merged();case MergeOutcome_Conflicted():
+return conflicted(_that.sideBranch,_that.paths);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -165,12 +170,13 @@ return merged(_that.autoResolved);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  upToDate,TResult? Function()?  fastForward,TResult? Function( List<String> autoResolved)?  merged,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function()?  upToDate,TResult? Function()?  fastForward,TResult? Function()?  merged,TResult? Function( String sideBranch,  List<String> paths)?  conflicted,}) {final _that = this;
 switch (_that) {
 case MergeOutcome_UpToDate() when upToDate != null:
 return upToDate();case MergeOutcome_FastForward() when fastForward != null:
 return fastForward();case MergeOutcome_Merged() when merged != null:
-return merged(_that.autoResolved);case _:
+return merged();case MergeOutcome_Conflicted() when conflicted != null:
+return conflicted(_that.sideBranch,_that.paths);case _:
   return null;
 
 }
@@ -246,14 +252,47 @@ String toString() {
 
 
 class MergeOutcome_Merged extends MergeOutcome {
-  const MergeOutcome_Merged({required  List<String> autoResolved}): _autoResolved = autoResolved,super._();
+  const MergeOutcome_Merged(): super._();
   
 
- final  List<String> _autoResolved;
- List<String> get autoResolved {
-  if (_autoResolved is EqualUnmodifiableListView) return _autoResolved;
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is MergeOutcome_Merged);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'MergeOutcome.merged()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class MergeOutcome_Conflicted extends MergeOutcome {
+  const MergeOutcome_Conflicted({required this.sideBranch, required  List<String> paths}): _paths = paths,super._();
+  
+
+ final  String sideBranch;
+ final  List<String> _paths;
+ List<String> get paths {
+  if (_paths is EqualUnmodifiableListView) return _paths;
   // ignore: implicit_dynamic_type
-  return EqualUnmodifiableListView(_autoResolved);
+  return EqualUnmodifiableListView(_paths);
 }
 
 
@@ -261,35 +300,35 @@ class MergeOutcome_Merged extends MergeOutcome {
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
 @pragma('vm:prefer-inline')
-$MergeOutcome_MergedCopyWith<MergeOutcome_Merged> get copyWith => _$MergeOutcome_MergedCopyWithImpl<MergeOutcome_Merged>(this, _$identity);
+$MergeOutcome_ConflictedCopyWith<MergeOutcome_Conflicted> get copyWith => _$MergeOutcome_ConflictedCopyWithImpl<MergeOutcome_Conflicted>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is MergeOutcome_Merged&&const DeepCollectionEquality().equals(other.autoResolved, _autoResolved));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is MergeOutcome_Conflicted&&(identical(other.sideBranch, sideBranch) || other.sideBranch == sideBranch)&&const DeepCollectionEquality().equals(other.paths, _paths));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,const DeepCollectionEquality().hash(_autoResolved));
+    return Object.hash(runtimeType,sideBranch,const DeepCollectionEquality().hash(_paths));
 }
 
 @override
 String toString() {
-    return 'MergeOutcome.merged(autoResolved: $autoResolved)';
+    return 'MergeOutcome.conflicted(sideBranch: $sideBranch, paths: $paths)';
 }
 
 
 }
 
 /// @nodoc
-abstract mixin class $MergeOutcome_MergedCopyWith<$Res> implements $MergeOutcomeCopyWith<$Res> {
-  factory $MergeOutcome_MergedCopyWith(MergeOutcome_Merged value, $Res Function(MergeOutcome_Merged) _then) = _$MergeOutcome_MergedCopyWithImpl;
+abstract mixin class $MergeOutcome_ConflictedCopyWith<$Res> implements $MergeOutcomeCopyWith<$Res> {
+  factory $MergeOutcome_ConflictedCopyWith(MergeOutcome_Conflicted value, $Res Function(MergeOutcome_Conflicted) _then) = _$MergeOutcome_ConflictedCopyWithImpl;
 @useResult
 $Res call({
- List<String> autoResolved
+ String sideBranch, List<String> paths
 });
 
 
@@ -297,18 +336,19 @@ $Res call({
 
 }
 /// @nodoc
-class _$MergeOutcome_MergedCopyWithImpl<$Res>
-    implements $MergeOutcome_MergedCopyWith<$Res> {
-  _$MergeOutcome_MergedCopyWithImpl(this._self, this._then);
+class _$MergeOutcome_ConflictedCopyWithImpl<$Res>
+    implements $MergeOutcome_ConflictedCopyWith<$Res> {
+  _$MergeOutcome_ConflictedCopyWithImpl(this._self, this._then);
 
-  final MergeOutcome_Merged _self;
-  final $Res Function(MergeOutcome_Merged) _then;
+  final MergeOutcome_Conflicted _self;
+  final $Res Function(MergeOutcome_Conflicted) _then;
 
 /// Create a copy of MergeOutcome
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? autoResolved = null,}) {
-  return _then(MergeOutcome_Merged(
-autoResolved: null == autoResolved ? _self._autoResolved : autoResolved // ignore: cast_nullable_to_non_nullable
+@pragma('vm:prefer-inline') $Res call({Object? sideBranch = null,Object? paths = null,}) {
+  return _then(MergeOutcome_Conflicted(
+sideBranch: null == sideBranch ? _self.sideBranch : sideBranch // ignore: cast_nullable_to_non_nullable
+as String,paths: null == paths ? _self._paths : paths // ignore: cast_nullable_to_non_nullable
 as List<String>,
   ));
 }

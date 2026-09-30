@@ -104,6 +104,8 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
     GitErrorKind.nonFastForward => 'The remote moved on while syncing. Try again.',
     GitErrorKind.conflict =>
       'The merge could not be resolved here. Resolve it on the desktop.',
+    GitErrorKind.stale =>
+      'Something changed while you were resolving. Review the conflicts again.',
     _ => failure.message,
   };
 
@@ -189,8 +191,9 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
                   switch (_report!.merge) {
                     MergeOutcome_UpToDate() => 'Already up to date',
                     MergeOutcome_FastForward() => 'Fast-forwarded',
-                    MergeOutcome_Merged(:final autoResolved) =>
-                      'Merged, kept local copy of ${autoResolved.length} file(s)',
+                    MergeOutcome_Merged() => 'Merged',
+                    MergeOutcome_Conflicted(:final paths) =>
+                      'Paused: ${paths.length} note(s) changed on both sides',
                   },
                   if (_report!.pushed) 'Pushed',
                 ].join(' · '),
