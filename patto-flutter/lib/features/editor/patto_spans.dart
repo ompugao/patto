@@ -10,7 +10,16 @@ import 'package:flutter/material.dart';
 /// touching the text.
 const double tabExtraEm = 0.9;
 
-enum PattoToken { command, code, math, decoration, link, property, task, anchor }
+enum PattoToken {
+  command,
+  code,
+  math,
+  decoration,
+  link,
+  property,
+  task,
+  anchor,
+}
 
 final _tokenPattern = RegExp(
   r'(?<code>\[`.*?`\])'
@@ -140,12 +149,16 @@ TextSpan pattoLineSpan({
   } else {
     var at = 0;
     for (final t in tokenize(content)) {
-      if (t.start > at) children.add(TextSpan(text: content.substring(at, t.start)));
+      if (t.start > at) {
+        children.add(TextSpan(text: content.substring(at, t.start)));
+      }
       final piece = content.substring(t.start, t.end);
       children.add(TextSpan(text: piece, style: styles.token(t.kind, piece)));
       at = t.end;
     }
-    if (at < content.length) children.add(TextSpan(text: content.substring(at)));
+    if (at < content.length) {
+      children.add(TextSpan(text: content.substring(at)));
+    }
   }
 
   return TextSpan(style: style, children: children);

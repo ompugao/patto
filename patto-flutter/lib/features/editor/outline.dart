@@ -142,7 +142,9 @@ class PattoIndentChunkAnalyzer implements CodeChunkAnalyzer {
 
   @override
   List<CodeChunk> run(CodeLines codeLines) {
-    final lines = [for (var i = 0; i < codeLines.length; i++) codeLines[i].text];
+    final lines = [
+      for (var i = 0; i < codeLines.length; i++) codeLines[i].text,
+    ];
     return [
       for (var i = 0; i < lines.length; i++)
         if (!isBlank(lines[i]))

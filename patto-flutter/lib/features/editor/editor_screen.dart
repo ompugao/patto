@@ -127,7 +127,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final codeLines = _controller.codeLines;
     if (!identical(codeLines, _linesSource)) {
       _linesSource = codeLines;
-      _linesCache = [for (var i = 0; i < codeLines.length; i++) codeLines[i].text];
+      _linesCache = [
+        for (var i = 0; i < codeLines.length; i++) codeLines[i].text,
+      ];
     }
     return _linesCache;
   }
@@ -184,7 +186,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (!selection.isCollapsed) return _hideCompletion();
 
     final line = _controller.codeLines[selection.baseIndex].text;
-    final before = line.substring(0, selection.baseOffset.clamp(0, line.length));
+    final before = line.substring(
+      0,
+      selection.baseOffset.clamp(0, line.length),
+    );
     final match = _linkTrigger.firstMatch(before);
 
     if (match == null || match.group(1)!.startsWith('http')) {
@@ -408,7 +413,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               ),
             ),
             if (row != rows.first)
-              Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.outline),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: theme.colorScheme.outline,
+              ),
           ],
         ],
       ),
@@ -481,9 +490,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not save: $e')));
       }
       return false;
     }
@@ -549,80 +557,79 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('Could not open this note.\n\n$_error'),
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('Could not open this note.\n\n$_error'),
+                ),
+              )
+            : Column(
+                children: [
+                  Expanded(
+                    child: CodeEditor(
+                      controller: _controller,
+                      wordWrap: true,
+                      autofocus: false,
+                      focusNode: _focusNode,
+                      // Pairing is for code; in prose it doubles every
+                      // apostrophe.
+                      autocompleteSymbols: false,
+                      padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
+                      chunkAnalyzer: const PattoIndentChunkAnalyzer(),
+                      // A fold marker on every line that has children.
+                      indicatorBuilder: (context, editing, chunks, notifier) =>
+                          DefaultCodeChunkIndicator(
+                            width: 20,
+                            controller: chunks,
+                            notifier: notifier,
+                          ),
+                      toolbarController: MobileSelectionToolbarController(
+                        builder: _buildSelectionMenu,
+                      ),
+                      style: CodeEditorStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14 * ref.watch(fontScaleProvider),
+                        fontHeight: 1.45,
+                        textColor: Theme.of(context).colorScheme.onSurface,
+                        cursorLineColor: Theme.of(context).colorScheme.primary
+                            .withValues(alpha: 0.06),
+                      ),
                     ),
-                  )
-                : Column(
-                    children: [
-                      Expanded(
-                        child: CodeEditor(
-                          controller: _controller,
-                          wordWrap: true,
-                          autofocus: false,
-                          focusNode: _focusNode,
-                          // Pairing is for code; in prose it doubles every
-                          // apostrophe.
-                          autocompleteSymbols: false,
-                          padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
-                          chunkAnalyzer: const PattoIndentChunkAnalyzer(),
-                          // A fold marker on every line that has children.
-                          indicatorBuilder: (context, editing, chunks, notifier) =>
-                              DefaultCodeChunkIndicator(
-                                width: 20,
-                                controller: chunks,
-                                notifier: notifier,
-                              ),
-                          toolbarController: MobileSelectionToolbarController(
-                            builder: _buildSelectionMenu,
-                          ),
-                          style: CodeEditorStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 14 * ref.watch(fontScaleProvider),
-                            fontHeight: 1.45,
-                            textColor: Theme.of(context).colorScheme.onSurface,
-                            cursorLineColor: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: 0.06),
-                          ),
-                        ),
-                      ),
-                      // Without this the editor treats a tap on the bars below
-                      // as a tap outside itself, drops focus and closes the
-                      // keyboard, taking the caret with it.
-                      CodeEditorTapRegion(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_candidates.isNotEmpty || (_linkQuery ?? '').isNotEmpty)
-                              _CandidateBar(
-                                candidates: _candidates,
-                                query: _linkQuery ?? '',
-                                onPick: _acceptLink,
-                              )
-                            else if (_ancestors.isNotEmpty)
-                              _breadcrumb(context),
-                            _Toolbar(
-                              onIndent: () => _reindent(add: true),
-                              onOutdent: () => _reindent(add: false),
-                              onInsert: _insert,
-                              onMoveCursor: _moveCursor,
-                              onLineStart: _controller.moveCursorToLineStart,
-                              onLineEnd: _controller.moveCursorToLineEnd,
-                              onMoveBlock: (up) => _moveBlock(up: up),
-                              onSelectBlock: _selectBlock,
-                              onUndo: _controller.undo,
-                              onRedo: _controller.redo,
-                              today: _today,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
+                  // Without this the editor treats a tap on the bars below
+                  // as a tap outside itself, drops focus and closes the
+                  // keyboard, taking the caret with it.
+                  CodeEditorTapRegion(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_candidates.isNotEmpty ||
+                            (_linkQuery ?? '').isNotEmpty)
+                          _CandidateBar(
+                            candidates: _candidates,
+                            query: _linkQuery ?? '',
+                            onPick: _acceptLink,
+                          )
+                        else if (_ancestors.isNotEmpty)
+                          _breadcrumb(context),
+                        _Toolbar(
+                          onIndent: () => _reindent(add: true),
+                          onOutdent: () => _reindent(add: false),
+                          onInsert: _insert,
+                          onMoveCursor: _moveCursor,
+                          onLineStart: _controller.moveCursorToLineStart,
+                          onLineEnd: _controller.moveCursorToLineEnd,
+                          onMoveBlock: (up) => _moveBlock(up: up),
+                          onSelectBlock: _selectBlock,
+                          onUndo: _controller.undo,
+                          onRedo: _controller.redo,
+                          today: _today,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -642,7 +649,8 @@ class _CandidateBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final offerNew = query.isNotEmpty && !candidates.any((c) => c.name == query);
+    final offerNew =
+        query.isNotEmpty && !candidates.any((c) => c.name == query);
     return Container(
       height: 44,
       color: theme.colorScheme.surfaceContainerHighest,
@@ -789,7 +797,10 @@ class _Toolbar extends StatelessWidget {
                       onPressed: onRedo,
                     ),
                     const VerticalDivider(width: 8),
-                    TextButton(onPressed: () => onInsert('[]', 1), child: const Text('[ ]')),
+                    TextButton(
+                      onPressed: () => onInsert('[]', 1),
+                      child: const Text('[ ]'),
+                    ),
                     TextButton(
                       onPressed: () => onInsert('{@task status=todo}'),
                       child: const Text('task'),
@@ -864,10 +875,7 @@ class _RepeatButtonState extends State<_RepeatButton> {
         },
         onLongPressEnd: (_) => _stop(),
         onLongPressCancel: _stop,
-        child: IconButton(
-          icon: Icon(widget.icon),
-          onPressed: widget.onPressed,
-        ),
+        child: IconButton(icon: Icon(widget.icon), onPressed: widget.onPressed),
       ),
     );
   }
