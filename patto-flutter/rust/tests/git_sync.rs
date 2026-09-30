@@ -159,8 +159,21 @@ fn edits_to_different_notes_merge() {
     assert_eq!(read(b.path(), "from-b.pn"), "b\n");
 }
 
+/// The tip of `branch` on the remote, if it exists.
+fn remote_branch(remote: &Remote, branch: &str) -> Option<git2::Oid> {
+    let repo = git2::Repository::open_bare(remote.dir.path()).unwrap();
+    let reference = repo.find_reference(&format!("refs/heads/{branch}")).ok()?;
+    reference.target()
+}
+
+fn head(root: &Path) -> git2::Oid {
+    let repo = git2::Repository::open(root).unwrap();
+    let head = repo.head().unwrap();
+    head.target().unwrap()
+}
+
 #[test]
-fn a_conflicting_edit_keeps_the_local_copy() {
+fn a_conflicting_edit_pauses_and_keeps_the_local_copy() {
     let (remote, _seed) = seeded_remote();
     let a = tempfile::tempdir().unwrap();
     let b = tempfile::tempdir().unwrap();
@@ -169,19 +182,31 @@ fn a_conflicting_edit_keeps_the_local_copy() {
 
     write(a.path(), "seed.pn", "edited on a\n");
     sync(a.path());
+    let branch = git_status(b.path().to_string_lossy().to_string())
+        .unwrap()
+        .branch;
+    let remote_tip = remote_branch(&remote, &branch);
 
     write(b.path(), "seed.pn", "edited on b\n");
     let report = sync(b.path());
 
-    assert!(report.pushed);
+    let MergeOutcome::Conflicted { side_branch, paths } = &report.merge else {
+        panic!("expected the sync to pause, got {:?}", report.merge);
+    };
+    assert_eq!(paths, &vec!["seed.pn".to_string()]);
+    assert!(!report.pushed);
+
+    // Nothing was merged: the local copy and the remote branch are untouched,
+    // and the local edits are safe on the side branch.
     assert_eq!(read(b.path(), "seed.pn"), "edited on b\n");
-    // The file is merged cleanly in our favour, so no conflict entry remains.
     let repo = git2::Repository::open(b.path()).unwrap();
     assert!(!repo.index().unwrap().has_conflicts());
+    assert_eq!(remote_branch(&remote, &branch), remote_tip);
+    assert_eq!(remote_branch(&remote, side_branch), Some(head(b.path())));
 }
 
 #[test]
-fn a_note_edited_here_and_deleted_there_survives() {
+fn a_note_edited_here_and_deleted_there_is_kept_until_merged() {
     let (remote, _seed) = seeded_remote();
     let a = tempfile::tempdir().unwrap();
     let b = tempfile::tempdir().unwrap();
@@ -194,8 +219,11 @@ fn a_note_edited_here_and_deleted_there_survives() {
     write(b.path(), "seed.pn", "still wanted\n");
     let report = sync(b.path());
 
-    assert!(report.pushed);
+    let MergeOutcome::Conflicted { side_branch, .. } = &report.merge else {
+        panic!("expected the sync to pause, got {:?}", report.merge);
+    };
     assert_eq!(read(b.path(), "seed.pn"), "still wanted\n");
+    assert_eq!(remote_branch(&remote, side_branch), Some(head(b.path())));
 }
 
 #[test]
