@@ -330,6 +330,19 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     _openUrl(embed.url);
   }
 
+  /// Opens the editor on the block at the top of the screen, so editing
+  /// picks up where reading was.
+  void _editVisible() {
+    final blocks = ref.read(renderedNoteProvider(widget.relPath)).value?.blocks;
+    final first = _listController.isAttached
+        ? _listController.unobstructedVisibleRange?.$1
+        : null;
+    final row = blocks != null && first != null && first < blocks.length
+        ? blocks[first].row
+        : null;
+    EditorScreen.open(context, widget.relPath, row: row);
+  }
+
   Future<void> _changeTaskStatus(Block block) async {
     final task = block.task;
     if (task == null) return;
@@ -379,7 +392,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Edit',
-            onPressed: () => EditorScreen.open(context, widget.relPath),
+            onPressed: _editVisible,
           ),
         ],
       ),
@@ -432,6 +445,8 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
                   matched: _findHitSet.contains(i),
                   searchTerm: _finding ? _findTerm : null,
                   onTaskTap: _changeTaskStatus,
+                  onLongPress: (block) =>
+                      EditorScreen.open(context, widget.relPath, row: block.row),
                 ),
               );
             },

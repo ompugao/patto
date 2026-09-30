@@ -43,6 +43,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     onIndent: () => _reindent(add: true),
     onOutdent: () => _reindent(add: false),
   );
+  final _focusNode = FocusNode();
   Timer? _completionDebounce;
 
   bool _loading = true;
@@ -77,6 +78,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _completionDebounce?.cancel();
     _controller.removeListener(_onChanged);
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -102,12 +104,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
       final row = widget.initialRow;
       if (row != null && row < _controller.codeLines.length) {
-        _controller.selection = CodeLineSelection.collapsed(
-          index: row,
-          offset: 0,
-        );
-        _controller.makeCursorCenterIfInvisible();
+        _jumpTo(row);
       }
+      // Opening the editor is asking to type; don't make it take another tap.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
     } catch (e) {
       if (mounted) setState(() => (_loading = false, _error = e.toString()));
     }
@@ -560,6 +562,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           controller: _controller,
                           wordWrap: true,
                           autofocus: false,
+                          focusNode: _focusNode,
                           // Pairing is for code; in prose it doubles every
                           // apostrophe.
                           autocompleteSymbols: false,
