@@ -12,6 +12,7 @@ import 'indent_guides.dart';
 import 'outline.dart';
 import 'patto_editing_controller.dart';
 import 'patto_spans.dart';
+import 'trackpad.dart';
 
 /// Full-screen plain-text editor.
 ///
@@ -64,6 +65,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   /// The indent column that shows which block the caret is in.
   ({int column, int start, int end})? _guide;
+
+  /// The editor's visible lines as last laid out, handed over through its
+  /// gutter.
+  CodeIndicatorValueNotifier? _layout;
+
+  late final _trackpad = CaretTrackpad(
+    controller: _controller,
+    paragraphs: () => _layout?.value?.paragraphs,
+  );
 
   @override
   void initState() {
@@ -531,6 +541,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       chunkAnalyzer: const PattoIndentChunkAnalyzer(),
                       // Fold markers, and the indent guides beside them.
                       indicatorBuilder: (context, editing, chunks, notifier) {
+                        _layout = notifier;
                         return IndentGuideGutter(
                           width: 20,
                           chunks: chunks,
@@ -569,6 +580,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                             onPick: _acceptLink,
                           ),
                         _Toolbar(
+                          trackpad: _trackpad,
                           onIndent: () => _reindent(add: true),
                           onOutdent: () => _reindent(add: false),
                           onInsert: _insert,
@@ -637,6 +649,7 @@ class _CandidateBar extends StatelessWidget {
 
 class _Toolbar extends StatelessWidget {
   const _Toolbar({
+    required this.trackpad,
     required this.onIndent,
     required this.onOutdent,
     required this.onInsert,
@@ -647,6 +660,7 @@ class _Toolbar extends StatelessWidget {
     required this.today,
   });
 
+  final CaretTrackpad trackpad;
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
   final void Function(String text, [int back]) onInsert;
@@ -665,75 +679,81 @@ class _Toolbar extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 48,
-          child: Row(
-            children: [
-              // Always in reach: nesting is what patto editing is mostly about.
-              IconButton(
-                icon: const Icon(Icons.format_indent_increase),
-                tooltip: 'Indent block',
-                onPressed: onIndent,
-              ),
-              IconButton(
-                icon: const Icon(Icons.format_indent_decrease),
-                tooltip: 'Outdent block',
-                onPressed: onOutdent,
-              ),
-              const VerticalDivider(width: 8),
-              Expanded(
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.move_up),
-                      tooltip: 'Move block up',
-                      onPressed: () => onMoveBlock(true),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.move_down),
-                      tooltip: 'Move block down',
-                      onPressed: () => onMoveBlock(false),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.highlight_alt),
-                      tooltip: 'Select block',
-                      onPressed: onSelectBlock,
-                    ),
-                    const VerticalDivider(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.undo),
-                      tooltip: 'Undo',
-                      onPressed: onUndo,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.redo),
-                      tooltip: 'Redo',
-                      onPressed: onRedo,
-                    ),
-                    const VerticalDivider(width: 8),
-                    TextButton(
-                      onPressed: () => onInsert('[]', 1),
-                      child: const Text('[ ]'),
-                    ),
-                    TextButton(
-                      onPressed: () => onInsert('{@task status=todo}'),
-                      child: const Text('task'),
-                    ),
-                    TextButton(
-                      onPressed: () => onInsert('!${today()}'),
-                      child: const Text('due'),
-                    ),
-                    TextButton(
-                      onPressed: () => onInsert('[@code ]', 1),
-                      child: const Text('code'),
-                    ),
-                    TextButton(
-                      onPressed: () => onInsert('[@quote]'),
-                      child: const Text('quote'),
-                    ),
-                  ],
+          // Holding anywhere on the bar turns it into a trackpad, like the
+          // space bar on iOS; the handle does so without the hold.
+          child: TrackpadRegion(
+            trackpad: trackpad,
+            child: Row(
+              children: [
+                TrackpadHandle(trackpad: trackpad),
+                // Always in reach: nesting is what patto editing is mostly about.
+                IconButton(
+                  icon: const Icon(Icons.format_indent_increase),
+                  tooltip: 'Indent block',
+                  onPressed: onIndent,
                 ),
-              ),
-            ],
+                IconButton(
+                  icon: const Icon(Icons.format_indent_decrease),
+                  tooltip: 'Outdent block',
+                  onPressed: onOutdent,
+                ),
+                const VerticalDivider(width: 8),
+                Expanded(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.move_up),
+                        tooltip: 'Move block up',
+                        onPressed: () => onMoveBlock(true),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.move_down),
+                        tooltip: 'Move block down',
+                        onPressed: () => onMoveBlock(false),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.highlight_alt),
+                        tooltip: 'Select block',
+                        onPressed: onSelectBlock,
+                      ),
+                      const VerticalDivider(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.undo),
+                        tooltip: 'Undo',
+                        onPressed: onUndo,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.redo),
+                        tooltip: 'Redo',
+                        onPressed: onRedo,
+                      ),
+                      const VerticalDivider(width: 8),
+                      TextButton(
+                        onPressed: () => onInsert('[]', 1),
+                        child: const Text('[ ]'),
+                      ),
+                      TextButton(
+                        onPressed: () => onInsert('{@task status=todo}'),
+                        child: const Text('task'),
+                      ),
+                      TextButton(
+                        onPressed: () => onInsert('!${today()}'),
+                        child: const Text('due'),
+                      ),
+                      TextButton(
+                        onPressed: () => onInsert('[@code ]', 1),
+                        child: const Text('code'),
+                      ),
+                      TextButton(
+                        onPressed: () => onInsert('[@quote]'),
+                        child: const Text('quote'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
