@@ -226,8 +226,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final pending = _pendingLink;
     if (pending == null) return;
 
-    // Typing `[` also typed the closing `]` after the caret; take it along
-    // rather than leave it dangling after the link.
+    // The toolbar's `[]` leaves its closing `]` after the caret; take it
+    // along rather than leave it dangling after the link.
     final line = _controller.codeLines[pending.line].text;
     final end = pending.end < line.length && line[pending.end] == ']'
         ? pending.end + 1
@@ -360,7 +360,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     });
   }
 
-  void _insert(String text) => _controller.replaceSelection(text);
+  /// Inserts [text] and leaves the caret [back] characters before its end,
+  /// inside the brackets where there is something to type.
+  void _insert(String text, [int back = 0]) {
+    _controller.replaceSelection(text);
+    if (back == 0) return;
+    final caret = _controller.selection.extent;
+    _controller.selection = CodeLineSelection.collapsed(
+      index: caret.index,
+      offset: caret.offset - back,
+    );
+  }
 
   void _moveCursor(AxisDirection direction) =>
       _controller.moveCursor(direction);
@@ -550,6 +560,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           controller: _controller,
                           wordWrap: true,
                           autofocus: false,
+                          // Pairing is for code; in prose it doubles every
+                          // apostrophe.
+                          autocompleteSymbols: false,
                           padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
                           chunkAnalyzer: const PattoIndentChunkAnalyzer(),
                           // A fold marker on every line that has children.
@@ -675,7 +688,7 @@ class _Toolbar extends StatelessWidget {
 
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
-  final void Function(String) onInsert;
+  final void Function(String text, [int back]) onInsert;
   final void Function(AxisDirection) onMoveCursor;
   final VoidCallback onLineStart;
   final VoidCallback onLineEnd;
@@ -773,7 +786,7 @@ class _Toolbar extends StatelessWidget {
                       onPressed: onRedo,
                     ),
                     const VerticalDivider(width: 8),
-                    TextButton(onPressed: () => onInsert('[]'), child: const Text('[ ]')),
+                    TextButton(onPressed: () => onInsert('[]', 1), child: const Text('[ ]')),
                     TextButton(
                       onPressed: () => onInsert('{@task status=todo}'),
                       child: const Text('task'),
@@ -783,7 +796,7 @@ class _Toolbar extends StatelessWidget {
                       child: const Text('due'),
                     ),
                     TextButton(
-                      onPressed: () => onInsert('[@code ]'),
+                      onPressed: () => onInsert('[@code ]', 1),
                       child: const Text('code'),
                     ),
                     TextButton(
