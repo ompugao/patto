@@ -9,6 +9,7 @@ import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import 'outline.dart';
+import 'patto_editing_controller.dart';
 import 'patto_spans.dart';
 
 /// Full-screen plain-text editor.
@@ -37,7 +38,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// `[` followed by a partial name, excluding the block and decoration forms.
   static final _linkTrigger = RegExp(r'\[([^\[\]\s@*/`$_-]*)$');
 
-  late final _controller = CodeLineEditingController(spanBuilder: _buildSpan);
+  late final _controller = PattoEditingController(
+    delegate: CodeLineEditingController(spanBuilder: _buildSpan),
+    onIndent: () => _reindent(add: true),
+    onOutdent: () => _reindent(add: false),
+  );
   Timer? _completionDebounce;
 
   bool _loading = true;
