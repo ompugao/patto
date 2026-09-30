@@ -1,16 +1,14 @@
+import 'dart:math' as math;
+
 import 'package:re_editor/re_editor.dart';
 
-/// Outline structure of a patto note, read from its leading tabs.
-///
-/// A line's block is the line itself plus every following line that is
-/// indented deeper. Blank lines belong to a block when the next non-blank line
-/// still does, which is how the parser treats them inside code blocks too.
-///
-/// Everything here works on the lines the editor shows; a folded block counts
-/// as its one visible line.
+// Outline structure of a patto note, read from its leading tabs.
+//
+// A line's block is the line plus every following line indented deeper;
+// blank lines inside it belong to it, as they do for the parser. These work
+// on the lines the editor shows, so a folded block is one line.
 
-/// Whether [line] has nothing but indentation. The parser gives such a line no
-/// depth of its own.
+/// Whether [line] has nothing but tabs; the parser gives it no depth.
 bool isBlank(String line) {
   for (var i = 0; i < line.length; i++) {
     if (line.codeUnitAt(i) != 0x09) return false;
@@ -51,34 +49,22 @@ int? parentOf(List<String> lines, int row) {
   return null;
 }
 
-/// How many indent guides run through [row].
-///
-/// A blank line has no indentation of its own, so it takes the shallower of
-/// its neighbours, and the guides carry on through it.
+/// How many indent guides run through [row]. A blank line takes the
+/// shallower of its neighbours, so guides carry on through it.
 int guideDepth(List<String> lines, int row) {
   if (!isBlank(lines[row])) return depthOf(lines[row]);
-  var above = 0;
-  for (var i = row - 1; i >= 0; i--) {
-    if (!isBlank(lines[i])) {
-      above = depthOf(lines[i]);
-      break;
+  int neighbour(int step) {
+    for (var i = row + step; i >= 0 && i < lines.length; i += step) {
+      if (!isBlank(lines[i])) return depthOf(lines[i]);
     }
+    return 0;
   }
-  var below = 0;
-  for (var i = row + 1; i < lines.length; i++) {
-    if (!isBlank(lines[i])) {
-      below = depthOf(lines[i]);
-      break;
-    }
-  }
-  return above < below ? above : below;
+
+  return math.min(neighbour(-1), neighbour(1));
 }
 
 /// The indent column to emphasise while the caret is on [row], and the rows
-/// it spans.
-///
-/// On a line with children that is the column of its own children; otherwise
-/// it is the column of its siblings under the same parent.
+/// it spans: its children's column if it has any, else its siblings'.
 ({int column, int start, int end})? activeGuide(List<String> lines, int row) {
   if (row < 0 || row >= lines.length || isBlank(lines[row])) return null;
   final end = blockEnd(lines, row);
@@ -94,8 +80,7 @@ int guideDepth(List<String> lines, int row) {
   );
 }
 
-/// Start of the sibling block right above the block at [row], or null when
-/// [row] is the first child of its parent.
+/// Start of the sibling block above [row], if any.
 int? previousSibling(List<String> lines, int row) {
   final depth = depthOf(lines[row]);
   for (var i = row - 1; i >= 0; i--) {
@@ -107,8 +92,7 @@ int? previousSibling(List<String> lines, int row) {
   return null;
 }
 
-/// Start of the sibling block right below the block at [row], or null when
-/// it is the last child of its parent.
+/// Start of the sibling block below [row], if any.
 int? nextSibling(List<String> lines, int row) {
   final depth = depthOf(lines[row]);
   for (var i = blockEnd(lines, row); i < lines.length; i++) {
@@ -118,10 +102,8 @@ int? nextSibling(List<String> lines, int row) {
   return null;
 }
 
-/// The row order after swapping the block at [row] with its neighbouring
-/// sibling, and where [row] ends up; null when there is no sibling that way.
-///
-/// Blank lines between the two blocks stay between them.
+/// The row order after swapping the block at [row] with its sibling above or
+/// below, and where [row] ends up. Blank lines between the two stay put.
 ({List<int> order, int row})? moveBlock(
   List<String> lines,
   int row, {

@@ -1,20 +1,27 @@
 import 'package:flutter/material.dart';
 
-/// Styling of a raw patto line in the editor.
-///
-/// The span must spell out the line exactly, since the editor maps caret
-/// offsets through it, so everything here is colour and spacing only.
+import 'outline.dart';
 
-/// Flutter draws a tab as wide as a space, which makes nesting nearly
-/// invisible in a monospace font. Drawing the tab in a larger font widens it
-/// without touching the text; the line height is fixed by the editor's strut,
-/// so it does not grow. Letter spacing would also widen it, but pads the tab
-/// on both sides and shifts the whole line right.
-const double tabFontScale = 2.5;
+// Styling of a raw patto line in the editor. A span must spell out its line
+// exactly, since the editor maps caret offsets through it.
 
-/// The style of a leading tab on a line in [style].
-TextStyle tabStyle(TextStyle style) =>
-    TextStyle(fontSize: (style.fontSize ?? 14) * tabFontScale);
+/// Flutter draws a tab one space wide, which hides nesting. A larger font
+/// widens it without touching the text, and the editor's fixed line height
+/// keeps the line from growing. (Letter spacing pads both sides of the tab
+/// and shifts the line right.)
+TextStyle _tabStyle(TextStyle style) =>
+    TextStyle(fontSize: (style.fontSize ?? 14) * 2.5);
+
+/// How wide a leading tab is drawn in [style].
+double tabWidth(TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(text: '\t', style: style.merge(_tabStyle(style))),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  return width;
+}
 
 enum PattoToken {
   command,
@@ -101,10 +108,8 @@ class PattoSpanStyles {
   }
 }
 
-/// The span for one editor line.
-///
-/// [verbatim] marks a line inside a code or math block, whose text is not
-/// patto markup.
+/// The span for one editor line; [verbatim] lines, inside a code or math
+/// block, are not patto markup.
 TextSpan pattoLineSpan({
   required String text,
   required TextStyle style,
@@ -114,13 +119,10 @@ TextSpan pattoLineSpan({
   if (text.isEmpty) return TextSpan(text: text, style: style);
   final children = <TextSpan>[];
 
-  var depth = 0;
-  while (depth < text.length && text.codeUnitAt(depth) == 0x09) {
-    depth++;
-  }
+  final depth = depthOf(text);
   if (depth > 0) {
     children.add(
-      TextSpan(text: text.substring(0, depth), style: tabStyle(style)),
+      TextSpan(text: text.substring(0, depth), style: _tabStyle(style)),
     );
   }
 

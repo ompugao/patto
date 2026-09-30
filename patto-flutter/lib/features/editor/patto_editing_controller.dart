@@ -2,12 +2,8 @@ import 'package:re_editor/re_editor.dart';
 
 import 'outline.dart';
 
-/// re_editor's controller with patto's tab indentation.
-///
-/// re_editor only counts spaces as indentation, so on its own a new line
-/// under a tab-indented one falls back to the top level, and its Tab key
-/// inserts spaces, which patto does not read as nesting. Every Enter, from
-/// a soft keyboard or a hardware one, goes through [applyNewLine] here.
+/// re_editor's controller with patto's tab indentation. re_editor counts
+/// only spaces as indentation; every Enter, soft or hardware, comes here.
 class PattoEditingController extends CodeLineEditingControllerDelegate {
   PattoEditingController({
     required super.delegate,
@@ -23,8 +19,7 @@ class PattoEditingController extends CodeLineEditingControllerDelegate {
     final selection = this.selection;
     final line = codeLines[selection.startIndex].text;
 
-    // Enter on a line that is nothing but indentation climbs out a level, as
-    // in an outliner, rather than leaving an empty line behind.
+    // On a line of nothing but tabs, Enter outdents it, as in an outliner.
     if (selection.isCollapsed &&
         line.isNotEmpty &&
         isBlank(line) &&
@@ -43,8 +38,7 @@ class PattoEditingController extends CodeLineEditingControllerDelegate {
       return;
     }
 
-    // Tabs after the caret stay with the text that moves down, so only the
-    // ones before it are repeated.
+    // Tabs after the caret move down with the text; repeat only those before.
     final tabs = depthOf(line).clamp(0, selection.startOffset);
     replaceSelection('\n${'\t' * tabs}');
     makeCursorVisible();

@@ -3,14 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
-/// Moves the caret by relative finger movement, as iOS does when the space
-/// bar is held.
-///
-/// A fingertip covers several characters, so a tap rarely lands the caret
-/// where it was aimed. Dragging somewhere else instead keeps the text in
-/// view, and the caret follows the finger's movement rather than its
-/// position. The keyboard's own space-bar drag cannot do this across lines:
-/// re_editor shows the keyboard one line at a time.
+/// Moves the caret by relative finger movement, like the iOS space-bar
+/// trackpad: a fingertip is too coarse to tap the caret into place, and
+/// the keyboard's own drag cannot cross lines, as re_editor shows the
+/// keyboard one line at a time.
 class CaretTrackpad {
   CaretTrackpad({required this.controller, required this.paragraphs});
 
@@ -19,14 +15,12 @@ class CaretTrackpad {
   /// The editor's laid-out visible lines, in its text field's coordinates.
   final List<CodeLineRenderParagraph>? Function() paragraphs;
 
-  /// Where the finger would put the caret horizontally, in the text field's
-  /// coordinates; kept across lines so that moving up and down holds the
-  /// column, and not clamped to a short line on the way.
+  /// The goal column, in the text field's coordinates. Short lines limit
+  /// where the caret lands, not this, so moving up and down keeps it.
   double? _x;
   double _dy = 0;
 
-  /// How far the finger has moved sideways since the caret last changed
-  /// line.
+  /// Sideways movement since the caret last changed line.
   double _travel = 0;
 
   void start() {
@@ -36,8 +30,7 @@ class CaretTrackpad {
   }
 
   void move(Offset delta) {
-    // Moving the caret under a composition would break it; typing Japanese
-    // keeps one open until the word is committed.
+    // Moving the caret would break an uncommitted composition, e.g. Japanese.
     if (controller.isComposing) return;
 
     var paragraph = _caretParagraph();
@@ -89,17 +82,16 @@ class CaretTrackpad {
 
   /// [x] moved sideways by [dx].
   ///
-  /// Past either end of the line, dragging back starts from the end rather
-  /// than from where the finger overshot to. Not when the overshoot came
-  /// from moving up or down, though: an empty or short line passed on the
-  /// way must not cost the column, so a finger drifting a little sideways
-  /// meanwhile does not count as dragging back.
+  /// Dragging back after overshooting a line's end starts from the end. Only
+  /// after about a character of sideways travel on this line, so drift while
+  /// passing a short line vertically keeps the column.
   double _steer(CodeLineRenderParagraph p, double x, double dx) {
     if (dx == 0) return x;
     _travel += dx.abs();
     final (min, max) = _bounds(p);
     final back = (x > max && dx < 0) || (x < min && dx > 0);
-    if (back && _travel >= p.preferredLineHeight * 0.4) {
+    final aboutACharacter = p.preferredLineHeight * 0.4;
+    if (back && _travel >= aboutACharacter) {
       return x.clamp(min, max) + dx;
     }
     return x + dx;
@@ -139,10 +131,9 @@ class CaretTrackpad {
   }
 }
 
-/// Turns [child] into a trackpad for [trackpad] while it is long-pressed.
-///
-/// The press is shorter than the one that shows tooltips, so it wins over
-/// the buttons inside; a quick swipe still scrolls.
+/// Turns [child] into a trackpad while long-pressed. The press is shorter
+/// than the tooltips' one, so it wins over the buttons; a swipe still
+/// scrolls.
 class TrackpadRegion extends StatefulWidget {
   const TrackpadRegion({
     super.key,

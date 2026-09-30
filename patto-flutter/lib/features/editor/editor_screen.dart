@@ -66,8 +66,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// The indent column that shows which block the caret is in.
   ({int column, int start, int end})? _guide;
 
-  /// The editor's visible lines as last laid out, handed over through its
-  /// gutter.
+  /// The visible lines as last laid out, handed over through the gutter.
   CodeIndicatorValueNotifier? _layout;
 
   late final _trackpad = CaretTrackpad(
@@ -126,7 +125,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool get _dirty => _controller.text != _savedText;
 
   void _onChanged() {
-    _updateOutline();
+    // Read by the guide painter, which repaints on every change.
+    _guide = activeGuide(_lines, _controller.selection.extentIndex);
     _updateCompletion();
   }
 
@@ -140,14 +140,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ];
     }
     return _linesCache;
-  }
-
-  void _updateOutline() {
-    final lines = _lines;
-    final row = _controller.selection.extentIndex;
-    if (row >= lines.length) return;
-    // Read by the guide painter, which repaints on every change.
-    _guide = activeGuide(lines, row);
   }
 
   TextSpan _buildSpan({
@@ -242,11 +234,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _hideCompletion();
   }
 
-  /// Soft keyboards have no Tab key, and patto nests with leading tabs, so the
-  /// toolbar is the real way to indent. re_editor's own indent inserts spaces,
-  /// which patto does not read as nesting.
-  ///
-  /// A line moves together with its children, so a block keeps its shape.
+  /// Indents or outdents the selected lines together with their children.
+  /// Soft keyboards have no Tab key, so the toolbar is the way to nest.
   void _reindent({required bool add}) {
     final selection = _controller.selection;
     final lines = _lines;
@@ -258,6 +247,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     for (var i = start; i <= last; i++) {
       if (!isBlank(lines[i])) end = math.max(end, blockEnd(lines, i));
     }
+    // Outdenting a top-level block would only flatten its children.
     if (!add && depthOf(lines[start]) == 0) return;
 
     final codeLines = CodeLines.from(_controller.codeLines);
@@ -478,22 +468,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  /// How wide a leading tab is drawn in [style], for lining up the guides.
-  static double _tabWidth(TextStyle style) {
-    final painter = TextPainter(
-      text: TextSpan(text: '\t', style: style.merge(tabStyle(style))),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final width = painter.width;
-    painter.dispose();
-    return width;
-  }
-
   @override
   Widget build(BuildContext context) {
     final name = rust.relPathToNoteName(relPath: widget.relPath);
     final fontSize = 14.0 * ref.watch(fontScaleProvider);
-    final tabWidth = _tabWidth(
+    final tabSize = tabWidth(
       TextStyle(fontFamily: 'monospace', fontSize: fontSize),
     );
 
@@ -548,7 +527,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           notifier: notifier,
                           lines: () => _lines,
                           guide: () => _guide,
-                          tabWidth: tabWidth,
+                          tabWidth: tabSize,
                           repaint: _controller,
                         );
                       },
@@ -573,7 +552,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (_candidates.isNotEmpty ||
-                            (_linkQuery ?? '').isNotEmpty)
+                            (_linkQuery?.isNotEmpty ?? false))
                           _CandidateBar(
                             candidates: _candidates,
                             query: _linkQuery ?? '',
@@ -679,14 +658,12 @@ class _Toolbar extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 48,
-          // Holding anywhere on the bar turns it into a trackpad, like the
-          // space bar on iOS; the handle does so without the hold.
+          // Holding the bar, or dragging its handle, moves the caret.
           child: TrackpadRegion(
             trackpad: trackpad,
             child: Row(
               children: [
                 TrackpadHandle(trackpad: trackpad),
-                // Always in reach: nesting is what patto editing is mostly about.
                 IconButton(
                   icon: const Icon(Icons.format_indent_increase),
                   tooltip: 'Indent block',

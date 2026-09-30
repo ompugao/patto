@@ -3,14 +3,12 @@ import 'package:re_editor/re_editor.dart';
 
 import 'outline.dart';
 
-/// The editor's left gutter: fold markers, plus a thin line down every indent
+/// The editor's gutter: fold markers, plus a thin line down every indent
 /// column of the text beside it.
 ///
-/// The guides are painted from the gutter, beyond its right edge, because the
-/// gutter is painted before the text: they sit under the text rather than
-/// over it, which matters for wrapped lines, whose continuation starts at the
-/// left edge. The gutter is also the one place re_editor hands the laid-out
-/// position of every visible line to.
+/// The guides are painted from here, past the gutter's right edge, because
+/// re_editor gives the gutter the laid-out visible lines, and paints it
+/// before the text, so the guides stay under wrapped text.
 class IndentGuideGutter extends StatelessWidget {
   const IndentGuideGutter({
     super.key,
