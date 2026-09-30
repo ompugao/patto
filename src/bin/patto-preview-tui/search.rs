@@ -3,7 +3,7 @@
 //! This module is self-contained (mirrors the `BacklinksPanel` pattern):
 //! all search state and logic live here; the rest of the app reads it as props.
 
-use patto::tui_renderer::DocElement;
+use crate::tui_renderer::DocElement;
 
 /// Direction of a search initiated with `/` (forward) or `?` (backward).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

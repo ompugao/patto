@@ -6,12 +6,12 @@ pub struct MarkdownRendererOptions {
     /// The markdown flavor (only public configuration)
     pub flavor: MarkdownFlavor,
 
-    // Internal fields - configured by flavor
-    pub(crate) wiki_link_format: WikiLinkFormat,
-    pub(crate) file_extension: String,
-    pub(crate) task_format: TaskFormat,
-    pub(crate) anchor_format: AnchorFormat,
-    pub(crate) include_frontmatter: bool,
+    // Derived from the flavor; read through the accessors below.
+    wiki_link_format: WikiLinkFormat,
+    file_extension: String,
+    task_format: TaskFormat,
+    anchor_format: AnchorFormat,
+    include_frontmatter: bool,
 }
 
 impl MarkdownRendererOptions {

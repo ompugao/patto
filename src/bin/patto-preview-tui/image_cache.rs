@@ -1,13 +1,17 @@
-use image::{DynamicImage, GenericImage, GenericImageView, Rgba};
+use image::{DynamicImage, Rgba};
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     protocol::StatefulProtocol,
 };
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::math_render;
 
+// `Loaded` is the common case, so boxing it to even out the variants would add
+// an indirection on every draw.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
     Failed(String),
@@ -55,9 +59,21 @@ pub(crate) struct ImageCache {
     pub(crate) background_color: Option<[u8; 3]>,
 }
 
+/// Ask the terminal which image protocol it speaks.
+///
+/// The query writes an escape sequence and waits for a reply, so it is only
+/// meaningful — and only safe to block on — when there is a terminal attached.
+/// Under a test harness or a pipe there is nobody to answer.
+fn query_picker() -> Option<Picker> {
+    if !std::io::stdout().is_terminal() {
+        return None;
+    }
+    Picker::from_query_stdio().ok()
+}
+
 impl ImageCache {
     pub(crate) fn new(protocol_override: Option<&str>) -> Self {
-        let picker = Picker::from_query_stdio().ok().map(|mut p| {
+        let picker = query_picker().map(|mut p| {
             if let Some(proto_str) = protocol_override {
                 let protocol_type = match proto_str.to_lowercase().as_str() {
                     "kitty" => Some(ProtocolType::Kitty),

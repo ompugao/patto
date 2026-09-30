@@ -1,7 +1,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-//use std::time::Instant;
 
 pub struct LineTracker {
     content_to_id: HashMap<u64, Vec<i64>>,
@@ -40,7 +39,6 @@ impl LineTracker {
         let mut used_ids: HashSet<i64> = HashSet::new();
         let mut result_ids = Vec::with_capacity(lines.len());
 
-        //let start = Instant::now();
         // Assign IDs with simple in-memory logic
         for (idx, &hash) in line_hashes.iter().enumerate() {
             let line_num = idx + 1;
@@ -69,7 +67,6 @@ impl LineTracker {
             new_position_to_id.insert(line_num, id);
             result_ids.push(id);
         }
-        //println!("-- b: {} ms", start.elapsed().as_millis());
 
         // Update internal state
         self.content_to_id = new_content_to_id;

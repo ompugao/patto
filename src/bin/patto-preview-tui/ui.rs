@@ -1,7 +1,7 @@
 use crate::backlinks::FlatEntry;
 use crate::config::TasksPanelPosition;
 use crate::tasks::TaskEntry;
-use patto::tui_renderer::{DocElement, LinkAction};
+use crate::tui_renderer::{DocElement, LinkAction};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
@@ -11,6 +11,7 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::StatefulImage;
+use std::collections::HashMap;
 use std::path::Path;
 use tui_widget_list::{ListBuilder, ListView};
 
@@ -66,8 +67,8 @@ fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         app.images.height_rows,
         Some(&app.images.elem_heights),
     );
-    let (pos, pct) = if total > 0 {
-        let p = ((app.scroll_offset + 1) * 100 / total).min(100);
+    let (pos, pct) = if let Some(p) = ((app.scroll_offset + 1) * 100).checked_div(total) {
+        let p = p.min(100);
         (
             format!(" {}:{} ", app.scroll_offset + 1, total),
             format!(" {}% ", p),
@@ -328,295 +329,378 @@ fn draw_image_cell(
     }
 }
 
-fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
-    let height = area.height as usize;
-    let img_h = app.images.height_rows;
-    let wrap = app.wrap;
-    let showbreak = app.showbreak.clone();
-    // Snapshot elem_heights so the closure doesn't hold a borrow on app.images
-    // while we later call app.images.load() / load_math() mutably.
-    let elem_heights = app.images.elem_heights.clone();
-    // Update viewport dimensions (used by wrap-aware scroll calculations)
-    app.viewport_width = area.width;
-    app.viewport_height = height;
-    app.clear_stale_focus();
+/// The parts of the draw pass that do not change between elements.
+struct ContentLayout {
+    area: Rect,
+    /// Rows available for content.
+    height: usize,
+    wrap: Option<WrapConfig>,
+    showbreak: String,
+    image_rows: u16,
+    /// Copied from the image cache so the draw pass can measure elements while
+    /// holding the cache mutably.
+    elem_heights: HashMap<String, u16>,
+}
 
-    // Closure: display height of an element.
-    // Pre-build WrapConfig so we don't rebuild it per element.
-    let wrap_cfg = WrapConfig::new(area.width as usize, showbreak.as_str());
-    let elem_h = |elem: &DocElement| -> usize {
-        let cfg_opt = if wrap && area.width > 0 {
-            Some(&wrap_cfg)
-        } else {
-            None
-        };
-        elem_height(elem, cfg_opt, img_h, Some(&elem_heights))
-    };
-
-    // Skip elements until we reach scroll_offset rows
-    let mut skip_rows = app.scroll_offset;
-    let mut start_elem = 0usize;
-    for (i, elem) in app.rendered_doc.elements.iter().enumerate() {
-        let h = elem_h(elem);
-        if skip_rows >= h {
-            skip_rows -= h;
-            start_elem = i + 1;
-        } else {
-            start_elem = i;
-            break;
+impl ContentLayout {
+    fn new(app: &App, area: Rect) -> Self {
+        Self {
+            area,
+            height: area.height as usize,
+            wrap: (app.wrap && area.width > 0)
+                .then(|| WrapConfig::new(area.width as usize, &app.showbreak)),
+            showbreak: app.showbreak.clone(),
+            image_rows: app.images.height_rows,
+            elem_heights: app.images.elem_heights.clone(),
         }
     }
 
-    // Pre-load images that will be visible (only scan viewport-worth of elements)
-    let mut scan_rows = 0usize;
-    let image_srcs: Vec<String> = app
-        .rendered_doc
-        .elements
-        .iter()
-        .skip(start_elem)
-        .take_while(|elem| {
-            let h = elem_h(elem);
-            scan_rows += h;
-            scan_rows <= height + img_h as usize
-        })
+    /// Display height of an element, in rows.
+    fn height_of(&self, elem: &DocElement) -> usize {
+        elem_height(
+            elem,
+            self.wrap.as_ref(),
+            self.image_rows,
+            Some(&self.elem_heights),
+        )
+    }
+
+    /// Height of a media element, which soft-wrap does not apply to.
+    fn media_height_at(&self, elem: &DocElement, y: usize) -> u16 {
+        let rows = elem_height(elem, None, self.image_rows, Some(&self.elem_heights));
+        (rows as u16).min((self.height - y) as u16)
+    }
+
+    fn row_area(&self, y: usize, rows: u16) -> Rect {
+        Rect::new(self.area.x, self.area.y + y as u16, self.area.width, rows)
+    }
+
+    fn indented_area(&self, y: usize, indent: usize, rows: u16) -> Rect {
+        let indent_width = (indent as u16) * 2;
+        Rect::new(
+            self.area.x + indent_width,
+            self.area.y + y as u16,
+            self.area.width.saturating_sub(indent_width),
+            rows,
+        )
+    }
+
+    /// Index of the first element the current scroll position shows, and how
+    /// many of its rows are above the viewport.
+    fn first_visible(&self, app: &App) -> usize {
+        let mut remaining = app.scroll_offset;
+        for (i, elem) in app.rendered_doc.elements.iter().enumerate() {
+            let rows = self.height_of(elem);
+            if remaining < rows {
+                return i;
+            }
+            remaining -= rows;
+        }
+        app.rendered_doc.elements.len()
+    }
+
+    /// The elements from `start` that can appear in the viewport.
+    fn visible<'a>(
+        &'a self,
+        app: &'a App,
+        start: usize,
+    ) -> impl Iterator<Item = &'a DocElement> + 'a {
+        let mut rows = 0usize;
+        let limit = self.height + self.image_rows as usize;
+        app.rendered_doc
+            .elements
+            .iter()
+            .skip(start)
+            .take_while(move |elem| {
+                rows += self.height_of(elem);
+                rows <= limit
+            })
+    }
+}
+
+/// What the draw pass highlights: the focused item and the search matches.
+struct Highlights {
+    focused_elem: Option<usize>,
+    focused_range: Option<(usize, usize)>,
+    /// The image the focus is on, when it is on one.
+    focused_image: Option<String>,
+    /// `(element, char start, char end, is the current match)`
+    search: Vec<(usize, usize, usize, bool)>,
+}
+
+impl Highlights {
+    fn snapshot(app: &App) -> Self {
+        let focused = app.focused_item();
+        Self {
+            focused_elem: focused.map(|item| item.elem_idx),
+            focused_range: focused.map(|item| (item.char_start, item.char_end)),
+            focused_image: focused.and_then(|item| match &item.action {
+                LinkAction::ViewImage(src) => Some(src.clone()),
+                _ => None,
+            }),
+            search: app
+                .search
+                .as_ref()
+                .map(|search| {
+                    search
+                        .matches
+                        .iter()
+                        .enumerate()
+                        .map(|(i, m)| {
+                            (
+                                m.elem_idx,
+                                m.char_start,
+                                m.char_end,
+                                Some(i) == search.match_idx,
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn search_ranges(&self, elem_idx: usize) -> Vec<(usize, usize, bool)> {
+        self.search
+            .iter()
+            .filter(|(idx, _, _, _)| *idx == elem_idx)
+            .map(|(_, start, end, current)| (*start, *end, *current))
+            .collect()
+    }
+}
+
+fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_dir: &Path) {
+    // Wrap-aware scrolling reads these back.
+    app.viewport_width = area.width;
+    app.viewport_height = area.height as usize;
+    app.clear_stale_focus();
+
+    let layout = ContentLayout::new(app, area);
+    let start = layout.first_visible(app);
+    preload_visible_media(app, &layout, start, root_dir);
+
+    let highlights = Highlights::snapshot(app);
+
+    // `app.rendered_doc` and `app.images` are borrowed separately, so the draw
+    // pass can read elements while loading images.
+    let App {
+        rendered_doc,
+        images,
+        ..
+    } = app;
+
+    let mut y = 0usize;
+    for (elem_idx, elem) in rendered_doc.elements.iter().enumerate().skip(start) {
+        if y >= layout.height {
+            break;
+        }
+        let is_focused = highlights.focused_elem == Some(elem_idx);
+
+        y += match elem {
+            DocElement::TextLine(line, _) => {
+                let ranges = highlights.search_ranges(elem_idx);
+                let focused_range = is_focused.then_some(highlights.focused_range).flatten();
+                draw_text_line(frame, &layout, y, elem, line, &ranges, focused_range)
+            }
+            DocElement::Image { src, alt, indent } => {
+                let rows = layout.media_height_at(elem, y);
+                let cell = layout.indented_area(y, *indent, rows);
+                draw_image_cell(frame, images, src, alt.as_deref(), cell, is_focused);
+                rows as usize
+            }
+            DocElement::ImageRow(row, indent) => {
+                let rows = layout.media_height_at(elem, y);
+                let focused_src = is_focused
+                    .then_some(highlights.focused_image.as_deref())
+                    .flatten();
+                draw_image_row(frame, images, &layout, y, row, *indent, rows, focused_src);
+                rows as usize
+            }
+            DocElement::Math { content, indent } => {
+                let rows = layout.media_height_at(elem, y);
+                let cell = layout.indented_area(y, *indent, rows);
+                draw_math(frame, images, content, cell, rows);
+                rows as usize
+            }
+        };
+    }
+}
+
+/// Decode the images and math blocks about to come into view.
+fn preload_visible_media(app: &mut App, layout: &ContentLayout, start: usize, root_dir: &Path) {
+    let sources: Vec<String> = layout
+        .visible(app, start)
         .filter_map(|elem| match elem {
             DocElement::Image { src, .. } => Some(vec![src.clone()]),
             DocElement::ImageRow(images, ..) => {
-                Some(images.iter().map(|(s, _)| s.clone()).collect())
+                Some(images.iter().map(|(src, _)| src.clone()).collect())
             }
             _ => None,
         })
         .flatten()
         .collect();
-    for src in &image_srcs {
-        app.images.load(src, root_dir);
-    }
 
-    // Pre-load math blocks in the viewport
-    let math_contents: Vec<String> = app
-        .rendered_doc
-        .elements
-        .iter()
-        .skip(start_elem)
-        .take_while({
-            let mut rows = 0usize;
-            move |elem| {
-                rows += elem_h(elem);
-                rows <= height + img_h as usize
-            }
-        })
-        .filter_map(|elem| {
-            if let DocElement::Math { content, .. } = elem {
-                Some(content.clone())
-            } else {
-                None
-            }
+    let math: Vec<String> = layout
+        .visible(app, start)
+        .filter_map(|elem| match elem {
+            DocElement::Math { content, .. } => Some(content.clone()),
+            _ => None,
         })
         .collect();
-    for content in &math_contents {
+
+    for src in &sources {
+        app.images.load(src, root_dir);
+    }
+    for content in &math {
         app.images.load_math(content);
     }
+}
 
-    // Render visible elements
-    // Determine which element index is focused and get char range for text highlights
-    let (focused_elem_idx, focused_char_range) = match app.focused_item() {
-        Some(fi) => (Some(fi.elem_idx), Some((fi.char_start, fi.char_end))),
-        None => (None, None),
+/// Draw one text line, wrapped if wrapping is on, and return the rows used.
+fn draw_text_line(
+    frame: &mut Frame,
+    layout: &ContentLayout,
+    y: usize,
+    elem: &DocElement,
+    line: &Line<'static>,
+    search_ranges: &[(usize, usize, bool)],
+    focused_range: Option<(usize, usize)>,
+) -> usize {
+    let full_rows = layout.height_of(elem);
+    let rows = full_rows.min(layout.height - y) as u16;
+
+    // Search highlights first, then focus on top of them.
+    let mut line = if search_ranges.is_empty() {
+        line.clone()
+    } else {
+        highlight_line_multi(line, search_ranges)
     };
-    // Snapshot search state for the render pass (avoid repeated borrows of app).
-    let search_matches_snapshot: Vec<(usize, usize, usize, bool)> = app
-        .search
-        .as_ref()
-        .map(|s| {
-            s.matches
+    if let Some((start, end)) = focused_range {
+        line = highlight_line_range(&line, start, end);
+    }
+
+    match &layout.wrap {
+        None => frame.render_widget(Paragraph::new(line), layout.row_area(y, rows)),
+        Some(_) => {
+            let wrap_cfg = WrapConfig::new(layout.area.width as usize, &layout.showbreak);
+            for (i, row) in wrap_line(&line, &wrap_cfg)
                 .iter()
                 .enumerate()
-                .map(|(i, m)| (m.elem_idx, m.char_start, m.char_end, Some(i) == s.match_idx))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let mut y = 0usize;
-    for (elem_idx, elem) in app
-        .rendered_doc
-        .elements
-        .iter()
-        .enumerate()
-        .skip(start_elem)
-    {
-        if y >= height {
-            break;
-        }
-        let is_focused = focused_elem_idx == Some(elem_idx);
-        match elem {
-            DocElement::TextLine(line, _) => {
-                let true_lh = elem_h(elem);
-                let lh = true_lh.min(height - y) as u16;
-                let line_area = Rect::new(area.x, area.y + y as u16, area.width, lh);
-
-                // Build search highlight ranges for this element.
-                let search_ranges: Vec<(usize, usize, bool)> = search_matches_snapshot
-                    .iter()
-                    .filter(|(eidx, _, _, _)| *eidx == elem_idx)
-                    .map(|(_, cs, ce, cur)| (*cs, *ce, *cur))
-                    .collect();
-
-                // Compose highlights: search first, then focus on top.
-                let base_line = {
-                    let after_search = if search_ranges.is_empty() {
-                        line.clone()
-                    } else {
-                        highlight_line_multi(line, &search_ranges)
-                    };
-                    if is_focused {
-                        if let Some((cs, ce)) = focused_char_range {
-                            highlight_line_range(&after_search, cs, ce)
-                        } else {
-                            after_search
-                        }
-                    } else {
-                        after_search
-                    }
-                };
-
-                if wrap {
-                    // Manual wrapping with showbreak prefix on continuation rows
-                    let sub_rows = wrap_line(
-                        &base_line,
-                        &WrapConfig::new(area.width as usize, &showbreak),
-                    );
-                    for (row_i, sub_row) in sub_rows.iter().enumerate().take(lh as usize) {
-                        let row_area =
-                            Rect::new(area.x, area.y + y as u16 + row_i as u16, area.width, 1);
-                        frame.render_widget(Paragraph::new(sub_row.clone()), row_area);
-                    }
-                } else {
-                    frame.render_widget(Paragraph::new(base_line), line_area);
-                }
-
-                // Overlay ↩ at the right edge of every wrapped row that has more content.
-                // The last column is always empty (WrapConfig::needs_break uses >= to reserve it).
-                if wrap && lh > 1 {
-                    let indicator_style = Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::DIM);
-                    let indicator_count = if lh < true_lh as u16 {
-                        lh
-                    } else {
-                        lh.saturating_sub(1)
-                    };
-                    let ind_x = area.x + area.width - 1;
-                    for row_i in 0..indicator_count {
-                        let ind_y = area.y + y as u16 + row_i;
-                        if let Some(c) = frame.buffer_mut().cell_mut((ind_x, ind_y)) {
-                            c.set_symbol("↩");
-                            c.set_style(indicator_style);
-                        }
-                    }
-                }
-                y += lh as usize;
+                .take(rows as usize)
+            {
+                frame.render_widget(Paragraph::new(row.clone()), layout.row_area(y + i, 1));
             }
-            DocElement::Spacer => {
-                y += 1;
-            }
-            DocElement::Image { src, alt, indent } => {
-                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
-                let indent_w = (*indent as u16) * 2;
-                let img_area = Rect::new(
-                    area.x + indent_w,
-                    area.y + y as u16,
-                    area.width.saturating_sub(indent_w),
-                    elem_h,
-                );
-                draw_image_cell(
-                    frame,
-                    &mut app.images,
-                    src,
-                    alt.as_deref(),
-                    img_area,
-                    is_focused,
-                );
-                y += elem_h as usize;
-            }
-            DocElement::ImageRow(images, indent) => {
-                let n = images.len() as u16;
-                let elem_h = (elem_height(elem, None, img_h, None) as u16).min((height - y) as u16);
-                let indent_w = (*indent as u16) * 2;
-                let row_width = area.width.saturating_sub(indent_w);
-                let col_w = row_width / n;
-                let focused_src: Option<String> = if is_focused {
-                    app.focused_item().and_then(|fi| {
-                        if let LinkAction::ViewImage(s) = &fi.action {
-                            Some(s.clone())
-                        } else {
-                            None
-                        }
-                    })
-                } else {
-                    None
-                };
-                for (i, (src, alt)) in images.iter().enumerate() {
-                    let x_off = area.x + indent_w + i as u16 * col_w;
-                    let w = if i as u16 == n - 1 {
-                        row_width - i as u16 * col_w
-                    } else {
-                        col_w
-                    };
-                    let cell_area = Rect::new(x_off, area.y + y as u16, w, elem_h);
-                    let this_focused = focused_src.as_deref() == Some(src.as_str());
-                    draw_image_cell(
-                        frame,
-                        &mut app.images,
-                        src,
-                        alt.as_deref(),
-                        cell_area,
-                        this_focused,
-                    );
-                }
-                y += elem_h as usize;
-            }
-            DocElement::Math { content, indent } => {
-                let elem_h = (elem_height(elem, None, img_h, Some(&elem_heights)) as u16)
-                    .min((height - y) as u16);
-                let indent_w = (*indent as u16) * 2;
-                let math_area = Rect::new(
-                    area.x + indent_w,
-                    area.y + y as u16,
-                    area.width.saturating_sub(indent_w),
-                    elem_h,
-                );
-                match app.images.get_mut(content) {
-                    Some(_) => {
-                        // Image already in cache (Loaded or Failed) — render as image cell
-                        draw_image_cell(frame, &mut app.images, content, None, math_area, false);
-                    }
-                    None => {
-                        // No picker or not yet loaded — text fallback
-                        let prefix = "  ".to_string();
-                        let lines: Vec<Line<'static>> = std::iter::once(Line::from(vec![
-                            Span::raw(prefix.clone()),
-                            Span::styled(
-                                "  [math]  ",
-                                Style::default()
-                                    .fg(Color::Magenta)
-                                    .add_modifier(Modifier::DIM),
-                            ),
-                        ]))
-                        .chain(content.lines().map(|l| {
-                            Line::from(vec![
-                                Span::raw(prefix.clone()),
-                                Span::styled(l.to_string(), Style::default().fg(Color::Magenta)),
-                            ])
-                        }))
-                        .take(elem_h as usize)
-                        .collect();
-                        frame.render_widget(Paragraph::new(lines), math_area);
-                    }
-                }
-                y += elem_h as usize;
-            }
+            draw_wrap_indicators(frame, layout, y, rows, full_rows);
         }
     }
+    rows as usize
+}
+
+/// Mark each wrapped row that continues onto the next with `↩` at the right
+/// edge. The last column is always free: `WrapConfig::needs_break` reserves it.
+fn draw_wrap_indicators(
+    frame: &mut Frame,
+    layout: &ContentLayout,
+    y: usize,
+    rows: u16,
+    full_rows: usize,
+) {
+    if rows <= 1 {
+        return;
+    }
+    let count = if rows < full_rows as u16 {
+        rows
+    } else {
+        rows.saturating_sub(1)
+    };
+
+    let style = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::DIM);
+    let x = layout.area.x + layout.area.width - 1;
+    for row in 0..count {
+        if let Some(cell) = frame
+            .buffer_mut()
+            .cell_mut((x, layout.area.y + y as u16 + row))
+        {
+            cell.set_symbol("↩");
+            cell.set_style(style);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_image_row(
+    frame: &mut Frame,
+    images: &mut crate::image_cache::ImageCache,
+    layout: &ContentLayout,
+    y: usize,
+    row: &[(String, Option<String>)],
+    indent: usize,
+    rows: u16,
+    focused_src: Option<&str>,
+) {
+    let count = row.len() as u16;
+    let indent_width = (indent as u16) * 2;
+    let row_width = layout.area.width.saturating_sub(indent_width);
+    let column_width = row_width / count;
+
+    for (i, (src, alt)) in row.iter().enumerate() {
+        let i = i as u16;
+        // The last column takes the remainder, so rounding leaves no gap.
+        let width = if i == count - 1 {
+            row_width - i * column_width
+        } else {
+            column_width
+        };
+        let cell = Rect::new(
+            layout.area.x + indent_width + i * column_width,
+            layout.area.y + y as u16,
+            width,
+            rows,
+        );
+        draw_image_cell(
+            frame,
+            images,
+            src,
+            alt.as_deref(),
+            cell,
+            focused_src == Some(src.as_str()),
+        );
+    }
+}
+
+/// A rendered math block, or its source as text when there is no image for it.
+fn draw_math(
+    frame: &mut Frame,
+    images: &mut crate::image_cache::ImageCache,
+    content: &str,
+    area: Rect,
+    rows: u16,
+) {
+    if images.get_mut(content).is_some() {
+        draw_image_cell(frame, images, content, None, area, false);
+        return;
+    }
+
+    let lines: Vec<Line<'static>> = std::iter::once(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "  [math]  ",
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::DIM),
+        ),
+    ]))
+    .chain(content.lines().map(|line| {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(line.to_string(), Style::default().fg(Color::Magenta)),
+        ])
+    }))
+    .take(rows as usize)
+    .collect();
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn key_badge(key: &str) -> Span<'static> {
@@ -1021,7 +1105,7 @@ fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
     // Show at most 3 tasks.
     let max_rows = 3usize;
     let tasks_to_show: Vec<_> = active.iter().take(max_rows).collect();
-    let num_rows = tasks_to_show.len() as u16;
+    let _num_rows = tasks_to_show.len() as u16;
 
     // Max width cap: 60% of content width, min 20 cols.
     let max_w = (content_area.width * 60 / 100)
@@ -1461,4 +1545,139 @@ fn draw_tasks_review_content(
     }
 
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use std::path::PathBuf;
+
+    fn app_showing(content: &str) -> App {
+        let mut app = App::new(
+            PathBuf::from("/notes/note.pn"),
+            PathBuf::from("/notes"),
+            None,
+        );
+        app.viewport_width = 60;
+        app.viewport_height = 18;
+        app.re_render(content);
+        app
+    }
+
+    /// Draw into an off-screen buffer and return it as one string per row.
+    fn screen(app: &mut App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, app, Path::new("/notes")))
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    fn assert_screen_contains(rows: &[String], needle: &str) {
+        assert!(
+            rows.iter().any(|row| row.contains(needle)),
+            "expected {needle:?} on screen:\n{}",
+            rows.join("\n")
+        );
+    }
+
+    #[test]
+    fn draws_a_title_bar_the_content_and_a_status_bar() {
+        let mut app = app_showing("hello world\n\tnested line\n");
+        let rows = screen(&mut app, 60, 12);
+
+        // Title bar names the note.
+        assert_screen_contains(&rows, "note.pn");
+        assert_screen_contains(&rows, "hello world");
+        assert_screen_contains(&rows, "nested line");
+        // Status bar shows the position within the document.
+        assert_screen_contains(&rows, "1:");
+    }
+
+    #[test]
+    fn nested_lines_are_indented_and_bulleted() {
+        let mut app = app_showing("parent\n\tchild\n");
+        let rows = screen(&mut app, 60, 8);
+        assert_screen_contains(&rows, "  • child");
+    }
+
+    #[test]
+    fn scrolling_moves_the_visible_window() {
+        let content: String = (0..40).map(|i| format!("line {i}\n")).collect();
+        let mut app = app_showing(&content);
+
+        let top = screen(&mut app, 60, 10);
+        assert_screen_contains(&top, "line 0");
+
+        app.scroll_down(20);
+        let scrolled = screen(&mut app, 60, 10);
+        assert!(
+            !scrolled.iter().any(|row| row.contains("line 0")),
+            "line 0 should have scrolled off:\n{}",
+            scrolled.join("\n")
+        );
+        assert_screen_contains(&scrolled, "line 20");
+    }
+
+    #[test]
+    fn a_code_block_is_drawn_with_its_language_label() {
+        let mut app = app_showing("[@code python]\n\tprint(1)\n");
+        let rows = screen(&mut app, 60, 10);
+        assert_screen_contains(&rows, "python");
+        assert_screen_contains(&rows, "print(1)");
+    }
+
+    #[test]
+    fn a_task_line_shows_its_icon_and_deadline() {
+        let mut app = app_showing("{@task status=todo due=2024-12-31} buy milk\n");
+        let rows = screen(&mut app, 60, 8);
+        assert_screen_contains(&rows, "○");
+        assert_screen_contains(&rows, "buy milk");
+        assert_screen_contains(&rows, "2024-12-31");
+    }
+
+    #[test]
+    fn a_table_is_drawn_with_separators() {
+        let mut app = app_showing("[@table cap]\n\ta\tb\n");
+        let rows = screen(&mut app, 60, 10);
+        assert_screen_contains(&rows, "cap");
+        assert_screen_contains(&rows, "│");
+    }
+
+    #[test]
+    fn long_lines_wrap_with_the_showbreak_marker() {
+        let mut app = app_showing(&format!("{}\n", "word ".repeat(40)));
+        let rows = screen(&mut app, 40, 12);
+        assert_screen_contains(&rows, "↪");
+    }
+
+    #[test]
+    fn wrapping_off_leaves_no_showbreak_marker() {
+        let mut app = app_showing(&format!("{}\n", "word ".repeat(40)));
+        app.wrap = false;
+        let rows = screen(&mut app, 40, 12);
+        assert!(
+            !rows.iter().any(|row| row.contains("↪")),
+            "no showbreak expected with wrap off:\n{}",
+            rows.join("\n")
+        );
+    }
+
+    #[test]
+    fn an_empty_document_still_draws_its_chrome() {
+        let mut app = app_showing("");
+        let rows = screen(&mut app, 60, 6);
+        assert_screen_contains(&rows, "note.pn");
+    }
 }
