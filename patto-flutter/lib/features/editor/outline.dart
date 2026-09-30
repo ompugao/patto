@@ -51,13 +51,27 @@ int? parentOf(List<String> lines, int row) {
   return null;
 }
 
-/// Rows of every line [row] is nested under, outermost first.
-List<int> ancestorsOf(List<String> lines, int row) {
-  final chain = <int>[];
-  for (int? p = parentOf(lines, row); p != null; p = parentOf(lines, p)) {
-    chain.add(p);
+/// How many indent guides run through [row].
+///
+/// A blank line has no indentation of its own, so it takes the shallower of
+/// its neighbours, and the guides carry on through it.
+int guideDepth(List<String> lines, int row) {
+  if (!isBlank(lines[row])) return depthOf(lines[row]);
+  var above = 0;
+  for (var i = row - 1; i >= 0; i--) {
+    if (!isBlank(lines[i])) {
+      above = depthOf(lines[i]);
+      break;
+    }
   }
-  return chain.reversed.toList();
+  var below = 0;
+  for (var i = row + 1; i < lines.length; i++) {
+    if (!isBlank(lines[i])) {
+      below = depthOf(lines[i]);
+      break;
+    }
+  }
+  return above < below ? above : below;
 }
 
 /// The indent column to emphasise while the caret is on [row], and the rows

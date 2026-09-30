@@ -30,7 +30,12 @@ void main() {
       expect(parentOf(_note, 4), 1);
       expect(parentOf(_note, 5), 0);
       expect(parentOf(_note, 3), isNull);
-      expect(ancestorsOf(_note, 4), [0, 1]);
+    });
+
+    test('guides run through blank lines at the shallower neighbour depth', () {
+      expect(guideDepth(_note, 2), 2);
+      expect(guideDepth(_note, 3), 2);
+      expect(guideDepth(_note, 6), 0);
     });
 
     test('the active guide is the own children column, else the siblings one', () {

@@ -8,6 +8,7 @@ import 'package:re_editor/re_editor.dart';
 import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import 'indent_guides.dart';
 import 'outline.dart';
 import 'patto_editing_controller.dart';
 import 'patto_spans.dart';
@@ -63,9 +64,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   /// The indent column that shows which block the caret is in.
   ({int column, int start, int end})? _guide;
-
-  /// Rows the caret's line is nested under, outermost first.
-  List<int> _ancestors = const [];
 
   @override
   void initState() {
@@ -138,20 +136,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final lines = _lines;
     final row = _controller.selection.extentIndex;
     if (row >= lines.length) return;
-    // Read by the span builder while the editor lays out after this change.
+    // Read by the guide painter, which repaints on every change.
     _guide = activeGuide(lines, row);
-    final ancestors = ancestorsOf(lines, row);
-    if (!_sameRows(ancestors, _ancestors)) {
-      setState(() => _ancestors = ancestors);
-    }
-  }
-
-  static bool _sameRows(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   TextSpan _buildSpan({
@@ -161,14 +147,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     required TextSpan textSpan,
     required TextStyle style,
   }) {
-    final guide = _guide;
-    final active = guide != null && index >= guide.start && index < guide.end;
     return pattoLineSpan(
       text: codeLine.text,
       style: style,
       styles: PattoSpanStyles(Theme.of(context).colorScheme),
       verbatim: _inVerbatimBlock(index),
-      activeColumn: active ? guide.column : null,
     );
   }
 
@@ -379,51 +362,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  void _moveCursor(AxisDirection direction) =>
-      _controller.moveCursor(direction);
-
-  /// The caret's parents, nearest last, so a long block's context stays in
-  /// view after its first line has scrolled away.
-  Widget _breadcrumb(BuildContext context) {
-    final theme = Theme.of(context);
-    final lines = _lines;
-    final rows = _ancestors.where((r) => r < lines.length).toList();
-    return Container(
-      height: 32,
-      color: theme.colorScheme.surfaceContainerHigh,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        reverse: true,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        children: [
-          for (final row in rows.reversed) ...[
-            TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-              ),
-              onPressed: () => _jumpTo(row),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 160),
-                child: Text(
-                  lines[row].trim(),
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium,
-                ),
-              ),
-            ),
-            if (row != rows.first)
-              Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: theme.colorScheme.outline,
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
   /// re_editor implements the long-press menu but leaves the widget to the
   /// application, so without this there is no cut, copy or paste.
   Widget _buildSelectionMenu({
@@ -530,9 +468,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  /// How wide a leading tab is drawn in [style], for lining up the guides.
+  static double _tabWidth(TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: '\t', style: style.merge(tabStyle(style))),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
   @override
   Widget build(BuildContext context) {
     final name = rust.relPathToNoteName(relPath: widget.relPath);
+    final fontSize = 14.0 * ref.watch(fontScaleProvider);
+    final tabWidth = _tabWidth(
+      TextStyle(fontFamily: 'monospace', fontSize: fontSize),
+    );
 
     return PopScope(
       canPop: !_dirty,
@@ -576,19 +529,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       autocompleteSymbols: false,
                       padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
                       chunkAnalyzer: const PattoIndentChunkAnalyzer(),
-                      // A fold marker on every line that has children.
-                      indicatorBuilder: (context, editing, chunks, notifier) =>
-                          DefaultCodeChunkIndicator(
-                            width: 20,
-                            controller: chunks,
-                            notifier: notifier,
-                          ),
+                      // Fold markers, and the indent guides beside them.
+                      indicatorBuilder: (context, editing, chunks, notifier) {
+                        return IndentGuideGutter(
+                          width: 20,
+                          chunks: chunks,
+                          notifier: notifier,
+                          lines: () => _lines,
+                          guide: () => _guide,
+                          tabWidth: tabWidth,
+                          repaint: _controller,
+                        );
+                      },
                       toolbarController: MobileSelectionToolbarController(
                         builder: _buildSelectionMenu,
                       ),
                       style: CodeEditorStyle(
                         fontFamily: 'monospace',
-                        fontSize: 14 * ref.watch(fontScaleProvider),
+                        fontSize: fontSize,
                         fontHeight: 1.45,
                         textColor: Theme.of(context).colorScheme.onSurface,
                         cursorLineColor: Theme.of(context).colorScheme.primary
@@ -609,16 +567,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                             candidates: _candidates,
                             query: _linkQuery ?? '',
                             onPick: _acceptLink,
-                          )
-                        else if (_ancestors.isNotEmpty)
-                          _breadcrumb(context),
+                          ),
                         _Toolbar(
                           onIndent: () => _reindent(add: true),
                           onOutdent: () => _reindent(add: false),
                           onInsert: _insert,
-                          onMoveCursor: _moveCursor,
-                          onLineStart: _controller.moveCursorToLineStart,
-                          onLineEnd: _controller.moveCursorToLineEnd,
                           onMoveBlock: (up) => _moveBlock(up: up),
                           onSelectBlock: _selectBlock,
                           onUndo: _controller.undo,
@@ -687,9 +640,6 @@ class _Toolbar extends StatelessWidget {
     required this.onIndent,
     required this.onOutdent,
     required this.onInsert,
-    required this.onMoveCursor,
-    required this.onLineStart,
-    required this.onLineEnd,
     required this.onMoveBlock,
     required this.onSelectBlock,
     required this.onUndo,
@@ -700,9 +650,6 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
   final void Function(String text, [int back]) onInsert;
-  final void Function(AxisDirection) onMoveCursor;
-  final VoidCallback onLineStart;
-  final VoidCallback onLineEnd;
   final void Function(bool up) onMoveBlock;
   final VoidCallback onSelectBlock;
   final VoidCallback onUndo;
@@ -736,40 +683,6 @@ class _Toolbar extends StatelessWidget {
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   children: [
-                    // The keyboard's own cursor drag cannot cross a line
-                    // boundary, so these are the reliable way to step over
-                    // one. Holding them repeats.
-                    _RepeatButton(
-                      icon: Icons.keyboard_arrow_up,
-                      label: 'Move up',
-                      onPressed: () => onMoveCursor(AxisDirection.up),
-                    ),
-                    _RepeatButton(
-                      icon: Icons.keyboard_arrow_down,
-                      label: 'Move down',
-                      onPressed: () => onMoveCursor(AxisDirection.down),
-                    ),
-                    _RepeatButton(
-                      icon: Icons.chevron_left,
-                      label: 'Move left',
-                      onPressed: () => onMoveCursor(AxisDirection.left),
-                    ),
-                    _RepeatButton(
-                      icon: Icons.chevron_right,
-                      label: 'Move right',
-                      onPressed: () => onMoveCursor(AxisDirection.right),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.first_page),
-                      tooltip: 'Line start',
-                      onPressed: onLineStart,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.last_page),
-                      tooltip: 'Line end',
-                      onPressed: onLineEnd,
-                    ),
-                    const VerticalDivider(width: 8),
                     IconButton(
                       icon: const Icon(Icons.move_up),
                       tooltip: 'Move block up',
@@ -823,59 +736,6 @@ class _Toolbar extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// An icon button that keeps firing while held.
-///
-/// No tooltip: a tooltip claims the long press this relies on.
-class _RepeatButton extends StatefulWidget {
-  const _RepeatButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  State<_RepeatButton> createState() => _RepeatButtonState();
-}
-
-class _RepeatButtonState extends State<_RepeatButton> {
-  Timer? _timer;
-
-  void _stop() {
-    _timer?.cancel();
-    _timer = null;
-  }
-
-  @override
-  void dispose() {
-    _stop();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: widget.label,
-      button: true,
-      child: GestureDetector(
-        onLongPressStart: (_) {
-          widget.onPressed();
-          _timer = Timer.periodic(
-            const Duration(milliseconds: 70),
-            (_) => widget.onPressed(),
-          );
-        },
-        onLongPressEnd: (_) => _stop(),
-        onLongPressCancel: _stop,
-        child: IconButton(icon: Icon(widget.icon), onPressed: widget.onPressed),
       ),
     );
   }

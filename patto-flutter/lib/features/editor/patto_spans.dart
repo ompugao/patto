@@ -6,9 +6,15 @@ import 'package:flutter/material.dart';
 /// offsets through it, so everything here is colour and spacing only.
 
 /// Flutter draws a tab as wide as a space, which makes nesting nearly
-/// invisible in a monospace font; letter spacing on the tab widens it without
-/// touching the text.
-const double tabExtraEm = 0.9;
+/// invisible in a monospace font. Drawing the tab in a larger font widens it
+/// without touching the text; the line height is fixed by the editor's strut,
+/// so it does not grow. Letter spacing would also widen it, but pads the tab
+/// on both sides and shifts the whole line right.
+const double tabFontScale = 2.5;
+
+/// The style of a leading tab on a line in [style].
+TextStyle tabStyle(TextStyle style) =>
+    TextStyle(fontSize: (style.fontSize ?? 14) * tabFontScale);
 
 enum PattoToken {
   command,
@@ -53,21 +59,9 @@ bool opensVerbatim(String line) {
 class PattoSpanStyles {
   PattoSpanStyles(ColorScheme scheme)
     : _scheme = scheme,
-      guides = [
-        scheme.onSurface.withValues(alpha: 0.05),
-        scheme.onSurface.withValues(alpha: 0.10),
-      ],
-      activeGuide = scheme.primary.withValues(alpha: 0.30),
       verbatim = TextStyle(color: scheme.tertiary);
 
   final ColorScheme _scheme;
-
-  /// Background of each indent column, alternating so that neighbouring
-  /// levels stay apart.
-  final List<Color> guides;
-
-  /// Background of the column the caret's block hangs from.
-  final Color activeGuide;
 
   final TextStyle verbatim;
 
@@ -109,7 +103,6 @@ class PattoSpanStyles {
 
 /// The span for one editor line.
 ///
-/// [activeColumn] is the indent column to emphasise on this line, if any;
 /// [verbatim] marks a line inside a code or math block, whose text is not
 /// patto markup.
 TextSpan pattoLineSpan({
@@ -117,7 +110,6 @@ TextSpan pattoLineSpan({
   required TextStyle style,
   required PattoSpanStyles styles,
   bool verbatim = false,
-  int? activeColumn,
 }) {
   if (text.isEmpty) return TextSpan(text: text, style: style);
   final children = <TextSpan>[];
@@ -126,18 +118,9 @@ TextSpan pattoLineSpan({
   while (depth < text.length && text.codeUnitAt(depth) == 0x09) {
     depth++;
   }
-  final tabSpacing = (style.fontSize ?? 14) * tabExtraEm;
-  for (var i = 0; i < depth; i++) {
+  if (depth > 0) {
     children.add(
-      TextSpan(
-        text: '\t',
-        style: TextStyle(
-          letterSpacing: tabSpacing,
-          backgroundColor: i == activeColumn
-              ? styles.activeGuide
-              : styles.guides[i % styles.guides.length],
-        ),
-      ),
+      TextSpan(text: text.substring(0, depth), style: tabStyle(style)),
     );
   }
 
