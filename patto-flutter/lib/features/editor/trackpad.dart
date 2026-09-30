@@ -25,9 +25,14 @@ class CaretTrackpad {
   double? _x;
   double _dy = 0;
 
+  /// How far the finger has moved sideways since the caret last changed
+  /// line.
+  double _travel = 0;
+
   void start() {
     _x = null;
     _dy = 0;
+    _travel = 0;
   }
 
   void move(Offset delta) {
@@ -50,6 +55,7 @@ class CaretTrackpad {
     if (lines > 0) {
       HapticFeedback.selectionClick();
       paragraph = _caretParagraph();
+      _travel = 0;
     }
 
     final x = _x;
@@ -58,7 +64,7 @@ class CaretTrackpad {
       controller.makeCursorVisible();
       return;
     }
-    _x = x + delta.dx;
+    _x = _steer(paragraph, x, delta.dx);
     _place(paragraph);
     controller.makeCursorVisible();
   }
@@ -81,26 +87,47 @@ class CaretTrackpad {
     affinity: controller.selection.extentAffinity,
   );
 
-  /// Puts the caret on its current visual line, nearest to [_x].
-  void _place(CodeLineRenderParagraph p) {
-    final caret = _caretPosition();
-    final top = p.paragraph.getOffset(caret)?.dy ?? 0;
-    final y = top + p.preferredLineHeight / 2;
+  /// [x] moved sideways by [dx].
+  ///
+  /// Past either end of the line, dragging back starts from the end rather
+  /// than from where the finger overshot to. Not when the overshoot came
+  /// from moving up or down, though: an empty or short line passed on the
+  /// way must not cost the column, so a finger drifting a little sideways
+  /// meanwhile does not count as dragging back.
+  double _steer(CodeLineRenderParagraph p, double x, double dx) {
+    if (dx == 0) return x;
+    _travel += dx.abs();
+    final (min, max) = _bounds(p);
+    final back = (x > max && dx < 0) || (x < min && dx > 0);
+    if (back && _travel >= p.preferredLineHeight * 0.4) {
+      return x.clamp(min, max) + dx;
+    }
+    return x + dx;
+  }
 
-    // Past either end of the line, the finger has to come back only as far
-    // as the end, not all the way it overshot.
-    final line = p.paragraph.getLineBoundary(caret);
-    final minX =
+  /// Where the caret's visual line starts and ends, in the text field's
+  /// coordinates.
+  (double, double) _bounds(CodeLineRenderParagraph p) {
+    final line = p.paragraph.getLineBoundary(_caretPosition());
+    final min =
         p.paragraph.getOffset(TextPosition(offset: line.start))?.dx ?? 0;
-    final maxX =
+    final max =
         p.paragraph
             .getOffset(
               TextPosition(offset: line.end, affinity: TextAffinity.upstream),
             )
             ?.dx ??
-        minX;
-    final x = _x!.clamp(p.offset.dx + minX, p.offset.dx + maxX);
-    _x = x;
+        min;
+    return (p.offset.dx + min, p.offset.dx + max);
+  }
+
+  /// Puts the caret on its current visual line, nearest to [_x].
+  void _place(CodeLineRenderParagraph p) {
+    final caret = _caretPosition();
+    final top = p.paragraph.getOffset(caret)?.dy ?? 0;
+    final y = top + p.preferredLineHeight / 2;
+    final (min, max) = _bounds(p);
+    final x = _x!.clamp(min, max);
 
     final target = p.paragraph.getPosition(Offset(x - p.offset.dx, y));
     if (target.offset == caret.offset) return;
