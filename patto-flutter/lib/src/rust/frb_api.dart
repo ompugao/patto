@@ -191,14 +191,6 @@ Future<ConflictDetail> conflictDetail({
   relPath: relPath,
 );
 
-/// The text of a merged note once each conflict has been given its lines;
-/// `choices` holds one entry per conflict, in order.
-String assembleMerge({
-  required MergedNote note,
-  required List<List<String>> choices,
-}) =>
-    RustLib.instance.api.crateFrbApiAssembleMerge(note: note, choices: choices);
-
 /// Merge with the user's choice for every clashing note and push. Reports like
 /// [`git_sync`].
 Stream<SyncEvent> gitResolve({

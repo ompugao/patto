@@ -25,7 +25,7 @@ pub use crate::api::types::{
 };
 
 use crate::api::error::PattoResult;
-use crate::api::{conflict, git, index, merge, render, store, tasks};
+use crate::api::{conflict, git, index, render, store, tasks};
 
 /// Called once at startup, before anything else.
 #[frb(init)]
@@ -262,13 +262,6 @@ pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
 /// Base, phone and remote versions of one clashing note, split into regions.
 pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
     conflict::conflict_detail(root, rel_path)
-}
-
-/// The text of a merged note once each conflict has been given its lines;
-/// `choices` holds one entry per conflict, in order.
-#[frb(sync)]
-pub fn assemble_merge(note: MergedNote, choices: Vec<Vec<String>>) -> String {
-    merge::assemble(&note, &choices)
 }
 
 /// Merge with the user's choice for every clashing note and push. Reports like

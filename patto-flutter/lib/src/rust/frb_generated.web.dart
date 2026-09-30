@@ -86,9 +86,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IndexStats dco_decode_box_autoadd_index_stats(dynamic raw);
 
   @protected
-  MergedNote dco_decode_box_autoadd_merged_note(dynamic raw);
-
-  @protected
   PendingConflict dco_decode_box_autoadd_pending_conflict(dynamic raw);
 
   @protected
@@ -186,9 +183,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<LinkCount> dco_decode_list_link_count(dynamic raw);
-
-  @protected
-  List<List<String>> dco_decode_list_list_String(dynamic raw);
 
   @protected
   List<MergeRegion> dco_decode_list_merge_region(dynamic raw);
@@ -402,9 +396,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IndexStats sse_decode_box_autoadd_index_stats(SseDeserializer deserializer);
 
   @protected
-  MergedNote sse_decode_box_autoadd_merged_note(SseDeserializer deserializer);
-
-  @protected
   PendingConflict sse_decode_box_autoadd_pending_conflict(
     SseDeserializer deserializer,
   );
@@ -506,9 +497,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<LinkCount> sse_decode_list_link_count(SseDeserializer deserializer);
-
-  @protected
-  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer);
 
   @protected
   List<MergeRegion> sse_decode_list_merge_region(SseDeserializer deserializer);
@@ -757,12 +745,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_box_autoadd_merged_note(
-    MergedNote self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_box_autoadd_pending_conflict(
     PendingConflict self,
     SseSerializer serializer,
@@ -885,12 +867,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_link_count(
     List<LinkCount> self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_list_list_String(
-    List<List<String>> self,
     SseSerializer serializer,
   );
 
