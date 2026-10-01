@@ -6,6 +6,8 @@ import '../../src/rust/api/error.dart';
 import '../../src/rust/api/events.dart';
 import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import '../conflicts/conflict_list_screen.dart';
+import '../conflicts/conflict_state.dart';
 import '../settings/settings_screen.dart';
 
 /// Shows what is uncommitted, and runs commit, pull and push.
@@ -71,6 +73,10 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
               _running = false;
               _report = report;
             });
+            // Merged on the desktop: choices made here are moot.
+            if (report.conflictCleared) {
+              await ref.read(conflictDraftsProvider.notifier).clear();
+            }
             ref.read(notesRevisionProvider.notifier).value++;
           case SyncEvent_Failed(:final failure):
             setState(() {
@@ -104,6 +110,8 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
     GitErrorKind.nonFastForward => 'The remote moved on while syncing. Try again.',
     GitErrorKind.conflict =>
       'The merge could not be resolved here. Resolve it on the desktop.',
+    GitErrorKind.stale =>
+      'Something changed while you were resolving. Review the conflicts again.',
     _ => failure.message,
   };
 
@@ -182,20 +190,27 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
               const SizedBox(height: 8),
               Text(_phase ?? '', style: theme.textTheme.bodySmall),
             ],
-            if (_report != null)
+            if (_report case SyncReport(
+              merge: MergeOutcome_Conflicted(:final sideBranch, :final paths),
+            ))
+              _PausedCard(sideBranch: sideBranch, count: paths.length)
+            else if (_report != null)
               Text(
                 [
                   if (_report!.committed) 'Committed',
                   switch (_report!.merge) {
                     MergeOutcome_UpToDate() => 'Already up to date',
                     MergeOutcome_FastForward() => 'Fast-forwarded',
-                    MergeOutcome_Merged(:final autoResolved) =>
-                      'Merged, kept local copy of ${autoResolved.length} file(s)',
+                    MergeOutcome_Merged() => 'Merged',
+                    MergeOutcome_Conflicted() => 'Paused',
                   },
                   if (_report!.pushed) 'Pushed',
+                  if (_report!.conflictCleared) 'Conflicts resolved',
                 ].join(' · '),
                 style: theme.textTheme.bodyMedium,
-              ),
+              )
+            else if (status.value?.conflictPending ?? false)
+              const _PausedCard(),
             if (_error != null)
               Container(
                 width: double.infinity,
@@ -220,6 +235,70 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Says the sync stopped short of merging, why that is safe, and where to go.
+class _PausedCard extends StatelessWidget {
+  const _PausedCard({this.sideBranch, this.count});
+
+  /// Set right after the sync that paused; otherwise the pause is older.
+  final String? sideBranch;
+  final int? count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final n = count;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
+              const SizedBox(width: 8),
+              Text('Sync paused', style: theme.textTheme.titleSmall),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            [
+              n == null
+                  ? 'Some notes changed both here and on another device.'
+                  : '$n ${n == 1 ? 'note' : 'notes'} changed both here and '
+                        'on another device.',
+              sideBranch == null
+                  ? 'Your edits are safe on the remote.'
+                  : 'Your edits are safe: they were pushed to $sideBranch.',
+              'Resolve them here, or merge that branch on your desktop.',
+            ].join(' '),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () {
+                // The sheet's context is gone once it is popped.
+                final navigator = Navigator.of(context);
+                navigator.pop();
+                navigator.push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ConflictListScreen(),
+                  ),
+                );
+              },
+              child: const Text('Review conflicts'),
+            ),
+          ),
+        ],
       ),
     );
   }

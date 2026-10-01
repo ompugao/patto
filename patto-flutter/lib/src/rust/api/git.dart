@@ -74,12 +74,16 @@ class GitStatus {
   final int behind;
   final bool hasRemote;
 
+  /// The last sync stopped at a conflict that has not been merged yet.
+  final bool conflictPending;
+
   const GitStatus({
     required this.branch,
     required this.dirty,
     required this.ahead,
     required this.behind,
     required this.hasRemote,
+    required this.conflictPending,
   });
 
   @override
@@ -88,7 +92,8 @@ class GitStatus {
       dirty.hashCode ^
       ahead.hashCode ^
       behind.hashCode ^
-      hasRemote.hashCode;
+      hasRemote.hashCode ^
+      conflictPending.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -99,7 +104,8 @@ class GitStatus {
           dirty == other.dirty &&
           ahead == other.ahead &&
           behind == other.behind &&
-          hasRemote == other.hasRemote;
+          hasRemote == other.hasRemote &&
+          conflictPending == other.conflictPending;
 }
 
 @freezed
@@ -109,10 +115,16 @@ sealed class MergeOutcome with _$MergeOutcome {
   const factory MergeOutcome.upToDate() = MergeOutcome_UpToDate;
   const factory MergeOutcome.fastForward() = MergeOutcome_FastForward;
 
-  /// A real merge commit was made; `auto_resolved` lists files where the local
-  /// copy was kept.
-  const factory MergeOutcome.merged({required List<String> autoResolved}) =
-      MergeOutcome_Merged;
+  /// A merge commit was made; no lines clashed.
+  const factory MergeOutcome.merged() = MergeOutcome_Merged;
+
+  /// Both sides changed the same lines, so nothing was merged. The phone's
+  /// commits were pushed to `side_branch` instead, and the remote's changes
+  /// are held back until the merge is done.
+  const factory MergeOutcome.conflicted({
+    required String sideBranch,
+    required List<String> paths,
+  }) = MergeOutcome_Conflicted;
 }
 
 class SyncReport {
@@ -120,6 +132,10 @@ class SyncReport {
   final String? commitId;
   final MergeOutcome merge;
   final bool pushed;
+
+  /// A merge that was pending has now been completed, on the desktop or in
+  /// the app, and the side branch removed.
+  final bool conflictCleared;
 
   /// Note paths that changed on disk during the sync, so the app can refresh
   /// just those.
@@ -130,6 +146,7 @@ class SyncReport {
     this.commitId,
     required this.merge,
     required this.pushed,
+    required this.conflictCleared,
     required this.changedPaths,
   });
 
@@ -139,6 +156,7 @@ class SyncReport {
       commitId.hashCode ^
       merge.hashCode ^
       pushed.hashCode ^
+      conflictCleared.hashCode ^
       changedPaths.hashCode;
 
   @override
@@ -150,5 +168,6 @@ class SyncReport {
           commitId == other.commitId &&
           merge == other.merge &&
           pushed == other.pushed &&
+          conflictCleared == other.conflictCleared &&
           changedPaths == other.changedPaths;
 }

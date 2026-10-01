@@ -8,6 +8,7 @@ import 'package:re_editor/re_editor.dart';
 import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import '../conflicts/conflict_state.dart';
 import 'indent_guides.dart';
 import 'outline.dart';
 import 'patto_editing_controller.dart';
@@ -24,8 +25,40 @@ class EditorScreen extends ConsumerStatefulWidget {
   final String relPath;
   final int? initialRow;
 
-  static Future<void> open(BuildContext context, String relPath, {int? row}) {
-    return Navigator.of(context).push(
+  static Future<void> open(
+    BuildContext context,
+    String relPath, {
+    int? row,
+  }) async {
+    final conflicted = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(conflictedPathsProvider);
+    if (conflicted.contains(relPath)) {
+      final edit = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Waiting to be merged'),
+          content: const Text(
+            'This note changed both here and on another device. New edits '
+            'become part of your side and will need merging too.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Edit anyway'),
+            ),
+          ],
+        ),
+      );
+      if (edit != true || !context.mounted) return;
+    }
+
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => EditorScreen(relPath: relPath, initialRow: row),
       ),

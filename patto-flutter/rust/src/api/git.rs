@@ -1,8 +1,10 @@
 //! Git sync over HTTPS with a personal access token.
 //!
 //! Notes live in a normal clone on the device. Sync is commit → fetch →
-//! fast-forward or merge → push, with conflicts resolved in favour of the local
-//! copy so the phone never blocks on a merge it cannot show.
+//! fast-forward or merge → push. When both sides changed the same lines nothing
+//! is merged: the phone's commits are pushed to a branch of their own, so they
+//! are safe, and the merge waits until it is done on the desktop or resolved in
+//! the app (see [`crate::api::conflict`]).
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -12,8 +14,8 @@ use foreign_types_shared::ForeignType;
 use git2::build::{CheckoutBuilder, RepoBuilder};
 
 use git2::{
-    AnnotatedCommit, Cred, FetchOptions, FileFavor, MergeOptions, ProxyOptions, PushOptions,
-    RemoteCallbacks, Repository, Signature,
+    Cred, FetchOptions, Oid, ProxyOptions, PushOptions, Remote, RemoteCallbacks, Repository,
+    Signature,
 };
 
 use crate::api::error::{GitErrorKind, PattoError, PattoResult};
@@ -49,10 +51,14 @@ pub struct GitProgress {
 pub enum MergeOutcome {
     UpToDate,
     FastForward,
-    /// A real merge commit was made; `auto_resolved` lists files where the local
-    /// copy was kept.
-    Merged {
-        auto_resolved: Vec<String>,
+    /// A merge commit was made; no lines clashed.
+    Merged,
+    /// Both sides changed the same lines, so nothing was merged. The phone's
+    /// commits were pushed to `side_branch` instead, and the remote's changes
+    /// are held back until the merge is done.
+    Conflicted {
+        side_branch: String,
+        paths: Vec<String>,
     },
 }
 
@@ -62,6 +68,9 @@ pub struct SyncReport {
     pub commit_id: Option<String>,
     pub merge: MergeOutcome,
     pub pushed: bool,
+    /// A merge that was pending has now been completed, on the desktop or in
+    /// the app, and the side branch removed.
+    pub conflict_cleared: bool,
     /// Note paths that changed on disk during the sync, so the app can refresh
     /// just those.
     pub changed_paths: Vec<String>,
@@ -74,6 +83,8 @@ pub struct GitStatus {
     pub ahead: u32,
     pub behind: u32,
     pub has_remote: bool,
+    /// The last sync stopped at a conflict that has not been merged yet.
+    pub conflict_pending: bool,
 }
 
 static CERT_FILE: OnceLock<String> = OnceLock::new();
@@ -132,7 +143,7 @@ pub fn git_init_runtime(ca_bundle_path: String) -> PattoResult<()> {
     Ok(())
 }
 
-fn callbacks<'a>(
+pub(crate) fn callbacks<'a>(
     creds: &GitCreds,
     on_progress: &'a (dyn Fn(GitProgress) + Send + Sync),
 ) -> RemoteCallbacks<'a> {
@@ -201,7 +212,7 @@ fn callbacks<'a>(
     cb
 }
 
-fn fetch_options<'a>(
+pub(crate) fn fetch_options<'a>(
     creds: &GitCreds,
     on_progress: &'a (dyn Fn(GitProgress) + Send + Sync),
 ) -> FetchOptions<'a> {
@@ -243,7 +254,7 @@ pub fn git_clone(
     Ok(())
 }
 
-fn current_branch(repo: &Repository) -> PattoResult<String> {
+pub(crate) fn current_branch(repo: &Repository) -> PattoResult<String> {
     let head = repo.head()?;
     Ok(head.shorthand()?.to_string())
 }
@@ -354,6 +365,7 @@ pub fn git_status(root: String) -> PattoResult<GitStatus> {
         ahead: ahead as u32,
         behind: behind as u32,
         has_remote,
+        conflict_pending: conflict_remote(&repo).is_some(),
     })
 }
 
@@ -366,7 +378,7 @@ fn upstream_oid(repo: &Repository, branch: &str) -> Option<git2::Oid> {
 
 /// Stage every note change and commit, returning the new commit id if the tree
 /// actually differs from HEAD.
-fn commit_notes(repo: &Repository, sig: &Signature) -> PattoResult<Option<git2::Oid>> {
+pub(crate) fn commit_notes(repo: &Repository, sig: &Signature) -> PattoResult<Option<git2::Oid>> {
     let mut index = repo.index()?;
     index.add_all(["*.pn"], git2::IndexAddOption::DEFAULT, None)?;
     index.update_all(["*"], None)?;
@@ -394,7 +406,7 @@ fn commit_notes(repo: &Repository, sig: &Signature) -> PattoResult<Option<git2::
     Ok(Some(oid))
 }
 
-fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> Vec<String> {
+pub(crate) fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> Vec<String> {
     let Some(before) = before else {
         return Vec::new();
     };
@@ -432,80 +444,173 @@ fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> Vec<String> 
     paths
 }
 
-/// Resolve leftover index conflicts by keeping our side; drop the file when we
-/// deleted it. `FileFavor::Ours` covers content conflicts but not add/add or
-/// modify/delete.
-fn resolve_conflicts_ours(repo: &Repository) -> PattoResult<Vec<String>> {
-    let mut index = repo.index()?;
-    if !index.has_conflicts() {
-        return Ok(Vec::new());
-    }
+/// Holds the remote commit a paused sync could not merge. Its presence is what
+/// "a merge is pending" means.
+pub(crate) const CONFLICT_REF: &str = "refs/patto/conflict-remote";
 
-    // The iterator borrows the index, so decide everything first.
-    let mut decisions = Vec::new();
-    for conflict in index.conflicts()? {
-        let conflict = conflict?;
-        match (conflict.our, conflict.their) {
-            (Some(our), _) => {
-                let path = String::from_utf8_lossy(&our.path).to_string();
-                decisions.push((path, Some(our)));
-            }
-            (None, Some(their)) => {
-                let path = String::from_utf8_lossy(&their.path).to_string();
-                decisions.push((path, None));
-            }
-            (None, None) => {}
-        }
-    }
+/// Repository config key naming the branch this device pushes to while a merge
+/// is pending.
+const SIDE_BRANCH_KEY: &str = "patto.sidebranch";
 
-    let mut resolved = Vec::new();
-    for (path, ours) in decisions {
-        // Drop all three conflict stages before staging a resolution, otherwise
-        // the index stays "not fully merged" and no tree can be written.
-        index.conflict_remove(Path::new(&path))?;
-        match ours {
-            Some(mut entry) => {
-                // Stage 0 marks the entry resolved.
-                entry.flags &= !0x3000;
-                index.add(&entry)?;
-            }
-            None => {
-                index.remove_path(Path::new(&path)).ok();
-            }
-        }
-        resolved.push(path);
-    }
-    index.write()?;
-
-    repo.checkout_index(Some(&mut index), Some(CheckoutBuilder::new().force()))?;
-    Ok(resolved)
+/// The remote commit a paused sync is waiting to merge, if any.
+pub(crate) fn conflict_remote(repo: &Repository) -> Option<Oid> {
+    repo.find_reference(CONFLICT_REF).ok()?.target()
 }
 
-fn merge_fetched(
+/// The branch this device pushes its commits to while a merge is pending.
+///
+/// Chosen once per clone and remembered, so repeated conflicts reuse it.
+pub(crate) fn side_branch(repo: &Repository) -> PattoResult<String> {
+    let config = repo.config()?;
+    if let Ok(name) = config.get_string(SIDE_BRANCH_KEY) {
+        return Ok(name);
+    }
+
+    // Unique enough to keep two phones apart without asking for a name.
+    let seed = format!(
+        "{:?}{}{}",
+        std::time::SystemTime::now(),
+        std::process::id(),
+        repo.path().display()
+    );
+    let hash = Oid::hash_object(git2::ObjectType::Blob, seed.as_bytes())?;
+    let name = format!("mobile/{}", &hash.to_string()[..6]);
+
+    config
+        .open_level(git2::ConfigLevel::Local)?
+        .set_str(SIDE_BRANCH_KEY, &name)?;
+    Ok(name)
+}
+
+/// The merge is done: forget the paused sync and delete the side branch on the
+/// remote. Returns whether there was anything to clear.
+pub(crate) fn clear_conflict(
+    repo: &Repository,
+    remote: &mut Remote,
+    creds: &GitCreds,
+    on_progress: &(dyn Fn(GitProgress) + Send + Sync),
+) -> PattoResult<bool> {
+    let Ok(mut reference) = repo.find_reference(CONFLICT_REF) else {
+        return Ok(false);
+    };
+    reference.delete()?;
+
+    // The desktop may already have deleted it; that is fine.
+    let side = side_branch(repo)?;
+    if let Err(e) = push(remote, &format!(":refs/heads/{side}"), creds, on_progress) {
+        log::info!("could not delete {side} on the remote: {e}");
+    }
+    Ok(true)
+}
+
+pub(crate) fn push(
+    remote: &mut Remote,
+    refspec: &str,
+    creds: &GitCreds,
+    on_progress: &(dyn Fn(GitProgress) + Send + Sync),
+) -> Result<(), git2::Error> {
+    on_progress(GitProgress {
+        phase: GitPhase::Pushing,
+        current: 0,
+        total: 0,
+        bytes: 0,
+    });
+
+    let mut push_opts = PushOptions::new();
+    push_opts.remote_callbacks(callbacks(creds, on_progress));
+    let mut proxy = ProxyOptions::new();
+    proxy.auto();
+    push_opts.proxy_options(proxy);
+    remote.push(&[refspec], Some(&mut push_opts))
+}
+
+/// Fetch `branch` from origin and return the commit it points at.
+pub(crate) fn fetch_branch(
+    repo: &Repository,
+    remote: &mut Remote,
+    branch: &str,
+    creds: &GitCreds,
+    on_progress: &(dyn Fn(GitProgress) + Send + Sync),
+) -> PattoResult<Oid> {
+    remote.fetch(
+        &[&format!("refs/heads/{branch}")],
+        Some(&mut fetch_options(creds, on_progress)),
+        None,
+    )?;
+    let fetch_head = repo.find_reference("FETCH_HEAD")?;
+    Ok(repo.reference_to_annotated_commit(&fetch_head)?.id())
+}
+
+/// Move `branch` to `target` and check it out.
+fn fast_forward(repo: &Repository, branch: &str, target: Oid) -> PattoResult<()> {
+    let refname = format!("refs/heads/{branch}");
+    match repo.find_reference(&refname) {
+        Ok(mut reference) => {
+            reference.set_target(target, "fast-forward")?;
+        }
+        Err(_) => {
+            repo.reference(&refname, target, true, "fast-forward")?;
+        }
+    }
+    repo.set_head(&refname)?;
+    repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+    Ok(())
+}
+
+/// Paths the index still has conflicts for.
+pub(crate) fn conflict_paths(index: &git2::Index) -> PattoResult<Vec<String>> {
+    let mut paths = Vec::new();
+    for conflict in index.conflicts()? {
+        let conflict = conflict?;
+        if let Some(entry) = conflict.our.or(conflict.their).or(conflict.ancestor) {
+            paths.push(String::from_utf8_lossy(&entry.path).to_string());
+        }
+    }
+    Ok(paths)
+}
+
+/// Commit a merge of HEAD and `theirs` whose tree is `index`, and check it out.
+pub(crate) fn commit_merge(
+    repo: &Repository,
+    index: &mut git2::Index,
+    theirs: Oid,
+    message: &str,
+    sig: &Signature,
+) -> PattoResult<()> {
+    let tree = repo.find_tree(index.write_tree_to(repo)?)?;
+    let head_commit = repo.head()?.peel_to_commit()?;
+    let their_commit = repo.find_commit(theirs)?;
+    repo.commit(
+        Some("HEAD"),
+        sig,
+        sig,
+        message,
+        &tree,
+        &[&head_commit, &their_commit],
+    )?;
+    repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+    Ok(())
+}
+
+/// Bring the fetched commit into `branch`, unless lines clash.
+///
+/// The merge is tried in memory first, so a conflict leaves the working copy
+/// and the branch exactly as they were.
+fn integrate(
     repo: &Repository,
     branch: &str,
-    fetched: &AnnotatedCommit,
+    fetched: Oid,
     sig: &Signature,
     on_progress: &(dyn Fn(GitProgress) + Send + Sync),
 ) -> PattoResult<MergeOutcome> {
-    let (analysis, _) = repo.merge_analysis(&[fetched])?;
+    let annotated = repo.find_annotated_commit(fetched)?;
+    let (analysis, _) = repo.merge_analysis(&[&annotated])?;
 
     if analysis.is_up_to_date() {
         return Ok(MergeOutcome::UpToDate);
     }
-
     if analysis.is_fast_forward() || analysis.is_unborn() {
-        let refname = format!("refs/heads/{branch}");
-        match repo.find_reference(&refname) {
-            Ok(mut reference) => {
-                reference.set_target(fetched.id(), "fast-forward")?;
-            }
-            Err(_) => {
-                repo.reference(&refname, fetched.id(), true, "fast-forward")?;
-            }
-        }
-        repo.set_head(&refname)?;
-        repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+        fast_forward(repo, branch, fetched)?;
         return Ok(MergeOutcome::FastForward);
     }
 
@@ -516,34 +621,52 @@ fn merge_fetched(
         bytes: 0,
     });
 
-    let mut merge_opts = MergeOptions::new();
-    merge_opts.file_favor(FileFavor::Ours);
-    let mut checkout = CheckoutBuilder::new();
-    repo.merge(&[fetched], Some(&mut merge_opts), Some(&mut checkout))?;
+    let head = repo.head()?.peel_to_commit()?;
+    let theirs = repo.find_commit(fetched)?;
+    let mut index = repo.merge_commits(&head, &theirs, None)?;
 
-    let auto_resolved = resolve_conflicts_ours(repo)?;
+    if index.has_conflicts() {
+        return Ok(MergeOutcome::Conflicted {
+            side_branch: String::new(),
+            paths: conflict_paths(&index)?,
+        });
+    }
 
-    let mut index = repo.index()?;
-    let tree = repo.find_tree(index.write_tree()?)?;
-    let head_commit = repo.head()?.peel_to_commit()?;
-    let their_commit = repo.find_commit(fetched.id())?;
-
-    repo.commit(
-        Some("HEAD"),
-        sig,
-        sig,
+    commit_merge(
+        repo,
+        &mut index,
+        fetched,
         &format!("patto-flutter: merge origin/{branch}"),
-        &tree,
-        &[&head_commit, &their_commit],
+        sig,
     )?;
-    repo.cleanup_state()?;
+    Ok(MergeOutcome::Merged)
+}
 
-    Ok(MergeOutcome::Merged { auto_resolved })
+fn done(on_progress: &(dyn Fn(GitProgress) + Send + Sync)) {
+    on_progress(GitProgress {
+        phase: GitPhase::Done,
+        current: 0,
+        total: 0,
+        bytes: 0,
+    });
+}
+
+/// Whether a push failed only because the remote moved since the last fetch.
+pub(crate) fn is_retryable(err: &PattoError) -> bool {
+    matches!(
+        err,
+        PattoError::Git {
+            kind: GitErrorKind::NonFastForward,
+            ..
+        }
+    ) || matches!(err, PattoError::Git { message, .. } if message.contains("rejected"))
 }
 
 /// Commit local edits, integrate the remote, and push.
 ///
 /// The push is retried when the remote moved between our fetch and our push.
+/// When the remote cannot be merged cleanly, the local commits go to a side
+/// branch instead and the report says which notes clash.
 pub fn git_sync(
     root: String,
     author_name: String,
@@ -570,48 +693,53 @@ pub fn git_sync(
     });
     let commit_id = commit_notes(&repo, &sig)?;
 
-    if repo.find_remote("origin").is_err() {
+    let Ok(mut remote) = repo.find_remote("origin") else {
         return Err(PattoError::Git {
             kind: GitErrorKind::NoRemote,
             message: "no 'origin' remote configured".to_string(),
         });
-    }
+    };
 
     let mut merge = MergeOutcome::UpToDate;
     let mut pushed = false;
     let mut last_error = None;
 
     for _ in 0..PUSH_ATTEMPTS {
-        let mut remote = repo.find_remote("origin")?;
-        remote.fetch(
-            &[&format!("refs/heads/{branch}")],
-            Some(&mut fetch_options(&creds, &on_progress)),
-            None,
-        )?;
+        let fetched = fetch_branch(&repo, &mut remote, &branch, &creds, &on_progress)?;
 
-        let fetch_head = repo.find_reference("FETCH_HEAD")?;
-        let fetched = repo.reference_to_annotated_commit(&fetch_head)?;
-        let outcome = merge_fetched(&repo, &branch, &fetched, &sig, &on_progress)?;
-        if !matches!(outcome, MergeOutcome::UpToDate) {
-            merge = outcome;
+        match integrate(&repo, &branch, fetched, &sig, &on_progress)? {
+            MergeOutcome::Conflicted { paths, .. } => {
+                repo.reference(CONFLICT_REF, fetched, true, "patto: sync paused")?;
+                let side = side_branch(&repo)?;
+                // The side branch belongs to this device, so overwriting it is safe.
+                push(
+                    &mut remote,
+                    &format!("+refs/heads/{branch}:refs/heads/{side}"),
+                    &creds,
+                    &on_progress,
+                )?;
+                done(&on_progress);
+                return Ok(SyncReport {
+                    committed: commit_id.is_some(),
+                    commit_id: commit_id.map(|id| id.to_string()),
+                    merge: MergeOutcome::Conflicted {
+                        side_branch: side,
+                        paths,
+                    },
+                    pushed: false,
+                    conflict_cleared: false,
+                    changed_paths: changed_between(&repo, before),
+                });
+            }
+            MergeOutcome::UpToDate => {}
+            outcome => merge = outcome,
         }
 
-        on_progress(GitProgress {
-            phase: GitPhase::Pushing,
-            current: 0,
-            total: 0,
-            bytes: 0,
-        });
-
-        let mut push_opts = PushOptions::new();
-        push_opts.remote_callbacks(callbacks(&creds, &on_progress));
-        let mut proxy = ProxyOptions::new();
-        proxy.auto();
-        push_opts.proxy_options(proxy);
-
-        match remote.push(
-            &[&format!("refs/heads/{branch}:refs/heads/{branch}")],
-            Some(&mut push_opts),
+        match push(
+            &mut remote,
+            &format!("refs/heads/{branch}:refs/heads/{branch}"),
+            &creds,
+            &on_progress,
         ) {
             Ok(()) => {
                 pushed = true;
@@ -619,13 +747,7 @@ pub fn git_sync(
             }
             Err(e) => {
                 let err = PattoError::from(e);
-                let retryable = matches!(
-                    err,
-                    PattoError::Git {
-                        kind: GitErrorKind::NonFastForward,
-                        ..
-                    }
-                ) || matches!(&err, PattoError::Git { message, .. } if message.contains("rejected"));
+                let retryable = is_retryable(&err);
                 last_error = Some(err);
                 if !retryable {
                     break;
@@ -640,18 +762,16 @@ pub fn git_sync(
         }
     }
 
-    on_progress(GitProgress {
-        phase: GitPhase::Done,
-        current: 0,
-        total: 0,
-        bytes: 0,
-    });
+    // The branch on the remote now holds both sides.
+    let conflict_cleared = clear_conflict(&repo, &mut remote, &creds, &on_progress)?;
+    done(&on_progress);
 
     Ok(SyncReport {
         committed: commit_id.is_some(),
         commit_id: commit_id.map(|id| id.to_string()),
         merge,
         pushed,
+        conflict_cleared,
         changed_paths: changed_between(&repo, before),
     })
 }

@@ -9,10 +9,14 @@ use flutter_rust_bridge::frb;
 
 use crate::frb_generated::StreamSink;
 
+pub use crate::api::conflict::{
+    ConflictDetail, ConflictFile, ConflictKind, PendingConflict, RemoteCommit, Resolution,
+};
 pub use crate::api::error::{GitErrorKind, PattoError};
 pub use crate::api::events::{CloneEvent, Failure, IndexEvent, SyncEvent};
 pub use crate::api::git::{GitCreds, GitPhase, GitProgress, GitStatus, MergeOutcome, SyncReport};
 pub use crate::api::index::{BackLink, IndexProgress, IndexStats, LinkCount, TwoHop};
+pub use crate::api::merge::{MergeRegion, MergedNote, Suggestion, SuggestionKind};
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
     AnchorRef, Block, BlockKind, DateKind, EmbedKind, EmbedRef, ImageRef, NoteMeta, NoteSpan,
@@ -21,7 +25,7 @@ pub use crate::api::types::{
 };
 
 use crate::api::error::PattoResult;
-use crate::api::{git, index, render, store, tasks};
+use crate::api::{conflict, git, index, render, store, tasks};
 
 /// Called once at startup, before anything else.
 #[frb(init)]
@@ -233,6 +237,50 @@ pub fn git_sync(
         author_name,
         author_email,
         creds,
+        move |progress| {
+            let _ = progress_sink.add(SyncEvent::Progress { progress });
+        },
+    )
+    .and_then(|report| {
+        index::index_refresh(root)?;
+        Ok(report)
+    });
+
+    let _ = match result {
+        Ok(report) => sink.add(SyncEvent::Done { report }),
+        Err(e) => sink.add(SyncEvent::Failed { failure: e.into() }),
+    };
+}
+
+// ─── conflicts ───────────────────────────────────────────────────────────────
+
+/// The sync that stopped at a conflict, if one is waiting to be merged.
+pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
+    conflict::pending_conflict(root)
+}
+
+/// Base, phone and remote versions of one clashing note, split into regions.
+pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
+    conflict::conflict_detail(root, rel_path)
+}
+
+/// Merge with the user's choice for every clashing note and push. Reports like
+/// [`git_sync`].
+pub fn git_resolve(
+    root: String,
+    author_name: String,
+    author_email: String,
+    creds: GitCreds,
+    resolutions: Vec<Resolution>,
+    sink: StreamSink<SyncEvent>,
+) {
+    let progress_sink = sink.clone();
+    let result = conflict::git_resolve(
+        root.clone(),
+        author_name,
+        author_email,
+        creds,
+        resolutions,
         move |progress| {
             let _ = progress_sink.add(SyncEvent::Progress { progress });
         },

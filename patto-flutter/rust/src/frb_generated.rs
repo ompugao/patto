@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -593627914;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1126002358;
 
 // Section: executor
 
@@ -112,6 +112,40 @@ fn wire__crate__frb_api__completed_tasks_impl(
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
                     let output_ok =
                         crate::frb_api::completed_tasks(api_root, api_timeframe, api_from, api_to)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__frb_api__conflict_detail_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "conflict_detail",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_root = <String>::sse_decode(&mut deserializer);
+            let api_rel_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::error::PattoError>((move || {
+                    let output_ok = crate::frb_api::conflict_detail(api_root, api_rel_path)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -259,6 +293,57 @@ fn wire__crate__frb_api__git_init_runtime_impl(
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
                     let output_ok = crate::frb_api::git_init_runtime(api_ca_bundle_path)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__frb_api__git_resolve_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "git_resolve",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_root = <String>::sse_decode(&mut deserializer);
+            let api_author_name = <String>::sse_decode(&mut deserializer);
+            let api_author_email = <String>::sse_decode(&mut deserializer);
+            let api_creds = <crate::api::git::GitCreds>::sse_decode(&mut deserializer);
+            let api_resolutions =
+                <Vec<crate::api::conflict::Resolution>>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                crate::api::events::SyncEvent,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>({
+                        crate::frb_api::git_resolve(
+                            api_root,
+                            api_author_name,
+                            api_author_email,
+                            api_creds,
+                            api_resolutions,
+                            api_sink,
+                        );
+                    })?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -610,6 +695,39 @@ fn wire__crate__frb_api__note_name_to_rel_path_impl(
                 let output_ok = crate::frb_api::note_name_to_rel_path(api_name)?;
                 std::result::Result::Ok(output_ok)
             })())
+        },
+    )
+}
+fn wire__crate__frb_api__pending_conflict_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "pending_conflict",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_root = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::error::PattoError>((move || {
+                    let output_ok = crate::frb_api::pending_conflict(api_root)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
         },
     )
 }
@@ -1144,6 +1262,60 @@ impl SseDecode for crate::api::events::CloneEvent {
     }
 }
 
+impl SseDecode for crate::api::conflict::ConflictDetail {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_kind = <crate::api::conflict::ConflictKind>::sse_decode(deserializer);
+        let mut var_oursId = <Option<String>>::sse_decode(deserializer);
+        let mut var_theirsId = <Option<String>>::sse_decode(deserializer);
+        let mut var_ours = <Option<String>>::sse_decode(deserializer);
+        let mut var_theirs = <Option<String>>::sse_decode(deserializer);
+        let mut var_merged = <crate::api::merge::MergedNote>::sse_decode(deserializer);
+        return crate::api::conflict::ConflictDetail {
+            path: var_path,
+            kind: var_kind,
+            ours_id: var_oursId,
+            theirs_id: var_theirsId,
+            ours: var_ours,
+            theirs: var_theirs,
+            merged: var_merged,
+        };
+    }
+}
+
+impl SseDecode for crate::api::conflict::ConflictFile {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_kind = <crate::api::conflict::ConflictKind>::sse_decode(deserializer);
+        let mut var_oursChanged = <u32>::sse_decode(deserializer);
+        let mut var_theirsChanged = <u32>::sse_decode(deserializer);
+        let mut var_conflicts = <u32>::sse_decode(deserializer);
+        return crate::api::conflict::ConflictFile {
+            path: var_path,
+            kind: var_kind,
+            ours_changed: var_oursChanged,
+            theirs_changed: var_theirsChanged,
+            conflicts: var_conflicts,
+        };
+    }
+}
+
+impl SseDecode for crate::api::conflict::ConflictKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::conflict::ConflictKind::BothModified,
+            1 => crate::api::conflict::ConflictKind::BothAdded,
+            2 => crate::api::conflict::ConflictKind::DeletedByUs,
+            3 => crate::api::conflict::ConflictKind::DeletedByThem,
+            _ => unreachable!("Invalid variant for ConflictKind: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for crate::api::types::DateKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1242,7 +1414,8 @@ impl SseDecode for crate::api::error::GitErrorKind {
             4 => crate::api::error::GitErrorKind::NoRemote,
             5 => crate::api::error::GitErrorKind::NonFastForward,
             6 => crate::api::error::GitErrorKind::Conflict,
-            7 => crate::api::error::GitErrorKind::Other,
+            7 => crate::api::error::GitErrorKind::Stale,
+            8 => crate::api::error::GitErrorKind::Other,
             _ => unreachable!("Invalid variant for GitErrorKind: {}", inner),
         };
     }
@@ -1291,12 +1464,14 @@ impl SseDecode for crate::api::git::GitStatus {
         let mut var_ahead = <u32>::sse_decode(deserializer);
         let mut var_behind = <u32>::sse_decode(deserializer);
         let mut var_hasRemote = <bool>::sse_decode(deserializer);
+        let mut var_conflictPending = <bool>::sse_decode(deserializer);
         return crate::api::git::GitStatus {
             branch: var_branch,
             dirty: var_dirty,
             ahead: var_ahead,
             behind: var_behind,
             has_remote: var_hasRemote,
+            conflict_pending: var_conflictPending,
         };
     }
 }
@@ -1449,6 +1624,20 @@ impl SseDecode for Vec<crate::api::types::Block> {
     }
 }
 
+impl SseDecode for Vec<crate::api::conflict::ConflictFile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::conflict::ConflictFile>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::types::ImageRef> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1468,6 +1657,18 @@ impl SseDecode for Vec<crate::api::index::LinkCount> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::index::LinkCount>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::merge::MergeRegion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::merge::MergeRegion>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -1545,6 +1746,18 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Vec<crate::api::conflict::Resolution> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::conflict::Resolution>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::tasks::TaskItem> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1605,15 +1818,85 @@ impl SseDecode for crate::api::git::MergeOutcome {
                 return crate::api::git::MergeOutcome::FastForward;
             }
             2 => {
-                let mut var_autoResolved = <Vec<String>>::sse_decode(deserializer);
-                return crate::api::git::MergeOutcome::Merged {
-                    auto_resolved: var_autoResolved,
+                return crate::api::git::MergeOutcome::Merged;
+            }
+            3 => {
+                let mut var_sideBranch = <String>::sse_decode(deserializer);
+                let mut var_paths = <Vec<String>>::sse_decode(deserializer);
+                return crate::api::git::MergeOutcome::Conflicted {
+                    side_branch: var_sideBranch,
+                    paths: var_paths,
                 };
             }
             _ => {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseDecode for crate::api::merge::MergeRegion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_lines = <Vec<String>>::sse_decode(deserializer);
+                return crate::api::merge::MergeRegion::Unchanged { lines: var_lines };
+            }
+            1 => {
+                let mut var_base = <Vec<String>>::sse_decode(deserializer);
+                let mut var_lines = <Vec<String>>::sse_decode(deserializer);
+                return crate::api::merge::MergeRegion::Ours {
+                    base: var_base,
+                    lines: var_lines,
+                };
+            }
+            2 => {
+                let mut var_base = <Vec<String>>::sse_decode(deserializer);
+                let mut var_lines = <Vec<String>>::sse_decode(deserializer);
+                return crate::api::merge::MergeRegion::Theirs {
+                    base: var_base,
+                    lines: var_lines,
+                };
+            }
+            3 => {
+                let mut var_base = <Vec<String>>::sse_decode(deserializer);
+                let mut var_lines = <Vec<String>>::sse_decode(deserializer);
+                return crate::api::merge::MergeRegion::Same {
+                    base: var_base,
+                    lines: var_lines,
+                };
+            }
+            4 => {
+                let mut var_base = <Vec<String>>::sse_decode(deserializer);
+                let mut var_ours = <Vec<String>>::sse_decode(deserializer);
+                let mut var_theirs = <Vec<String>>::sse_decode(deserializer);
+                let mut var_suggestion =
+                    <Option<crate::api::merge::Suggestion>>::sse_decode(deserializer);
+                return crate::api::merge::MergeRegion::Conflict {
+                    base: var_base,
+                    ours: var_ours,
+                    theirs: var_theirs,
+                    suggestion: var_suggestion,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
+impl SseDecode for crate::api::merge::MergedNote {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_regions = <Vec<crate::api::merge::MergeRegion>>::sse_decode(deserializer);
+        let mut var_trailingNewline = <bool>::sse_decode(deserializer);
+        return crate::api::merge::MergedNote {
+            regions: var_regions,
+            trailing_newline: var_trailingNewline,
+        };
     }
 }
 
@@ -1733,6 +2016,30 @@ impl SseDecode for Option<crate::api::error::GitErrorKind> {
     }
 }
 
+impl SseDecode for Option<crate::api::conflict::PendingConflict> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::conflict::PendingConflict>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::merge::Suggestion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::merge::Suggestion>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::types::TaskDate> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1826,6 +2133,22 @@ impl SseDecode for crate::api::error::PattoError {
     }
 }
 
+impl SseDecode for crate::api::conflict::PendingConflict {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_sideBranch = <String>::sse_decode(deserializer);
+        let mut var_remote = <crate::api::conflict::RemoteCommit>::sse_decode(deserializer);
+        let mut var_files = <Vec<crate::api::conflict::ConflictFile>>::sse_decode(deserializer);
+        let mut var_heldBack = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::conflict::PendingConflict {
+            side_branch: var_sideBranch,
+            remote: var_remote,
+            files: var_files,
+            held_back: var_heldBack,
+        };
+    }
+}
+
 impl SseDecode for crate::api::tasks::PendingGroup {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1841,6 +2164,22 @@ impl SseDecode for crate::api::tasks::PendingGroup {
     }
 }
 
+impl SseDecode for crate::api::conflict::RemoteCommit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_summary = <String>::sse_decode(deserializer);
+        let mut var_author = <String>::sse_decode(deserializer);
+        let mut var_timeMs = <i64>::sse_decode(deserializer);
+        return crate::api::conflict::RemoteCommit {
+            id: var_id,
+            summary: var_summary,
+            author: var_author,
+            time_ms: var_timeMs,
+        };
+    }
+}
+
 impl SseDecode for crate::api::types::RenderedNote {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1851,6 +2190,46 @@ impl SseDecode for crate::api::types::RenderedNote {
             blocks: var_blocks,
             anchors: var_anchors,
             errors: var_errors,
+        };
+    }
+}
+
+impl SseDecode for crate::api::conflict::Resolution {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_oursId = <Option<String>>::sse_decode(deserializer);
+        let mut var_theirsId = <Option<String>>::sse_decode(deserializer);
+        let mut var_content = <Option<String>>::sse_decode(deserializer);
+        return crate::api::conflict::Resolution {
+            path: var_path,
+            ours_id: var_oursId,
+            theirs_id: var_theirsId,
+            content: var_content,
+        };
+    }
+}
+
+impl SseDecode for crate::api::merge::Suggestion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_kind = <crate::api::merge::SuggestionKind>::sse_decode(deserializer);
+        let mut var_lines = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::merge::Suggestion {
+            kind: var_kind,
+            lines: var_lines,
+        };
+    }
+}
+
+impl SseDecode for crate::api::merge::SuggestionKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::merge::SuggestionKind::Combined,
+            1 => crate::api::merge::SuggestionKind::Both,
+            _ => unreachable!("Invalid variant for SuggestionKind: {}", inner),
         };
     }
 }
@@ -1890,12 +2269,14 @@ impl SseDecode for crate::api::git::SyncReport {
         let mut var_commitId = <Option<String>>::sse_decode(deserializer);
         let mut var_merge = <crate::api::git::MergeOutcome>::sse_decode(deserializer);
         let mut var_pushed = <bool>::sse_decode(deserializer);
+        let mut var_conflictCleared = <bool>::sse_decode(deserializer);
         let mut var_changedPaths = <Vec<String>>::sse_decode(deserializer);
         return crate::api::git::SyncReport {
             committed: var_committed,
             commit_id: var_commitId,
             merge: var_merge,
             pushed: var_pushed,
+            conflict_cleared: var_conflictCleared,
             changed_paths: var_changedPaths,
         };
     }
@@ -2060,26 +2441,29 @@ fn pde_ffi_dispatcher_primary_impl(
     match func_id {
         1 => wire__crate__frb_api__backlinks_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__frb_api__completed_tasks_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__frb_api__create_note_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__frb_api__delete_note_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__frb_api__git_clone_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__frb_api__git_init_runtime_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__frb_api__git_status_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__frb_api__git_sync_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__frb_api__index_build_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__frb_api__index_refresh_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__frb_api__index_update_file_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__frb_api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__frb_api__link_counts_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__frb_api__list_notes_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__frb_api__pending_tasks_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__frb_api__read_note_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__frb_api__render_note_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__frb_api__search_notes_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__frb_api__search_text_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
+        3 => wire__crate__frb_api__conflict_detail_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__frb_api__create_note_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__frb_api__delete_note_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__frb_api__git_clone_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__frb_api__git_init_runtime_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__frb_api__git_resolve_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__frb_api__git_status_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__frb_api__git_sync_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__frb_api__index_build_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__frb_api__index_refresh_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__frb_api__index_update_file_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__frb_api__init_app_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__frb_api__link_counts_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__frb_api__list_notes_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__frb_api__pending_conflict_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__frb_api__pending_tasks_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__frb_api__read_note_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__frb_api__render_note_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__frb_api__search_notes_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__frb_api__search_text_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2092,10 +2476,10 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        15 => wire__crate__frb_api__note_exists_impl(ptr, rust_vec_len, data_len),
-        16 => wire__crate__frb_api__note_name_to_rel_path_impl(ptr, rust_vec_len, data_len),
-        19 => wire__crate__frb_api__rel_path_to_note_name_impl(ptr, rust_vec_len, data_len),
-        21 => wire__crate__frb_api__resolve_wiki_link_impl(ptr, rust_vec_len, data_len),
+        17 => wire__crate__frb_api__note_exists_impl(ptr, rust_vec_len, data_len),
+        18 => wire__crate__frb_api__note_name_to_rel_path_impl(ptr, rust_vec_len, data_len),
+        22 => wire__crate__frb_api__rel_path_to_note_name_impl(ptr, rust_vec_len, data_len),
+        24 => wire__crate__frb_api__resolve_wiki_link_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2234,6 +2618,79 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::events::CloneEvent>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::ConflictDetail {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.path.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.ours_id.into_into_dart().into_dart(),
+            self.theirs_id.into_into_dart().into_dart(),
+            self.ours.into_into_dart().into_dart(),
+            self.theirs.into_into_dart().into_dart(),
+            self.merged.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::ConflictDetail
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::ConflictDetail>
+    for crate::api::conflict::ConflictDetail
+{
+    fn into_into_dart(self) -> crate::api::conflict::ConflictDetail {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::ConflictFile {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.path.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.ours_changed.into_into_dart().into_dart(),
+            self.theirs_changed.into_into_dart().into_dart(),
+            self.conflicts.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::ConflictFile
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::ConflictFile>
+    for crate::api::conflict::ConflictFile
+{
+    fn into_into_dart(self) -> crate::api::conflict::ConflictFile {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::ConflictKind {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::BothModified => 0.into_dart(),
+            Self::BothAdded => 1.into_dart(),
+            Self::DeletedByUs => 2.into_dart(),
+            Self::DeletedByThem => 3.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::ConflictKind
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::ConflictKind>
+    for crate::api::conflict::ConflictKind
+{
+    fn into_into_dart(self) -> crate::api::conflict::ConflictKind {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::types::DateKind {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
@@ -2343,7 +2800,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::error::GitErrorKind {
             Self::NoRemote => 4.into_dart(),
             Self::NonFastForward => 5.into_dart(),
             Self::Conflict => 6.into_dart(),
-            Self::Other => 7.into_dart(),
+            Self::Stale => 7.into_dart(),
+            Self::Other => 8.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -2411,6 +2869,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::git::GitStatus {
             self.ahead.into_into_dart().into_dart(),
             self.behind.into_into_dart().into_dart(),
             self.has_remote.into_into_dart().into_dart(),
+            self.conflict_pending.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2537,9 +2996,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::git::MergeOutcome {
         match self {
             crate::api::git::MergeOutcome::UpToDate => [0.into_dart()].into_dart(),
             crate::api::git::MergeOutcome::FastForward => [1.into_dart()].into_dart(),
-            crate::api::git::MergeOutcome::Merged { auto_resolved } => {
-                [2.into_dart(), auto_resolved.into_into_dart().into_dart()].into_dart()
-            }
+            crate::api::git::MergeOutcome::Merged => [2.into_dart()].into_dart(),
+            crate::api::git::MergeOutcome::Conflicted { side_branch, paths } => [
+                3.into_dart(),
+                side_branch.into_into_dart().into_dart(),
+                paths.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -2551,6 +3014,79 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::git::MergeOutcome>
     for crate::api::git::MergeOutcome
 {
     fn into_into_dart(self) -> crate::api::git::MergeOutcome {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::merge::MergeRegion {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::merge::MergeRegion::Unchanged { lines } => {
+                [0.into_dart(), lines.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::merge::MergeRegion::Ours { base, lines } => [
+                1.into_dart(),
+                base.into_into_dart().into_dart(),
+                lines.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::merge::MergeRegion::Theirs { base, lines } => [
+                2.into_dart(),
+                base.into_into_dart().into_dart(),
+                lines.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::merge::MergeRegion::Same { base, lines } => [
+                3.into_dart(),
+                base.into_into_dart().into_dart(),
+                lines.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::merge::MergeRegion::Conflict {
+                base,
+                ours,
+                theirs,
+                suggestion,
+            } => [
+                4.into_dart(),
+                base.into_into_dart().into_dart(),
+                ours.into_into_dart().into_dart(),
+                theirs.into_into_dart().into_dart(),
+                suggestion.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::merge::MergeRegion
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::merge::MergeRegion>
+    for crate::api::merge::MergeRegion
+{
+    fn into_into_dart(self) -> crate::api::merge::MergeRegion {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::merge::MergedNote {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.regions.into_into_dart().into_dart(),
+            self.trailing_newline.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::merge::MergedNote {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::merge::MergedNote>
+    for crate::api::merge::MergedNote
+{
+    fn into_into_dart(self) -> crate::api::merge::MergedNote {
         self
     }
 }
@@ -2732,6 +3268,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::error::PattoError>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::PendingConflict {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.side_branch.into_into_dart().into_dart(),
+            self.remote.into_into_dart().into_dart(),
+            self.files.into_into_dart().into_dart(),
+            self.held_back.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::PendingConflict
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::PendingConflict>
+    for crate::api::conflict::PendingConflict
+{
+    fn into_into_dart(self) -> crate::api::conflict::PendingConflict {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::tasks::PendingGroup {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
@@ -2756,6 +3315,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::tasks::PendingGroup>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::RemoteCommit {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.summary.into_into_dart().into_dart(),
+            self.author.into_into_dart().into_dart(),
+            self.time_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::RemoteCommit
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::RemoteCommit>
+    for crate::api::conflict::RemoteCommit
+{
+    fn into_into_dart(self) -> crate::api::conflict::RemoteCommit {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::types::RenderedNote {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2774,6 +3356,68 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::types::RenderedNote>
     for crate::api::types::RenderedNote
 {
     fn into_into_dart(self) -> crate::api::types::RenderedNote {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::conflict::Resolution {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.path.into_into_dart().into_dart(),
+            self.ours_id.into_into_dart().into_dart(),
+            self.theirs_id.into_into_dart().into_dart(),
+            self.content.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::conflict::Resolution
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::conflict::Resolution>
+    for crate::api::conflict::Resolution
+{
+    fn into_into_dart(self) -> crate::api::conflict::Resolution {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::merge::Suggestion {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.kind.into_into_dart().into_dart(),
+            self.lines.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::merge::Suggestion {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::merge::Suggestion>
+    for crate::api::merge::Suggestion
+{
+    fn into_into_dart(self) -> crate::api::merge::Suggestion {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::merge::SuggestionKind {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Combined => 0.into_dart(),
+            Self::Both => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::merge::SuggestionKind
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::merge::SuggestionKind>
+    for crate::api::merge::SuggestionKind
+{
+    fn into_into_dart(self) -> crate::api::merge::SuggestionKind {
         self
     }
 }
@@ -2812,6 +3456,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::git::SyncReport {
             self.commit_id.into_into_dart().into_dart(),
             self.merge.into_into_dart().into_dart(),
             self.pushed.into_into_dart().into_dart(),
+            self.conflict_cleared.into_into_dart().into_dart(),
             self.changed_paths.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -3132,6 +3777,48 @@ impl SseEncode for crate::api::events::CloneEvent {
     }
 }
 
+impl SseEncode for crate::api::conflict::ConflictDetail {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.path, serializer);
+        <crate::api::conflict::ConflictKind>::sse_encode(self.kind, serializer);
+        <Option<String>>::sse_encode(self.ours_id, serializer);
+        <Option<String>>::sse_encode(self.theirs_id, serializer);
+        <Option<String>>::sse_encode(self.ours, serializer);
+        <Option<String>>::sse_encode(self.theirs, serializer);
+        <crate::api::merge::MergedNote>::sse_encode(self.merged, serializer);
+    }
+}
+
+impl SseEncode for crate::api::conflict::ConflictFile {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.path, serializer);
+        <crate::api::conflict::ConflictKind>::sse_encode(self.kind, serializer);
+        <u32>::sse_encode(self.ours_changed, serializer);
+        <u32>::sse_encode(self.theirs_changed, serializer);
+        <u32>::sse_encode(self.conflicts, serializer);
+    }
+}
+
+impl SseEncode for crate::api::conflict::ConflictKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::conflict::ConflictKind::BothModified => 0,
+                crate::api::conflict::ConflictKind::BothAdded => 1,
+                crate::api::conflict::ConflictKind::DeletedByUs => 2,
+                crate::api::conflict::ConflictKind::DeletedByThem => 3,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::api::types::DateKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3217,7 +3904,8 @@ impl SseEncode for crate::api::error::GitErrorKind {
                 crate::api::error::GitErrorKind::NoRemote => 4,
                 crate::api::error::GitErrorKind::NonFastForward => 5,
                 crate::api::error::GitErrorKind::Conflict => 6,
-                crate::api::error::GitErrorKind::Other => 7,
+                crate::api::error::GitErrorKind::Stale => 7,
+                crate::api::error::GitErrorKind::Other => 8,
                 _ => {
                     unimplemented!("");
                 }
@@ -3268,6 +3956,7 @@ impl SseEncode for crate::api::git::GitStatus {
         <u32>::sse_encode(self.ahead, serializer);
         <u32>::sse_encode(self.behind, serializer);
         <bool>::sse_encode(self.has_remote, serializer);
+        <bool>::sse_encode(self.conflict_pending, serializer);
     }
 }
 
@@ -3385,6 +4074,16 @@ impl SseEncode for Vec<crate::api::types::Block> {
     }
 }
 
+impl SseEncode for Vec<crate::api::conflict::ConflictFile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::conflict::ConflictFile>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::types::ImageRef> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3401,6 +4100,16 @@ impl SseEncode for Vec<crate::api::index::LinkCount> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::index::LinkCount>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::merge::MergeRegion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::merge::MergeRegion>::sse_encode(item, serializer);
         }
     }
 }
@@ -3465,6 +4174,16 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Vec<crate::api::conflict::Resolution> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::conflict::Resolution>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::tasks::TaskItem> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3515,14 +4234,68 @@ impl SseEncode for crate::api::git::MergeOutcome {
             crate::api::git::MergeOutcome::FastForward => {
                 <i32>::sse_encode(1, serializer);
             }
-            crate::api::git::MergeOutcome::Merged { auto_resolved } => {
+            crate::api::git::MergeOutcome::Merged => {
                 <i32>::sse_encode(2, serializer);
-                <Vec<String>>::sse_encode(auto_resolved, serializer);
+            }
+            crate::api::git::MergeOutcome::Conflicted { side_branch, paths } => {
+                <i32>::sse_encode(3, serializer);
+                <String>::sse_encode(side_branch, serializer);
+                <Vec<String>>::sse_encode(paths, serializer);
             }
             _ => {
                 unimplemented!("");
             }
         }
+    }
+}
+
+impl SseEncode for crate::api::merge::MergeRegion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::merge::MergeRegion::Unchanged { lines } => {
+                <i32>::sse_encode(0, serializer);
+                <Vec<String>>::sse_encode(lines, serializer);
+            }
+            crate::api::merge::MergeRegion::Ours { base, lines } => {
+                <i32>::sse_encode(1, serializer);
+                <Vec<String>>::sse_encode(base, serializer);
+                <Vec<String>>::sse_encode(lines, serializer);
+            }
+            crate::api::merge::MergeRegion::Theirs { base, lines } => {
+                <i32>::sse_encode(2, serializer);
+                <Vec<String>>::sse_encode(base, serializer);
+                <Vec<String>>::sse_encode(lines, serializer);
+            }
+            crate::api::merge::MergeRegion::Same { base, lines } => {
+                <i32>::sse_encode(3, serializer);
+                <Vec<String>>::sse_encode(base, serializer);
+                <Vec<String>>::sse_encode(lines, serializer);
+            }
+            crate::api::merge::MergeRegion::Conflict {
+                base,
+                ours,
+                theirs,
+                suggestion,
+            } => {
+                <i32>::sse_encode(4, serializer);
+                <Vec<String>>::sse_encode(base, serializer);
+                <Vec<String>>::sse_encode(ours, serializer);
+                <Vec<String>>::sse_encode(theirs, serializer);
+                <Option<crate::api::merge::Suggestion>>::sse_encode(suggestion, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
+impl SseEncode for crate::api::merge::MergedNote {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::merge::MergeRegion>>::sse_encode(self.regions, serializer);
+        <bool>::sse_encode(self.trailing_newline, serializer);
     }
 }
 
@@ -3625,6 +4398,26 @@ impl SseEncode for Option<crate::api::error::GitErrorKind> {
     }
 }
 
+impl SseEncode for Option<crate::api::conflict::PendingConflict> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::conflict::PendingConflict>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::merge::Suggestion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::merge::Suggestion>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::types::TaskDate> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3704,6 +4497,16 @@ impl SseEncode for crate::api::error::PattoError {
     }
 }
 
+impl SseEncode for crate::api::conflict::PendingConflict {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.side_branch, serializer);
+        <crate::api::conflict::RemoteCommit>::sse_encode(self.remote, serializer);
+        <Vec<crate::api::conflict::ConflictFile>>::sse_encode(self.files, serializer);
+        <Vec<String>>::sse_encode(self.held_back, serializer);
+    }
+}
+
 impl SseEncode for crate::api::tasks::PendingGroup {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3723,12 +4526,56 @@ impl SseEncode for crate::api::tasks::PendingGroup {
     }
 }
 
+impl SseEncode for crate::api::conflict::RemoteCommit {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.summary, serializer);
+        <String>::sse_encode(self.author, serializer);
+        <i64>::sse_encode(self.time_ms, serializer);
+    }
+}
+
 impl SseEncode for crate::api::types::RenderedNote {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<crate::api::types::Block>>::sse_encode(self.blocks, serializer);
         <Vec<crate::api::types::AnchorRef>>::sse_encode(self.anchors, serializer);
         <Vec<crate::api::types::ParseIssue>>::sse_encode(self.errors, serializer);
+    }
+}
+
+impl SseEncode for crate::api::conflict::Resolution {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.path, serializer);
+        <Option<String>>::sse_encode(self.ours_id, serializer);
+        <Option<String>>::sse_encode(self.theirs_id, serializer);
+        <Option<String>>::sse_encode(self.content, serializer);
+    }
+}
+
+impl SseEncode for crate::api::merge::Suggestion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::api::merge::SuggestionKind>::sse_encode(self.kind, serializer);
+        <Vec<String>>::sse_encode(self.lines, serializer);
+    }
+}
+
+impl SseEncode for crate::api::merge::SuggestionKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::merge::SuggestionKind::Combined => 0,
+                crate::api::merge::SuggestionKind::Both => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
     }
 }
 
@@ -3762,6 +4609,7 @@ impl SseEncode for crate::api::git::SyncReport {
         <Option<String>>::sse_encode(self.commit_id, serializer);
         <crate::api::git::MergeOutcome>::sse_encode(self.merge, serializer);
         <bool>::sse_encode(self.pushed, serializer);
+        <bool>::sse_encode(self.conflict_cleared, serializer);
         <Vec<String>>::sse_encode(self.changed_paths, serializer);
     }
 }

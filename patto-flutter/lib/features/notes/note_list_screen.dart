@@ -5,8 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/providers.dart';
+import '../../src/rust/api/conflict.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import '../conflicts/conflict_list_screen.dart';
+import '../conflicts/conflict_state.dart';
 import '../editor/editor_screen.dart';
 import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
@@ -90,6 +93,8 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
     final sort = ref.watch(noteSortProvider);
     final index = ref.watch(indexProvider);
     final counts = ref.watch(linkCountsProvider).value ?? const {};
+    final pending = ref.watch(pendingConflictProvider).value;
+    final conflicted = ref.watch(conflictedPathsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -118,8 +123,12 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
             onPressed: () => SearchScreen.open(context),
           ),
           IconButton(
-            icon: const Icon(Icons.sync),
-            tooltip: 'Sync',
+            icon: Badge(
+              isLabelVisible: pending != null,
+              backgroundColor: Colors.amber.shade800,
+              child: const Icon(Icons.sync),
+            ),
+            tooltip: pending == null ? 'Sync' : 'Sync (waiting to merge)',
             onPressed: () => SyncSheet.show(context),
           ),
         ],
@@ -139,6 +148,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
       ),
       body: Column(
         children: [
+          if (pending != null) ConflictBanner(pending: pending),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
@@ -196,6 +206,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
                         itemBuilder: (context, i) => _NoteTile(
                           note: list[i],
                           backlinks: counts[list[i].name] ?? 0,
+                          conflicted: conflicted.contains(list[i].relPath),
                         ),
                       ),
               ),
@@ -208,10 +219,17 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
 }
 
 class _NoteTile extends StatelessWidget {
-  const _NoteTile({required this.note, required this.backlinks});
+  const _NoteTile({
+    required this.note,
+    required this.backlinks,
+    required this.conflicted,
+  });
 
   final NoteMeta note;
   final int backlinks;
+
+  /// Changed on both sides and waiting for a merge.
+  final bool conflicted;
 
   @override
   Widget build(BuildContext context) {
@@ -219,7 +237,20 @@ class _NoteTile extends StatelessWidget {
     final modified = DateTime.fromMillisecondsSinceEpoch(note.modifiedMs);
 
     return ListTile(
-      title: Text(note.name, overflow: TextOverflow.ellipsis),
+      title: Row(
+        children: [
+          if (conflicted)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 18,
+                color: Colors.amber.shade800,
+              ),
+            ),
+          Flexible(child: Text(note.name, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
       subtitle: Text(DateFormat.yMMMd().add_Hm().format(modified)),
       trailing: backlinks == 0
           ? null
@@ -247,6 +278,44 @@ class _Message extends StatelessWidget {
           child: Text(text, textAlign: TextAlign.center),
         ),
       ],
+    );
+  }
+}
+
+/// A standing reminder that a sync is paused, until the merge is done.
+class ConflictBanner extends StatelessWidget {
+  const ConflictBanner({super.key, required this.pending});
+
+  final PendingConflict pending;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final n = pending.files.length;
+    return Material(
+      color: Colors.amber.withValues(alpha: 0.18),
+      child: InkWell(
+        onTap: () => ConflictListScreen.open(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  n == 0
+                      ? 'A sync is paused. Sync again to finish.'
+                      : '$n ${n == 1 ? 'note is' : 'notes are'} waiting to '
+                            'be merged',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

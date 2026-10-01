@@ -1,6 +1,8 @@
 mod index_tests;
+mod merge_tests;
 mod render_tests;
 mod store_tests;
+mod sync_tests;
 mod task_tests;
 
 use std::path::PathBuf;
