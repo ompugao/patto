@@ -25,6 +25,9 @@ A new Flutter FFI plugin project.
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
   s.swift_version = '5.0'
+  # The vendored libgit2 in the Rust library uses the system zlib and iconv,
+  # which Apple platforms do not link by default.
+  s.libraries = 'z', 'iconv'
 
   s.script_phase = {
     :name => 'Build Rust library',
