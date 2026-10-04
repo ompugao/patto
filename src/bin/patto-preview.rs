@@ -647,7 +647,9 @@ async fn google_photos_embed_handler(
                 }
                 None => (
                     StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({"error": "No preview found; is the link shared publicly?"})),
+                    Json(
+                        serde_json::json!({"error": "No preview found; is the link shared publicly?"}),
+                    ),
                 ),
             },
             Err(_) => (

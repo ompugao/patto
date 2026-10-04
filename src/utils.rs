@@ -177,12 +177,16 @@ mod tests {
 
     #[test]
     fn test_is_google_photos_url() {
-        assert!(is_google_photos_url("https://photos.app.goo.gl/ykDMgCMfBdZhEWGV9"));
+        assert!(is_google_photos_url(
+            "https://photos.app.goo.gl/ykDMgCMfBdZhEWGV9"
+        ));
         assert!(is_google_photos_url("https://goo.gl/photos/abc"));
         assert!(is_google_photos_url(
             "https://photos.google.com/share/AF1Qip?key=abc"
         ));
-        assert!(!is_google_photos_url("https://photos.google.com/photo/AF1Qip"));
+        assert!(!is_google_photos_url(
+            "https://photos.google.com/photo/AF1Qip"
+        ));
         assert!(!is_google_photos_url("https://goo.gl/maps/abc"));
         assert!(!is_google_photos_url("https://www.youtube.com/watch?v=x"));
         assert!(!is_google_photos_url("./local.pdf"));

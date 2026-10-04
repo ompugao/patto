@@ -167,13 +167,22 @@ impl ImageCache {
         }
         if is_remote(src) {
             if let Some(img) = self.remote.get(src) {
-                let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img.clone());
+                let protocol = self
+                    .picker
+                    .as_mut()
+                    .unwrap()
+                    .new_resize_protocol(img.clone());
                 self.elem_heights.insert(src.to_string(), self.height_rows);
-                self.cache.insert(src.to_string(), CachedImage::Loaded(protocol));
+                self.cache
+                    .insert(src.to_string(), CachedImage::Loaded(protocol));
             } else {
                 self.cache.insert(src.to_string(), CachedImage::Pending);
                 if self.in_flight.insert(src.to_string()) {
-                    let (src, tx, bg) = (src.to_string(), self.fetch_tx.clone(), self.background_color);
+                    let (src, tx, bg) = (
+                        src.to_string(),
+                        self.fetch_tx.clone(),
+                        self.background_color,
+                    );
                     std::thread::spawn(move || {
                         let result = download(&src, bg);
                         let _ = tx.send((src, result));
