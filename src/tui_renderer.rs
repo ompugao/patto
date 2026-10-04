@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
-use crate::utils::get_gyazo_img_src;
+use crate::utils::{get_gyazo_img_src, is_google_photos_url};
 
 /// Action to perform when a focusable item is activated.
 #[derive(Debug, Clone)]
@@ -588,6 +588,14 @@ fn render_inline(
                 char_end,
                 action: LinkAction::OpenUrl(link.clone()),
             });
+            // Shared Google Photos have no inline player; show the thumbnail
+            // below the link (the image cache resolves the share page to it).
+            if is_google_photos_url(link) {
+                return InlineResult::ImageBlock {
+                    src: link.clone(),
+                    alt: title.clone(),
+                };
+            }
         }
         AstNodeKind::Code { inline: true, .. } => {
             let contents = ast.value().contents.lock().unwrap();

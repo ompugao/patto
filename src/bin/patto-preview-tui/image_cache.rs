@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::math_render;
+use patto::utils::{fetch_google_photos_media, is_google_photos_url};
 
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
@@ -102,6 +103,14 @@ impl ImageCache {
     /// Load an image into the cache if not already present.
     pub(crate) fn load(&mut self, src: &str, root_dir: &Path) {
         if self.cache.contains_key(src) || self.picker.is_none() {
+            return;
+        }
+        if is_google_photos_url(src) {
+            let entry = match run_blocking(|| fetch_google_photos_media(src)) {
+                Some(media) => self.fetch_remote(src, &media.thumbnail_url),
+                None => CachedImage::Failed("no Google Photos thumbnail".to_string()),
+            };
+            self.cache.insert(src.to_string(), entry);
             return;
         }
         if src.starts_with("http://") || src.starts_with("https://") {
