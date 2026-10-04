@@ -36,6 +36,19 @@ fn flatten_alpha(img: DynamicImage, bg: [u8; 3]) -> DynamicImage {
     DynamicImage::ImageRgb8(out)
 }
 
+/// Run blocking network I/O from the (async) render loop. `reqwest::blocking`
+/// spins up and drops its own runtime, which panics inside a tokio worker
+/// unless the worker is first marked as blocking.
+fn run_blocking<T>(f: impl FnOnce() -> T) -> T {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(f)
+        }
+        _ => f(),
+    }
+}
+
 /// Self-contained image cache and protocol picker.
 ///
 /// Manages image loading, caching, display height, and fullscreen state
@@ -92,41 +105,8 @@ impl ImageCache {
             return;
         }
         if src.starts_with("http://") || src.starts_with("https://") {
-            match reqwest::blocking::get(src) {
-                Ok(resp) => match resp.bytes() {
-                    Ok(bytes) => match image::load_from_memory(&bytes) {
-                        Ok(img) => {
-                            let img = if let Some(bg) = self.background_color {
-                                flatten_alpha(img, bg)
-                            } else {
-                                img
-                            };
-                            let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                            self.elem_heights.insert(src.to_string(), self.height_rows);
-                            self.cache
-                                .insert(src.to_string(), CachedImage::Loaded(protocol));
-                        }
-                        Err(e) => {
-                            self.cache.insert(
-                                src.to_string(),
-                                CachedImage::Failed(format!("decode error: {}", e)),
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        self.cache.insert(
-                            src.to_string(),
-                            CachedImage::Failed(format!("fetch error: {}", e)),
-                        );
-                    }
-                },
-                Err(e) => {
-                    self.cache.insert(
-                        src.to_string(),
-                        CachedImage::Failed(format!("fetch error: {}", e)),
-                    );
-                }
-            }
+            let entry = self.fetch_remote(src, src);
+            self.cache.insert(src.to_string(), entry);
             return;
         }
 
@@ -148,6 +128,27 @@ impl ImageCache {
                 self.cache
                     .insert(src.to_string(), CachedImage::Failed(e.to_string()));
             }
+        }
+    }
+
+    /// Download and decode `url`, recording its height under the cache key `src`.
+    fn fetch_remote(&mut self, src: &str, url: &str) -> CachedImage {
+        let bytes = match run_blocking(|| reqwest::blocking::get(url).and_then(|resp| resp.bytes())) {
+            Ok(bytes) => bytes,
+            Err(e) => return CachedImage::Failed(format!("fetch error: {}", e)),
+        };
+        match image::load_from_memory(&bytes) {
+            Ok(img) => {
+                let img = if let Some(bg) = self.background_color {
+                    flatten_alpha(img, bg)
+                } else {
+                    img
+                };
+                let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
+                self.elem_heights.insert(src.to_string(), self.height_rows);
+                CachedImage::Loaded(protocol)
+            }
+            Err(e) => CachedImage::Failed(format!("decode error: {}", e)),
         }
     }
 
