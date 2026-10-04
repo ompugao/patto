@@ -80,6 +80,11 @@ pub fn get_gyazo_img_src(url: &str) -> Option<String> {
 pub const BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 
+/// Network budget for one Google Photos request, so a stalled or offline
+/// network degrades embeds to plain links instead of hanging the preview.
+pub const GOOGLE_PHOTOS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const GOOGLE_PHOTOS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Media behind a public Google Photos share link, scraped from its Open Graph tags.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct GooglePhotosMedia {
@@ -150,6 +155,8 @@ pub fn fetch_google_photos_media(share_url: &str) -> Option<GooglePhotosMedia> {
     }
     let client = reqwest::blocking::Client::builder()
         .user_agent(BROWSER_USER_AGENT)
+        .connect_timeout(GOOGLE_PHOTOS_CONNECT_TIMEOUT)
+        .timeout(GOOGLE_PHOTOS_TIMEOUT)
         .build()
         .ok()?;
     let html = client.get(share_url).send().ok()?.text().ok()?;

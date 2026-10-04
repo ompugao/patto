@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play, Image as ImageIcon } from 'lucide-react';
 
 interface GooglePhotosBlockProps {
@@ -12,55 +12,100 @@ interface GooglePhotosMedia {
     title: string | null;
 }
 
+// Lookups cost the server a round trip to Google, so share them across every
+// mount (virtual scrolling, the hidden print copy, AST updates).
+const mediaCache = new Map<string, Promise<GooglePhotosMedia>>();
+
+function fetchMedia(url: string): Promise<GooglePhotosMedia> {
+    let pending = mediaCache.get(url);
+    if (!pending) {
+        pending = fetch(`/api/google-photos-embed?url=${encodeURIComponent(url)}`).then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to fetch Google Photos preview');
+            }
+            return data as GooglePhotosMedia;
+        });
+        // Let a failed lookup be retried the next time the block mounts.
+        pending.catch(() => mediaCache.delete(url));
+        mediaCache.set(url, pending);
+    }
+    return pending;
+}
+
 export default function GooglePhotosBlock({ url, title }: GooglePhotosBlockProps) {
     const [media, setMedia] = useState<GooglePhotosMedia | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [nearViewport, setNearViewport] = useState(false);
+    const [thumbnailFailed, setThumbnailFailed] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Only look up embeds about to scroll into view: a long note can hold dozens,
+    // and the browser's six connections per host would queue everything else
+    // (images, other embeds) behind them. The hidden print copy never intersects.
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || nearViewport) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    setNearViewport(true);
+                }
+            },
+            { rootMargin: '800px 0px' },
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [nearViewport]);
 
     useEffect(() => {
         // Google Photos refuses to be framed, so ask our server to scrape the
         // share page for a thumbnail; clicking opens the share page itself.
-        const fetchMedia = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-
-                const response = await fetch(`/api/google-photos-embed?url=${encodeURIComponent(url)}`);
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to fetch Google Photos preview');
-                }
-                setMedia(data);
-            } catch (err: any) {
+        if (!url || !nearViewport) return;
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        fetchMedia(url)
+            .then((data) => {
+                if (!cancelled) setMedia(data);
+            })
+            .catch((err: any) => {
                 console.error('Google Photos embed error:', err);
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
+                if (!cancelled) setError(err.message);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
         };
-
-        if (url) {
-            fetchMedia();
-        }
-    }, [url]);
+    }, [url, nearViewport]);
 
     if (loading) {
         return (
-            <div className="w-full max-w-2xl bg-slate-50 flex items-center justify-center border border-slate-200 rounded-lg p-8 my-4 text-slate-500 shadow-sm animate-pulse aspect-video">
-                Loading Google Photos preview...
+            <div ref={containerRef} className="w-full max-w-2xl bg-slate-50 flex items-center justify-center border border-slate-200 rounded-lg p-8 my-4 text-slate-500 shadow-sm animate-pulse aspect-video">
+                <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    {title || 'Google Photos'}
+                </a>
             </div>
         );
     }
 
-    if (error || !media) {
+    // Offline, unshared or rate-limited: fall back to the plain link the note
+    // already holds rather than an alarming error box.
+    if (error || !media || thumbnailFailed) {
         return (
-            <div className="w-full max-w-2xl bg-red-50 text-red-700 border border-red-200 rounded-lg p-6 my-4 text-center flex flex-col justify-center items-center shadow-sm">
-                <span className="font-semibold mb-2">Error loading Google Photos preview</span>
-                <span className="text-sm opacity-80 mb-4">{error}</span>
-                <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm font-medium">
-                    View on Google Photos
-                </a>
-            </div>
+            <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={error ?? undefined}
+                className="w-full max-w-2xl my-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-blue-600 hover:underline shadow-sm"
+            >
+                <ImageIcon size={18} className="shrink-0 text-slate-400" />
+                <span className="truncate">{title || media?.title || url}</span>
+            </a>
         );
     }
 
@@ -75,6 +120,7 @@ export default function GooglePhotosBlock({ url, title }: GooglePhotosBlockProps
             <img
                 src={media.thumbnail_url}
                 referrerPolicy="no-referrer"
+                onError={() => setThumbnailFailed(true)}
                 alt={label}
                 className="absolute inset-0 w-full h-full object-contain"
             />
