@@ -294,6 +294,11 @@ async fn main() -> anyhow::Result<()> {
     let mut display_tick = tokio::time::interval(std::time::Duration::from_secs(60));
     display_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+    let mut image_fetches = app
+        .images
+        .take_fetch_receiver()
+        .expect("image fetch receiver taken once");
+
     // Main loop
     loop {
         terminal.draw(|f| ui::draw(f, &mut app, &dir))?;
@@ -375,6 +380,10 @@ async fn main() -> anyhow::Result<()> {
                         // Channel lagged or closed
                     }
                 }
+            }
+            Some(fetched) = image_fetches.recv() => {
+                // A background image download finished; the loop redraws.
+                app.images.finish_fetch(fetched);
             }
             _ = display_tick.tick() => {
                 // Periodic redraw: live elapsed time on Doing tasks is recomputed

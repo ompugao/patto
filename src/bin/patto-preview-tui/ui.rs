@@ -315,6 +315,16 @@ fn draw_image_cell(
                 render_area,
             );
         }
+        Some(CachedImage::Pending) => {
+            let label = format!("[Image: {} — loading…]", alt.unwrap_or(src));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    label,
+                    Style::default().fg(Color::DarkGray),
+                )])),
+                render_area,
+            );
+        }
         None => {
             let label = format!("[Image: {}]", alt.unwrap_or(src));
             frame.render_widget(
