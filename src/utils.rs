@@ -84,7 +84,8 @@ pub const BROWSER_USER_AGENT: &str =
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct GooglePhotosMedia {
     pub thumbnail_url: String,
-    /// Directly playable mp4 stream; `None` when the share is a photo or album.
+    /// Directly playable mp4 (`=dv`; the `=m18` stream rejects foreign referrers
+    /// with 403/429). `None` when the share is a photo or album.
     pub video_url: Option<String>,
     pub title: Option<String>,
 }
@@ -134,7 +135,7 @@ pub fn parse_google_photos_page(html: &str) -> Option<GooglePhotosMedia> {
     let image = extract_og_meta(html, "og:image")?;
     let base = googleusercontent_base(&image);
     let video_url = extract_og_meta(html, "og:video")
-        .map(|video| format!("{}=m18", googleusercontent_base(&video)));
+        .map(|video| format!("{}=dv", googleusercontent_base(&video)));
     Some(GooglePhotosMedia {
         thumbnail_url: format!("{}=w1280-h720-no", base),
         video_url,
@@ -207,7 +208,7 @@ mod tests {
         );
         assert_eq!(
             media.video_url.as_deref(),
-            Some("https://lh3.googleusercontent.com/pw/AP1Gcz-abc_123=m18")
+            Some("https://lh3.googleusercontent.com/pw/AP1Gcz-abc_123=dv")
         );
 
         let photo_page = r#"<meta property="og:image" content="https://lh3.googleusercontent.com/pw/X=w600-h315">"#;

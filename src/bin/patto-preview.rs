@@ -381,6 +381,7 @@ async fn main() {
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/slideshare-embed", get(slideshare_embed_handler))
+        .route("/api/google-photos-embed", get(google_photos_embed_handler))
         .route("/api/files/{*path}", get(user_files_handler))
         .fallback(get(vite_static_handler)) // Serve Vite SPA for all other routes
         .with_state(state);
@@ -579,6 +580,61 @@ async fn slideshare_embed_handler(
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to fetch SlideShare embed"})),
+        ),
+    }
+}
+
+// Handler for Google Photos share links: scrape the thumbnail and video stream
+async fn google_photos_embed_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let url = match params.get("url") {
+        Some(url) => url,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Missing url parameter"})),
+            )
+        }
+    };
+
+    if !patto::utils::is_google_photos_url(url) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid Google Photos URL"})),
+        );
+    }
+
+    let client = match reqwest::Client::builder()
+        .user_agent(patto::utils::BROWSER_USER_AGENT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to build HTTP client"})),
+            )
+        }
+    };
+
+    match client.get(url).send().await {
+        Ok(response) => match response.text().await {
+            Ok(html) => match patto::utils::parse_google_photos_page(&html) {
+                Some(media) => (StatusCode::OK, Json(serde_json::json!(media))),
+                None => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({"error": "No preview found; is the link shared publicly?"})),
+                ),
+            },
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to read Google Photos page"})),
+            ),
+        },
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to fetch Google Photos page"})),
         ),
     }
 }
