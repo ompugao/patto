@@ -142,7 +142,11 @@ impl ImageCache {
 
     /// Download and decode `url`, recording its height under the cache key `src`.
     fn fetch_remote(&mut self, src: &str, url: &str) -> CachedImage {
-        let bytes = match run_blocking(|| reqwest::blocking::get(url).and_then(|resp| resp.bytes())) {
+        let bytes = match run_blocking(|| {
+            reqwest::blocking::get(url)
+                .and_then(|resp| resp.error_for_status())
+                .and_then(|resp| resp.bytes())
+        }) {
             Ok(bytes) => bytes,
             Err(e) => return CachedImage::Failed(format!("fetch error: {}", e)),
         };
