@@ -457,12 +457,20 @@ pub fn apply_commit_times(root: &str, notes: &mut [NoteMeta]) -> PattoResult<()>
         return Ok(());
     }
 
+    // Serializes the walks: the note list asks again as soon as indexing
+    // finishes, and two concurrent walks of a large history doubled the start-up
+    // CPU and memory. The second caller waits and then reuses the result.
+    static WALK: Mutex<()> = Mutex::new(());
+
     let index = index_for(root);
     if index.read().commit_times.is_none() {
-        // Walking the history is the expensive part, so it is done once per
-        // index and reused until a sync or a rebuild clears it.
-        let times = crate::api::git::note_commit_times(root)?;
-        index.write().commit_times = Some(times);
+        let _walking = WALK.lock();
+        if index.read().commit_times.is_none() {
+            // Walking the history is the expensive part, so it is done once per
+            // index and reused until a sync or a rebuild clears it.
+            let times = crate::api::git::note_commit_times(root)?;
+            index.write().commit_times = Some(times);
+        }
     }
 
     let dirty = crate::api::git::locally_modified_notes(root)?;
