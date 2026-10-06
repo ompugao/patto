@@ -77,7 +77,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1126002358;
+  int get rustContentHash => 369785797;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -143,6 +143,8 @@ abstract class RustLibApi extends BaseApi {
     required GitCreds creds,
   });
 
+  String crateFrbApiGooglePhotosUserAgent();
+
   Stream<IndexEvent> crateFrbApiIndexBuild({required String root});
 
   Future<IndexStats> crateFrbApiIndexRefresh({required String root});
@@ -161,6 +163,10 @@ abstract class RustLibApi extends BaseApi {
   bool crateFrbApiNoteExists({required String root, required String name});
 
   String crateFrbApiNoteNameToRelPath({required String name});
+
+  Future<GooglePhotosMedia?> crateFrbApiParseGooglePhotosPage({
+    required String html,
+  });
 
   Future<PendingConflict?> crateFrbApiPendingConflict({required String root});
 
@@ -593,6 +599,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  String crateFrbApiGooglePhotosUserAgent() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateFrbApiGooglePhotosUserAgentConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFrbApiGooglePhotosUserAgentConstMeta =>
+      const TaskConstMeta(debugName: "google_photos_user_agent", argNames: []);
+
+  @override
   Stream<IndexEvent> crateFrbApiIndexBuild({required String root}) {
     final sink = RustStreamSink<IndexEvent>();
     unawaited(
@@ -605,7 +633,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 11,
+              funcId: 12,
               port: port_,
             );
           },
@@ -635,7 +663,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -667,7 +695,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -696,7 +724,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -724,7 +752,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -752,7 +780,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -778,7 +806,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 17)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_bool,
@@ -801,7 +829,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 19)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -821,6 +849,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<GooglePhotosMedia?> crateFrbApiParseGooglePhotosPage({
+    required String html,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(html, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_google_photos_media,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateFrbApiParseGooglePhotosPageConstMeta,
+        argValues: [html],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFrbApiParseGooglePhotosPageConstMeta =>
+      const TaskConstMeta(
+        debugName: "parse_google_photos_page",
+        argNames: ["html"],
+      );
+
+  @override
   Future<PendingConflict?> crateFrbApiPendingConflict({required String root}) {
     return handler.executeNormal(
       NormalTask(
@@ -830,7 +891,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 21,
             port: port_,
           );
         },
@@ -858,7 +919,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 22,
             port: port_,
           );
         },
@@ -890,7 +951,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 23,
             port: port_,
           );
         },
@@ -917,7 +978,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(relPath, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -946,7 +1007,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 25,
             port: port_,
           );
         },
@@ -975,7 +1036,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_opt_String,
@@ -1009,7 +1070,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1047,7 +1108,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1085,7 +1146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1119,7 +1180,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1155,7 +1216,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1320,6 +1381,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GooglePhotosMedia dco_decode_box_autoadd_google_photos_media(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_google_photos_media(raw);
+  }
+
+  @protected
   ImageRef dco_decode_box_autoadd_image_ref(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_image_ref(raw);
@@ -1443,14 +1510,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 0:
         return EmbedKind_Youtube(videoId: dco_decode_String(raw[1]));
       case 1:
-        return EmbedKind_Twitter();
+        return EmbedKind_GooglePhotos();
       case 2:
-        return EmbedKind_SpeakerDeck();
+        return EmbedKind_Twitter();
       case 3:
-        return EmbedKind_SlideShare();
+        return EmbedKind_SpeakerDeck();
       case 4:
-        return EmbedKind_Pdf();
+        return EmbedKind_SlideShare();
       case 5:
+        return EmbedKind_Pdf();
+      case 6:
         return EmbedKind_Other();
       default:
         throw Exception("unreachable");
@@ -1534,6 +1603,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       behind: dco_decode_u_32(arr[3]),
       hasRemote: dco_decode_bool(arr[4]),
       conflictPending: dco_decode_bool(arr[5]),
+    );
+  }
+
+  @protected
+  GooglePhotosMedia dco_decode_google_photos_media(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return GooglePhotosMedia(
+      thumbnailUrl: dco_decode_String(arr[0]),
+      videoUrl: dco_decode_opt_String(arr[1]),
+      title: dco_decode_opt_String(arr[2]),
     );
   }
 
@@ -1881,6 +1963,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   GitErrorKind? dco_decode_opt_box_autoadd_git_error_kind(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_git_error_kind(raw);
+  }
+
+  @protected
+  GooglePhotosMedia? dco_decode_opt_box_autoadd_google_photos_media(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_google_photos_media(raw);
   }
 
   @protected
@@ -2354,6 +2444,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GooglePhotosMedia sse_decode_box_autoadd_google_photos_media(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_google_photos_media(deserializer));
+  }
+
+  @protected
   ImageRef sse_decode_box_autoadd_image_ref(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_image_ref(deserializer));
@@ -2492,14 +2590,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_videoId = sse_decode_String(deserializer);
         return EmbedKind_Youtube(videoId: var_videoId);
       case 1:
-        return EmbedKind_Twitter();
+        return EmbedKind_GooglePhotos();
       case 2:
-        return EmbedKind_SpeakerDeck();
+        return EmbedKind_Twitter();
       case 3:
-        return EmbedKind_SlideShare();
+        return EmbedKind_SpeakerDeck();
       case 4:
-        return EmbedKind_Pdf();
+        return EmbedKind_SlideShare();
       case 5:
+        return EmbedKind_Pdf();
+      case 6:
         return EmbedKind_Other();
       default:
         throw UnimplementedError('');
@@ -2582,6 +2682,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       behind: var_behind,
       hasRemote: var_hasRemote,
       conflictPending: var_conflictPending,
+    );
+  }
+
+  @protected
+  GooglePhotosMedia sse_decode_google_photos_media(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_thumbnailUrl = sse_decode_String(deserializer);
+    var var_videoUrl = sse_decode_opt_String(deserializer);
+    var var_title = sse_decode_opt_String(deserializer);
+    return GooglePhotosMedia(
+      thumbnailUrl: var_thumbnailUrl,
+      videoUrl: var_videoUrl,
+      title: var_title,
     );
   }
 
@@ -3063,6 +3178,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_git_error_kind(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  GooglePhotosMedia? sse_decode_opt_box_autoadd_google_photos_media(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_google_photos_media(deserializer));
     } else {
       return null;
     }
@@ -3581,6 +3709,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_google_photos_media(
+    GooglePhotosMedia self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_google_photos_media(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_image_ref(
     ImageRef self,
     SseSerializer serializer,
@@ -3717,16 +3854,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case EmbedKind_Youtube(videoId: final videoId):
         sse_encode_i_32(0, serializer);
         sse_encode_String(videoId, serializer);
-      case EmbedKind_Twitter():
+      case EmbedKind_GooglePhotos():
         sse_encode_i_32(1, serializer);
-      case EmbedKind_SpeakerDeck():
+      case EmbedKind_Twitter():
         sse_encode_i_32(2, serializer);
-      case EmbedKind_SlideShare():
+      case EmbedKind_SpeakerDeck():
         sse_encode_i_32(3, serializer);
-      case EmbedKind_Pdf():
+      case EmbedKind_SlideShare():
         sse_encode_i_32(4, serializer);
-      case EmbedKind_Other():
+      case EmbedKind_Pdf():
         sse_encode_i_32(5, serializer);
+      case EmbedKind_Other():
+        sse_encode_i_32(6, serializer);
     }
   }
 
@@ -3783,6 +3922,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.behind, serializer);
     sse_encode_bool(self.hasRemote, serializer);
     sse_encode_bool(self.conflictPending, serializer);
+  }
+
+  @protected
+  void sse_encode_google_photos_media(
+    GooglePhotosMedia self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.thumbnailUrl, serializer);
+    sse_encode_opt_String(self.videoUrl, serializer);
+    sse_encode_opt_String(self.title, serializer);
   }
 
   @protected
@@ -4210,6 +4360,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_git_error_kind(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_google_photos_media(
+    GooglePhotosMedia? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_google_photos_media(self, serializer);
     }
   }
 

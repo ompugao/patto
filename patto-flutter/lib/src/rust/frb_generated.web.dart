@@ -77,6 +77,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   GitProgress dco_decode_box_autoadd_git_progress(dynamic raw);
 
   @protected
+  GooglePhotosMedia dco_decode_box_autoadd_google_photos_media(dynamic raw);
+
+  @protected
   ImageRef dco_decode_box_autoadd_image_ref(dynamic raw);
 
   @protected
@@ -141,6 +144,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   GitStatus dco_decode_git_status(dynamic raw);
+
+  @protected
+  GooglePhotosMedia dco_decode_google_photos_media(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -246,6 +252,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   GitErrorKind? dco_decode_opt_box_autoadd_git_error_kind(dynamic raw);
+
+  @protected
+  GooglePhotosMedia? dco_decode_opt_box_autoadd_google_photos_media(
+    dynamic raw,
+  );
 
   @protected
   PendingConflict? dco_decode_opt_box_autoadd_pending_conflict(dynamic raw);
@@ -385,6 +396,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   GitProgress sse_decode_box_autoadd_git_progress(SseDeserializer deserializer);
 
   @protected
+  GooglePhotosMedia sse_decode_box_autoadd_google_photos_media(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ImageRef sse_decode_box_autoadd_image_ref(SseDeserializer deserializer);
 
   @protected
@@ -453,6 +469,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   GitStatus sse_decode_git_status(SseDeserializer deserializer);
+
+  @protected
+  GooglePhotosMedia sse_decode_google_photos_media(
+    SseDeserializer deserializer,
+  );
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -566,6 +587,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   GitErrorKind? sse_decode_opt_box_autoadd_git_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GooglePhotosMedia? sse_decode_opt_box_autoadd_google_photos_media(
     SseDeserializer deserializer,
   );
 
@@ -727,6 +753,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_google_photos_media(
+    GooglePhotosMedia self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_image_ref(
     ImageRef self,
     SseSerializer serializer,
@@ -818,6 +850,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_git_status(GitStatus self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_google_photos_media(
+    GooglePhotosMedia self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -957,6 +995,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_git_error_kind(
     GitErrorKind? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_google_photos_media(
+    GooglePhotosMedia? self,
     SseSerializer serializer,
   );
 

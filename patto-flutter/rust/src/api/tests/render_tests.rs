@@ -197,6 +197,21 @@ fn youtube_embeds_carry_the_video_id() {
 }
 
 #[test]
+fn google_photos_share_links_are_recognised() {
+    let blocks = blocks("[@embed https://photos.app.goo.gl/AbC123 Trip]\n");
+    let embed = sole_embed(&blocks[0]);
+    assert_eq!(embed.kind, EmbedKind::GooglePhotos);
+    assert_eq!(embed.title.as_deref(), Some("Trip"));
+}
+
+#[test]
+fn google_photos_links_that_are_not_shares_stay_links() {
+    let blocks = blocks("[@embed https://photos.google.com/photo/AF1Qip]\n");
+    let spans = line_spans(&blocks[0]);
+    assert!(matches!(spans[0], NoteSpan::Embed { .. }));
+}
+
+#[test]
 fn local_pdf_embeds_are_recognised() {
     let blocks = blocks("[@embed ./paper.pdf Paper]\n");
     let embed = sole_embed(&blocks[0]);

@@ -103,12 +103,25 @@ pub struct EmbedRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbedKind {
-    Youtube { video_id: String },
+    Youtube {
+        video_id: String,
+    },
+    /// A public Google Photos share link; its thumbnail is looked up lazily.
+    GooglePhotos,
     Twitter,
     SpeakerDeck,
     SlideShare,
     Pdf,
     Other,
+}
+
+/// Media behind a Google Photos share link, scraped from the share page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GooglePhotosMedia {
+    pub thumbnail_url: String,
+    /// Directly playable mp4; `None` when the share is a photo or album.
+    pub video_url: Option<String>,
+    pub title: Option<String>,
 }
 
 /// A run of inline content inside a line.

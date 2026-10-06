@@ -1,7 +1,7 @@
 //! Flatten a parsed note into the block list the Flutter note view scrolls.
 
 use patto::parser::{self, AstNode, AstNodeKind, Property};
-use patto::utils::{get_gyazo_img_src, get_youtube_id};
+use patto::utils::{get_gyazo_img_src, get_youtube_id, is_google_photos_url};
 
 use crate::api::types::*;
 
@@ -264,6 +264,9 @@ fn embed_kind(link: &str) -> EmbedKind {
     }
     if let Some(video_id) = get_youtube_id(link) {
         return EmbedKind::Youtube { video_id };
+    }
+    if is_google_photos_url(link) {
+        return EmbedKind::GooglePhotos;
     }
     if link.contains("twitter.com") || link.contains("x.com") {
         return EmbedKind::Twitter;

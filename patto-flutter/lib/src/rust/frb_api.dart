@@ -84,6 +84,16 @@ String relPathToNoteName({required String relPath}) =>
 Future<RenderedNote> renderNote({required String content}) =>
     RustLib.instance.api.crateFrbApiRenderNote(content: content);
 
+/// Thumbnail and video stream from a Google Photos share page's HTML, which
+/// Dart fetches with [`google_photos_user_agent`]. Asynchronous because a share
+/// page runs to hundreds of kilobytes.
+Future<GooglePhotosMedia?> parseGooglePhotosPage({required String html}) =>
+    RustLib.instance.api.crateFrbApiParseGooglePhotosPage(html: html);
+
+/// Google serves share pages without Open Graph tags to unknown clients.
+String googlePhotosUserAgent() =>
+    RustLib.instance.api.crateFrbApiGooglePhotosUserAgent();
+
 /// Scan the notes directory and build the link index.
 ///
 /// The outcome arrives as the last event on the stream rather than as a return

@@ -110,6 +110,9 @@ sealed class EmbedKind with _$EmbedKind {
 
   const factory EmbedKind.youtube({required String videoId}) =
       EmbedKind_Youtube;
+
+  /// A public Google Photos share link; its thumbnail is looked up lazily.
+  const factory EmbedKind.googlePhotos() = EmbedKind_GooglePhotos;
   const factory EmbedKind.twitter() = EmbedKind_Twitter;
   const factory EmbedKind.speakerDeck() = EmbedKind_SpeakerDeck;
   const factory EmbedKind.slideShare() = EmbedKind_SlideShare;
@@ -144,6 +147,34 @@ class EmbedRef {
           title == other.title &&
           kind == other.kind &&
           isLocal == other.isLocal;
+}
+
+/// Media behind a Google Photos share link, scraped from the share page.
+class GooglePhotosMedia {
+  final String thumbnailUrl;
+
+  /// Directly playable mp4; `None` when the share is a photo or album.
+  final String? videoUrl;
+  final String? title;
+
+  const GooglePhotosMedia({
+    required this.thumbnailUrl,
+    this.videoUrl,
+    this.title,
+  });
+
+  @override
+  int get hashCode =>
+      thumbnailUrl.hashCode ^ videoUrl.hashCode ^ title.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GooglePhotosMedia &&
+          runtimeType == other.runtimeType &&
+          thumbnailUrl == other.thumbnailUrl &&
+          videoUrl == other.videoUrl &&
+          title == other.title;
 }
 
 class ImageRef {
