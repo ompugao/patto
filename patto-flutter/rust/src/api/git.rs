@@ -289,8 +289,10 @@ pub fn locally_modified_notes(root: &str) -> PattoResult<HashSet<String>> {
 /// newest first, and records the first commit that touched each note.
 ///
 /// Merges are followed along the first parent only: what matters is when a
-/// change arrived on this branch. The walk stops after [`MAX_COMMITS`] so a long
-/// history cannot stall the app; notes older than that keep their file time.
+/// change arrived on this branch. The walk ends once every note in HEAD has a
+/// time, and after [`MAX_COMMITS`] so a long history cannot stall the app; notes
+/// older than that keep their file time. Deleted notes are only recorded if
+/// they turn up before then.
 pub fn note_commit_times(root: &str) -> PattoResult<HashMap<String, i64>> {
     /// Deep enough for any personal notes repository.
     const MAX_COMMITS: usize = 20_000;
@@ -308,34 +310,41 @@ pub fn note_commit_times(root: &str) -> PattoResult<HashMap<String, i64>> {
     walk.simplify_first_parent()?;
     walk.set_sorting(git2::Sort::TIME)?;
 
-    let mut opts = git2::DiffOptions::new();
-    opts.pathspec("*.pn");
+    // Notes in HEAD still waiting for a time; the walk ends when none are left.
+    let mut pending: HashSet<String> = HashSet::new();
+    if let Ok(head) = repo.head().and_then(|h| h.peel_to_tree()) {
+        head.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+            if let Some(name) = entry.name().ok().filter(|n| n.ends_with(".pn")) {
+                pending.insert(format!("{dir}{name}"));
+            }
+            git2::TreeWalkResult::Ok
+        })?;
+    }
 
     for oid in walk.take(MAX_COMMITS) {
         let commit = repo.find_commit(oid?)?;
         let tree = commit.tree()?;
         let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
 
-        let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
+        // No pathspec: libgit2 matches it against every entry of every tree,
+        // which made the walk several times slower than filtering here.
+        let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
         let millis = commit.time().seconds() * 1000;
 
-        diff.foreach(
-            &mut |delta, _| {
-                for file in [delta.new_file(), delta.old_file()] {
-                    if let Some(path) = file.path().and_then(|p| p.to_str()) {
-                        if path.ends_with(".pn") {
-                            // Newest first, so the first time seen is the answer.
-                            times.entry(path.to_string()).or_insert(millis);
-                        }
+        for delta in diff.deltas() {
+            for file in [delta.new_file(), delta.old_file()] {
+                if let Some(path) = file.path().and_then(|p| p.to_str()) {
+                    // Newest first, so the first time seen is the answer.
+                    if path.ends_with(".pn") && !times.contains_key(path) {
+                        pending.remove(path);
+                        times.insert(path.to_string(), millis);
                     }
                 }
-                true
-            },
-            None,
-            None,
-            None,
-        )
-        .ok();
+            }
+        }
+        if pending.is_empty() {
+            break;
+        }
     }
 
     Ok(times)
