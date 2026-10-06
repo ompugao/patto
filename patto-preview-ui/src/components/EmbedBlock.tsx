@@ -4,6 +4,7 @@ import SpeakerDeckBlock from './SpeakerDeckBlock';
 import SlideShareBlock from './SlideShareBlock';
 import TwitterBlock from './TwitterBlock';
 import PdfBlock from './PdfBlock';
+import GooglePhotosBlock from './GooglePhotosBlock';
 
 interface EmbedBlockProps {
     link: string;
@@ -30,6 +31,10 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
 
     if (link.includes('twitter.com') || link.includes('x.com')) {
         return <TwitterBlock url={link} title={title} />;
+    }
+
+    if (link.includes('photos.app.goo.gl') || link.includes('photos.google.com') || link.includes('goo.gl/photos')) {
+        return <GooglePhotosBlock url={link} title={title} />;
     }
 
     // Naive iframe URL parser for youtube

@@ -381,6 +381,7 @@ async fn main() {
         .route("/api/twitter-embed", get(twitter_embed_handler))
         .route("/api/speakerdeck-embed", get(speakerdeck_embed_handler))
         .route("/api/slideshare-embed", get(slideshare_embed_handler))
+        .route("/api/google-photos-embed", get(google_photos_embed_handler))
         .route("/api/files/{*path}", get(user_files_handler))
         .fallback(get(vite_static_handler)) // Serve Vite SPA for all other routes
         .with_state(state);
@@ -579,6 +580,86 @@ async fn slideshare_embed_handler(
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to fetch SlideShare embed"})),
+        ),
+    }
+}
+
+/// Successful Google Photos lookups, keyed by share link. Share links are stable,
+/// and re-opening a note would otherwise re-scrape every embed from Google.
+static GOOGLE_PHOTOS_CACHE: std::sync::LazyLock<
+    Mutex<HashMap<String, patto::utils::GooglePhotosMedia>>,
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Shared client with timeouts: on a stalled network a hung lookup would hold
+/// one of the browser's few connections and stall every other request.
+static GOOGLE_PHOTOS_CLIENT: std::sync::LazyLock<Option<reqwest::Client>> =
+    std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .user_agent(patto::utils::BROWSER_USER_AGENT)
+            .connect_timeout(patto::utils::GOOGLE_PHOTOS_CONNECT_TIMEOUT)
+            .timeout(patto::utils::GOOGLE_PHOTOS_TIMEOUT)
+            .build()
+            .ok()
+    });
+
+// Handler for Google Photos share links: scrape the thumbnail and video stream
+async fn google_photos_embed_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let url = match params.get("url") {
+        Some(url) => url,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Missing url parameter"})),
+            )
+        }
+    };
+
+    if !patto::utils::is_google_photos_url(url) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid Google Photos URL"})),
+        );
+    }
+
+    if let Some(media) = GOOGLE_PHOTOS_CACHE.lock().unwrap().get(url) {
+        return (StatusCode::OK, Json(serde_json::json!(media)));
+    }
+
+    let Some(client) = GOOGLE_PHOTOS_CLIENT.as_ref() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to build HTTP client"})),
+        );
+    };
+
+    match client.get(url).send().await {
+        Ok(response) => match response.text().await {
+            Ok(html) => match patto::utils::parse_google_photos_page(&html) {
+                Some(media) => {
+                    let json = serde_json::json!(media);
+                    GOOGLE_PHOTOS_CACHE
+                        .lock()
+                        .unwrap()
+                        .insert(url.clone(), media);
+                    (StatusCode::OK, Json(json))
+                }
+                None => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(
+                        serde_json::json!({"error": "No preview found; is the link shared publicly?"}),
+                    ),
+                ),
+            },
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to read Google Photos page"})),
+            ),
+        },
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to fetch Google Photos page"})),
         ),
     }
 }

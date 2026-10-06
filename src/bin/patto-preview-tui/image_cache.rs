@@ -3,14 +3,57 @@ use ratatui_image::{
     picker::{Picker, ProtocolType},
     protocol::StatefulProtocol,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::time::Duration;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::math_render;
+use patto::utils::{fetch_google_photos_media, is_google_photos_url};
 
 pub(crate) enum CachedImage {
     Loaded(StatefulProtocol),
+    /// Remote image still downloading in the background.
+    Pending,
     Failed(String),
+}
+
+/// A finished background download: cache key and decoded image or error.
+pub(crate) type FetchResult = (String, Result<DynamicImage, String>);
+
+const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REMOTE_TIMEOUT: Duration = Duration::from_secs(20);
+
+fn is_remote(src: &str) -> bool {
+    src.starts_with("http://") || src.starts_with("https://")
+}
+
+/// Download and decode a remote image (or a Google Photos share link's
+/// thumbnail). Runs on its own thread, never on the render loop.
+fn download(src: &str, background: Option<[u8; 3]>) -> Result<DynamicImage, String> {
+    let url = if is_google_photos_url(src) {
+        fetch_google_photos_media(src)
+            .ok_or("no Google Photos thumbnail (offline or not shared?)")?
+            .thumbnail_url
+    } else {
+        src.to_string()
+    };
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(REMOTE_CONNECT_TIMEOUT)
+        .timeout(REMOTE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("fetch error: {}", e))?;
+    let bytes = client
+        .get(&url)
+        .send()
+        .and_then(|resp| resp.error_for_status())
+        .and_then(|resp| resp.bytes())
+        .map_err(|e| format!("fetch error: {}", e))?;
+    let img = image::load_from_memory(&bytes).map_err(|e| format!("decode error: {}", e))?;
+    Ok(match background {
+        Some(bg) => flatten_alpha(img, bg),
+        None => img,
+    })
 }
 
 /// Composite `img` onto a solid `bg` color if it has an alpha channel.
@@ -53,6 +96,12 @@ pub(crate) struct ImageCache {
     /// RGB background used when compositing images with transparency.
     /// `None` means pass images through unchanged.
     pub(crate) background_color: Option<[u8; 3]>,
+    /// Downloaded remote images, kept across height changes so resizing never
+    /// goes back to the network. Dropped only by an explicit reload.
+    remote: HashMap<String, DynamicImage>,
+    in_flight: HashSet<String>,
+    fetch_tx: UnboundedSender<FetchResult>,
+    fetch_rx: Option<UnboundedReceiver<FetchResult>>,
 }
 
 impl ImageCache {
@@ -76,6 +125,7 @@ impl ImageCache {
             p
         });
 
+        let (fetch_tx, fetch_rx) = unbounded_channel();
         Self {
             cache: HashMap::new(),
             picker,
@@ -83,6 +133,30 @@ impl ImageCache {
             elem_heights: HashMap::new(),
             fullscreen_src: None,
             background_color: Some([255, 255, 255]),
+            remote: HashMap::new(),
+            in_flight: HashSet::new(),
+            fetch_tx,
+            fetch_rx: Some(fetch_rx),
+        }
+    }
+
+    /// Receiver of finished background downloads; the event loop hands each
+    /// one to [`ImageCache::finish_fetch`] and redraws.
+    pub(crate) fn take_fetch_receiver(&mut self) -> Option<UnboundedReceiver<FetchResult>> {
+        self.fetch_rx.take()
+    }
+
+    pub(crate) fn finish_fetch(&mut self, (src, result): FetchResult) {
+        self.in_flight.remove(&src);
+        match result {
+            Ok(img) => {
+                self.remote.insert(src.clone(), img);
+                // Build the protocol lazily on the next load() of this src.
+                self.cache.remove(&src);
+            }
+            Err(e) => {
+                self.cache.insert(src, CachedImage::Failed(e));
+            }
         }
     }
 
@@ -91,40 +165,28 @@ impl ImageCache {
         if self.cache.contains_key(src) || self.picker.is_none() {
             return;
         }
-        if src.starts_with("http://") || src.starts_with("https://") {
-            match reqwest::blocking::get(src) {
-                Ok(resp) => match resp.bytes() {
-                    Ok(bytes) => match image::load_from_memory(&bytes) {
-                        Ok(img) => {
-                            let img = if let Some(bg) = self.background_color {
-                                flatten_alpha(img, bg)
-                            } else {
-                                img
-                            };
-                            let protocol = self.picker.as_mut().unwrap().new_resize_protocol(img);
-                            self.elem_heights.insert(src.to_string(), self.height_rows);
-                            self.cache
-                                .insert(src.to_string(), CachedImage::Loaded(protocol));
-                        }
-                        Err(e) => {
-                            self.cache.insert(
-                                src.to_string(),
-                                CachedImage::Failed(format!("decode error: {}", e)),
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        self.cache.insert(
-                            src.to_string(),
-                            CachedImage::Failed(format!("fetch error: {}", e)),
-                        );
-                    }
-                },
-                Err(e) => {
-                    self.cache.insert(
+        if is_remote(src) {
+            if let Some(img) = self.remote.get(src) {
+                let protocol = self
+                    .picker
+                    .as_mut()
+                    .unwrap()
+                    .new_resize_protocol(img.clone());
+                self.elem_heights.insert(src.to_string(), self.height_rows);
+                self.cache
+                    .insert(src.to_string(), CachedImage::Loaded(protocol));
+            } else {
+                self.cache.insert(src.to_string(), CachedImage::Pending);
+                if self.in_flight.insert(src.to_string()) {
+                    let (src, tx, bg) = (
                         src.to_string(),
-                        CachedImage::Failed(format!("fetch error: {}", e)),
+                        self.fetch_tx.clone(),
+                        self.background_color,
                     );
+                    std::thread::spawn(move || {
+                        let result = download(&src, bg);
+                        let _ = tx.send((src, result));
+                    });
                 }
             }
             return;
@@ -159,6 +221,7 @@ impl ImageCache {
     /// Clear all cached images and their stored heights.
     pub(crate) fn clear(&mut self) {
         self.cache.clear();
+        self.remote.clear();
         self.elem_heights.clear();
     }
 
