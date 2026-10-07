@@ -81,12 +81,58 @@ flutter test                       # settings and workspace storage
 
 `.github/workflows/android.yml` builds the release APKs on every push and pull
 request that touches the app or the core crate, and uploads them as a build
-artifact named `patto-notes-apk`. It also fails if the committed bridge
-bindings differ from a fresh `flutter_rust_bridge_codegen generate`.
+artifact named `patto-notes-apk`. These builds are signed with the runner's
+debug key and carry the version from `pubspec.yaml`. It also fails if the
+committed bridge bindings differ from a fresh `flutter_rust_bridge_codegen
+generate`.
 
 The workflow pins the Flutter version, the NDK and the codegen version; they
 have to stay in step with `pubspec.yaml`, `android/app/build.gradle.kts` and
 `rust/Cargo.toml`.
+
+## Releases
+
+Publishing a GitHub Release (the `Release` workflow does this for a `vX.Y.Z`
+tag) runs the same workflow once more and attaches
+`patto-notes-X.Y.Z-arm64-v8a.apk` and `patto-notes-X.Y.Z-x86_64.apk` to the
+release. To attach them to a release again, run the workflow by hand with the
+tag as its input.
+
+A release build takes its version from the tag: the version name is the tag
+without the `v`, and the version code is `major * 1000000 + minor * 1000 +
+patch`, so each release installs over the one before. Flutter adds `1000 * ABI`
+for the split APKs, as it does for the regular builds.
+
+Release APKs are signed with an upload keystore kept in four repository
+secrets:
+
+| Secret | Content |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the `.jks` file, base64-encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | its store password |
+| `ANDROID_KEY_ALIAS` | the key alias (`upload` below) |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+Generate the keystore once and keep it somewhere safe; the key must stay the
+same for the lifetime of the app, because Android refuses to update an
+installed app with one signed by another key.
+
+```sh
+keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 \
+  -validity 10000 -alias upload
+base64 -w0 upload-keystore.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD
+gh secret set ANDROID_KEY_ALIAS --body upload
+gh secret set ANDROID_KEY_PASSWORD
+```
+
+The workflow writes the keystore and `android/key.properties` from these
+secrets before the build and deletes them afterwards; `build.gradle.kts` signs
+with them when the file exists and with the debug key otherwise. Without the
+secrets a release still builds, but the job carries a warning and the APKs are
+debug-signed. Every GitHub runner has its own debug key, so one debug-signed
+release cannot update another, and neither can the first properly signed
+release update a debug-signed install: the app has to be uninstalled first.
 
 ## Notes for maintainers
 

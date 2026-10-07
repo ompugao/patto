@@ -17,7 +17,14 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/android.yml'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to attach the APKs to (for example v0.6.0)
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -32,10 +39,42 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    # Needed to attach the APKs to the release; pull requests get a read-only
+    # token regardless.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # A release build takes its version from the tag rather than pubspec.yaml,
+      # so each release installs over the previous one. The build number is
+      # major * 1000000 + minor * 1000 + patch; Flutter then adds 1000 * ABI
+      # (2 for arm64-v8a, 4 for x86_64) to each split APK, so the code of a
+      # given ABI still grows with the version.
+      - name: Resolve the release version
+        id: version
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "Not a release build; using the version from pubspec.yaml"
+            exit 0
+          fi
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
+            echo "::error::tag '$TAG' is not a semantic version"
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"
+          build_number=$((major * 1000000 + minor * 1000 + patch))
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "build_args=--build-name=$version --build-number=$build_number"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building $version (build number $build_number) for $TAG"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -89,13 +128,55 @@ jobs:
         working-directory: patto-flutter
         run: flutter test
 
+      # Secrets are not available to `if:`, so the shell decides. All four must
+      # be set together; with none, the APK is signed with the runner's debug
+      # key, which is fine for a pull request but not for a release.
+      - name: Write the signing key
+        working-directory: patto-flutter/android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          IS_RELEASE: ${{ steps.version.outputs.tag != '' }}
+        run: |
+          set_count=0
+          for value in "$KEYSTORE_BASE64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            [ -n "$value" ] && set_count=$((set_count + 1))
+          done
+          if [ "$set_count" -eq 0 ]; then
+            if [ "$IS_RELEASE" = "true" ]; then
+              echo "::warning::No ANDROID_KEYSTORE_* secrets: the release APKs are signed with the debug key and will not update an earlier install. See patto-flutter/README.md, Releases."
+            fi
+            echo "Signing with the debug key"
+            exit 0
+          fi
+          if [ "$set_count" -ne 4 ]; then
+            echo "::error::set all of ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD, or none"
+            exit 1
+          fi
+          keystore="$PWD/upload-keystore.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+          {
+            echo "storeFile=$keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > key.properties
+          echo "Signing with the upload key '$KEY_ALIAS'"
+
       - name: Build release APKs
         working-directory: patto-flutter
         # Name the platforms explicitly: Flutter otherwise also emits an
         # armeabi-v7a slice, for which no Rust library is built.
         run: |
           flutter build apk --release --split-per-abi \
-            --target-platform android-arm64,android-x64
+            --target-platform android-arm64,android-x64 \
+            ${{ steps.version.outputs.build_args }}
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f patto-flutter/android/key.properties patto-flutter/android/upload-keystore.jks
 
       - name: Check the Rust library made it into the APK
         working-directory: patto-flutter
@@ -107,14 +188,44 @@ jobs:
           fi
           unzip -l "$apk" | grep '\.so$'
 
-      # Signed with the debug key, as the Gradle template's release config does.
-      # A real release needs a keystore before these are worth distributing.
+      - name: Show the signing certificate
+        working-directory: patto-flutter/build/app/outputs/flutter-apk
+        run: |
+          apksigner="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          for apk in *-release.apk; do
+            echo "$apk"
+            "$apksigner" verify --print-certs "$apk" | grep 'certificate DN'
+          done
+
+      - name: Name the APKs
+        id: apks
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a x86_64; do
+            src="patto-flutter/build/app/outputs/flutter-apk/app-$abi-release.apk"
+            if [ -n "$VERSION" ]; then
+              cp "$src" "dist/patto-notes-$VERSION-$abi.apk"
+            else
+              cp "$src" "dist/patto-notes-$abi.apk"
+            fi
+          done
+          ls -l dist
+
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: patto-notes-apk
-          path: patto-flutter/build/app/outputs/flutter-apk/*-release.apk
+          path: dist/*.apk
           if-no-files-found: error
+
+      - name: Attach the APKs to the release
+        if: steps.version.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release upload "$TAG" dist/*.apk --clobber
 
   codegen:
     name: Generated bindings are current
