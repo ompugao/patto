@@ -8,7 +8,9 @@
 //! ```
 //!
 //! Lines that do not fit (hand-edited content) are left alone when appending
-//! and skipped when listing.
+//! and skipped when listing. Appending keeps the note's bytes as they are,
+//! apart from making sure it ends with a line break, and writes the new lines
+//! with the line ending the note already uses.
 
 use std::path::Path;
 
@@ -48,10 +50,10 @@ pub fn parse_posts(content: &str) -> Vec<InboxPost> {
     let mut in_post = false;
 
     for (index, raw) in content.lines().enumerate() {
-        let line = raw.trim_end_matches('\r');
+        let line = raw.trim_end();
         let depth = depth_of(line);
         let text = &line[depth..];
-        if text.trim().is_empty() {
+        if text.is_empty() {
             continue;
         }
         match depth {
@@ -116,7 +118,7 @@ pub fn format_post(time: &str, text: &str) -> String {
     let mut out = format!("\t{} {}", time, first.trim_start_matches('\t'));
     for line in lines {
         out.push_str("\n\t\t");
-        out.push_str(&line);
+        out.push_str(line.trim_start_matches('\t'));
     }
     out
 }
@@ -125,9 +127,18 @@ pub fn format_post(time: &str, text: &str) -> String {
 fn last_heading(content: &str) -> Option<&str> {
     content
         .lines()
+        .map(str::trim_end)
         .rev()
-        .find(|l| depth_of(l) == 0 && !l.trim().is_empty())
-        .filter(|l| is_date_heading(l.trim_end_matches('\r')))
+        .find(|l| depth_of(l) == 0 && !l.is_empty())
+        .filter(|l| is_date_heading(l))
+}
+
+fn line_ending(content: &str) -> &'static str {
+    if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 /// Append a post under `date`, adding the heading when the note does not end
@@ -141,21 +152,22 @@ pub fn inbox_append(
 ) -> PattoResult<NoteMeta> {
     let post = format_post(&time, &text);
     if post.is_empty() {
-        return Err(PattoError::Io("nothing to post".to_string()));
+        return Err(PattoError::InvalidInput("nothing to post".to_string()));
     }
     let rel_path = name_to_rel_path(&name)?;
     let path = resolve(&root, &rel_path)?;
-    let mut content = read_or_empty(&path)?.replace("\r\n", "\n");
+    let mut content = read_or_empty(&path)?;
+    let eol = line_ending(&content);
 
     if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
+        content.push_str(eol);
     }
     if last_heading(&content) != Some(date.as_str()) {
         content.push_str(&date);
-        content.push('\n');
+        content.push_str(eol);
     }
-    content.push_str(&post);
-    content.push('\n');
+    content.push_str(&post.replace('\n', eol));
+    content.push_str(eol);
 
     write_note(root.clone(), rel_path.clone(), content)?;
     meta_for(Path::new(&root), &path).ok_or(PattoError::NotFound(rel_path))

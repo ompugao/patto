@@ -2178,13 +2178,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 3:
         return PattoError_InvalidName(dco_decode_String(raw[1]));
       case 4:
+        return PattoError_InvalidInput(dco_decode_String(raw[1]));
+      case 5:
         return PattoError_NoTaskAtRow(
           path: dco_decode_String(raw[1]),
           row: dco_decode_u_32(raw[2]),
         );
-      case 5:
-        return PattoError_IndexNotBuilt(dco_decode_String(raw[1]));
       case 6:
+        return PattoError_IndexNotBuilt(dco_decode_String(raw[1]));
+      case 7:
         return PattoError_Git(
           kind: dco_decode_git_error_kind(raw[1]),
           message: dco_decode_String(raw[2]),
@@ -3476,13 +3478,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_field0 = sse_decode_String(deserializer);
         return PattoError_InvalidName(var_field0);
       case 4:
+        var var_field0 = sse_decode_String(deserializer);
+        return PattoError_InvalidInput(var_field0);
+      case 5:
         var var_path = sse_decode_String(deserializer);
         var var_row = sse_decode_u_32(deserializer);
         return PattoError_NoTaskAtRow(path: var_path, row: var_row);
-      case 5:
+      case 6:
         var var_field0 = sse_decode_String(deserializer);
         return PattoError_IndexNotBuilt(var_field0);
-      case 6:
+      case 7:
         var var_kind = sse_decode_git_error_kind(deserializer);
         var var_message = sse_decode_String(deserializer);
         return PattoError_Git(kind: var_kind, message: var_message);
@@ -4689,15 +4694,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case PattoError_InvalidName(field0: final field0):
         sse_encode_i_32(3, serializer);
         sse_encode_String(field0, serializer);
-      case PattoError_NoTaskAtRow(path: final path, row: final row):
+      case PattoError_InvalidInput(field0: final field0):
         sse_encode_i_32(4, serializer);
+        sse_encode_String(field0, serializer);
+      case PattoError_NoTaskAtRow(path: final path, row: final row):
+        sse_encode_i_32(5, serializer);
         sse_encode_String(path, serializer);
         sse_encode_u_32(row, serializer);
       case PattoError_IndexNotBuilt(field0: final field0):
-        sse_encode_i_32(5, serializer);
+        sse_encode_i_32(6, serializer);
         sse_encode_String(field0, serializer);
       case PattoError_Git(kind: final kind, message: final message):
-        sse_encode_i_32(6, serializer);
+        sse_encode_i_32(7, serializer);
         sse_encode_git_error_kind(kind, serializer);
         sse_encode_String(message, serializer);
     }

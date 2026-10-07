@@ -56,14 +56,15 @@ extension PattoErrorPatterns on PattoError {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( PattoError_Io value)?  io,TResult Function( PattoError_NotFound value)?  notFound,TResult Function( PattoError_AlreadyExists value)?  alreadyExists,TResult Function( PattoError_InvalidName value)?  invalidName,TResult Function( PattoError_NoTaskAtRow value)?  noTaskAtRow,TResult Function( PattoError_IndexNotBuilt value)?  indexNotBuilt,TResult Function( PattoError_Git value)?  git,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( PattoError_Io value)?  io,TResult Function( PattoError_NotFound value)?  notFound,TResult Function( PattoError_AlreadyExists value)?  alreadyExists,TResult Function( PattoError_InvalidName value)?  invalidName,TResult Function( PattoError_InvalidInput value)?  invalidInput,TResult Function( PattoError_NoTaskAtRow value)?  noTaskAtRow,TResult Function( PattoError_IndexNotBuilt value)?  indexNotBuilt,TResult Function( PattoError_Git value)?  git,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case PattoError_Io() when io != null:
 return io(_that);case PattoError_NotFound() when notFound != null:
 return notFound(_that);case PattoError_AlreadyExists() when alreadyExists != null:
 return alreadyExists(_that);case PattoError_InvalidName() when invalidName != null:
-return invalidName(_that);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
+return invalidName(_that);case PattoError_InvalidInput() when invalidInput != null:
+return invalidInput(_that);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
 return noTaskAtRow(_that);case PattoError_IndexNotBuilt() when indexNotBuilt != null:
 return indexNotBuilt(_that);case PattoError_Git() when git != null:
 return git(_that);case _:
@@ -84,14 +85,15 @@ return git(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( PattoError_Io value)  io,required TResult Function( PattoError_NotFound value)  notFound,required TResult Function( PattoError_AlreadyExists value)  alreadyExists,required TResult Function( PattoError_InvalidName value)  invalidName,required TResult Function( PattoError_NoTaskAtRow value)  noTaskAtRow,required TResult Function( PattoError_IndexNotBuilt value)  indexNotBuilt,required TResult Function( PattoError_Git value)  git,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( PattoError_Io value)  io,required TResult Function( PattoError_NotFound value)  notFound,required TResult Function( PattoError_AlreadyExists value)  alreadyExists,required TResult Function( PattoError_InvalidName value)  invalidName,required TResult Function( PattoError_InvalidInput value)  invalidInput,required TResult Function( PattoError_NoTaskAtRow value)  noTaskAtRow,required TResult Function( PattoError_IndexNotBuilt value)  indexNotBuilt,required TResult Function( PattoError_Git value)  git,}){
 final _that = this;
 switch (_that) {
 case PattoError_Io():
 return io(_that);case PattoError_NotFound():
 return notFound(_that);case PattoError_AlreadyExists():
 return alreadyExists(_that);case PattoError_InvalidName():
-return invalidName(_that);case PattoError_NoTaskAtRow():
+return invalidName(_that);case PattoError_InvalidInput():
+return invalidInput(_that);case PattoError_NoTaskAtRow():
 return noTaskAtRow(_that);case PattoError_IndexNotBuilt():
 return indexNotBuilt(_that);case PattoError_Git():
 return git(_that);}
@@ -108,14 +110,15 @@ return git(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( PattoError_Io value)?  io,TResult? Function( PattoError_NotFound value)?  notFound,TResult? Function( PattoError_AlreadyExists value)?  alreadyExists,TResult? Function( PattoError_InvalidName value)?  invalidName,TResult? Function( PattoError_NoTaskAtRow value)?  noTaskAtRow,TResult? Function( PattoError_IndexNotBuilt value)?  indexNotBuilt,TResult? Function( PattoError_Git value)?  git,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( PattoError_Io value)?  io,TResult? Function( PattoError_NotFound value)?  notFound,TResult? Function( PattoError_AlreadyExists value)?  alreadyExists,TResult? Function( PattoError_InvalidName value)?  invalidName,TResult? Function( PattoError_InvalidInput value)?  invalidInput,TResult? Function( PattoError_NoTaskAtRow value)?  noTaskAtRow,TResult? Function( PattoError_IndexNotBuilt value)?  indexNotBuilt,TResult? Function( PattoError_Git value)?  git,}){
 final _that = this;
 switch (_that) {
 case PattoError_Io() when io != null:
 return io(_that);case PattoError_NotFound() when notFound != null:
 return notFound(_that);case PattoError_AlreadyExists() when alreadyExists != null:
 return alreadyExists(_that);case PattoError_InvalidName() when invalidName != null:
-return invalidName(_that);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
+return invalidName(_that);case PattoError_InvalidInput() when invalidInput != null:
+return invalidInput(_that);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
 return noTaskAtRow(_that);case PattoError_IndexNotBuilt() when indexNotBuilt != null:
 return indexNotBuilt(_that);case PattoError_Git() when git != null:
 return git(_that);case _:
@@ -135,13 +138,14 @@ return git(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String field0)?  io,TResult Function( String field0)?  notFound,TResult Function( String field0)?  alreadyExists,TResult Function( String field0)?  invalidName,TResult Function( String path,  int row)?  noTaskAtRow,TResult Function( String field0)?  indexNotBuilt,TResult Function( GitErrorKind kind,  String message)?  git,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String field0)?  io,TResult Function( String field0)?  notFound,TResult Function( String field0)?  alreadyExists,TResult Function( String field0)?  invalidName,TResult Function( String field0)?  invalidInput,TResult Function( String path,  int row)?  noTaskAtRow,TResult Function( String field0)?  indexNotBuilt,TResult Function( GitErrorKind kind,  String message)?  git,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case PattoError_Io() when io != null:
 return io(_that.field0);case PattoError_NotFound() when notFound != null:
 return notFound(_that.field0);case PattoError_AlreadyExists() when alreadyExists != null:
 return alreadyExists(_that.field0);case PattoError_InvalidName() when invalidName != null:
-return invalidName(_that.field0);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
+return invalidName(_that.field0);case PattoError_InvalidInput() when invalidInput != null:
+return invalidInput(_that.field0);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
 return noTaskAtRow(_that.path,_that.row);case PattoError_IndexNotBuilt() when indexNotBuilt != null:
 return indexNotBuilt(_that.field0);case PattoError_Git() when git != null:
 return git(_that.kind,_that.message);case _:
@@ -162,13 +166,14 @@ return git(_that.kind,_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String field0)  io,required TResult Function( String field0)  notFound,required TResult Function( String field0)  alreadyExists,required TResult Function( String field0)  invalidName,required TResult Function( String path,  int row)  noTaskAtRow,required TResult Function( String field0)  indexNotBuilt,required TResult Function( GitErrorKind kind,  String message)  git,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String field0)  io,required TResult Function( String field0)  notFound,required TResult Function( String field0)  alreadyExists,required TResult Function( String field0)  invalidName,required TResult Function( String field0)  invalidInput,required TResult Function( String path,  int row)  noTaskAtRow,required TResult Function( String field0)  indexNotBuilt,required TResult Function( GitErrorKind kind,  String message)  git,}) {final _that = this;
 switch (_that) {
 case PattoError_Io():
 return io(_that.field0);case PattoError_NotFound():
 return notFound(_that.field0);case PattoError_AlreadyExists():
 return alreadyExists(_that.field0);case PattoError_InvalidName():
-return invalidName(_that.field0);case PattoError_NoTaskAtRow():
+return invalidName(_that.field0);case PattoError_InvalidInput():
+return invalidInput(_that.field0);case PattoError_NoTaskAtRow():
 return noTaskAtRow(_that.path,_that.row);case PattoError_IndexNotBuilt():
 return indexNotBuilt(_that.field0);case PattoError_Git():
 return git(_that.kind,_that.message);}
@@ -185,13 +190,14 @@ return git(_that.kind,_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String field0)?  io,TResult? Function( String field0)?  notFound,TResult? Function( String field0)?  alreadyExists,TResult? Function( String field0)?  invalidName,TResult? Function( String path,  int row)?  noTaskAtRow,TResult? Function( String field0)?  indexNotBuilt,TResult? Function( GitErrorKind kind,  String message)?  git,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String field0)?  io,TResult? Function( String field0)?  notFound,TResult? Function( String field0)?  alreadyExists,TResult? Function( String field0)?  invalidName,TResult? Function( String field0)?  invalidInput,TResult? Function( String path,  int row)?  noTaskAtRow,TResult? Function( String field0)?  indexNotBuilt,TResult? Function( GitErrorKind kind,  String message)?  git,}) {final _that = this;
 switch (_that) {
 case PattoError_Io() when io != null:
 return io(_that.field0);case PattoError_NotFound() when notFound != null:
 return notFound(_that.field0);case PattoError_AlreadyExists() when alreadyExists != null:
 return alreadyExists(_that.field0);case PattoError_InvalidName() when invalidName != null:
-return invalidName(_that.field0);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
+return invalidName(_that.field0);case PattoError_InvalidInput() when invalidInput != null:
+return invalidInput(_that.field0);case PattoError_NoTaskAtRow() when noTaskAtRow != null:
 return noTaskAtRow(_that.path,_that.row);case PattoError_IndexNotBuilt() when indexNotBuilt != null:
 return indexNotBuilt(_that.field0);case PattoError_Git() when git != null:
 return git(_that.kind,_that.message);case _:
@@ -466,6 +472,74 @@ class _$PattoError_InvalidNameCopyWithImpl<$Res>
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') $Res call({Object? field0 = null,}) {
   return _then(PattoError_InvalidName(
+null == field0 ? _self.field0 : field0 // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class PattoError_InvalidInput extends PattoError {
+  const PattoError_InvalidInput(this.field0): super._();
+  
+
+ final  String field0;
+
+/// Create a copy of PattoError
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$PattoError_InvalidInputCopyWith<PattoError_InvalidInput> get copyWith => _$PattoError_InvalidInputCopyWithImpl<PattoError_InvalidInput>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PattoError_InvalidInput&&(identical(other.field0, field0) || other.field0 == field0));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,field0);
+}
+
+@override
+String toString() {
+    return 'PattoError.invalidInput(field0: $field0)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $PattoError_InvalidInputCopyWith<$Res> implements $PattoErrorCopyWith<$Res> {
+  factory $PattoError_InvalidInputCopyWith(PattoError_InvalidInput value, $Res Function(PattoError_InvalidInput) _then) = _$PattoError_InvalidInputCopyWithImpl;
+@useResult
+$Res call({
+ String field0
+});
+
+
+
+
+}
+/// @nodoc
+class _$PattoError_InvalidInputCopyWithImpl<$Res>
+    implements $PattoError_InvalidInputCopyWith<$Res> {
+  _$PattoError_InvalidInputCopyWithImpl(this._self, this._then);
+
+  final PattoError_InvalidInput _self;
+  final $Res Function(PattoError_InvalidInput) _then;
+
+/// Create a copy of PattoError
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? field0 = null,}) {
+  return _then(PattoError_InvalidInput(
 null == field0 ? _self.field0 : field0 // ignore: cast_nullable_to_non_nullable
 as String,
   ));

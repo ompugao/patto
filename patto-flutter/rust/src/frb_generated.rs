@@ -2352,6 +2352,10 @@ impl SseDecode for crate::api::error::PattoError {
                 return crate::api::error::PattoError::InvalidName(var_field0);
             }
             4 => {
+                let mut var_field0 = <String>::sse_decode(deserializer);
+                return crate::api::error::PattoError::InvalidInput(var_field0);
+            }
+            5 => {
                 let mut var_path = <String>::sse_decode(deserializer);
                 let mut var_row = <u32>::sse_decode(deserializer);
                 return crate::api::error::PattoError::NoTaskAtRow {
@@ -2359,11 +2363,11 @@ impl SseDecode for crate::api::error::PattoError {
                     row: var_row,
                 };
             }
-            5 => {
+            6 => {
                 let mut var_field0 = <String>::sse_decode(deserializer);
                 return crate::api::error::PattoError::IndexNotBuilt(var_field0);
             }
-            6 => {
+            7 => {
                 let mut var_kind = <crate::api::error::GitErrorKind>::sse_decode(deserializer);
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::error::PattoError::Git {
@@ -3557,17 +3561,20 @@ impl flutter_rust_bridge::IntoDart for crate::api::error::PattoError {
             crate::api::error::PattoError::InvalidName(field0) => {
                 [3.into_dart(), field0.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::error::PattoError::InvalidInput(field0) => {
+                [4.into_dart(), field0.into_into_dart().into_dart()].into_dart()
+            }
             crate::api::error::PattoError::NoTaskAtRow { path, row } => [
-                4.into_dart(),
+                5.into_dart(),
                 path.into_into_dart().into_dart(),
                 row.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::error::PattoError::IndexNotBuilt(field0) => {
-                [5.into_dart(), field0.into_into_dart().into_dart()].into_dart()
+                [6.into_dart(), field0.into_into_dart().into_dart()].into_dart()
             }
             crate::api::error::PattoError::Git { kind, message } => [
-                6.into_dart(),
+                7.into_dart(),
                 kind.into_into_dart().into_dart(),
                 message.into_into_dart().into_dart(),
             ]
@@ -4848,17 +4855,21 @@ impl SseEncode for crate::api::error::PattoError {
                 <i32>::sse_encode(3, serializer);
                 <String>::sse_encode(field0, serializer);
             }
-            crate::api::error::PattoError::NoTaskAtRow { path, row } => {
+            crate::api::error::PattoError::InvalidInput(field0) => {
                 <i32>::sse_encode(4, serializer);
+                <String>::sse_encode(field0, serializer);
+            }
+            crate::api::error::PattoError::NoTaskAtRow { path, row } => {
+                <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(path, serializer);
                 <u32>::sse_encode(row, serializer);
             }
             crate::api::error::PattoError::IndexNotBuilt(field0) => {
-                <i32>::sse_encode(5, serializer);
+                <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(field0, serializer);
             }
             crate::api::error::PattoError::Git { kind, message } => {
-                <i32>::sse_encode(6, serializer);
+                <i32>::sse_encode(7, serializer);
                 <crate::api::error::GitErrorKind>::sse_encode(kind, serializer);
                 <String>::sse_encode(message, serializer);
             }

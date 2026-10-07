@@ -102,8 +102,8 @@ fn appending_to_a_note_without_a_trailing_newline() {
 #[test]
 fn posts_drop_blank_lines_and_normalise_endings() {
     assert_eq!(
-        format_post("10:00", "\tfirst  \r\n\r\n\tsecond\r\n   \n"),
-        "\t10:00 first\n\t\t\tsecond"
+        format_post("10:00", "\tfirst  \r\n\r\n\t\tsecond\r\n   \n"),
+        "\t10:00 first\n\t\tsecond"
     );
     assert_eq!(format_post("10:00", " \n\t\n"), "");
 }
@@ -119,7 +119,7 @@ fn an_empty_post_is_refused() {
         "\n".to_string(),
     )
     .unwrap_err();
-    assert!(matches!(err, PattoError::Io(_)));
+    assert!(matches!(err, PattoError::InvalidInput(_)));
     assert!(!ws.path().join("Inbox.pn").exists());
 }
 
@@ -157,4 +157,33 @@ fn a_bad_name_is_rejected() {
         inbox_posts(ws.root(), "../evil".to_string()),
         Err(PattoError::InvalidName(_))
     ));
+}
+
+#[test]
+fn a_heading_with_trailing_whitespace_still_counts() {
+    let ws = Workspace::new();
+    ws.write("Inbox.pn", "2026-10-07 \n\t09:12 one\n");
+    let posts = inbox_posts(ws.root(), "Inbox".to_string()).unwrap();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].date, "2026-10-07");
+
+    append(&ws, "2026-10-07", "10:00", "two");
+    assert_eq!(
+        ws.read("Inbox.pn"),
+        "2026-10-07 \n\t09:12 one\n\t10:00 two\n"
+    );
+}
+
+#[test]
+fn appending_keeps_the_existing_line_endings() {
+    let ws = Workspace::new();
+    ws.write("Inbox.pn", "intro\r\n2026-10-06\r\n\t09:00 old");
+    append(&ws, "2026-10-07", "10:00", "x\ny");
+    assert_eq!(
+        ws.read("Inbox.pn"),
+        "intro\r\n2026-10-06\r\n\t09:00 old\r\n2026-10-07\r\n\t10:00 x\r\n\t\ty\r\n"
+    );
+    let posts = inbox_posts(ws.root(), "Inbox".to_string()).unwrap();
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[1].body, vec!["y".to_string()]);
 }
