@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
-import '../quick_note/quick_note_entry.dart';
 import 'workspace_editor.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -23,16 +22,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _authorName = TextEditingController();
   final _authorEmail = TextEditingController();
-  final _quickNoteName = TextEditingController();
-  final _quickNoteDateFormat = TextEditingController();
+  final _inboxNoteName = TextEditingController();
   bool _filled = false;
 
   @override
   void dispose() {
     _authorName.dispose();
     _authorEmail.dispose();
-    _quickNoteName.dispose();
-    _quickNoteDateFormat.dispose();
+    _inboxNoteName.dispose();
     super.dispose();
   }
 
@@ -41,22 +38,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _filled = true;
     _authorName.text = settings.authorName;
     _authorEmail.text = settings.authorEmail;
-    _quickNoteName.text = settings.quickNoteName;
-    _quickNoteDateFormat.text = settings.quickNoteDateFormat;
+    _inboxNoteName.text = settings.inboxNoteName;
   }
 
   Settings _collect(Settings base) => base.copyWith(
     authorName: _authorName.text.trim(),
     authorEmail: _authorEmail.text.trim(),
-    quickNoteName: _nameError(_quickNoteName.text) == null
-        ? _orDefault(_quickNoteName.text, Settings.defaultQuickNoteName)
-        : base.quickNoteName,
-    quickNoteDateFormat: _dateFormatError(_quickNoteDateFormat.text) == null
-        ? _orDefault(
-            _quickNoteDateFormat.text,
-            Settings.defaultQuickNoteDateFormat,
-          )
-        : base.quickNoteDateFormat,
+    inboxNoteName: _inboxNameError == null
+        ? _orDefault(_inboxNoteName.text, Settings.defaultInboxNoteName)
+        : base.inboxNoteName,
   );
 
   /// An empty field means the default; an invalid one keeps what was stored,
@@ -64,35 +54,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static String _orDefault(String value, String fallback) =>
       value.trim().isEmpty ? fallback : value.trim();
 
-  String? get _quickNoteError =>
-      _dateFormatError(_quickNoteDateFormat.text) ??
-      _nameError(_quickNoteName.text);
-
-  static String? _nameError(String value) =>
-      value.contains('#') ? 'A note name cannot contain #' : null;
-
-  String? _dateFormatError(String pattern) {
-    if (pattern.contains('#')) return 'A note name cannot contain #';
-    if (pattern.trim().isNotEmpty &&
-        dailyNoteName(pattern, DateTime.now()).trim().isEmpty) {
-      return 'This pattern gives an empty name';
-    }
-    return null;
-  }
-
-  String _dateFormatHelp(String pattern) {
-    final today = dailyNoteName(
-      pattern.trim().isEmpty ? Settings.defaultQuickNoteDateFormat : pattern,
-      DateTime.now(),
-    );
-    return "Today: $today. Quote literal text: 'journal'/yyyy-MM-dd";
-  }
+  String? get _inboxNameError =>
+      _inboxNoteName.text.trim().isEmpty ||
+          Settings.isValidInboxNoteName(_inboxNoteName.text)
+      ? null
+      : 'A note name cannot contain #';
 
   Future<void> _saveFields(Settings base) async {
-    final error = _quickNoteError;
+    final error = _inboxNameError;
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not saved. Quick note: $error')),
+        SnackBar(content: Text('Not saved. Inbox note: $error')),
       );
       return;
     }
@@ -218,61 +190,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     .save(_collect(data).copyWith(fontScale: scale)),
               ),
               const SizedBox(height: 24),
-              _Section('Quick note'),
+              _Section('Inbox'),
               Text(
-                'Where the bolt button, the launcher shortcut and text shared '
-                'from other apps are saved.',
+                'The note that posts from the Inbox tab, the launcher shortcut '
+                'and text shared from other apps are appended to.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
-              SegmentedButton<QuickNoteTarget>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(
-                    value: QuickNoteTarget.daily,
-                    label: Text('Daily note'),
-                  ),
-                  ButtonSegment(
-                    value: QuickNoteTarget.single,
-                    label: Text('Single note'),
-                  ),
-                ],
-                selected: {data.quickNoteTarget},
-                onSelectionChanged: (s) => ref
-                    .read(settingsProvider.notifier)
-                    .save(_collect(data).copyWith(quickNoteTarget: s.first)),
-              ),
-              if (data.quickNoteTarget == QuickNoteTarget.daily)
-                TextField(
-                  controller: _quickNoteDateFormat,
-                  decoration: InputDecoration(
-                    labelText: 'Date format for the note name',
-                    helperText: _dateFormatHelp(_quickNoteDateFormat.text),
-                    helperMaxLines: 2,
-                    errorText: _dateFormatError(_quickNoteDateFormat.text),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) => _saveFields(data),
-                )
-              else
-                TextField(
-                  controller: _quickNoteName,
-                  decoration: InputDecoration(
-                    labelText: 'Note name',
-                    errorText: _nameError(_quickNoteName.text),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) => _saveFields(data),
+              TextField(
+                controller: _inboxNoteName,
+                decoration: InputDecoration(
+                  labelText: 'Inbox note',
+                  hintText: Settings.defaultInboxNoteName,
+                  errorText: _inboxNameError,
                 ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Prefix with the time'),
-                subtitle: const Text('For example "14:05 Call the dentist"'),
-                value: data.quickNoteTimePrefix,
-                onChanged: (v) => ref
-                    .read(settingsProvider.notifier)
-                    .save(_collect(data).copyWith(quickNoteTimePrefix: v)),
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _saveFields(data),
               ),
+              const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(

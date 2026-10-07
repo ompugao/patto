@@ -50,6 +50,13 @@ void main() {
   });
 
   group('settings', () {
+    test('an inbox note name cannot be empty or hold an anchor', () {
+      expect(Settings.isValidInboxNoteName('Inbox'), isTrue);
+      expect(Settings.isValidInboxNoteName('journal/inbox'), isTrue);
+      expect(Settings.isValidInboxNoteName('  '), isFalse);
+      expect(Settings.isValidInboxNoteName('Inbox#1'), isFalse);
+    });
+
     test('the active workspace falls back to the first one', () {
       const a = Workspace(id: 'a', name: 'A', dirName: 'a');
       const b = Workspace(id: 'b', name: 'B', dirName: 'b');
@@ -176,47 +183,34 @@ void main() {
       expect(loaded.active?.id, 'ws-2');
     });
 
-    test('quick note settings default to a daily note with the time', () async {
+    test('the inbox note defaults to Inbox', () async {
       SharedPreferences.setMockInitialValues({});
 
       final settings = await SettingsStore().load();
 
-      expect(settings.quickNoteTarget, QuickNoteTarget.daily);
-      expect(settings.quickNoteName, Settings.defaultQuickNoteName);
-      expect(settings.quickNoteDateFormat, Settings.defaultQuickNoteDateFormat);
-      expect(settings.quickNoteTimePrefix, isTrue);
+      expect(settings.inboxNoteName, Settings.defaultInboxNoteName);
     });
 
-    test('quick note settings survive a round trip', () async {
+    test('the inbox note name survives a round trip', () async {
       SharedPreferences.setMockInitialValues({});
       final store = SettingsStore();
 
-      await store.save(
-        const Settings(
-          quickNoteTarget: QuickNoteTarget.single,
-          quickNoteName: 'Capture',
-          quickNoteDateFormat: 'yyyyMMdd',
-          quickNoteTimePrefix: false,
-        ),
-      );
+      await store.save(const Settings(inboxNoteName: 'journal/inbox'));
       final loaded = await store.load();
 
-      expect(loaded.quickNoteTarget, QuickNoteTarget.single);
-      expect(loaded.quickNoteName, 'Capture');
-      expect(loaded.quickNoteDateFormat, 'yyyyMMdd');
-      expect(loaded.quickNoteTimePrefix, isFalse);
+      expect(loaded.inboxNoteName, 'journal/inbox');
     });
 
-    test('an unusable quick note name falls back to the default', () async {
-      SharedPreferences.setMockInitialValues({
-        'flutter.quickNoteName': 'Inbox#1',
-        'flutter.quickNoteDateFormat': '',
-      });
+    test('an unusable inbox note name falls back to the default', () async {
+      for (final stored in ['Inbox#1', '  ']) {
+        SharedPreferences.setMockInitialValues({
+          'flutter.inboxNoteName': stored,
+        });
 
-      final settings = await SettingsStore().load();
+        final settings = await SettingsStore().load();
 
-      expect(settings.quickNoteName, Settings.defaultQuickNoteName);
-      expect(settings.quickNoteDateFormat, Settings.defaultQuickNoteDateFormat);
+        expect(settings.inboxNoteName, Settings.defaultInboxNoteName);
+      }
     });
 
     test('a clamped font scale never leaves the allowed range', () async {
