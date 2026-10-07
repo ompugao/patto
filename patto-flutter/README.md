@@ -19,6 +19,8 @@ you ask it to.
   changes that write `completed_at` and time tracking the way the language
   server does
 - Plain-text editor with tab nesting and wiki-link completion
+- Quick note: a bolt button, a launcher shortcut and a share target that append
+  a time-stamped line to today's note or to one inbox note, without naming it
 - Sync: commit, fetch, fast-forward or merge, push
 - Appearance: light, dark or system theme, and a note text size from 80% to
   180% that applies to the note view and the editor
@@ -30,8 +32,8 @@ patto-flutter/
   lib/
     main.dart          entry point; loads the CA bundle and starts the app
     app.dart           theme, first-run gate, bottom navigation
-    core/              settings, workspaces, Riverpod providers
-    features/          notes, tasks, editor, sync, settings, workspaces
+    core/              settings, workspaces, Riverpod providers, intents
+    features/          notes, tasks, editor, quick note, sync, settings, workspaces
     src/rust/          GENERATED Dart bindings
   rust/                the Rust core (see rust/src/api)
   rust_builder/        Cargokit, builds the Rust library during a Flutter build
@@ -168,6 +170,15 @@ named after the workspace id. An upgrade from the single-workspace version keeps
 the folder that one used (`notes`), so the clone already on the device is not
 thrown away. The link index is keyed by root, so switching back to a workspace
 does not rebuild it.
+
+**Quick-note intents.** `MainActivity` turns the launcher shortcut
+(`res/xml/shortcuts.xml`) and `ACTION_SEND` text into a request on the
+`com.sifi.patto/quick_note` method channel. The request that launched the
+activity is held until Dart asks for it with `consume`, so nothing is lost
+while Flutter starts; later ones are pushed as `quickNote` calls. A recreated
+activity does not replay the launching intent. `RootShell` listens, so a
+request shows the sheet only once a workspace is ready. The text itself is
+appended by the Rust `append_to_note`, which creates the note on first use.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

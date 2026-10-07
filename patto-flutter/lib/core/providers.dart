@@ -9,10 +9,17 @@ import '../src/rust/api/index.dart';
 import '../src/rust/api/tasks.dart';
 import '../src/rust/api/types.dart';
 import '../src/rust/frb_api.dart' as rust;
+import 'quick_note_intents.dart';
 import 'settings.dart';
 import 'workspace.dart';
 
 final settingsStoreProvider = Provider((_) => SettingsStore());
+
+final quickNoteIntentsProvider = Provider<QuickNoteIntents>((ref) {
+  final intents = QuickNoteIntents();
+  ref.onDispose(intents.dispose);
+  return intents;
+});
 
 /// Stand-in for the removed StateProvider: one mutable value with a setter.
 class ValueNotifierOf<T> extends Notifier<T> {
