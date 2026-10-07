@@ -17,8 +17,11 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/android.yml'
-  release:
-    types: [published]
+  # The Release workflow creates the GitHub release with GITHUB_TOKEN, and
+  # GitHub does not fire `release` events for that; so run after it finishes.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -39,14 +42,20 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    # Release runs on pull requests too; only a successful tag push is a release.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     # Needed to attach the APKs to the release; pull requests get a read-only
     # token regardless.
     permissions:
       contents: write
 
     steps:
+      # A workflow_run checks out the default branch by default; build the tag
+      # (or the requested one) instead.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && format('refs/tags/{0}', github.event.workflow_run.head_branch) || inputs.tag || github.ref }}
 
       # A release build takes its version from the tag rather than pubspec.yaml,
       # so each release installs over the previous one. The build number is
@@ -56,14 +65,15 @@ jobs:
       - name: Resolve the release version
         id: version
         env:
-          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+          # For a tag push, head_branch is the tag name.
+          TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.tag }}
         run: |
           if [ -z "$TAG" ]; then
             echo "Not a release build; using the version from pubspec.yaml"
             exit 0
           fi
           version="${TAG#v}"
-          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::tag '$TAG' is not a semantic version"
             exit 1
           fi
@@ -128,26 +138,25 @@ jobs:
         working-directory: patto-flutter
         run: flutter test
 
-      # Secrets are not available to `if:`, so the shell decides. All four must
-      # be set together; with none, the APK is signed with the runner's debug
-      # key, which is fine for a pull request but not for a release.
+      # Only a release build sees the upload key; everything else, including
+      # pull requests of this repository, is signed with the runner's debug key.
+      # Secrets are not available to `if:`, so the shell decides whether all
+      # four are set.
       - name: Write the signing key
+        if: steps.version.outputs.tag != ''
         working-directory: patto-flutter/android
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          IS_RELEASE: ${{ steps.version.outputs.tag != '' }}
         run: |
           set_count=0
           for value in "$KEYSTORE_BASE64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
             [ -n "$value" ] && set_count=$((set_count + 1))
           done
           if [ "$set_count" -eq 0 ]; then
-            if [ "$IS_RELEASE" = "true" ]; then
-              echo "::warning::No ANDROID_KEYSTORE_* secrets: the release APKs are signed with the debug key and will not update an earlier install. See patto-flutter/README.md, Releases."
-            fi
+            echo "::warning::No ANDROID_KEYSTORE_* secrets: the release APKs are signed with the debug key and will not update an earlier install. See patto-flutter/README.md, Releases."
             echo "Signing with the debug key"
             exit 0
           fi
@@ -169,10 +178,12 @@ jobs:
         working-directory: patto-flutter
         # Name the platforms explicitly: Flutter otherwise also emits an
         # armeabi-v7a slice, for which no Rust library is built.
+        env:
+          BUILD_ARGS: ${{ steps.version.outputs.build_args }}
         run: |
+          # shellcheck disable=SC2086 # two simple --flag=value words
           flutter build apk --release --split-per-abi \
-            --target-platform android-arm64,android-x64 \
-            ${{ steps.version.outputs.build_args }}
+            --target-platform android-arm64,android-x64 $BUILD_ARGS
 
       - name: Remove the signing key
         if: always()
@@ -230,10 +241,16 @@ jobs:
   codegen:
     name: Generated bindings are current
     runs-on: ubuntu-latest
+    # Release runs on pull requests too; only a successful tag push is a release.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
 
     steps:
+      # A workflow_run checks out the default branch by default; build the tag
+      # (or the requested one) instead.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && format('refs/tags/{0}', github.event.workflow_run.head_branch) || inputs.tag || github.ref }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

@@ -92,16 +92,20 @@ have to stay in step with `pubspec.yaml`, `android/app/build.gradle.kts` and
 
 ## Releases
 
-Publishing a GitHub Release (the `Release` workflow does this for a `vX.Y.Z`
-tag) runs the same workflow once more and attaches
+Pushing a `vX.Y.Z` tag runs the `Release` workflow, which creates the GitHub
+Release. When that workflow finishes successfully, the Android workflow runs
+once more (as a `workflow_run`, because a release created with `GITHUB_TOKEN`
+fires no `release` event), checks out the tag, and attaches
 `patto-notes-X.Y.Z-arm64-v8a.apk` and `patto-notes-X.Y.Z-x86_64.apk` to the
-release. To attach them to a release again, run the workflow by hand with the
-tag as its input.
+release. To attach them to a release again, run the Android workflow by hand
+with the tag as its input; it builds that tag.
 
 A release build takes its version from the tag: the version name is the tag
 without the `v`, and the version code is `major * 1000000 + minor * 1000 +
-patch`, so each release installs over the one before. Flutter adds `1000 * ABI`
-for the split APKs, as it does for the regular builds.
+patch`, so each release installs over the one before. A pre-release such as
+`v0.7.0-rc.1` shares its version code with `v0.7.0`, which Android still
+installs over it. Flutter adds `1000 * ABI` for the split APKs, as it does for
+the regular builds.
 
 Release APKs are signed with an upload keystore kept in four repository
 secrets:
@@ -126,9 +130,10 @@ gh secret set ANDROID_KEY_ALIAS --body upload
 gh secret set ANDROID_KEY_PASSWORD
 ```
 
-The workflow writes the keystore and `android/key.properties` from these
-secrets before the build and deletes them afterwards; `build.gradle.kts` signs
-with them when the file exists and with the debug key otherwise. Without the
+Only a release build writes the keystore and `android/key.properties` from
+these secrets, and deletes them after the build; pushes, pull requests and
+manual runs without a tag never see the key. `build.gradle.kts` signs with the
+keystore when the file exists and with the debug key otherwise. Without the
 secrets a release still builds, but the job carries a warning and the APKs are
 debug-signed. Every GitHub runner has its own debug key, so one debug-signed
 release cannot update another, and neither can the first properly signed
