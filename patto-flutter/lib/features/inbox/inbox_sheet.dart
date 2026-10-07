@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/providers.dart';
 import '../../core/settings.dart';
+import '../../src/rust/api/error.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
@@ -55,6 +56,7 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
   final _scroll = ScrollController();
   bool _sending = false;
   bool _scrolledOnce = false;
+  bool _opening = false;
   String? _error;
 
   @override
@@ -150,26 +152,35 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
   /// Closes the sheet and opens the inbox note in the editor, at [row] when
   /// given. The whole note is created first if no post has made it yet.
   Future<void> _openNote({int? row}) async {
-    final workspace = await ref.read(workspaceProvider.future);
-    if (workspace == null || !mounted) return;
-    final name = ref.read(inboxNoteNameProvider);
-    final relPath = rust.noteNameToRelPath(name: name);
-    if (row == null) {
-      try {
-        await rust.readNote(root: workspace.root, relPath: relPath);
-      } catch (_) {
-        await rust.createNote(
-          root: workspace.root,
-          name: name,
-          initialContent: '',
-        );
-        ref.read(notesRevisionProvider.notifier).value++;
+    if (_opening) return;
+    _opening = true;
+    try {
+      final workspace = await ref.read(workspaceProvider.future);
+      if (workspace == null || !mounted) return;
+      final name = ref.read(inboxNoteNameProvider);
+      final relPath = rust.noteNameToRelPath(name: name);
+      if (row == null) {
+        try {
+          await rust.readNote(root: workspace.root, relPath: relPath);
+        } on PattoError_NotFound {
+          await rust.createNote(
+            root: workspace.root,
+            name: name,
+            initialContent: '',
+          );
+          ref.read(notesRevisionProvider.notifier).value++;
+        }
       }
-      if (!mounted) return;
+      // The sheet may have been swiped away while the note was read.
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      final navigator = Navigator.of(context, rootNavigator: true);
+      navigator.pop();
+      await EditorScreen.open(navigator.context, relPath, row: row);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not open the note: $e');
+    } finally {
+      _opening = false;
     }
-    final navigator = Navigator.of(context, rootNavigator: true);
-    navigator.pop();
-    await EditorScreen.open(navigator.context, relPath, row: row);
   }
 
   @override
@@ -177,15 +188,20 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
     final posts = ref.watch(inboxPostsProvider);
     final name = ref.watch(inboxNoteNameProvider);
     final canSend = !_sending && _composer.text.trim().isNotEmpty;
-    final inset = MediaQuery.viewInsetsOf(context).bottom;
-    final screen = MediaQuery.sizeOf(context).height;
+    final media = MediaQuery.of(context);
+    // The modal sheet only insets the top; below it is either the keyboard
+    // or the system navigation bar, whichever is showing.
+    final bottom = math.max(media.viewInsets.bottom, media.padding.bottom);
+    final screen = media.size.height;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The sheet sits above the keyboard; the list gives way to it.
-        final height = math.min(screen * 0.85, constraints.maxHeight - inset);
+        final height = math.min(
+          screen * 0.85,
+          math.max(0.0, constraints.maxHeight - bottom),
+        );
         return Padding(
-          padding: EdgeInsets.only(bottom: inset),
+          padding: EdgeInsets.only(bottom: bottom),
           child: SizedBox(
             height: height,
             child: Column(
