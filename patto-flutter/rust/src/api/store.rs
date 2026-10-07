@@ -136,7 +136,8 @@ pub fn create_note(root: String, name: String, initial_content: String) -> Patto
 }
 
 /// Append `text` as new lines at the end of the note called `name`, creating
-/// the note if it does not exist. The result always ends with one newline.
+/// the note if it does not exist. The result always ends with one newline, and
+/// CRLF line endings in the existing note are normalised to LF.
 pub fn append_to_note(root: String, name: String, text: String) -> PattoResult<NoteMeta> {
     let rel_path = name_to_rel_path(&name)?;
     let path = resolve(&root, &rel_path)?;

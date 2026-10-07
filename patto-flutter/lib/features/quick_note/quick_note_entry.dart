@@ -3,18 +3,31 @@ import 'package:intl/intl.dart';
 import '../../core/settings.dart';
 
 /// The note a quick note is appended to, under the given settings.
+///
+/// `DateFormat` never throws: an unmatched quote yields nothing and unknown
+/// letters are substituted, so a pattern that gives no usable name falls back
+/// to the default one.
 String quickNoteTargetName(Settings settings, DateTime now) {
   switch (settings.quickNoteTarget) {
     case QuickNoteTarget.daily:
-      try {
-        return DateFormat(settings.quickNoteDateFormat).format(now);
-      } on FormatException {
-        return DateFormat(Settings.defaultQuickNoteDateFormat).format(now);
-      }
+      final name = dailyNoteName(settings.quickNoteDateFormat, now);
+      return isValidQuickNoteName(name)
+          ? name
+          : dailyNoteName(Settings.defaultQuickNoteDateFormat, now);
     case QuickNoteTarget.single:
-      return settings.quickNoteName;
+      return isValidQuickNoteName(settings.quickNoteName)
+          ? settings.quickNoteName
+          : Settings.defaultQuickNoteName;
   }
 }
+
+String dailyNoteName(String pattern, DateTime now) =>
+    DateFormat(pattern).format(now);
+
+/// `#` separates a note from an anchor in `[note#anchor]`, so a name holding
+/// one could never be linked to.
+bool isValidQuickNoteName(String name) =>
+    name.trim().isNotEmpty && !name.contains('#');
 
 /// Lay the captured text out as one outline item: the first line at the top
 /// level, optionally stamped with the time, and every further line nested one
@@ -54,7 +67,8 @@ String draftFromShared({required String text, String? subject}) {
     return trimmedText;
   }
   if (_isUrl(trimmedText)) {
-    return '[$trimmedText $trimmedSubject]';
+    final title = trimmedSubject.replaceAll('[', '(').replaceAll(']', ')');
+    return '[$trimmedText $title]';
   }
   return '$trimmedSubject\n$trimmedText';
 }

@@ -15,6 +15,19 @@ void main() {
       expect(quickNoteTargetName(settings, now), '2026/10/07');
     });
 
+    test('a pattern giving no name falls back to the default', () {
+      const settings = Settings(quickNoteDateFormat: "'unterminated");
+      expect(quickNoteTargetName(settings, now), '2026-10-07');
+    });
+
+    test('a name with an anchor separator falls back to the default', () {
+      const settings = Settings(
+        quickNoteTarget: QuickNoteTarget.single,
+        quickNoteName: 'Inbox#1',
+      );
+      expect(quickNoteTargetName(settings, now), 'Inbox');
+    });
+
     test('a single note keeps its name', () {
       const settings = Settings(
         quickNoteTarget: QuickNoteTarget.single,
@@ -74,6 +87,13 @@ void main() {
           subject: 'A good read',
         ),
         '[https://example.com/post?id=1 A good read]',
+      );
+    });
+
+    test('brackets in the subject cannot break the link', () {
+      expect(
+        draftFromShared(text: 'https://example.com/', subject: 'Foo [draft]'),
+        '[https://example.com/ Foo (draft)]',
       );
     });
 

@@ -164,11 +164,11 @@ class SettingsStore {
       quickNoteTarget: QuickNoteTarget.values.byName(
         prefs.getString('quickNoteTarget') ?? QuickNoteTarget.daily.name,
       ),
-      quickNoteName: _nonEmpty(
+      quickNoteName: _noteName(
         prefs.getString('quickNoteName'),
         Settings.defaultQuickNoteName,
       ),
-      quickNoteDateFormat: _nonEmpty(
+      quickNoteDateFormat: _noteName(
         prefs.getString('quickNoteDateFormat'),
         Settings.defaultQuickNoteDateFormat,
       ),
@@ -176,9 +176,10 @@ class SettingsStore {
     );
   }
 
-  static String _nonEmpty(String? value, String fallback) {
+  /// `#` would make the note unlinkable, see `isValidQuickNoteName`.
+  static String _noteName(String? value, String fallback) {
     final trimmed = value?.trim() ?? '';
-    return trimmed.isEmpty ? fallback : trimmed;
+    return trimmed.isEmpty || trimmed.contains('#') ? fallback : trimmed;
   }
 
   Future<void> save(Settings settings) async {

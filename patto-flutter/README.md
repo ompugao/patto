@@ -20,7 +20,8 @@ you ask it to.
   server does
 - Plain-text editor with tab nesting and wiki-link completion
 - Quick note: a bolt button, a launcher shortcut and a share target that append
-  a time-stamped line to today's note or to one inbox note, without naming it
+  a line (time-stamped by default, switchable off) to today's note or to one
+  inbox note, without naming it
 - Sync: commit, fetch, fast-forward or merge, push
 - Appearance: light, dark or system theme, and a note text size from 80% to
   180% that applies to the note view and the editor
@@ -176,7 +177,10 @@ does not rebuild it.
 `com.sifi.patto/quick_note` method channel. The request that launched the
 activity is held until Dart asks for it with `consume`, so nothing is lost
 while Flutter starts; later ones are pushed as `quickNote` calls. A recreated
-activity does not replay the launching intent. `RootShell` listens, so a
+activity does not replay the launching intent, and a `quickNote` call that
+Dart has no handler for yet is put back to wait for `consume`. The activity is
+`singleTask`, so a share or the shortcut reaches the running instance through
+`onNewIntent` instead of starting a second engine. `RootShell` listens, so a
 request shows the sheet only once a workspace is ready. The text itself is
 appended by the Rust `append_to_note`, which creates the note on first use.
 

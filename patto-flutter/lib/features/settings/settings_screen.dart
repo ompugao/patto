@@ -59,7 +59,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   );
 
   static String _orDefault(String value, String fallback) =>
-      value.trim().isEmpty ? fallback : value.trim();
+      isValidQuickNoteName(value) ? value.trim() : fallback;
+
+  static String? _nameError(String value) =>
+      value.contains('#') ? 'A note name cannot contain #' : null;
+
+  String? _dateFormatError(String pattern) {
+    if (pattern.contains('#')) return 'A note name cannot contain #';
+    if (pattern.trim().isNotEmpty &&
+        dailyNoteName(pattern, DateTime.now()).trim().isEmpty) {
+      return 'This pattern gives an empty name';
+    }
+    return null;
+  }
+
+  String _dateFormatHelp(String pattern) {
+    final today = dailyNoteName(
+      pattern.trim().isEmpty ? Settings.defaultQuickNoteDateFormat : pattern,
+      DateTime.now(),
+    );
+    return "Today: $today. Quote literal text: 'journal'/yyyy-MM-dd";
+  }
 
   Future<void> _saveFields(Settings base) async {
     await ref.read(settingsProvider.notifier).save(_collect(base));
@@ -213,15 +233,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   controller: _quickNoteDateFormat,
                   decoration: InputDecoration(
                     labelText: 'Date format for the note name',
-                    helperText:
-                        'Today: ${quickNoteTargetName(data, DateTime.now())}',
+                    helperText: _dateFormatHelp(_quickNoteDateFormat.text),
+                    helperMaxLines: 2,
+                    errorText: _dateFormatError(_quickNoteDateFormat.text),
                   ),
+                  onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _saveFields(data),
                 )
               else
                 TextField(
                   controller: _quickNoteName,
-                  decoration: const InputDecoration(labelText: 'Note name'),
+                  decoration: InputDecoration(
+                    labelText: 'Note name',
+                    errorText: _nameError(_quickNoteName.text),
+                  ),
+                  onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _saveFields(data),
                 ),
               SwitchListTile(

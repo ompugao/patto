@@ -207,9 +207,9 @@ void main() {
       expect(loaded.quickNoteTimePrefix, isFalse);
     });
 
-    test('an emptied quick note name falls back to the default', () async {
+    test('an unusable quick note name falls back to the default', () async {
       SharedPreferences.setMockInitialValues({
-        'flutter.quickNoteName': '  ',
+        'flutter.quickNoteName': 'Inbox#1',
         'flutter.quickNoteDateFormat': '',
       });
 
