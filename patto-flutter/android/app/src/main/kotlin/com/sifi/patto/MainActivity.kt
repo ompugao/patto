@@ -40,9 +40,21 @@ class MainActivity : FlutterActivity() {
         val channel = channel
         if (channel == null) {
             pending = request
-        } else {
-            channel.invokeMethod("quickNote", request)
+            return
         }
+        // Dart registers its handler only once a workspace is open; until then
+        // the call comes back unhandled and the request waits for `consume`.
+        channel.invokeMethod("quickNote", request, object : MethodChannel.Result {
+            override fun success(result: Any?) {}
+
+            override fun error(code: String, message: String?, details: Any?) {
+                pending = request
+            }
+
+            override fun notImplemented() {
+                pending = request
+            }
+        })
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
