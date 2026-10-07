@@ -19,9 +19,9 @@ pub use crate::api::index::{BackLink, IndexProgress, IndexStats, LinkCount, TwoH
 pub use crate::api::merge::{MergeRegion, MergedNote, Suggestion, SuggestionKind};
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
-    AnchorRef, Block, BlockKind, DateKind, EmbedKind, EmbedRef, ImageRef, NoteMeta, NoteSpan,
-    NoteTableCell, NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo, TaskStatus,
-    TextMatch, TextSearchHit,
+    AnchorRef, Block, BlockKind, DateKind, EmbedKind, EmbedRef, GooglePhotosMedia, ImageRef,
+    NoteMeta, NoteSpan, NoteTableCell, NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo,
+    TaskStatus, TextMatch, TextSearchHit,
 };
 
 use crate::api::error::PattoResult;
@@ -122,6 +122,23 @@ pub fn rel_path_to_note_name(rel_path: String) -> String {
 
 pub fn render_note(content: String) -> RenderedNote {
     render::render_note(content)
+}
+
+/// Thumbnail and video stream from a Google Photos share page's HTML, which
+/// Dart fetches with [`google_photos_user_agent`]. Asynchronous because a share
+/// page runs to hundreds of kilobytes.
+pub fn parse_google_photos_page(html: String) -> Option<GooglePhotosMedia> {
+    patto::utils::parse_google_photos_page(&html).map(|media| GooglePhotosMedia {
+        thumbnail_url: media.thumbnail_url,
+        video_url: media.video_url,
+        title: media.title,
+    })
+}
+
+/// Google serves share pages without Open Graph tags to unknown clients.
+#[frb(sync)]
+pub fn google_photos_user_agent() -> String {
+    patto::utils::BROWSER_USER_AGENT.to_string()
 }
 
 // ─── index ───────────────────────────────────────────────────────────────────

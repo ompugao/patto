@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1126002358;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 369785797;
 
 // Section: executor
 
@@ -431,6 +431,35 @@ fn wire__crate__frb_api__git_sync_impl(
         },
     )
 }
+fn wire__crate__frb_api__google_photos_user_agent_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "google_photos_user_agent",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Ok::<_, ()>(crate::frb_api::google_photos_user_agent())?;
+                std::result::Result::Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__frb_api__index_build_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -695,6 +724,40 @@ fn wire__crate__frb_api__note_name_to_rel_path_impl(
                 let output_ok = crate::frb_api::note_name_to_rel_path(api_name)?;
                 std::result::Result::Ok(output_ok)
             })())
+        },
+    )
+}
+fn wire__crate__frb_api__parse_google_photos_page_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "parse_google_photos_page",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_html = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Ok::<_, ()>(crate::frb_api::parse_google_photos_page(api_html))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
         },
     )
 }
@@ -1341,18 +1404,21 @@ impl SseDecode for crate::api::types::EmbedKind {
                 };
             }
             1 => {
-                return crate::api::types::EmbedKind::Twitter;
+                return crate::api::types::EmbedKind::GooglePhotos;
             }
             2 => {
-                return crate::api::types::EmbedKind::SpeakerDeck;
+                return crate::api::types::EmbedKind::Twitter;
             }
             3 => {
-                return crate::api::types::EmbedKind::SlideShare;
+                return crate::api::types::EmbedKind::SpeakerDeck;
             }
             4 => {
-                return crate::api::types::EmbedKind::Pdf;
+                return crate::api::types::EmbedKind::SlideShare;
             }
             5 => {
+                return crate::api::types::EmbedKind::Pdf;
+            }
+            6 => {
                 return crate::api::types::EmbedKind::Other;
             }
             _ => {
@@ -1472,6 +1538,20 @@ impl SseDecode for crate::api::git::GitStatus {
             behind: var_behind,
             has_remote: var_hasRemote,
             conflict_pending: var_conflictPending,
+        };
+    }
+}
+
+impl SseDecode for crate::api::types::GooglePhotosMedia {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_thumbnailUrl = <String>::sse_decode(deserializer);
+        let mut var_videoUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_title = <Option<String>>::sse_decode(deserializer);
+        return crate::api::types::GooglePhotosMedia {
+            thumbnail_url: var_thumbnailUrl,
+            video_url: var_videoUrl,
+            title: var_title,
         };
     }
 }
@@ -2016,6 +2096,19 @@ impl SseDecode for Option<crate::api::error::GitErrorKind> {
     }
 }
 
+impl SseDecode for Option<crate::api::types::GooglePhotosMedia> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::types::GooglePhotosMedia>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::conflict::PendingConflict> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2449,21 +2542,24 @@ fn pde_ffi_dispatcher_primary_impl(
         8 => wire__crate__frb_api__git_resolve_impl(port, ptr, rust_vec_len, data_len),
         9 => wire__crate__frb_api__git_status_impl(port, ptr, rust_vec_len, data_len),
         10 => wire__crate__frb_api__git_sync_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__frb_api__index_build_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__frb_api__index_refresh_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__frb_api__index_update_file_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__frb_api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__frb_api__link_counts_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__frb_api__list_notes_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__frb_api__pending_conflict_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__frb_api__pending_tasks_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__frb_api__read_note_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__frb_api__render_note_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__frb_api__search_notes_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__frb_api__search_text_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__frb_api__index_build_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__frb_api__index_refresh_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__frb_api__index_update_file_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__frb_api__init_app_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__frb_api__link_counts_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__frb_api__list_notes_impl(port, ptr, rust_vec_len, data_len),
+        20 => {
+            wire__crate__frb_api__parse_google_photos_page_impl(port, ptr, rust_vec_len, data_len)
+        }
+        21 => wire__crate__frb_api__pending_conflict_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__frb_api__pending_tasks_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__frb_api__read_note_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__frb_api__render_note_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__frb_api__search_notes_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__frb_api__search_text_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__frb_api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__frb_api__two_hop_links_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__frb_api__write_note_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2476,10 +2572,11 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        17 => wire__crate__frb_api__note_exists_impl(ptr, rust_vec_len, data_len),
-        18 => wire__crate__frb_api__note_name_to_rel_path_impl(ptr, rust_vec_len, data_len),
-        22 => wire__crate__frb_api__rel_path_to_note_name_impl(ptr, rust_vec_len, data_len),
-        24 => wire__crate__frb_api__resolve_wiki_link_impl(ptr, rust_vec_len, data_len),
+        11 => wire__crate__frb_api__google_photos_user_agent_impl(ptr, rust_vec_len, data_len),
+        18 => wire__crate__frb_api__note_exists_impl(ptr, rust_vec_len, data_len),
+        19 => wire__crate__frb_api__note_name_to_rel_path_impl(ptr, rust_vec_len, data_len),
+        24 => wire__crate__frb_api__rel_path_to_note_name_impl(ptr, rust_vec_len, data_len),
+        26 => wire__crate__frb_api__resolve_wiki_link_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2716,11 +2813,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::EmbedKind {
             crate::api::types::EmbedKind::Youtube { video_id } => {
                 [0.into_dart(), video_id.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::types::EmbedKind::Twitter => [1.into_dart()].into_dart(),
-            crate::api::types::EmbedKind::SpeakerDeck => [2.into_dart()].into_dart(),
-            crate::api::types::EmbedKind::SlideShare => [3.into_dart()].into_dart(),
-            crate::api::types::EmbedKind::Pdf => [4.into_dart()].into_dart(),
-            crate::api::types::EmbedKind::Other => [5.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::GooglePhotos => [1.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::Twitter => [2.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::SpeakerDeck => [3.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::SlideShare => [4.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::Pdf => [5.into_dart()].into_dart(),
+            crate::api::types::EmbedKind::Other => [6.into_dart()].into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -2877,6 +2975,28 @@ impl flutter_rust_bridge::IntoDart for crate::api::git::GitStatus {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::git::GitStatus {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::git::GitStatus> for crate::api::git::GitStatus {
     fn into_into_dart(self) -> crate::api::git::GitStatus {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::types::GooglePhotosMedia {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.thumbnail_url.into_into_dart().into_dart(),
+            self.video_url.into_into_dart().into_dart(),
+            self.title.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::types::GooglePhotosMedia
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::types::GooglePhotosMedia>
+    for crate::api::types::GooglePhotosMedia
+{
+    fn into_into_dart(self) -> crate::api::types::GooglePhotosMedia {
         self
     }
 }
@@ -3844,20 +3964,23 @@ impl SseEncode for crate::api::types::EmbedKind {
                 <i32>::sse_encode(0, serializer);
                 <String>::sse_encode(video_id, serializer);
             }
-            crate::api::types::EmbedKind::Twitter => {
+            crate::api::types::EmbedKind::GooglePhotos => {
                 <i32>::sse_encode(1, serializer);
             }
-            crate::api::types::EmbedKind::SpeakerDeck => {
+            crate::api::types::EmbedKind::Twitter => {
                 <i32>::sse_encode(2, serializer);
             }
-            crate::api::types::EmbedKind::SlideShare => {
+            crate::api::types::EmbedKind::SpeakerDeck => {
                 <i32>::sse_encode(3, serializer);
             }
-            crate::api::types::EmbedKind::Pdf => {
+            crate::api::types::EmbedKind::SlideShare => {
                 <i32>::sse_encode(4, serializer);
             }
-            crate::api::types::EmbedKind::Other => {
+            crate::api::types::EmbedKind::Pdf => {
                 <i32>::sse_encode(5, serializer);
+            }
+            crate::api::types::EmbedKind::Other => {
+                <i32>::sse_encode(6, serializer);
             }
             _ => {
                 unimplemented!("");
@@ -3957,6 +4080,15 @@ impl SseEncode for crate::api::git::GitStatus {
         <u32>::sse_encode(self.behind, serializer);
         <bool>::sse_encode(self.has_remote, serializer);
         <bool>::sse_encode(self.conflict_pending, serializer);
+    }
+}
+
+impl SseEncode for crate::api::types::GooglePhotosMedia {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.thumbnail_url, serializer);
+        <Option<String>>::sse_encode(self.video_url, serializer);
+        <Option<String>>::sse_encode(self.title, serializer);
     }
 }
 
@@ -4394,6 +4526,16 @@ impl SseEncode for Option<crate::api::error::GitErrorKind> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::error::GitErrorKind>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::types::GooglePhotosMedia> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::types::GooglePhotosMedia>::sse_encode(value, serializer);
         }
     }
 }

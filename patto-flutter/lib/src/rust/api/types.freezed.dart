@@ -752,11 +752,12 @@ extension EmbedKindPatterns on EmbedKind {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( EmbedKind_Youtube value)?  youtube,TResult Function( EmbedKind_Twitter value)?  twitter,TResult Function( EmbedKind_SpeakerDeck value)?  speakerDeck,TResult Function( EmbedKind_SlideShare value)?  slideShare,TResult Function( EmbedKind_Pdf value)?  pdf,TResult Function( EmbedKind_Other value)?  other,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( EmbedKind_Youtube value)?  youtube,TResult Function( EmbedKind_GooglePhotos value)?  googlePhotos,TResult Function( EmbedKind_Twitter value)?  twitter,TResult Function( EmbedKind_SpeakerDeck value)?  speakerDeck,TResult Function( EmbedKind_SlideShare value)?  slideShare,TResult Function( EmbedKind_Pdf value)?  pdf,TResult Function( EmbedKind_Other value)?  other,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case EmbedKind_Youtube() when youtube != null:
-return youtube(_that);case EmbedKind_Twitter() when twitter != null:
+return youtube(_that);case EmbedKind_GooglePhotos() when googlePhotos != null:
+return googlePhotos(_that);case EmbedKind_Twitter() when twitter != null:
 return twitter(_that);case EmbedKind_SpeakerDeck() when speakerDeck != null:
 return speakerDeck(_that);case EmbedKind_SlideShare() when slideShare != null:
 return slideShare(_that);case EmbedKind_Pdf() when pdf != null:
@@ -779,11 +780,12 @@ return other(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( EmbedKind_Youtube value)  youtube,required TResult Function( EmbedKind_Twitter value)  twitter,required TResult Function( EmbedKind_SpeakerDeck value)  speakerDeck,required TResult Function( EmbedKind_SlideShare value)  slideShare,required TResult Function( EmbedKind_Pdf value)  pdf,required TResult Function( EmbedKind_Other value)  other,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( EmbedKind_Youtube value)  youtube,required TResult Function( EmbedKind_GooglePhotos value)  googlePhotos,required TResult Function( EmbedKind_Twitter value)  twitter,required TResult Function( EmbedKind_SpeakerDeck value)  speakerDeck,required TResult Function( EmbedKind_SlideShare value)  slideShare,required TResult Function( EmbedKind_Pdf value)  pdf,required TResult Function( EmbedKind_Other value)  other,}){
 final _that = this;
 switch (_that) {
 case EmbedKind_Youtube():
-return youtube(_that);case EmbedKind_Twitter():
+return youtube(_that);case EmbedKind_GooglePhotos():
+return googlePhotos(_that);case EmbedKind_Twitter():
 return twitter(_that);case EmbedKind_SpeakerDeck():
 return speakerDeck(_that);case EmbedKind_SlideShare():
 return slideShare(_that);case EmbedKind_Pdf():
@@ -802,11 +804,12 @@ return other(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( EmbedKind_Youtube value)?  youtube,TResult? Function( EmbedKind_Twitter value)?  twitter,TResult? Function( EmbedKind_SpeakerDeck value)?  speakerDeck,TResult? Function( EmbedKind_SlideShare value)?  slideShare,TResult? Function( EmbedKind_Pdf value)?  pdf,TResult? Function( EmbedKind_Other value)?  other,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( EmbedKind_Youtube value)?  youtube,TResult? Function( EmbedKind_GooglePhotos value)?  googlePhotos,TResult? Function( EmbedKind_Twitter value)?  twitter,TResult? Function( EmbedKind_SpeakerDeck value)?  speakerDeck,TResult? Function( EmbedKind_SlideShare value)?  slideShare,TResult? Function( EmbedKind_Pdf value)?  pdf,TResult? Function( EmbedKind_Other value)?  other,}){
 final _that = this;
 switch (_that) {
 case EmbedKind_Youtube() when youtube != null:
-return youtube(_that);case EmbedKind_Twitter() when twitter != null:
+return youtube(_that);case EmbedKind_GooglePhotos() when googlePhotos != null:
+return googlePhotos(_that);case EmbedKind_Twitter() when twitter != null:
 return twitter(_that);case EmbedKind_SpeakerDeck() when speakerDeck != null:
 return speakerDeck(_that);case EmbedKind_SlideShare() when slideShare != null:
 return slideShare(_that);case EmbedKind_Pdf() when pdf != null:
@@ -828,10 +831,11 @@ return other(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String videoId)?  youtube,TResult Function()?  twitter,TResult Function()?  speakerDeck,TResult Function()?  slideShare,TResult Function()?  pdf,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String videoId)?  youtube,TResult Function()?  googlePhotos,TResult Function()?  twitter,TResult Function()?  speakerDeck,TResult Function()?  slideShare,TResult Function()?  pdf,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case EmbedKind_Youtube() when youtube != null:
-return youtube(_that.videoId);case EmbedKind_Twitter() when twitter != null:
+return youtube(_that.videoId);case EmbedKind_GooglePhotos() when googlePhotos != null:
+return googlePhotos();case EmbedKind_Twitter() when twitter != null:
 return twitter();case EmbedKind_SpeakerDeck() when speakerDeck != null:
 return speakerDeck();case EmbedKind_SlideShare() when slideShare != null:
 return slideShare();case EmbedKind_Pdf() when pdf != null:
@@ -854,10 +858,11 @@ return other();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String videoId)  youtube,required TResult Function()  twitter,required TResult Function()  speakerDeck,required TResult Function()  slideShare,required TResult Function()  pdf,required TResult Function()  other,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String videoId)  youtube,required TResult Function()  googlePhotos,required TResult Function()  twitter,required TResult Function()  speakerDeck,required TResult Function()  slideShare,required TResult Function()  pdf,required TResult Function()  other,}) {final _that = this;
 switch (_that) {
 case EmbedKind_Youtube():
-return youtube(_that.videoId);case EmbedKind_Twitter():
+return youtube(_that.videoId);case EmbedKind_GooglePhotos():
+return googlePhotos();case EmbedKind_Twitter():
 return twitter();case EmbedKind_SpeakerDeck():
 return speakerDeck();case EmbedKind_SlideShare():
 return slideShare();case EmbedKind_Pdf():
@@ -876,10 +881,11 @@ return other();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String videoId)?  youtube,TResult? Function()?  twitter,TResult? Function()?  speakerDeck,TResult? Function()?  slideShare,TResult? Function()?  pdf,TResult? Function()?  other,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String videoId)?  youtube,TResult? Function()?  googlePhotos,TResult? Function()?  twitter,TResult? Function()?  speakerDeck,TResult? Function()?  slideShare,TResult? Function()?  pdf,TResult? Function()?  other,}) {final _that = this;
 switch (_that) {
 case EmbedKind_Youtube() when youtube != null:
-return youtube(_that.videoId);case EmbedKind_Twitter() when twitter != null:
+return youtube(_that.videoId);case EmbedKind_GooglePhotos() when googlePhotos != null:
+return googlePhotos();case EmbedKind_Twitter() when twitter != null:
 return twitter();case EmbedKind_SpeakerDeck() when speakerDeck != null:
 return speakerDeck();case EmbedKind_SlideShare() when slideShare != null:
 return slideShare();case EmbedKind_Pdf() when pdf != null:
@@ -959,6 +965,38 @@ as String,
 
 
 }
+
+/// @nodoc
+
+
+class EmbedKind_GooglePhotos extends EmbedKind {
+  const EmbedKind_GooglePhotos(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is EmbedKind_GooglePhotos);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'EmbedKind.googlePhotos()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 
