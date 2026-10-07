@@ -9,6 +9,10 @@ you ask it to.
 - Note list with fuzzy title search and sorting by recency, backlinks or name
 - Note view rendering the full syntax: nesting, links, anchors, decorations,
   code with highlighting, tables, math, images, embeds and task markers
+- Every `[@embed ...]` the web preview supports: YouTube and Google Photos
+  thumbnails, PDFs in an in-app viewer, tweets with their text, Speaker Deck
+  and SlideShare decks with their first slide, and a link card for any other
+  URL; tapping opens the content in the app
 - Backlinks and 2-hop links under every note
 - Tasks grouped by deadline, a completed-task review by timeframe, and status
   changes that write `completed_at` and time tracking the way the language

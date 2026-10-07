@@ -57,6 +57,7 @@ dependencies:
   re_highlight: ^0.0.3
   cached_network_image: ^4.0.0
   pdfrx: ^2.6.5
+  webview_flutter: ^4.14.1
 
 dev_dependencies:
   flutter_test:
