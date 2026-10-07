@@ -57,7 +57,7 @@ pub fn resolve(root: &str, rel_path: &str) -> PattoResult<PathBuf> {
     Ok(Path::new(root).join(rel))
 }
 
-fn meta_for(root: &Path, path: &Path) -> Option<NoteMeta> {
+pub(crate) fn meta_for(root: &Path, path: &Path) -> Option<NoteMeta> {
     let rel = path.strip_prefix(root).ok()?;
     let rel_path = rel.to_string_lossy().replace('\\', "/");
     let meta = std::fs::metadata(path).ok()?;
@@ -132,29 +132,6 @@ pub fn create_note(root: String, name: String, initial_content: String) -> Patto
     }
 
     write_note(root.clone(), rel_path.clone(), initial_content)?;
-    meta_for(Path::new(&root), &path).ok_or(PattoError::NotFound(rel_path))
-}
-
-/// Append `text` as new lines at the end of the note called `name`, creating
-/// the note if it does not exist. The result always ends with one newline, and
-/// CRLF line endings in the existing note are normalised to LF.
-pub fn append_to_note(root: String, name: String, text: String) -> PattoResult<NoteMeta> {
-    let rel_path = name_to_rel_path(&name)?;
-    let path = resolve(&root, &rel_path)?;
-    let existing = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(PattoError::Io(e.to_string())),
-    };
-    let mut content = existing.replace("\r\n", "\n");
-    if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
-    }
-    let entry = text.replace("\r\n", "\n");
-    content.push_str(entry.trim_end_matches('\n'));
-    content.push('\n');
-
-    write_note(root.clone(), rel_path.clone(), content)?;
     meta_for(Path::new(&root), &path).ok_or(PattoError::NotFound(rel_path))
 }
 

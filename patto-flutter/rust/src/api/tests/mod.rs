@@ -1,3 +1,4 @@
+mod inbox_tests;
 mod index_tests;
 mod merge_tests;
 mod open_graph_tests;

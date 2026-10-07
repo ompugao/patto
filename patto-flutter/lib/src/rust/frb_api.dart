@@ -45,16 +45,6 @@ Future<NoteMeta> createNote({
   initialContent: initialContent,
 );
 
-Future<NoteMeta> appendToNote({
-  required String root,
-  required String name,
-  required String text,
-}) => RustLib.instance.api.crateFrbApiAppendToNote(
-  root: root,
-  name: name,
-  text: text,
-);
-
 Future<void> deleteNote({required String root, required String relPath}) =>
     RustLib.instance.api.crateFrbApiDeleteNote(root: root, relPath: relPath);
 
@@ -90,6 +80,28 @@ String noteNameToRelPath({required String name}) =>
 
 String relPathToNoteName({required String relPath}) =>
     RustLib.instance.api.crateFrbApiRelPathToNoteName(relPath: relPath);
+
+/// Every post in the inbox note, oldest first; none when the note is missing.
+Future<List<InboxPost>> inboxPosts({
+  required String root,
+  required String name,
+}) => RustLib.instance.api.crateFrbApiInboxPosts(root: root, name: name);
+
+/// Append a post under `date` (`yyyy-MM-dd`) stamped `time` (`HH:mm`), creating
+/// the note if needed. Dart supplies the stamps so the core stays clock-free.
+Future<NoteMeta> inboxAppend({
+  required String root,
+  required String name,
+  required String date,
+  required String time,
+  required String text,
+}) => RustLib.instance.api.crateFrbApiInboxAppend(
+  root: root,
+  name: name,
+  date: date,
+  time: time,
+  text: text,
+);
 
 Future<RenderedNote> renderNote({required String content}) =>
     RustLib.instance.api.crateFrbApiRenderNote(content: content);
