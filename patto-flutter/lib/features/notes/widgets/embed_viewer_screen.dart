@@ -53,14 +53,18 @@ class _EmbedViewerScreenState extends State<EmbedViewerScreen> {
     });
   }
 
+  static const _inlineSchemes = {'http', 'https', 'about', 'data', 'blob'};
+
   /// Only web pages stay in the view; `twitter://`, `intent://`, `mailto:`
   /// and the like go to the app that handles them, as a browser would.
+  /// Frames inside the page (iOS reports them too) are always left alone.
   Future<NavigationDecision> _onNavigationRequest(
     NavigationRequest request,
   ) async {
+    if (!request.isMainFrame) return NavigationDecision.navigate;
     final uri = Uri.tryParse(request.url);
     if (uri == null) return NavigationDecision.prevent;
-    if (uri.scheme == 'http' || uri.scheme == 'https') {
+    if (_inlineSchemes.contains(uri.scheme)) {
       return NavigationDecision.navigate;
     }
     await launchUrl(
