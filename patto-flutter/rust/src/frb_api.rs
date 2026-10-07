@@ -20,12 +20,12 @@ pub use crate::api::merge::{MergeRegion, MergedNote, Suggestion, SuggestionKind}
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
     AnchorRef, Block, BlockKind, DateKind, EmbedKind, EmbedRef, GooglePhotosMedia, ImageRef,
-    NoteMeta, NoteSpan, NoteTableCell, NoteTableRow, OpenGraphMeta, ParseIssue, RenderedNote,
-    TaskDate, TaskInfo, TaskStatus, TextMatch, TextSearchHit,
+    InboxPost, NoteMeta, NoteSpan, NoteTableCell, NoteTableRow, OpenGraphMeta, ParseIssue,
+    RenderedNote, TaskDate, TaskInfo, TaskStatus, TextMatch, TextSearchHit,
 };
 
 use crate::api::error::PattoResult;
-use crate::api::{conflict, git, index, open_graph, render, store, tasks};
+use crate::api::{conflict, git, inbox, index, open_graph, render, store, tasks};
 
 /// Called once at startup, before anything else.
 #[frb(init)]
@@ -116,6 +116,27 @@ pub fn note_name_to_rel_path(name: String) -> PattoResult<String> {
 #[frb(sync)]
 pub fn rel_path_to_note_name(rel_path: String) -> String {
     store::rel_path_to_name(&rel_path)
+}
+
+// ─── inbox ───────────────────────────────────────────────────────────────────
+
+/// Every post in the inbox note, oldest first; none when the note is missing.
+pub fn inbox_posts(root: String, name: String) -> PattoResult<Vec<InboxPost>> {
+    inbox::inbox_posts(root, name)
+}
+
+/// Append a post under `date` (`yyyy-MM-dd`) stamped `time` (`HH:mm`), creating
+/// the note if needed. Dart supplies the stamps so the core stays clock-free.
+pub fn inbox_append(
+    root: String,
+    name: String,
+    date: String,
+    time: String,
+    text: String,
+) -> PattoResult<NoteMeta> {
+    let meta = inbox::inbox_append(root.clone(), name, date, time, text)?;
+    index::index_update_file(root, meta.rel_path.clone())?;
+    Ok(meta)
 }
 
 // ─── rendering ───────────────────────────────────────────────────────────────

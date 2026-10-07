@@ -52,6 +52,16 @@ void main() {
   });
 
   group('settings', () {
+    test('an inbox note name cannot be empty or hold an anchor', () {
+      expect(Settings.isValidInboxNoteName('Inbox'), isTrue);
+      expect(Settings.isValidInboxNoteName('journal/inbox'), isTrue);
+      expect(Settings.isValidInboxNoteName('  '), isFalse);
+      expect(Settings.isValidInboxNoteName('Inbox#1'), isFalse);
+      for (final bad in ['/Inbox', '.inbox', 'a//b', r'a\b', 'a /b', '../x']) {
+        expect(Settings.isValidInboxNoteName(bad), isFalse, reason: bad);
+      }
+    });
+
     test('the active workspace falls back to the first one', () {
       const a = Workspace(id: 'a', name: 'A', dirName: 'a');
       const b = Workspace(id: 'b', name: 'B', dirName: 'b');
@@ -176,6 +186,36 @@ void main() {
 
       expect(loaded.workspaces.map((w) => w.name), ['Personal', 'Work']);
       expect(loaded.active?.id, 'ws-2');
+    });
+
+    test('the inbox note defaults to Inbox', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final settings = await SettingsStore().load();
+
+      expect(settings.inboxNoteName, Settings.defaultInboxNoteName);
+    });
+
+    test('the inbox note name survives a round trip', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = SettingsStore();
+
+      await store.save(const Settings(inboxNoteName: 'journal/inbox'));
+      final loaded = await store.load();
+
+      expect(loaded.inboxNoteName, 'journal/inbox');
+    });
+
+    test('an unusable inbox note name falls back to the default', () async {
+      for (final stored in ['Inbox#1', '  ']) {
+        SharedPreferences.setMockInitialValues({
+          'flutter.inboxNoteName': stored,
+        });
+
+        final settings = await SettingsStore().load();
+
+        expect(settings.inboxNoteName, Settings.defaultInboxNoteName);
+      }
     });
 
     test('a clamped font scale never leaves the allowed range', () async {

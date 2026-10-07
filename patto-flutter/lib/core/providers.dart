@@ -9,10 +9,17 @@ import '../src/rust/api/index.dart';
 import '../src/rust/api/tasks.dart';
 import '../src/rust/api/types.dart';
 import '../src/rust/frb_api.dart' as rust;
+import 'quick_note_intents.dart';
 import 'settings.dart';
 import 'workspace.dart';
 
 final settingsStoreProvider = Provider((_) => SettingsStore());
+
+final quickNoteIntentsProvider = Provider<QuickNoteIntents>((ref) {
+  final intents = QuickNoteIntents();
+  ref.onDispose(intents.dispose);
+  return intents;
+});
 
 /// Stand-in for the removed StateProvider: one mutable value with a setter.
 class ValueNotifierOf<T> extends Notifier<T> {
@@ -95,6 +102,14 @@ final fontScaleProvider = Provider<double>((ref) {
 /// Bumped whenever notes change on disk, to invalidate everything derived.
 final notesRevisionProvider = valueProvider<int>(0);
 
+/// Which bottom tab is showing; a shared text returns to the notes tab
+/// before the inbox sheet opens over it.
+final rootTabProvider = valueProvider<int>(0);
+
+/// Text waiting to be put into the inbox composer, from a share or the
+/// launcher shortcut. The composer takes it and sets this back to null.
+final inboxDraftProvider = valueProvider<String?>(null);
+
 /// How the note list is ordered.
 enum NoteSort { recent, linked, title }
 
@@ -173,7 +188,11 @@ class IndexNotifier extends Notifier<IndexState> {
     try {
       await rust.indexRefresh(root: root);
       _built.add(root);
-      state = IndexState(ready: true, scanned: state.scanned, total: state.total);
+      state = IndexState(
+        ready: true,
+        scanned: state.scanned,
+        total: state.total,
+      );
       ref.read(notesRevisionProvider.notifier).state++;
     } catch (e) {
       state = IndexState(error: e.toString(), ready: state.ready);
@@ -192,17 +211,33 @@ final indexProvider = NotifierProvider<IndexNotifier, IndexState>(
   IndexNotifier.new,
 );
 
+final inboxNoteNameProvider = Provider<String>((ref) {
+  return ref.watch(settingsProvider).value?.inboxNoteName ??
+      Settings.defaultInboxNoteName;
+});
+
+final inboxPostsProvider = FutureProvider<List<InboxPost>>((ref) async {
+  final workspace = await ref.watch(workspaceProvider.future);
+  ref.watch(notesRevisionProvider);
+  final name = ref.watch(inboxNoteNameProvider);
+  if (workspace == null) return const [];
+  return rust.inboxPosts(root: workspace.root, name: name);
+});
+
 final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
   final query = ref.watch(noteSearchProvider);
   final sort = ref.watch(noteSortProvider);
+  final inboxName = ref.watch(inboxNoteNameProvider);
 
   if (workspace == null || !workspace.exists) return const [];
 
-  final notes = query.trim().isEmpty
+  final found = query.trim().isEmpty
       ? await rust.listNotes(root: workspace.root)
       : await rust.searchNotes(root: workspace.root, query: query, limit: 200);
+  // The inbox has its own sheet; listing it too would show it twice.
+  final notes = found.where((n) => n.name != inboxName).toList();
 
   if (sort == NoteSort.title) {
     final sorted = [...notes]..sort((a, b) => a.name.compareTo(b.name));
@@ -232,18 +267,18 @@ final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
 /// Notes whose name or contents contain the query, for the search screen.
 final textSearchProvider = FutureProvider.autoDispose
     .family<List<TextSearchHit>, String>((ref, query) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !workspace.exists || query.trim().isEmpty) {
-    return const [];
-  }
-  return rust.searchText(
-    root: workspace.root,
-    query: query,
-    maxNotes: 100,
-    maxLinesPerNote: 5,
-  );
-});
+      final workspace = await ref.watch(workspaceProvider.future);
+      ref.watch(notesRevisionProvider);
+      if (workspace == null || !workspace.exists || query.trim().isEmpty) {
+        return const [];
+      }
+      return rust.searchText(
+        root: workspace.root,
+        query: query,
+        maxNotes: 100,
+        maxLinesPerNote: 5,
+      );
+    });
 
 final linkCountsProvider = FutureProvider<Map<String, int>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
@@ -260,38 +295,43 @@ final linkCountsProvider = FutureProvider<Map<String, int>>((ref) async {
   }
 });
 
-final renderedNoteProvider =
-    FutureProvider.autoDispose.family<RenderedNote, String>((ref, relPath) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null) {
-    throw StateError('no workspace is active');
-  }
+final renderedNoteProvider = FutureProvider.autoDispose
+    .family<RenderedNote, String>((ref, relPath) async {
+      final workspace = await ref.watch(workspaceProvider.future);
+      ref.watch(notesRevisionProvider);
+      if (workspace == null) {
+        throw StateError('no workspace is active');
+      }
 
-  // Keep recently viewed notes parsed so going back is instant.
-  final link = ref.keepAlive();
-  final timer = Timer(const Duration(minutes: 5), link.close);
-  ref.onDispose(timer.cancel);
+      // Keep recently viewed notes parsed so going back is instant.
+      final link = ref.keepAlive();
+      final timer = Timer(const Duration(minutes: 5), link.close);
+      ref.onDispose(timer.cancel);
 
-  final content = await rust.readNote(root: workspace.root, relPath: relPath);
-  return rust.renderNote(content: content);
-});
+      final content = await rust.readNote(
+        root: workspace.root,
+        relPath: relPath,
+      );
+      return rust.renderNote(content: content);
+    });
 
-final backlinksProvider =
-    FutureProvider.autoDispose.family<List<BackLink>, String>((ref, relPath) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
+final backlinksProvider = FutureProvider.autoDispose
+    .family<List<BackLink>, String>((ref, relPath) async {
+      final workspace = await ref.watch(workspaceProvider.future);
+      ref.watch(notesRevisionProvider);
+      if (workspace == null || !ref.watch(indexProvider).ready) return const [];
 
-  try {
-    return await rust.backlinks(root: workspace.root, relPath: relPath);
-  } catch (_) {
-    return const [];
-  }
-});
+      try {
+        return await rust.backlinks(root: workspace.root, relPath: relPath);
+      } catch (_) {
+        return const [];
+      }
+    });
 
-final twoHopProvider =
-    FutureProvider.autoDispose.family<List<TwoHop>, String>((ref, relPath) async {
+final twoHopProvider = FutureProvider.autoDispose.family<List<TwoHop>, String>((
+  ref,
+  relPath,
+) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
   if (workspace == null || !ref.watch(indexProvider).ready) return const [];
@@ -326,10 +366,11 @@ final completedTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
 
   final timeframe = ref.watch(reviewTimeframeProvider);
   final range = ref.watch(reviewRangeProvider);
-  String? asDate(DateTime? d) =>
-      d == null ? null : '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+  String? asDate(DateTime? d) => d == null
+      ? null
+      : '${d.year.toString().padLeft(4, '0')}-'
+            '${d.month.toString().padLeft(2, '0')}-'
+            '${d.day.toString().padLeft(2, '0')}';
 
   try {
     return await rust.completedTasks(

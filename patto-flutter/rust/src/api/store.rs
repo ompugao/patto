@@ -57,7 +57,7 @@ pub fn resolve(root: &str, rel_path: &str) -> PattoResult<PathBuf> {
     Ok(Path::new(root).join(rel))
 }
 
-fn meta_for(root: &Path, path: &Path) -> Option<NoteMeta> {
+pub(crate) fn meta_for(root: &Path, path: &Path) -> Option<NoteMeta> {
     let rel = path.strip_prefix(root).ok()?;
     let rel_path = rel.to_string_lossy().replace('\\', "/");
     let meta = std::fs::metadata(path).ok()?;

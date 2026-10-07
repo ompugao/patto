@@ -246,6 +246,21 @@ pub struct RenderedNote {
     pub errors: Vec<ParseIssue>,
 }
 
+/// One quick post in the inbox note.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboxPost {
+    /// The `yyyy-MM-dd` heading the post sits under.
+    pub date: String,
+    /// `HH:mm`.
+    pub time: String,
+    /// First line, without the time.
+    pub text: String,
+    /// Further lines, with their nesting under the post removed.
+    pub body: Vec<String>,
+    /// 0-based line of the post's first line, for the editor.
+    pub line: u32,
+}
+
 /// A note as listed on the notes screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteMeta {

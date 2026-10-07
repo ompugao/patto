@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/providers.dart';
+import 'core/quick_note_intents.dart';
 import 'features/notes/note_list_screen.dart';
+import 'features/inbox/inbox_entry.dart';
+import 'features/inbox/inbox_sheet.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/workspace_editor.dart';
 import 'features/tasks/tasks_screen.dart';
@@ -50,9 +55,8 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
     final workspace = ref.watch(workspaceProvider);
 
     return workspace.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
         body: Center(
           child: Padding(
@@ -129,30 +133,53 @@ class _WorkspaceNotReady extends ConsumerWidget {
 }
 
 /// Bottom navigation over screens kept alive, so tab switches preserve scroll.
-class RootShell extends StatefulWidget {
+///
+/// Also where quick-note intents (the launcher shortcut, text shared from
+/// another app) surface: this widget only exists once a workspace is ready.
+class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
 
   @override
-  State<RootShell> createState() => _RootShellState();
+  ConsumerState<RootShell> createState() => _RootShellState();
 }
 
-class _RootShellState extends State<RootShell> {
-  int _tab = 0;
+class _RootShellState extends ConsumerState<RootShell> {
+  StreamSubscription<QuickNoteRequest>? _quickNotes;
+
+  @override
+  void initState() {
+    super.initState();
+    final intents = ref.read(quickNoteIntentsProvider);
+    _quickNotes = intents.requests.listen((request) {
+      if (!mounted) return;
+      ref.read(rootTabProvider.notifier).value = 0;
+      InboxSheet.show(
+        context,
+        draft: draftFromShared(text: request.text, subject: request.subject),
+      );
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
+  }
+
+  @override
+  void dispose() {
+    _quickNotes?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tab = ref.watch(rootTabProvider);
+
     return Scaffold(
       body: IndexedStack(
-        index: _tab,
-        children: const [
-          NoteListScreen(),
-          TasksScreen(),
-          SettingsScreen(),
-        ],
+        index: tab,
+        children: const [NoteListScreen(), TasksScreen(), SettingsScreen()],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
+        selectedIndex: tab,
+        onDestinationSelected: (i) =>
+            ref.read(rootTabProvider.notifier).value = i,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.description_outlined),
