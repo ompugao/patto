@@ -303,9 +303,7 @@ fn a_clashing_attachment_does_not_join_a_paused_sync() {
         panic!("expected a conflict, got {:?}", report.merge);
     };
     assert_eq!(paths, &vec!["shopping.pn".to_string()]);
-    let pending = pending_conflict(setup.phone(), "attachments".to_string())
-        .unwrap()
-        .unwrap();
+    let pending = pending_conflict(setup.phone()).unwrap().unwrap();
     assert_eq!(pending.files.len(), 1);
     assert_eq!(pending.files[0].path, "shopping.pn");
 }
@@ -352,9 +350,7 @@ fn a_conflict_pauses_the_sync_and_pushes_a_side_branch() {
             .unwrap()
             .conflict_pending
     );
-    let pending = pending_conflict(setup.phone(), "attachments".to_string())
-        .unwrap()
-        .unwrap();
+    let pending = pending_conflict(setup.phone()).unwrap().unwrap();
     assert_eq!(&pending.side_branch, side_branch);
     assert_eq!(pending.remote.id, desktop_tip.to_string());
     assert_eq!(pending.files.len(), 1);
@@ -393,12 +389,7 @@ fn resolving_on_the_phone_merges_pushes_and_removes_the_side_branch() {
         panic!("expected a conflict");
     };
 
-    let detail = conflict_detail(
-        setup.phone(),
-        "attachments".to_string(),
-        "shopping.pn".to_string(),
-    )
-    .unwrap();
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
     assert_eq!(
         detail.ours.as_deref(),
         Some("bread\nmilk {@task status=done}\neggs\n")
@@ -442,10 +433,7 @@ fn resolving_on_the_phone_merges_pushes_and_removes_the_side_branch() {
             .unwrap()
             .conflict_pending
     );
-    assert_eq!(
-        pending_conflict(setup.phone(), "attachments".to_string()).unwrap(),
-        None
-    );
+    assert_eq!(pending_conflict(setup.phone()).unwrap(), None);
 }
 
 #[test]
@@ -520,12 +508,7 @@ fn a_merge_done_on_the_desktop_is_picked_up_by_the_next_sync() {
 fn a_resolution_is_refused_when_the_remote_moved() {
     let setup = Setup::new();
     setup.pause_on_conflict();
-    let detail = conflict_detail(
-        setup.phone(),
-        "attachments".to_string(),
-        "shopping.pn".to_string(),
-    )
-    .unwrap();
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
 
     setup.desktop_edit("other.pn", "z\n");
 
@@ -560,12 +543,7 @@ fn a_resolution_is_refused_when_the_remote_moved() {
 fn a_resolution_is_refused_when_the_note_changed_since_review() {
     let setup = Setup::new();
     setup.pause_on_conflict();
-    let detail = conflict_detail(
-        setup.phone(),
-        "attachments".to_string(),
-        "shopping.pn".to_string(),
-    )
-    .unwrap();
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
 
     setup.phone_edit(
         "shopping.pn",
@@ -605,12 +583,7 @@ fn a_note_deleted_on_the_remote_can_be_kept() {
     let report = setup.sync().unwrap();
     assert!(matches!(report.merge, MergeOutcome::Conflicted { .. }));
 
-    let detail = conflict_detail(
-        setup.phone(),
-        "attachments".to_string(),
-        "shopping.pn".to_string(),
-    )
-    .unwrap();
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
     assert_eq!(detail.kind, ConflictKind::DeletedByThem);
     assert_eq!(detail.theirs, None);
 

@@ -71,8 +71,8 @@ pub struct SyncReport {
     /// A merge that was pending has now been completed, on the desktop or in
     /// the app, and the side branch removed.
     pub conflict_cleared: bool,
-    /// Note and attachment paths that changed on disk during the sync, so the
-    /// app can refresh just those.
+    /// Paths that changed on disk during the sync, so the app can refresh just
+    /// those notes and forget cached pictures.
     pub changed_paths: Vec<String>,
 }
 
@@ -443,11 +443,7 @@ pub(crate) fn commit_notes(
     Ok(Some(oid))
 }
 
-pub(crate) fn changed_between(
-    repo: &Repository,
-    before: Option<git2::Oid>,
-    attachments_dir: &str,
-) -> Vec<String> {
+pub(crate) fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> Vec<String> {
     let Some(before) = before else {
         return Vec::new();
     };
@@ -470,7 +466,7 @@ pub(crate) fn changed_between(
         &mut |delta, _| {
             for file in [delta.new_file(), delta.old_file()] {
                 if let Some(p) = file.path().and_then(|p| p.to_str()) {
-                    if is_synced(p, attachments_dir) && !paths.contains(&p.to_string()) {
+                    if !paths.contains(&p.to_string()) {
                         paths.push(p.to_string());
                     }
                 }
@@ -598,14 +594,12 @@ fn fast_forward(repo: &Repository, branch: &str, target: Oid) -> PattoResult<()>
     Ok(())
 }
 
-/// Settles clashing attachments in favour of this device's copy, the way the
-/// app settles every conflict it cannot present: an attachment is a binary
-/// file the line merge would only corrupt. Keeps ours where both sides have
-/// one, and the deletion where this side deleted it.
-pub(crate) fn keep_our_attachments(
-    index: &mut git2::Index,
-    attachments_dir: &str,
-) -> PattoResult<()> {
+/// Settles every clash on a file that is not a note in favour of this device's
+/// copy, the way the app settles every conflict it cannot present: such a file
+/// is an attachment or other binary that the line merge would only corrupt.
+/// Keeps ours where both sides have one, and the deletion where this side
+/// deleted it.
+pub(crate) fn settle_file_conflicts(index: &mut git2::Index) -> PattoResult<()> {
     let mut clashes = Vec::new();
     for conflict in index.conflicts()? {
         let conflict = conflict?;
@@ -618,7 +612,7 @@ pub(crate) fn keep_our_attachments(
             continue;
         };
         let path = String::from_utf8_lossy(&entry.path).to_string();
-        if is_attachment(&path, attachments_dir) {
+        if !path.ends_with(".pn") {
             clashes.push((path, conflict.our));
         }
     }
@@ -677,7 +671,6 @@ fn integrate(
     branch: &str,
     fetched: Oid,
     sig: &Signature,
-    attachments_dir: &str,
     on_progress: &(dyn Fn(GitProgress) + Send + Sync),
 ) -> PattoResult<MergeOutcome> {
     let annotated = repo.find_annotated_commit(fetched)?;
@@ -701,7 +694,7 @@ fn integrate(
     let head = repo.head()?.peel_to_commit()?;
     let theirs = repo.find_commit(fetched)?;
     let mut index = repo.merge_commits(&head, &theirs, None)?;
-    keep_our_attachments(&mut index, attachments_dir)?;
+    settle_file_conflicts(&mut index)?;
 
     if index.has_conflicts() {
         return Ok(MergeOutcome::Conflicted {
@@ -787,14 +780,7 @@ pub fn git_sync(
     for _ in 0..PUSH_ATTEMPTS {
         let fetched = fetch_branch(&repo, &mut remote, &branch, &creds, &on_progress)?;
 
-        match integrate(
-            &repo,
-            &branch,
-            fetched,
-            &sig,
-            &attachments_dir,
-            &on_progress,
-        )? {
+        match integrate(&repo, &branch, fetched, &sig, &on_progress)? {
             MergeOutcome::Conflicted { paths, .. } => {
                 repo.reference(CONFLICT_REF, fetched, true, "patto: sync paused")?;
                 let side = side_branch(&repo)?;
@@ -815,7 +801,7 @@ pub fn git_sync(
                     },
                     pushed: false,
                     conflict_cleared: false,
-                    changed_paths: changed_between(&repo, before, &attachments_dir),
+                    changed_paths: changed_between(&repo, before),
                 });
             }
             MergeOutcome::UpToDate => {}
@@ -859,6 +845,6 @@ pub fn git_sync(
         merge,
         pushed,
         conflict_cleared,
-        changed_paths: changed_between(&repo, before, &attachments_dir),
+        changed_paths: changed_between(&repo, before),
     })
 }

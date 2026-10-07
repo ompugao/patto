@@ -15,10 +15,7 @@ final pendingConflictProvider = FutureProvider<PendingConflict?>((ref) async {
   if (workspace == null || !workspace.isCloned) return null;
 
   try {
-    return await rust.pendingConflict(
-      root: workspace.root,
-      attachmentsDir: workspace.config.attachmentsDir,
-    );
+    return await rust.pendingConflict(root: workspace.root);
   } catch (_) {
     return null;
   }
@@ -35,11 +32,7 @@ final conflictDetailProvider = FutureProvider.autoDispose
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
   if (workspace == null) throw StateError('no workspace is active');
-  return rust.conflictDetail(
-    root: workspace.root,
-    attachmentsDir: workspace.config.attachmentsDir,
-    relPath: relPath,
-  );
+  return rust.conflictDetail(root: workspace.root, relPath: relPath);
 });
 
 /// What the user picked for one conflict.

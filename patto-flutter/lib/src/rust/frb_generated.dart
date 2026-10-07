@@ -105,7 +105,6 @@ abstract class RustLibApi extends BaseApi {
 
   Future<ConflictDetail> crateFrbApiConflictDetail({
     required String root,
-    required String attachmentsDir,
     required String relPath,
   });
 
@@ -176,10 +175,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<OpenGraphMeta> crateFrbApiParseOpenGraph({required String html});
 
-  Future<PendingConflict?> crateFrbApiPendingConflict({
-    required String root,
-    required String attachmentsDir,
-  });
+  Future<PendingConflict?> crateFrbApiPendingConflict({required String root});
 
   Future<List<TaskItem>> crateFrbApiPendingTasks({required String root});
 
@@ -334,7 +330,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<ConflictDetail> crateFrbApiConflictDetail({
     required String root,
-    required String attachmentsDir,
     required String relPath,
   }) {
     return handler.executeNormal(
@@ -342,7 +337,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
-          sse_encode_String(attachmentsDir, serializer);
           sse_encode_String(relPath, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -356,7 +350,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiConflictDetailConstMeta,
-        argValues: [root, attachmentsDir, relPath],
+        argValues: [root, relPath],
         apiImpl: this,
       ),
     );
@@ -364,7 +358,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateFrbApiConflictDetailConstMeta => const TaskConstMeta(
     debugName: "conflict_detail",
-    argNames: ["root", "attachmentsDir", "relPath"],
+    argNames: ["root", "relPath"],
   );
 
   @override
@@ -956,16 +950,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "parse_open_graph", argNames: ["html"]);
 
   @override
-  Future<PendingConflict?> crateFrbApiPendingConflict({
-    required String root,
-    required String attachmentsDir,
-  }) {
+  Future<PendingConflict?> crateFrbApiPendingConflict({required String root}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
-          sse_encode_String(attachmentsDir, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -978,16 +968,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiPendingConflictConstMeta,
-        argValues: [root, attachmentsDir],
+        argValues: [root],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateFrbApiPendingConflictConstMeta => const TaskConstMeta(
-    debugName: "pending_conflict",
-    argNames: ["root", "attachmentsDir"],
-  );
+  TaskConstMeta get kCrateFrbApiPendingConflictConstMeta =>
+      const TaskConstMeta(debugName: "pending_conflict", argNames: ["root"]);
 
   @override
   Future<List<TaskItem>> crateFrbApiPendingTasks({required String root}) {

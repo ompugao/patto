@@ -126,6 +126,8 @@ void main() {
       expect(normalizeAttachmentsDir('../up'), isNull);
       expect(normalizeAttachmentsDir('a/./b'), isNull);
       expect(normalizeAttachmentsDir('a//b'), isNull);
+      expect(normalizeAttachmentsDir('.git'), isNull);
+      expect(normalizeAttachmentsDir('files/.hidden'), isNull);
     });
   });
 
@@ -154,6 +156,15 @@ void main() {
         await File('${root.path}/attachments/a_b-3.png').readAsBytes(),
         bytes,
       );
+
+      final picked = File('${root.path}/picked.tmp');
+      await picked.writeAsBytes(bytes);
+      expect(
+        await saveAttachmentFile(root.path, 'files', 'Doc (1).pdf', picked),
+        'files/Doc_1.pdf',
+      );
+      expect(await File('${root.path}/files/Doc_1.pdf').readAsBytes(), bytes);
+      expect(await picked.exists(), isFalse);
     });
   });
 }

@@ -283,20 +283,13 @@ pub fn git_sync(
 // ─── conflicts ───────────────────────────────────────────────────────────────
 
 /// The sync that stopped at a conflict, if one is waiting to be merged.
-pub fn pending_conflict(
-    root: String,
-    attachments_dir: String,
-) -> PattoResult<Option<PendingConflict>> {
-    conflict::pending_conflict(root, attachments_dir)
+pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
+    conflict::pending_conflict(root)
 }
 
 /// Base, phone and remote versions of one clashing note, split into regions.
-pub fn conflict_detail(
-    root: String,
-    attachments_dir: String,
-    rel_path: String,
-) -> PattoResult<ConflictDetail> {
-    conflict::conflict_detail(root, attachments_dir, rel_path)
+pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
+    conflict::conflict_detail(root, rel_path)
 }
 
 /// Merge with the user's choice for every clashing note and push. Reports like

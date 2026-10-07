@@ -170,16 +170,11 @@ fn wire__crate__frb_api__conflict_detail_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
-            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             let api_rel_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::conflict_detail(
-                        api_root,
-                        api_attachments_dir,
-                        api_rel_path,
-                    )?;
+                    let output_ok = crate::frb_api::conflict_detail(api_root, api_rel_path)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -827,12 +822,10 @@ fn wire__crate__frb_api__pending_conflict_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
-            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok =
-                        crate::frb_api::pending_conflict(api_root, api_attachments_dir)?;
+                    let output_ok = crate::frb_api::pending_conflict(api_root)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }

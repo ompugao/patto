@@ -182,11 +182,13 @@ lives. Its name is reduced to what the patto grammar accepts in a `./` path
 (letters, digits, CJK, `-`, `_`, and a letters-only extension), and a clash
 gets a numeric suffix. Sync stages new files only under `*.pn` and the
 attachment folder, and stages changes and deletions of anything already
-tracked. A clash on an attachment between this device and the remote keeps
-this device's copy, as the line merge is for text; a clash on a note still
-pauses the sync for review. Reading an image off the clipboard goes through a
-method channel in `MainActivity.kt`; a host without it, such as iOS today, only
-pastes text.
+tracked. A clash on any file that is not a note is settled in favour of this
+device's copy, as the line merge is for text; a clash on a note still pauses
+the sync for review. Reading an image off the clipboard and opening the system
+file dialog go through a method channel in `MainActivity.kt` (the usual
+file-picker plugin brings a native module that wants a newer NDK than the Rust
+library is built against); a host without the channel, such as iOS today, only
+pastes text and cannot attach files.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

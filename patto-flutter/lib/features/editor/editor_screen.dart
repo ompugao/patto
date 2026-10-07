@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +13,7 @@ import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_state.dart';
 import 'attachments.dart';
-import 'clipboard_image.dart';
+import 'device_files.dart';
 import 'indent_guides.dart';
 import 'outline.dart';
 import 'patto_editing_controller.dart';
@@ -404,16 +403,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// Copies a file the user picks into the workspace and inserts a reference
   /// to it: an image, an embedded PDF, or a link for anything else.
   Future<void> _attachFile() => _guarded(() async {
-    final file = await FilePicker.pickFile(dialogTitle: 'Attach a file');
-    if (file == null || !mounted) return;
-    await _insertAttachment(file.name, await file.readAsBytes());
+    final picked = await DeviceFiles.pickFile();
+    if (!mounted) return;
+    if (picked == null) return _notify('No file was picked');
+    await _insertAttachment(
+      picked.name,
+      (root, dir) => saveAttachmentFile(root, dir, picked.name, picked.file),
+    );
   });
 
   /// Inserts what the clipboard holds in the form the note understands: an
   /// image is saved into the workspace, a web address becomes a link, an
   /// embed or an image by what it points at, and other text is pasted as is.
   Future<void> _pasteRich() => _guarded(() async {
-    final image = await ClipboardImage.read();
+    final image = await DeviceFiles.clipboardImage();
     if (!mounted) return;
     if (image != null) {
       final name = pastedImageName(
@@ -422,7 +425,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         DateTime.now(),
         mimeType: image.mimeType,
       );
-      await _insertAttachment(name, image.bytes);
+      await _insertAttachment(
+        name,
+        (root, dir) => saveAttachment(root, dir, name, image.bytes),
+      );
       return;
     }
     final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
@@ -450,16 +456,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  Future<void> _insertAttachment(String name, Uint8List bytes) async {
+  /// Runs [save] against the active workspace and inserts a reference to the
+  /// path it returns.
+  Future<void> _insertAttachment(
+    String name,
+    Future<String> Function(String root, String attachmentsDir) save,
+  ) async {
     final workspace = await ref.read(workspaceProvider.future);
     if (!mounted) return;
     if (workspace == null) return _notify('No workspace is active');
     try {
-      final relPath = await saveAttachment(
+      final relPath = await save(
         workspace.root,
         workspace.config.attachmentsDir,
-        name,
-        bytes,
       );
       if (mounted) _insert(attachmentSnippet(relPath));
     } catch (e) {

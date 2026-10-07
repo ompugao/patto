@@ -50,7 +50,6 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
       for (final file in pending.files) {
         final detail = await rust.conflictDetail(
           root: workspace.root,
-          attachmentsDir: workspace.config.attachmentsDir,
           relPath: file.path,
         );
         final draft = drafts[file.path];
@@ -93,7 +92,7 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
             setState(() => _phase = progress.phase.name);
           case SyncEvent_Done(:final report):
             await ref.read(conflictDraftsProvider.notifier).clear();
-            evictChangedImages(workspace.root, report.changedPaths);
+            evictChangedImages(report.changedPaths);
             ref.read(notesRevisionProvider.notifier).value++;
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(

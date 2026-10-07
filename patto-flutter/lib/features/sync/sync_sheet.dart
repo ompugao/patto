@@ -79,7 +79,7 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
             if (report.conflictCleared) {
               await ref.read(conflictDraftsProvider.notifier).clear();
             }
-            evictChangedImages(workspace.root, report.changedPaths);
+            evictChangedImages(report.changedPaths);
             ref.read(notesRevisionProvider.notifier).value++;
           case SyncEvent_Failed(:final failure):
             setState(() {

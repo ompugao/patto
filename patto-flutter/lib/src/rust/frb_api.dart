@@ -203,22 +203,15 @@ Stream<SyncEvent> gitSync({
 );
 
 /// The sync that stopped at a conflict, if one is waiting to be merged.
-Future<PendingConflict?> pendingConflict({
-  required String root,
-  required String attachmentsDir,
-}) => RustLib.instance.api.crateFrbApiPendingConflict(
-  root: root,
-  attachmentsDir: attachmentsDir,
-);
+Future<PendingConflict?> pendingConflict({required String root}) =>
+    RustLib.instance.api.crateFrbApiPendingConflict(root: root);
 
 /// Base, phone and remote versions of one clashing note, split into regions.
 Future<ConflictDetail> conflictDetail({
   required String root,
-  required String attachmentsDir,
   required String relPath,
 }) => RustLib.instance.api.crateFrbApiConflictDetail(
   root: root,
-  attachmentsDir: attachmentsDir,
   relPath: relPath,
 );
 

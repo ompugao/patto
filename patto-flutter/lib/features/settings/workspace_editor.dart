@@ -316,7 +316,8 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
               hintText: defaultAttachmentsDir,
               helperText:
                   'Folder in the repository for pictures and files inserted '
-                  'from the editor',
+                  'from the editor. Changing it leaves earlier files where '
+                  'they are, outside the sync.',
             ),
           ),
           const SizedBox(height: 24),

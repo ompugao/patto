@@ -11,13 +11,13 @@ final _dirSegment = RegExp(
 
 /// The attachment folder as typed, reduced to a relative path the grammar can
 /// spell inside `./...`; empty means the default, and null that it cannot be
-/// used.
+/// used. Hidden folders are refused too: `.git` is the one that must stay out.
 String? normalizeAttachmentsDir(String text) {
   final trimmed = text.trim().replaceAll(RegExp(r'^/+|/+$'), '');
   if (trimmed.isEmpty) return defaultAttachmentsDir;
   final segments = trimmed.split('/');
   for (final segment in segments) {
-    if (segment == '.' || segment == '..' || !_dirSegment.hasMatch(segment)) {
+    if (segment.startsWith('.') || !_dirSegment.hasMatch(segment)) {
       return null;
     }
   }
@@ -123,15 +123,34 @@ Future<String> saveAttachment(
   String name,
   Uint8List bytes,
 ) async {
-  final dir = Directory('$root/$attachmentsDir');
-  await dir.create(recursive: true);
-  final relPath = await _freePath(
-    dir,
-    attachmentsDir,
-    sanitizeAttachmentName(name),
-  );
+  final relPath = await _reserve(root, attachmentsDir, name);
   await File('$root/$relPath').writeAsBytes(bytes, flush: true);
   return relPath;
+}
+
+/// Moves [source], a copy the host made in the cache, into the attachments
+/// folder; see [saveAttachment].
+Future<String> saveAttachmentFile(
+  String root,
+  String attachmentsDir,
+  String name,
+  File source,
+) async {
+  final relPath = await _reserve(root, attachmentsDir, name);
+  try {
+    await source.rename('$root/$relPath');
+  } on FileSystemException {
+    // The cache and the workspace may sit on different file systems.
+    await source.copy('$root/$relPath');
+    await source.delete();
+  }
+  return relPath;
+}
+
+Future<String> _reserve(String root, String attachmentsDir, String name) async {
+  final dir = Directory('$root/$attachmentsDir');
+  await dir.create(recursive: true);
+  return _freePath(dir, attachmentsDir, sanitizeAttachmentName(name));
 }
 
 Future<String> _freePath(
