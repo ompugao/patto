@@ -55,6 +55,9 @@ void main() {
       expect(Settings.isValidInboxNoteName('journal/inbox'), isTrue);
       expect(Settings.isValidInboxNoteName('  '), isFalse);
       expect(Settings.isValidInboxNoteName('Inbox#1'), isFalse);
+      for (final bad in ['/Inbox', '.inbox', 'a//b', r'a\b', 'a /b', '../x']) {
+        expect(Settings.isValidInboxNoteName(bad), isFalse, reason: bad);
+      }
     });
 
     test('the active workspace falls back to the first one', () {

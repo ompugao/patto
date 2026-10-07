@@ -26,10 +26,25 @@ class Settings {
 
   static const defaultInboxNoteName = 'Inbox';
 
-  /// `#` separates a note from an anchor in `[note#anchor]`, so a name holding
-  /// one could never be linked to.
-  static bool isValidInboxNoteName(String name) =>
-      name.trim().isNotEmpty && !name.contains('#');
+  /// Mirrors the Rust core's note-name rule (no escaping the root, no hidden
+  /// or git-internal segments) and adds `#`, which separates a note from an
+  /// anchor in `[note#anchor]` and so could never be linked to. The core's
+  /// `note_name_to_rel_path` stays the authority where it can be called.
+  static bool isValidInboxNoteName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed.contains('#')) return false;
+    if (trimmed.startsWith('/') || trimmed.contains(r'\')) return false;
+    return trimmed
+        .split('/')
+        .every(
+          (seg) =>
+              seg.isNotEmpty &&
+              seg != '.' &&
+              seg != '..' &&
+              !seg.startsWith('.') &&
+              !seg.endsWith(' '),
+        );
+  }
 
   final List<Workspace> workspaces;
 

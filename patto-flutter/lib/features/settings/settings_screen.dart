@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
+import '../../src/rust/frb_api.dart' as rust;
 import 'workspace_editor.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -54,11 +55,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static String _orDefault(String value, String fallback) =>
       value.trim().isEmpty ? fallback : value.trim();
 
-  String? get _inboxNameError =>
-      _inboxNoteName.text.trim().isEmpty ||
-          Settings.isValidInboxNoteName(_inboxNoteName.text)
-      ? null
-      : 'A note name cannot contain #';
+  String? get _inboxNameError {
+    final name = _inboxNoteName.text.trim();
+    if (name.isEmpty) return null;
+    if (name.contains('#')) return 'A note name cannot contain #';
+    if (!Settings.isValidInboxNoteName(name)) return 'Not a valid note name';
+    try {
+      rust.noteNameToRelPath(name: name);
+    } on Exception {
+      return 'Not a valid note name';
+    }
+    return null;
+  }
 
   Future<void> _saveFields(Settings base) async {
     final error = _inboxNameError;

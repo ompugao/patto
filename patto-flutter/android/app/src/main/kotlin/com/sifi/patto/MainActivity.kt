@@ -42,7 +42,7 @@ class MainActivity : FlutterActivity() {
             pending = request
             return
         }
-        // Dart registers its handler only once a workspace is open; until then
+        // Dart registers its handler once its shell has started; before that
         // the call comes back unhandled and the request waits for `consume`.
         channel.invokeMethod("quickNote", request, object : MethodChannel.Result {
             override fun success(result: Any?) {}
