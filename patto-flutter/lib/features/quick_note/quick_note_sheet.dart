@@ -15,11 +15,25 @@ class QuickNoteSheet extends ConsumerStatefulWidget {
 
   final String initialText;
 
+  /// Whether a sheet is up anywhere; the FAB and shared intents both go
+  /// through [show], so a second request is dropped instead of stacked.
+  static bool isOpen = false;
+
   /// Show the sheet and, once something was saved, offer to open the note.
   static Future<void> show(
     BuildContext context, {
     String initialText = '',
   }) async {
+    if (isOpen) return;
+    isOpen = true;
+    try {
+      await _show(context, initialText);
+    } finally {
+      isOpen = false;
+    }
+  }
+
+  static Future<void> _show(BuildContext context, String initialText) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     // Not dismissible by tapping outside or dragging: a dismissal while the

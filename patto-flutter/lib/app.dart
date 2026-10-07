@@ -147,31 +147,22 @@ class RootShell extends ConsumerStatefulWidget {
 class _RootShellState extends ConsumerState<RootShell> {
   int _tab = 0;
   StreamSubscription<QuickNoteRequest>? _quickNotes;
-  bool _sheetOpen = false;
 
   @override
   void initState() {
     super.initState();
     final intents = ref.read(quickNoteIntentsProvider);
-    _quickNotes = intents.requests.listen(_showQuickNote);
-    WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
-  }
-
-  /// A request arriving while the sheet is up is dropped rather than stacked.
-  Future<void> _showQuickNote(QuickNoteRequest request) async {
-    if (!mounted || _sheetOpen) return;
-    _sheetOpen = true;
-    try {
-      await QuickNoteSheet.show(
+    _quickNotes = intents.requests.listen((request) {
+      if (!mounted) return;
+      QuickNoteSheet.show(
         context,
         initialText: draftFromShared(
           text: request.text,
           subject: request.subject,
         ),
       );
-    } finally {
-      _sheetOpen = false;
-    }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
   }
 
   @override

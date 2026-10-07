@@ -48,18 +48,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Settings _collect(Settings base) => base.copyWith(
     authorName: _authorName.text.trim(),
     authorEmail: _authorEmail.text.trim(),
-    quickNoteName: _orDefault(
-      _quickNoteName.text,
-      Settings.defaultQuickNoteName,
-    ),
-    quickNoteDateFormat: _orDefault(
-      _quickNoteDateFormat.text,
-      Settings.defaultQuickNoteDateFormat,
-    ),
+    quickNoteName: _nameError(_quickNoteName.text) == null
+        ? _orDefault(_quickNoteName.text, Settings.defaultQuickNoteName)
+        : base.quickNoteName,
+    quickNoteDateFormat: _dateFormatError(_quickNoteDateFormat.text) == null
+        ? _orDefault(
+            _quickNoteDateFormat.text,
+            Settings.defaultQuickNoteDateFormat,
+          )
+        : base.quickNoteDateFormat,
   );
 
+  /// An empty field means the default; an invalid one keeps what was stored,
+  /// so toggling another setting never silently replaces it.
   static String _orDefault(String value, String fallback) =>
-      isValidQuickNoteName(value) ? value.trim() : fallback;
+      value.trim().isEmpty ? fallback : value.trim();
+
+  String? get _quickNoteError =>
+      _dateFormatError(_quickNoteDateFormat.text) ??
+      _nameError(_quickNoteName.text);
 
   static String? _nameError(String value) =>
       value.contains('#') ? 'A note name cannot contain #' : null;
@@ -82,6 +89,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveFields(Settings base) async {
+    final error = _quickNoteError;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Not saved. Quick note: $error')),
+      );
+      return;
+    }
     await ref.read(settingsProvider.notifier).save(_collect(base));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
