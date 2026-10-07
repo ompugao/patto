@@ -30,6 +30,8 @@ class _EmbedViewerScreenState extends State<EmbedViewerScreen> {
   late final WebViewController _controller;
   int _progress = 0;
   String? _lookedUpTitle;
+  String? _error;
+  bool _canGoBack = false;
 
   @override
   void initState() {
@@ -41,15 +43,50 @@ class _EmbedViewerScreenState extends State<EmbedViewerScreen> {
           onProgress: (progress) {
             if (mounted) setState(() => _progress = progress);
           },
+          onPageFinished: (_) => _updateCanGoBack(),
+          onNavigationRequest: _onNavigationRequest,
         ),
       );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _controller.setBackgroundColor(Theme.of(context).colorScheme.surface);
+      _load();
+    });
+  }
+
+  /// Only web pages stay in the view; `twitter://`, `intent://`, `mailto:`
+  /// and the like go to the app that handles them, as a browser would.
+  Future<NavigationDecision> _onNavigationRequest(
+    NavigationRequest request,
+  ) async {
+    final uri = Uri.tryParse(request.url);
+    if (uri == null) return NavigationDecision.prevent;
+    if (uri.scheme == 'http' || uri.scheme == 'https') {
+      return NavigationDecision.navigate;
+    }
+    await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    ).catchError((_) => false);
+    return NavigationDecision.prevent;
+  }
+
+  Future<void> _updateCanGoBack() async {
+    final canGoBack = await _controller.canGoBack();
+    if (mounted && canGoBack != _canGoBack) {
+      setState(() => _canGoBack = canGoBack);
+    }
   }
 
   Future<void> _load() async {
     final embed = widget.embed;
     final url = Uri.tryParse(embed.url);
-    if (url == null) return;
+    if (url == null || !url.hasScheme) {
+      setState(() {
+        _error = 'This is not a web address the viewer can open.';
+        _progress = 100;
+      });
+      return;
+    }
 
     switch (embed.kind) {
       case EmbedKind_Twitter():
@@ -132,6 +169,22 @@ $themed
         _lookedUpTitle ??
         Uri.tryParse(embed.url)?.host ??
         embed.url;
+    return PopScope(
+      canPop: !_canGoBack,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _controller.canGoBack()) {
+          await _controller.goBack();
+          await _updateCanGoBack();
+        } else if (mounted) {
+          setState(() => _canGoBack = false);
+        }
+      },
+      child: _scaffold(context, title),
+    );
+  }
+
+  Widget _scaffold(BuildContext context, String title) {
     return Scaffold(
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
@@ -152,7 +205,17 @@ $themed
               )
             : null,
       ),
-      body: WebViewWidget(controller: _controller),
+      body: _error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '$_error\n\n${widget.embed.url}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          : WebViewWidget(controller: _controller),
     );
   }
 }

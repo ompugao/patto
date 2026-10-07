@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:patto_flutter/core/embed_metadata.dart';
 import 'package:patto_flutter/core/oembed.dart';
+import 'package:patto_flutter/src/rust/api/types.dart';
 
 void main() {
   const tweetHtml =
@@ -45,5 +47,35 @@ void main() {
       'https://speakerdeck.com/player/1?a=1&b=2',
     );
     expect(iframeSrc('<div>no frame</div>'), isNull);
+  });
+
+  test('references outside Unicode or to surrogates are left as written', () {
+    expect(
+      decodeEntities('&#1114112; &#xD800; &#x10FFFF;'),
+      '&#1114112; &#xD800; \u{10FFFF}',
+    );
+  });
+
+  test('protocol-relative URLs get a scheme and others are untouched', () {
+    expect(
+      absoluteUrl('//cdn.example.com/a.jpg'),
+      'https://cdn.example.com/a.jpg',
+    );
+    expect(absoluteUrl('http://example.com/a.jpg'), 'http://example.com/a.jpg');
+  });
+
+  test('open graph text fields are entity-decoded, the image URL is not', () {
+    final meta = decodeOpenGraph(
+      const OpenGraphMeta(
+        title: 'Rust &#039;n&#x27; roll',
+        image: 'https://img.example.com/a.jpg?x=1&amp;y=2',
+        description: 'A &lt;b&gt; tag',
+        siteName: 'Example &amp; Co',
+      ),
+    );
+    expect(meta.title, "Rust 'n' roll");
+    expect(meta.image, 'https://img.example.com/a.jpg?x=1&amp;y=2');
+    expect(meta.description, 'A <b> tag');
+    expect(meta.siteName, 'Example & Co');
   });
 }

@@ -12,7 +12,8 @@ you ask it to.
 - Every `[@embed ...]` the web preview supports: YouTube and Google Photos
   thumbnails, PDFs in an in-app viewer, tweets with their text, Speaker Deck
   and SlideShare decks with their first slide, and a link card for any other
-  URL; tapping opens the content in the app
+  URL. Tweets, decks and other pages open in an in-app web view; videos and
+  Google Photos shares open in the app that owns them
 - Backlinks and 2-hop links under every note
 - Tasks grouped by deadline, a completed-task review by timeframe, and status
   changes that write `completed_at` and time tracking the way the language

@@ -90,17 +90,13 @@ class Decks {
       final html = json['html'];
       return DeckPreview(
         title: json['title'] as String?,
-        thumbnailUrl: _absolute(
-          json['thumbnail_url'] as String? ?? json['thumbnail'] as String?,
-        ),
+        thumbnailUrl: switch (json['thumbnail_url'] ?? json['thumbnail']) {
+          final String url => absoluteUrl(url),
+          _ => null,
+        },
         playerUrl: html is String ? iframeSrc(html) : null,
       );
     });
-  }
-
-  static String? _absolute(String? url) {
-    if (url == null) return null;
-    return url.startsWith('//') ? 'https:$url' : url;
   }
 }
 
@@ -110,12 +106,22 @@ class LinkPreviews {
   LinkPreviews._();
 
   static Future<OpenGraphMeta?> lookup(String url) {
-    return EmbedLookup.cached('open-graph:$url', () async {
-      final uri = Uri.tryParse(url);
-      if (uri == null) return null;
-      final html = await EmbedLookup.fetchHead(uri);
-      if (html == null) return null;
-      return rust.parseOpenGraph(html: html);
-    });
+    return EmbedLookup.cachedPage(
+      'open-graph:$url',
+      url,
+      (html) async => decodeOpenGraph(await rust.parseOpenGraph(html: html)),
+    );
   }
+}
+
+/// The Rust scraper leaves most character references as written (`&#039;`,
+/// `&#x27;`); decode them so titles read as the page shows them.
+OpenGraphMeta decodeOpenGraph(OpenGraphMeta meta) {
+  String? decode(String? s) => s == null ? null : decodeEntities(s);
+  return OpenGraphMeta(
+    title: decode(meta.title),
+    image: meta.image,
+    description: decode(meta.description),
+    siteName: decode(meta.siteName),
+  );
 }

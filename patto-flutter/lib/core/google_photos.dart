@@ -10,12 +10,10 @@ class GooglePhotos {
   GooglePhotos._();
 
   static Future<GooglePhotosMedia?> lookup(String shareUrl) {
-    return EmbedLookup.cached('google-photos:$shareUrl', () async {
-      final uri = Uri.tryParse(shareUrl);
-      if (uri == null) return null;
-      final html = await EmbedLookup.fetchHead(uri);
-      if (html == null) return null;
-      return rust.parseGooglePhotosPage(html: html);
-    });
+    return EmbedLookup.cachedPage(
+      'google-photos:$shareUrl',
+      shareUrl,
+      (html) => rust.parseGooglePhotosPage(html: html),
+    );
   }
 }

@@ -333,7 +333,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
         _openUrl(embed.url);
       case EmbedKind_Youtube() || EmbedKind_GooglePhotos():
         _openUrl(embed.url);
-      case EmbedKind_Other() when embed.isLocal:
+      case _ when embed.isLocal:
         _openUrl(embed.url);
       default:
         EmbedViewerScreen.open(context, embed);

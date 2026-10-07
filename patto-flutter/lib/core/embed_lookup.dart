@@ -54,6 +54,21 @@ class EmbedLookup {
     ..connectionTimeout = connectTimeout
     ..userAgent = rust.browserUserAgent();
 
+  /// Fetches the page at `url` and hands its `<head>` to `parse`, for the
+  /// lookups that read a page's Open Graph tags.
+  static Future<T?> cachedPage<T extends Object>(
+    String key,
+    String url,
+    Future<T?> Function(String html) parse,
+  ) {
+    return cached(key, () async {
+      final uri = Uri.tryParse(url);
+      if (uri == null || !uri.hasScheme) return null;
+      final html = await fetchHead(uri);
+      return html == null ? null : await parse(html);
+    });
+  }
+
   /// The start of a page up to `</head>`, which holds its Open Graph tags.
   static Future<String?> fetchHead(Uri uri) async {
     final response = await _get(uri);
@@ -92,10 +107,15 @@ class EmbedLookup {
     return decoded is Map<String, Object?> ? decoded : null;
   }
 
+  /// A successful response in UTF-8. Bodies are decoded as UTF-8 and a lookup
+  /// is kept for the life of the app, so a page declaring another charset is
+  /// refused rather than cached as garbled text.
   static Future<HttpClientResponse?> _get(Uri uri) async {
     final request = await _http.getUrl(uri);
     final response = await request.close();
-    if (response.statusCode != HttpStatus.ok) {
+    final charset = response.headers.contentType?.charset?.toLowerCase();
+    final utf8 = charset == null || charset == 'utf-8' || charset == 'utf8';
+    if (response.statusCode != HttpStatus.ok || !utf8) {
       unawaited(response.drain<void>().catchError((_) {}));
       return null;
     }

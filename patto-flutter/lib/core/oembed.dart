@@ -36,16 +36,26 @@ String decodeEntities(String text) {
   return text.replaceAllMapped(_entity, (m) {
     final body = m[1]!;
     if (body.startsWith('#x') || body.startsWith('#X')) {
-      final code = int.tryParse(body.substring(2), radix: 16);
-      return code == null ? m[0]! : String.fromCharCode(code);
+      return _codePoint(int.tryParse(body.substring(2), radix: 16)) ?? m[0]!;
     }
     if (body.startsWith('#')) {
-      final code = int.tryParse(body.substring(1));
-      return code == null ? m[0]! : String.fromCharCode(code);
+      return _codePoint(int.tryParse(body.substring(1))) ?? m[0]!;
     }
     return _namedEntities[body] ?? m[0]!;
   });
 }
+
+/// Null for a reference outside Unicode or to a lone surrogate, which
+/// `String.fromCharCode` would reject.
+String? _codePoint(int? code) {
+  if (code == null || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+    return null;
+  }
+  return String.fromCharCode(code);
+}
+
+/// A URL with a scheme; oEmbed snippets use protocol-relative `//host/…`.
+String absoluteUrl(String url) => url.startsWith('//') ? 'https:$url' : url;
 
 /// The readable text of an HTML fragment: tags dropped, `<br>` kept as a line
 /// break, entities decoded and runs of blanks collapsed.
@@ -72,6 +82,5 @@ String tweetTextFromHtml(String html) {
 /// The `src` of the first `<iframe>` in an oEmbed `html` snippet.
 String? iframeSrc(String html) {
   final src = _iframeSrc.firstMatch(html)?.group(1);
-  if (src == null) return null;
-  return decodeEntities(src.startsWith('//') ? 'https:$src' : src);
+  return src == null ? null : absoluteUrl(decodeEntities(src));
 }
