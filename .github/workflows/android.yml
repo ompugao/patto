@@ -72,11 +72,13 @@ jobs:
             echo "Not a release build; using the version from pubspec.yaml"
             exit 0
           fi
-          version="${TAG#v}"
-          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::tag '$TAG' is not a semantic version"
-            exit 1
+          # cargo-dist also releases package-scoped tags such as
+          # patto-preview-ui/0.1.0; only the app's v-tags carry an APK.
+          if ! [[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::notice::tag '$TAG' is not a vX.Y.Z release tag; building without a release upload"
+            exit 0
           fi
+          version="${TAG#v}"
           major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"
           build_number=$((major * 1000000 + minor * 1000 + patch))
           {
