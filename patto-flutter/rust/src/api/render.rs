@@ -2,6 +2,7 @@
 
 use patto::parser::{self, AstNode, AstNodeKind, Property};
 use patto::utils::{get_gyazo_img_src, get_youtube_id, is_google_photos_url};
+use url::Url;
 
 use crate::api::types::*;
 
@@ -134,10 +135,11 @@ impl Flattener {
             .filter(|c| !is_blank_text(c))
             .collect::<Vec<_>>();
 
-        // A local file of unknown type has nothing to preview, so it stays a
-        // link; any remote URL gets a card that opens in the app's web view.
+        // Only a local PDF can be previewed from the device; any other local
+        // path stays a link. Every remote URL gets a card that opens in the
+        // app's web view.
         let sole_embed = match visible.as_slice() {
-            [only] => embed_ref(only).filter(|e| e.kind != EmbedKind::Other || !e.is_local),
+            [only] => embed_ref(only).filter(|e| !e.is_local || e.kind == EmbedKind::Pdf),
             _ => None,
         };
 
@@ -270,16 +272,20 @@ fn embed_kind(link: &str) -> EmbedKind {
     if is_google_photos_url(link) {
         return EmbedKind::GooglePhotos;
     }
-    if link.contains("twitter.com") || link.contains("x.com") {
-        return EmbedKind::Twitter;
+    let Some(host) = Url::parse(link)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_lowercase))
+    else {
+        return EmbedKind::Other;
+    };
+    match host.as_str() {
+        "twitter.com" | "www.twitter.com" | "mobile.twitter.com" | "x.com" | "www.x.com" => {
+            EmbedKind::Twitter
+        }
+        "speakerdeck.com" | "www.speakerdeck.com" => EmbedKind::SpeakerDeck,
+        "slideshare.net" | "www.slideshare.net" => EmbedKind::SlideShare,
+        _ => EmbedKind::Other,
     }
-    if link.contains("speakerdeck.com") {
-        return EmbedKind::SpeakerDeck;
-    }
-    if link.contains("slideshare.net") {
-        return EmbedKind::SlideShare;
-    }
-    EmbedKind::Other
 }
 
 fn inline_span(node: &AstNode) -> Option<NoteSpan> {

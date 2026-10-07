@@ -220,17 +220,14 @@ fn remote_embeds_of_unknown_sites_become_cards() {
 }
 
 #[test]
-fn local_embeds_of_unknown_type_stay_links() {
-    let blocks = blocks("[@embed ./notes.txt]\n");
-    let spans = line_spans(&blocks[0]);
-    assert!(matches!(spans[0], NoteSpan::Embed { .. }));
-}
-
-#[test]
 fn twitter_speakerdeck_and_slideshare_links_are_recognised() {
     for (src, kind) in [
         ("https://x.com/user/status/1", EmbedKind::Twitter),
         ("https://twitter.com/user/status/1", EmbedKind::Twitter),
+        (
+            "https://mobile.twitter.com/user/status/1",
+            EmbedKind::Twitter,
+        ),
         ("https://speakerdeck.com/user/deck", EmbedKind::SpeakerDeck),
         (
             "https://www.slideshare.net/user/deck",
@@ -239,6 +236,32 @@ fn twitter_speakerdeck_and_slideshare_links_are_recognised() {
     ] {
         let blocks = blocks(&format!("[@embed {src}]\n"));
         assert_eq!(sole_embed(&blocks[0]).kind, kind, "{src}");
+    }
+}
+
+#[test]
+fn sites_are_matched_by_host_not_substring() {
+    for src in [
+        "https://www.dropbox.com/s/abc/file",
+        "https://box.com/s/abc",
+        "https://example.com/x.com",
+        "https://example.com/speakerdeck.com/deck",
+        "https://notslideshare.net/deck",
+    ] {
+        let blocks = blocks(&format!("[@embed {src}]\n"));
+        assert_eq!(sole_embed(&blocks[0]).kind, EmbedKind::Other, "{src}");
+    }
+}
+
+#[test]
+fn local_embeds_that_are_not_pdfs_stay_inline() {
+    for src in ["./slides/deck.key", "./x.com/post.html", "./notes.txt"] {
+        let blocks = blocks(&format!("[@embed {src}]\n"));
+        let spans = line_spans(&blocks[0]);
+        assert!(
+            matches!(spans[0], NoteSpan::Embed { .. }),
+            "{src}: {spans:?}"
+        );
     }
 }
 
