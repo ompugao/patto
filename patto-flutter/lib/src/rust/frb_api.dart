@@ -85,14 +85,19 @@ Future<RenderedNote> renderNote({required String content}) =>
     RustLib.instance.api.crateFrbApiRenderNote(content: content);
 
 /// Thumbnail and video stream from a Google Photos share page's HTML, which
-/// Dart fetches with [`google_photos_user_agent`]. Asynchronous because a share
+/// Dart fetches with [`browser_user_agent`]. Asynchronous because a share
 /// page runs to hundreds of kilobytes.
 Future<GooglePhotosMedia?> parseGooglePhotosPage({required String html}) =>
     RustLib.instance.api.crateFrbApiParseGooglePhotosPage(html: html);
 
-/// Google serves share pages without Open Graph tags to unknown clients.
-String googlePhotosUserAgent() =>
-    RustLib.instance.api.crateFrbApiGooglePhotosUserAgent();
+/// Title, thumbnail and description from a page's Open Graph tags, for embeds
+/// whose site offers no oEmbed endpoint (Speaker Deck) or none at all.
+Future<OpenGraphMeta> parseOpenGraph({required String html}) =>
+    RustLib.instance.api.crateFrbApiParseOpenGraph(html: html);
+
+/// The user agent Dart sends when fetching a page for its Open Graph tags:
+/// Google serves share pages without them to unknown clients.
+String browserUserAgent() => RustLib.instance.api.crateFrbApiBrowserUserAgent();
 
 /// Scan the notes directory and build the link index.
 ///

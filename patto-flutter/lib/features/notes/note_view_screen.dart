@@ -13,6 +13,7 @@ import '../search/highlight.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
 import 'widgets/block_widget.dart';
+import 'widgets/embed_viewer_screen.dart';
 import 'widgets/note_image.dart';
 import 'widgets/pdf_viewer_screen.dart';
 import 'widgets/spans_text.dart';
@@ -308,26 +309,35 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     }
   }
 
-  /// PDFs open in the app, local ones because nothing else can reach them;
-  /// everything else goes to the app or browser that owns the URL.
+  /// PDFs open in the app, local ones because nothing else can reach them.
+  /// Videos and Google Photos shares go to the app that owns them, since
+  /// neither can be framed; everything else opens in the in-app web view,
+  /// as the web preview frames it.
   void _openEmbed(EmbedRef embed, String? root) {
     final title = embed.title ?? embed.url.split('/').last;
-    if (embed.kind is EmbedKind_Pdf) {
-      if (embed.isLocal) {
-        if (root == null) return;
-        PdfViewerScreen.open(
-          context,
-          PdfViewerScreen.file(path: resolveNotePath(embed.url, root), title: title),
-        );
-        return;
-      }
-      final uri = Uri.tryParse(embed.url);
-      if (uri != null) {
-        PdfViewerScreen.open(context, PdfViewerScreen.uri(uri: uri, title: title));
-        return;
-      }
+    switch (embed.kind) {
+      case EmbedKind_Pdf():
+        if (embed.isLocal) {
+          if (root == null) return;
+          PdfViewerScreen.open(
+            context,
+            PdfViewerScreen.file(path: resolveNotePath(embed.url, root), title: title),
+          );
+          return;
+        }
+        final uri = Uri.tryParse(embed.url);
+        if (uri != null) {
+          PdfViewerScreen.open(context, PdfViewerScreen.uri(uri: uri, title: title));
+          return;
+        }
+        _openUrl(embed.url);
+      case EmbedKind_Youtube() || EmbedKind_GooglePhotos():
+        _openUrl(embed.url);
+      case _ when embed.isLocal:
+        _openUrl(embed.url);
+      default:
+        EmbedViewerScreen.open(context, embed);
     }
-    _openUrl(embed.url);
   }
 
   /// Opens the editor on the block at the top of the screen, so editing
