@@ -19,9 +19,10 @@ you ask it to.
   changes that write `completed_at` and time tracking the way the language
   server does
 - Plain-text editor with tab nesting and wiki-link completion
-- Inbox tab: quick time-stamped posts into one note (`Inbox` by default),
-  grouped by day, like a chat with yourself; a launcher shortcut and the share
-  sheet post there too. Tapping a post opens the editor at its line, so the
+- Inbox: the button on the notes list opens a sheet for quick time-stamped
+  posts into one note (`Inbox` by default), grouped by day, like a chat with
+  yourself; a launcher shortcut and the share sheet open it too. The note is
+  hidden from the list; tapping a post opens the editor at its line, so the
   posts can be sorted into other notes later
 - Sync: commit, fetch, fast-forward or merge, push
 - Appearance: light, dark or system theme, and a note text size from 80% to
@@ -189,8 +190,8 @@ activity does not replay the launching intent, and a `quickNote` call that
 Dart has no handler for yet is put back to wait for `consume`. The activity is
 `singleTask`, so a share or the shortcut reaches the running instance through
 `onNewIntent` instead of starting a second engine. `RootShell` listens, so a
-request only surfaces once a workspace is ready: it switches to the Inbox tab
-and puts the text into the composer.
+request only surfaces once a workspace is ready: it returns to the notes tab
+and opens the Inbox sheet with the text in the composer.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

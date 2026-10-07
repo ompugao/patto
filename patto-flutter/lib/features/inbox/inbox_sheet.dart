@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -9,20 +11,51 @@ import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
 
 /// Quick posts into one note, newest at the bottom, like a chat with
-/// yourself. Reorganising them into other notes is left to the desktop.
-class InboxScreen extends ConsumerStatefulWidget {
-  const InboxScreen({super.key});
+/// yourself, opened as a sheet over the notes list. Reorganising the posts
+/// into other notes is left to the desktop.
+class InboxSheet extends ConsumerStatefulWidget {
+  const InboxSheet({super.key});
+
+  static bool _showing = false;
+
+  /// Opens the sheet with the composer focused. A [draft] is put into the
+  /// composer; when the sheet is already open it is appended there instead.
+  static Future<void> show(BuildContext context, {String? draft}) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    if (draft != null) {
+      container.read(inboxDraftProvider.notifier).value = draft;
+    }
+    if (_showing) return;
+    _showing = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        useRootNavigator: true,
+        showDragHandle: true,
+        builder: (_) => const InboxSheet(),
+      );
+    } finally {
+      _showing = false;
+    }
+    // A draft that arrived while the sheet was closing is still waiting.
+    if (container.read(inboxDraftProvider) != null && context.mounted) {
+      await show(context);
+    }
+  }
 
   @override
-  ConsumerState<InboxScreen> createState() => _InboxScreenState();
+  ConsumerState<InboxSheet> createState() => _InboxSheetState();
 }
 
-class _InboxScreenState extends ConsumerState<InboxScreen> {
+class _InboxSheetState extends ConsumerState<InboxSheet> {
   final _composer = TextEditingController();
   final _focus = FocusNode();
   final _scroll = ScrollController();
   bool _sending = false;
   bool _scrolledOnce = false;
+  String? _error;
 
   @override
   void initState() {
@@ -49,22 +82,19 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
 
   void _takeDraft(String? draft) {
     if (draft == null || !mounted) return;
+    // While the sheet is closing the draft stays put; `show` reopens for it.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
     ref.read(inboxDraftProvider.notifier).value = null;
     _composer.text = draft.isEmpty
         ? _composer.text
         : _composer.text.isEmpty
         ? draft
         : '${_composer.text}\n$draft';
+    _composer.selection = TextSelection.collapsed(
+      offset: _composer.text.length,
+    );
     setState(() {});
-    // The tab switch that brought the draft lands in the same frame; focus
-    // is only accepted once this screen is the visible child.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _composer.selection = TextSelection.collapsed(
-        offset: _composer.text.length,
-      );
-      _focus.requestFocus();
-    });
+    _focus.requestFocus();
   }
 
   void _scrollToBottom({bool animate = true}) {
@@ -86,7 +116,10 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   Future<void> _send() async {
     final text = _composer.text;
     if (text.trim().isEmpty || _sending) return;
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     final name = ref.read(inboxNoteNameProvider);
     final revision = ref.read(notesRevisionProvider.notifier);
     final workspaceFuture = ref.read(workspaceProvider.future);
@@ -108,20 +141,35 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
       _focus.requestFocus();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not save the post: $e')));
+      setState(() => _error = 'Could not save the post: $e');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
 
-  Future<void> _openInEditor(InboxPost post) async {
+  /// Closes the sheet and opens the inbox note in the editor, at [row] when
+  /// given. The whole note is created first if no post has made it yet.
+  Future<void> _openNote({int? row}) async {
     final workspace = await ref.read(workspaceProvider.future);
     if (workspace == null || !mounted) return;
-    final relPath = rust.noteNameToRelPath(
-      name: ref.read(inboxNoteNameProvider),
-    );
-    await EditorScreen.open(context, relPath, row: post.line);
+    final name = ref.read(inboxNoteNameProvider);
+    final relPath = rust.noteNameToRelPath(name: name);
+    if (row == null) {
+      try {
+        await rust.readNote(root: workspace.root, relPath: relPath);
+      } catch (_) {
+        await rust.createNote(
+          root: workspace.root,
+          name: name,
+          initialContent: '',
+        );
+        ref.read(notesRevisionProvider.notifier).value++;
+      }
+      if (!mounted) return;
+    }
+    final navigator = Navigator.of(context, rootNavigator: true);
+    navigator.pop();
+    await EditorScreen.open(navigator.context, relPath, row: row);
   }
 
   @override
@@ -129,61 +177,106 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     final posts = ref.watch(inboxPostsProvider);
     final name = ref.watch(inboxNoteNameProvider);
     final canSend = !_sending && _composer.text.trim().isNotEmpty;
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    final screen = MediaQuery.sizeOf(context).height;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: name == Settings.defaultInboxNoteName
-            ? const Text('Inbox')
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Inbox'),
-                  Text(
-                    name,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: posts.when(
-                // Keep the list on screen while a post or an edit refreshes
-                // it; a remount would land at the top.
-                skipLoadingOnReload: true,
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('Could not read the inbox.\n\n$e'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The sheet sits above the keyboard; the list gives way to it.
+        final height = math.min(screen * 0.85, constraints.maxHeight - inset);
+        return Padding(
+          padding: EdgeInsets.only(bottom: inset),
+          child: SizedBox(
+            height: height,
+            child: Column(
+              children: [
+                _Header(name: name, onOpenNote: _openNote),
+                Expanded(
+                  child: posts.when(
+                    // Keep the list on screen while a post or an edit
+                    // refreshes it; a remount would land at the top.
+                    skipLoadingOnReload: true,
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text('Could not read the inbox.\n\n$e'),
+                      ),
+                    ),
+                    data: (items) {
+                      if (!_scrolledOnce && items.isNotEmpty) {
+                        _scrolledOnce = true;
+                        _scrollToBottom(animate: false);
+                      }
+                      return _PostList(
+                        posts: items,
+                        controller: _scroll,
+                        onTap: (post) => _openNote(row: post.line),
+                      );
+                    },
                   ),
                 ),
-                data: (items) {
-                  if (!_scrolledOnce && items.isNotEmpty) {
-                    _scrolledOnce = true;
-                    _scrollToBottom(animate: false);
-                  }
-                  return _PostList(
-                    posts: items,
-                    controller: _scroll,
-                    onTap: _openInEditor,
-                  );
-                },
-              ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    child: Text(
+                      _error!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                _Composer(
+                  controller: _composer,
+                  focusNode: _focus,
+                  canSend: canSend,
+                  sending: _sending,
+                  onChanged: () => setState(() {}),
+                  onSend: _send,
+                ),
+              ],
             ),
-            _Composer(
-              controller: _composer,
-              focusNode: _focus,
-              canSend: canSend,
-              sending: _sending,
-              onChanged: () => setState(() {}),
-              onSend: _send,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({required this.name, required this.onOpenNote});
+
+  final String name;
+  final VoidCallback onOpenNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Inbox', style: theme.textTheme.titleMedium),
+                if (name != Settings.defaultInboxNoteName)
+                  Text(
+                    name,
+                    style: theme.textTheme.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
-          ],
-        ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.open_in_new),
+            tooltip: 'Open note',
+            onPressed: onOpenNote,
+          ),
+        ],
       ),
     );
   }
@@ -356,6 +449,7 @@ class _Composer extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
+                autofocus: true,
                 minLines: 1,
                 maxLines: 5,
                 textInputAction: TextInputAction.newline,

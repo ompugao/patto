@@ -11,9 +11,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   static Future<void> open(BuildContext context) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-    );
+    return Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
   @override
@@ -71,16 +70,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _saveFields(Settings base) async {
     final error = _inboxNameError;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not saved. Inbox note: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Not saved. Inbox note: $error')));
       return;
     }
     await ref.read(settingsProvider.notifier).save(_collect(base));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Saved')));
   }
 
   Future<void> _switchTo(Workspace workspace) async {
@@ -200,8 +198,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: 24),
               _Section('Inbox'),
               Text(
-                'The note that posts from the Inbox tab, the launcher shortcut '
-                'and text shared from other apps are appended to.',
+                'The note that quick posts from the Inbox button, the launcher '
+                'shortcut and text shared from other apps are appended to. It '
+                'is hidden from the notes list; open it from the Inbox sheet.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               TextField(

@@ -7,7 +7,7 @@ import 'core/providers.dart';
 import 'core/quick_note_intents.dart';
 import 'features/notes/note_list_screen.dart';
 import 'features/inbox/inbox_entry.dart';
-import 'features/inbox/inbox_screen.dart';
+import 'features/inbox/inbox_sheet.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/workspace_editor.dart';
 import 'features/tasks/tasks_screen.dart';
@@ -55,9 +55,8 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
     final workspace = ref.watch(workspaceProvider);
 
     return workspace.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
         body: Center(
           child: Padding(
@@ -145,8 +144,6 @@ class RootShell extends ConsumerStatefulWidget {
 }
 
 class _RootShellState extends ConsumerState<RootShell> {
-  static const _inboxTab = 1;
-
   StreamSubscription<QuickNoteRequest>? _quickNotes;
 
   @override
@@ -155,12 +152,10 @@ class _RootShellState extends ConsumerState<RootShell> {
     final intents = ref.read(quickNoteIntentsProvider);
     _quickNotes = intents.requests.listen((request) {
       if (!mounted) return;
-      // Tab first: the composer only takes focus once it is the visible
-      // child of the IndexedStack.
-      ref.read(rootTabProvider.notifier).value = _inboxTab;
-      ref.read(inboxDraftProvider.notifier).value = draftFromShared(
-        text: request.text,
-        subject: request.subject,
+      ref.read(rootTabProvider.notifier).value = 0;
+      InboxSheet.show(
+        context,
+        draft: draftFromShared(text: request.text, subject: request.subject),
       );
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
@@ -179,12 +174,7 @@ class _RootShellState extends ConsumerState<RootShell> {
     return Scaffold(
       body: IndexedStack(
         index: tab,
-        children: const [
-          NoteListScreen(),
-          InboxScreen(),
-          TasksScreen(),
-          SettingsScreen(),
-        ],
+        children: const [NoteListScreen(), TasksScreen(), SettingsScreen()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
@@ -195,11 +185,6 @@ class _RootShellState extends ConsumerState<RootShell> {
             icon: Icon(Icons.description_outlined),
             selectedIcon: Icon(Icons.description),
             label: 'Notes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.inbox_outlined),
-            selectedIcon: Icon(Icons.inbox),
-            label: 'Inbox',
           ),
           NavigationDestination(
             icon: Icon(Icons.check_circle_outline),
