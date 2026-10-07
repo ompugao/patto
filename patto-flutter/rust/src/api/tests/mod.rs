@@ -1,5 +1,6 @@
 mod index_tests;
 mod merge_tests;
+mod open_graph_tests;
 mod render_tests;
 mod store_tests;
 mod sync_tests;

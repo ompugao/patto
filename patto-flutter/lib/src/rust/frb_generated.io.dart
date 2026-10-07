@@ -246,6 +246,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NoteTableRow dco_decode_note_table_row(dynamic raw);
 
   @protected
+  OpenGraphMeta dco_decode_open_graph_meta(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -579,6 +582,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NoteTableRow sse_decode_note_table_row(SseDeserializer deserializer);
+
+  @protected
+  OpenGraphMeta sse_decode_open_graph_meta(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -986,6 +992,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_note_table_row(NoteTableRow self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_open_graph_meta(OpenGraphMeta self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);

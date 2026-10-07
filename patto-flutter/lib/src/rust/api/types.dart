@@ -296,6 +296,40 @@ class NoteTableRow {
           cells == other.cells;
 }
 
+/// Open Graph tags of a web page, for the title and thumbnail of an embed
+/// whose site has no oEmbed endpoint. Every field is optional because most
+/// pages set only some of them.
+class OpenGraphMeta {
+  final String? title;
+  final String? image;
+  final String? description;
+  final String? siteName;
+
+  const OpenGraphMeta({
+    this.title,
+    this.image,
+    this.description,
+    this.siteName,
+  });
+
+  @override
+  int get hashCode =>
+      title.hashCode ^
+      image.hashCode ^
+      description.hashCode ^
+      siteName.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OpenGraphMeta &&
+          runtimeType == other.runtimeType &&
+          title == other.title &&
+          image == other.image &&
+          description == other.description &&
+          siteName == other.siteName;
+}
+
 class ParseIssue {
   final int row;
   final String message;

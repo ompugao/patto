@@ -134,8 +134,10 @@ impl Flattener {
             .filter(|c| !is_blank_text(c))
             .collect::<Vec<_>>();
 
+        // A local file of unknown type has nothing to preview, so it stays a
+        // link; any remote URL gets a card that opens in the app's web view.
         let sole_embed = match visible.as_slice() {
-            [only] => embed_ref(only).filter(|e| e.kind != EmbedKind::Other),
+            [only] => embed_ref(only).filter(|e| e.kind != EmbedKind::Other || !e.is_local),
             _ => None,
         };
 

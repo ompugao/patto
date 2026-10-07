@@ -20,12 +20,12 @@ pub use crate::api::merge::{MergeRegion, MergedNote, Suggestion, SuggestionKind}
 pub use crate::api::tasks::{PendingGroup, TaskEditResult, TaskItem};
 pub use crate::api::types::{
     AnchorRef, Block, BlockKind, DateKind, EmbedKind, EmbedRef, GooglePhotosMedia, ImageRef,
-    NoteMeta, NoteSpan, NoteTableCell, NoteTableRow, ParseIssue, RenderedNote, TaskDate, TaskInfo,
-    TaskStatus, TextMatch, TextSearchHit,
+    NoteMeta, NoteSpan, NoteTableCell, NoteTableRow, OpenGraphMeta, ParseIssue, RenderedNote,
+    TaskDate, TaskInfo, TaskStatus, TextMatch, TextSearchHit,
 };
 
 use crate::api::error::PattoResult;
-use crate::api::{conflict, git, index, render, store, tasks};
+use crate::api::{conflict, git, index, open_graph, render, store, tasks};
 
 /// Called once at startup, before anything else.
 #[frb(init)]
@@ -125,7 +125,7 @@ pub fn render_note(content: String) -> RenderedNote {
 }
 
 /// Thumbnail and video stream from a Google Photos share page's HTML, which
-/// Dart fetches with [`google_photos_user_agent`]. Asynchronous because a share
+/// Dart fetches with [`browser_user_agent`]. Asynchronous because a share
 /// page runs to hundreds of kilobytes.
 pub fn parse_google_photos_page(html: String) -> Option<GooglePhotosMedia> {
     patto::utils::parse_google_photos_page(&html).map(|media| GooglePhotosMedia {
@@ -135,9 +135,16 @@ pub fn parse_google_photos_page(html: String) -> Option<GooglePhotosMedia> {
     })
 }
 
-/// Google serves share pages without Open Graph tags to unknown clients.
+/// Title, thumbnail and description from a page's Open Graph tags, for embeds
+/// whose site offers no oEmbed endpoint (Speaker Deck) or none at all.
+pub fn parse_open_graph(html: String) -> OpenGraphMeta {
+    open_graph::parse_open_graph(&html)
+}
+
+/// The user agent Dart sends when fetching a page for its Open Graph tags:
+/// Google serves share pages without them to unknown clients.
 #[frb(sync)]
-pub fn google_photos_user_agent() -> String {
+pub fn browser_user_agent() -> String {
     patto::utils::BROWSER_USER_AGENT.to_string()
 }
 

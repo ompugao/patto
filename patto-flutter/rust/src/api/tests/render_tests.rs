@@ -205,10 +205,41 @@ fn google_photos_share_links_are_recognised() {
 }
 
 #[test]
-fn google_photos_links_that_are_not_shares_stay_links() {
+fn google_photos_links_that_are_not_shares_are_plain_cards() {
     let blocks = blocks("[@embed https://photos.google.com/photo/AF1Qip]\n");
+    assert_eq!(sole_embed(&blocks[0]).kind, EmbedKind::Other);
+}
+
+#[test]
+fn remote_embeds_of_unknown_sites_become_cards() {
+    let blocks = blocks("[@embed https://example.com/post Post]\n");
+    let embed = sole_embed(&blocks[0]);
+    assert_eq!(embed.kind, EmbedKind::Other);
+    assert_eq!(embed.title.as_deref(), Some("Post"));
+    assert!(!embed.is_local);
+}
+
+#[test]
+fn local_embeds_of_unknown_type_stay_links() {
+    let blocks = blocks("[@embed ./notes.txt]\n");
     let spans = line_spans(&blocks[0]);
     assert!(matches!(spans[0], NoteSpan::Embed { .. }));
+}
+
+#[test]
+fn twitter_speakerdeck_and_slideshare_links_are_recognised() {
+    for (src, kind) in [
+        ("https://x.com/user/status/1", EmbedKind::Twitter),
+        ("https://twitter.com/user/status/1", EmbedKind::Twitter),
+        ("https://speakerdeck.com/user/deck", EmbedKind::SpeakerDeck),
+        (
+            "https://www.slideshare.net/user/deck",
+            EmbedKind::SlideShare,
+        ),
+    ] {
+        let blocks = blocks(&format!("[@embed {src}]\n"));
+        assert_eq!(sole_embed(&blocks[0]).kind, kind, "{src}");
+    }
 }
 
 #[test]
@@ -236,13 +267,6 @@ fn an_embed_among_text_stays_inline() {
         panic!("expected an embed, got {:?}", spans[1]);
     };
     assert_eq!(embed.kind, EmbedKind::Pdf);
-}
-
-#[test]
-fn an_unknown_embed_stays_a_link() {
-    let blocks = blocks("[@embed https://example.com/page Page]\n");
-    let spans = line_spans(&blocks[0]);
-    assert!(matches!(spans[0], NoteSpan::Embed { .. }));
 }
 
 #[test]

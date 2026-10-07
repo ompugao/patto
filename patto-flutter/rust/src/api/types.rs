@@ -115,6 +115,17 @@ pub enum EmbedKind {
     Other,
 }
 
+/// Open Graph tags of a web page, for the title and thumbnail of an embed
+/// whose site has no oEmbed endpoint. Every field is optional because most
+/// pages set only some of them.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OpenGraphMeta {
+    pub title: Option<String>,
+    pub image: Option<String>,
+    pub description: Option<String>,
+    pub site_name: Option<String>,
+}
+
 /// Media behind a Google Photos share link, scraped from the share page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GooglePhotosMedia {
