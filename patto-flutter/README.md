@@ -19,6 +19,11 @@ you ask it to.
   changes that write `completed_at` and time tracking the way the language
   server does
 - Plain-text editor with tab nesting and wiki-link completion
+- Inbox: the button on the notes list opens a sheet for quick time-stamped
+  posts into one note (`Inbox` by default), grouped by day, like a chat with
+  yourself; a launcher shortcut and the share sheet open it too. The note is
+  hidden from the list; tapping a post opens the editor at its line, so the
+  posts can be sorted into other notes later
 - Sync: commit, fetch, fast-forward or merge, push
 - Appearance: light, dark or system theme, and a note text size from 80% to
   180% that applies to the note view and the editor
@@ -30,8 +35,8 @@ patto-flutter/
   lib/
     main.dart          entry point; loads the CA bundle and starts the app
     app.dart           theme, first-run gate, bottom navigation
-    core/              settings, workspaces, Riverpod providers
-    features/          notes, tasks, editor, sync, settings, workspaces
+    core/              settings, workspaces, Riverpod providers, intents
+    features/          notes, inbox, tasks, editor, sync, settings, workspaces
     src/rust/          GENERATED Dart bindings
   rust/                the Rust core (see rust/src/api)
   rust_builder/        Cargokit, builds the Rust library during a Flutter build
@@ -168,6 +173,25 @@ named after the workspace id. An upgrade from the single-workspace version keeps
 the folder that one used (`notes`), so the clone already on the device is not
 thrown away. The link index is keyed by root, so switching back to a workspace
 does not rebuild it.
+
+**Inbox note.** Posts are plain patto: a top-level `yyyy-MM-dd` heading per
+day, `HH:mm text` nested one tab under it, and further lines of a post one tab
+deeper. `rust/src/api/inbox.rs` appends under today's heading (adding it when
+the note does not end with it) and reads posts back by indentation; anything
+hand-written that does not fit is kept and skipped. Dart supplies the date and
+time stamps so the core stays deterministic in tests.
+
+**Quick-note intents.** `MainActivity` turns the launcher shortcut
+(`res/xml/shortcuts.xml`) and `ACTION_SEND` text into a request on the
+`com.sifi.patto/quick_note` method channel. The request that launched the
+activity is held until Dart asks for it with `consume`, so nothing is lost
+while Flutter starts; later ones are pushed as `quickNote` calls. A recreated
+activity does not replay the launching intent, and a `quickNote` call that
+Dart has no handler for yet is put back to wait for `consume`. The activity is
+`singleTask`, so a share or the shortcut reaches the running instance through
+`onNewIntent` instead of starting a second engine. `RootShell` listens, so a
+request only surfaces once a workspace is ready: it returns to the notes tab
+and opens the Inbox sheet with the text in the composer.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

@@ -17,11 +17,34 @@ class Settings {
     this.authorEmail = '',
     this.themeMode = ThemeMode.system,
     this.fontScale = 1.0,
+    this.inboxNoteName = defaultInboxNoteName,
   });
 
   /// The smallest and largest note text the appearance setting offers.
   static const minFontScale = 0.8;
   static const maxFontScale = 1.8;
+
+  static const defaultInboxNoteName = 'Inbox';
+
+  /// Mirrors the Rust core's note-name rule (no escaping the root, no hidden
+  /// or git-internal segments) and adds `#`, which separates a note from an
+  /// anchor in `[note#anchor]` and so could never be linked to. The core's
+  /// `note_name_to_rel_path` stays the authority where it can be called.
+  static bool isValidInboxNoteName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed.contains('#')) return false;
+    if (trimmed.startsWith('/') || trimmed.contains(r'\')) return false;
+    return trimmed
+        .split('/')
+        .every(
+          (seg) =>
+              seg.isNotEmpty &&
+              seg != '.' &&
+              seg != '..' &&
+              !seg.startsWith('.') &&
+              !seg.endsWith(' '),
+        );
+  }
 
   final List<Workspace> workspaces;
 
@@ -38,6 +61,9 @@ class Settings {
   /// Multiplier for note text, applied in the note view and the editor.
   final double fontScale;
 
+  /// The note that inbox posts are appended to.
+  final String inboxNoteName;
+
   Workspace? get active {
     for (final workspace in workspaces) {
       if (workspace.id == activeWorkspaceId) return workspace;
@@ -53,6 +79,7 @@ class Settings {
     String? authorEmail,
     ThemeMode? themeMode,
     double? fontScale,
+    String? inboxNoteName,
   }) {
     return Settings(
       workspaces: workspaces ?? this.workspaces,
@@ -63,6 +90,7 @@ class Settings {
       authorEmail: authorEmail ?? this.authorEmail,
       themeMode: themeMode ?? this.themeMode,
       fontScale: fontScale ?? this.fontScale,
+      inboxNoteName: inboxNoteName ?? this.inboxNoteName,
     );
   }
 
@@ -86,14 +114,10 @@ class Settings {
     if (activeWorkspaceId != id) {
       return copyWith(workspaces: next);
     }
-    return Settings(
-      workspaces: next,
-      activeWorkspaceId: next.isEmpty ? null : next.first.id,
-      authorName: authorName,
-      authorEmail: authorEmail,
-      themeMode: themeMode,
-      fontScale: fontScale,
-    );
+    if (next.isEmpty) {
+      return copyWith(workspaces: next, clearActiveWorkspace: true);
+    }
+    return copyWith(workspaces: next, activeWorkspaceId: next.first.id);
   }
 }
 
@@ -136,7 +160,15 @@ class SettingsStore {
         Settings.minFontScale,
         Settings.maxFontScale,
       ),
+      inboxNoteName: _noteName(prefs.getString('inboxNoteName')),
     );
+  }
+
+  static String _noteName(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return Settings.isValidInboxNoteName(trimmed)
+        ? trimmed
+        : Settings.defaultInboxNoteName;
   }
 
   Future<void> save(Settings settings) async {
@@ -154,6 +186,7 @@ class SettingsStore {
     await prefs.setString('authorEmail', settings.authorEmail);
     await prefs.setString('themeMode', settings.themeMode.name);
     await prefs.setDouble('fontScale', settings.fontScale);
+    await prefs.setString('inboxNoteName', settings.inboxNoteName);
 
     for (final workspace in settings.workspaces) {
       await _writeToken(workspace.id, workspace.token);

@@ -198,6 +198,51 @@ class ImageRef {
           isLocal == other.isLocal;
 }
 
+/// One quick post in the inbox note.
+class InboxPost {
+  /// The `yyyy-MM-dd` heading the post sits under.
+  final String date;
+
+  /// `HH:mm`.
+  final String time;
+
+  /// First line, without the time.
+  final String text;
+
+  /// Further lines, with their nesting under the post removed.
+  final List<String> body;
+
+  /// 0-based line of the post's first line, for the editor.
+  final int line;
+
+  const InboxPost({
+    required this.date,
+    required this.time,
+    required this.text,
+    required this.body,
+    required this.line,
+  });
+
+  @override
+  int get hashCode =>
+      date.hashCode ^
+      time.hashCode ^
+      text.hashCode ^
+      body.hashCode ^
+      line.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InboxPost &&
+          runtimeType == other.runtimeType &&
+          date == other.date &&
+          time == other.time &&
+          text == other.text &&
+          body == other.body &&
+          line == other.line;
+}
+
 /// A note as listed on the notes screen.
 class NoteMeta {
   /// Wiki-link name: path relative to the root, without the `.pn` extension.

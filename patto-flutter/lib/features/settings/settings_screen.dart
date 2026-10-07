@@ -4,15 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
+import '../../src/rust/frb_api.dart' as rust;
 import 'workspace_editor.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   static Future<void> open(BuildContext context) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-    );
+    return Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
   @override
@@ -22,12 +22,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _authorName = TextEditingController();
   final _authorEmail = TextEditingController();
+  final _inboxNoteName = TextEditingController();
   bool _filled = false;
 
   @override
   void dispose() {
     _authorName.dispose();
     _authorEmail.dispose();
+    _inboxNoteName.dispose();
     super.dispose();
   }
 
@@ -36,19 +38,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _filled = true;
     _authorName.text = settings.authorName;
     _authorEmail.text = settings.authorEmail;
+    _inboxNoteName.text = settings.inboxNoteName;
   }
 
   Settings _collect(Settings base) => base.copyWith(
     authorName: _authorName.text.trim(),
     authorEmail: _authorEmail.text.trim(),
+    inboxNoteName: _inboxNameError == null
+        ? _orDefault(_inboxNoteName.text, Settings.defaultInboxNoteName)
+        : base.inboxNoteName,
   );
 
-  Future<void> _saveAuthor(Settings base) async {
+  /// An empty field means the default; an invalid one keeps what was stored,
+  /// so toggling another setting never silently replaces it.
+  static String _orDefault(String value, String fallback) =>
+      value.trim().isEmpty ? fallback : value.trim();
+
+  String? get _inboxNameError {
+    final name = _inboxNoteName.text.trim();
+    if (name.isEmpty) return null;
+    if (name.contains('#')) return 'A note name cannot contain #';
+    if (!Settings.isValidInboxNoteName(name)) return 'Not a valid note name';
+    try {
+      rust.noteNameToRelPath(name: name);
+    } on Exception {
+      return 'Not a valid note name';
+    }
+    return null;
+  }
+
+  Future<void> _saveFields(Settings base) async {
+    final error = _inboxNameError;
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Not saved. Inbox note: $error')));
+      return;
+    }
     await ref.read(settingsProvider.notifier).save(_collect(base));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Saved')));
   }
 
   Future<void> _switchTo(Workspace workspace) async {
@@ -140,7 +170,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(
-                  onPressed: () => _saveAuthor(data),
+                  onPressed: () => _saveFields(data),
                   child: const Text('Save'),
                 ),
               ),
@@ -164,6 +194,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (scale) => ref
                     .read(settingsProvider.notifier)
                     .save(_collect(data).copyWith(fontScale: scale)),
+              ),
+              const SizedBox(height: 24),
+              _Section('Inbox'),
+              Text(
+                'The note that quick posts from the Inbox button, the launcher '
+                'shortcut and text shared from other apps are appended to. It '
+                'is hidden from the notes list; open it from the Inbox sheet.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              TextField(
+                controller: _inboxNoteName,
+                decoration: InputDecoration(
+                  labelText: 'Inbox note',
+                  hintText: Settings.defaultInboxNoteName,
+                  errorText: _inboxNameError,
+                ),
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _saveFields(data),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton(
+                  onPressed: () => _saveFields(data),
+                  child: const Text('Save'),
+                ),
               ),
               const SizedBox(height: 24),
             ],

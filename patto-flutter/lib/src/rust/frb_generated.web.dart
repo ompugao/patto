@@ -158,6 +158,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageRef dco_decode_image_ref(dynamic raw);
 
   @protected
+  InboxPost dco_decode_inbox_post(dynamic raw);
+
+  @protected
   IndexEvent dco_decode_index_event(dynamic raw);
 
   @protected
@@ -186,6 +189,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageRef> dco_decode_list_image_ref(dynamic raw);
+
+  @protected
+  List<InboxPost> dco_decode_list_inbox_post(dynamic raw);
 
   @protected
   List<LinkCount> dco_decode_list_link_count(dynamic raw);
@@ -488,6 +494,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageRef sse_decode_image_ref(SseDeserializer deserializer);
 
   @protected
+  InboxPost sse_decode_inbox_post(SseDeserializer deserializer);
+
+  @protected
   IndexEvent sse_decode_index_event(SseDeserializer deserializer);
 
   @protected
@@ -518,6 +527,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageRef> sse_decode_list_image_ref(SseDeserializer deserializer);
+
+  @protected
+  List<InboxPost> sse_decode_list_inbox_post(SseDeserializer deserializer);
 
   @protected
   List<LinkCount> sse_decode_list_link_count(SseDeserializer deserializer);
@@ -873,6 +885,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_image_ref(ImageRef self, SseSerializer serializer);
 
   @protected
+  void sse_encode_inbox_post(InboxPost self, SseSerializer serializer);
+
+  @protected
   void sse_encode_index_event(IndexEvent self, SseSerializer serializer);
 
   @protected
@@ -907,6 +922,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_image_ref(List<ImageRef> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_inbox_post(
+    List<InboxPost> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_link_count(

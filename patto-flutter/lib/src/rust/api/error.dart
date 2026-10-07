@@ -35,6 +35,8 @@ sealed class PattoError with _$PattoError implements FrbException {
   const factory PattoError.alreadyExists(String field0) =
       PattoError_AlreadyExists;
   const factory PattoError.invalidName(String field0) = PattoError_InvalidName;
+  const factory PattoError.invalidInput(String field0) =
+      PattoError_InvalidInput;
   const factory PattoError.noTaskAtRow({
     required String path,
     required int row,

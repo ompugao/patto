@@ -25,6 +25,8 @@ pub enum PattoError {
     AlreadyExists(String),
     #[error("invalid note name: {0}")]
     InvalidName(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
     #[error("no task on line {row} of {path}")]
     NoTaskAtRow { path: String, row: u32 },
     #[error("index for {0} has not been built yet")]

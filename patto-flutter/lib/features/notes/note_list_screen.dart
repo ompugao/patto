@@ -11,6 +11,7 @@ import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
 import '../editor/editor_screen.dart';
+import '../inbox/inbox_sheet.dart';
 import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../workspaces/workspace_switcher.dart';
@@ -81,9 +82,9 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
       await EditorScreen.open(context, meta.relPath);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not create the note: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not create the note: $e')));
     }
   }
 
@@ -118,6 +119,11 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.note_add_outlined),
+            tooltip: 'New note',
+            onPressed: _createNote,
+          ),
+          IconButton(
             icon: const Icon(Icons.manage_search),
             tooltip: 'Search text',
             onPressed: () => SearchScreen.open(context),
@@ -142,9 +148,10 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
               )
             : null,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createNote,
-        child: const Icon(Icons.add),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => InboxSheet.show(context),
+        icon: const Icon(Icons.edit_outlined),
+        label: const Text('Inbox'),
       ),
       body: Column(
         children: [
@@ -199,7 +206,9 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => _Message('Could not list notes.\n\n$e'),
                 data: (list) => list.isEmpty
-                    ? const _Message('No notes yet. Use + to create one.')
+                    ? const _Message(
+                        'No notes yet. Use the new-note button above to create one.',
+                      )
                     : ListView.builder(
                         key: const PageStorageKey('note-list'),
                         itemCount: list.length,
