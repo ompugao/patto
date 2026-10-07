@@ -102,6 +102,13 @@ final fontScaleProvider = Provider<double>((ref) {
 /// Bumped whenever notes change on disk, to invalidate everything derived.
 final notesRevisionProvider = valueProvider<int>(0);
 
+/// Which bottom tab is showing; a shared text switches to the inbox.
+final rootTabProvider = valueProvider<int>(0);
+
+/// Text waiting to be put into the inbox composer, from a share or the
+/// launcher shortcut. The composer takes it and sets this back to null.
+final inboxDraftProvider = valueProvider<String?>(null);
+
 /// How the note list is ordered.
 enum NoteSort { recent, linked, title }
 
@@ -198,6 +205,19 @@ class IndexNotifier extends Notifier<IndexState> {
 final indexProvider = NotifierProvider<IndexNotifier, IndexState>(
   IndexNotifier.new,
 );
+
+final inboxNoteNameProvider = Provider<String>((ref) {
+  return ref.watch(settingsProvider).value?.inboxNoteName ??
+      Settings.defaultInboxNoteName;
+});
+
+final inboxPostsProvider = FutureProvider<List<InboxPost>>((ref) async {
+  final workspace = await ref.watch(workspaceProvider.future);
+  ref.watch(notesRevisionProvider);
+  final name = ref.watch(inboxNoteNameProvider);
+  if (workspace == null) return const [];
+  return rust.inboxPosts(root: workspace.root, name: name);
+});
 
 final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
   final workspace = await ref.watch(workspaceProvider.future);
