@@ -11,6 +11,7 @@ import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
 import '../editor/editor_screen.dart';
+import '../quick_note/quick_note_sheet.dart';
 import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../workspaces/workspace_switcher.dart';
@@ -142,9 +143,23 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
               )
             : null,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createNote,
-        child: const Icon(Icons.add),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'quick-note',
+            tooltip: 'Quick note',
+            onPressed: () => QuickNoteSheet.show(context),
+            child: const Icon(Icons.bolt),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'new-note',
+            tooltip: 'New note',
+            onPressed: _createNote,
+            child: const Icon(Icons.add),
+          ),
+        ],
       ),
       body: Column(
         children: [
