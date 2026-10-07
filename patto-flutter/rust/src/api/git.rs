@@ -259,15 +259,25 @@ pub(crate) fn current_branch(repo: &Repository) -> PattoResult<String> {
     Ok(head.shorthand()?.to_string())
 }
 
-/// Note paths that differ from HEAD, including untracked ones.
-fn dirty_notes(repo: &Repository) -> PattoResult<Vec<String>> {
+/// Files the editor inserts into notes (images, PDFs) are copied here, and
+/// synced along with the notes.
+pub const ATTACHMENTS_DIR: &str = "attachments";
+
+/// Whether the phone commits changes to this path: notes and attachments,
+/// nothing else that may turn up in a working copy.
+fn is_synced(path: &str) -> bool {
+    path.ends_with(".pn") || path.starts_with(&format!("{ATTACHMENTS_DIR}/"))
+}
+
+/// Synced paths that differ from HEAD, including untracked ones.
+fn dirty_paths(repo: &Repository) -> PattoResult<Vec<String>> {
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(true);
     Ok(repo
         .statuses(Some(&mut opts))?
         .iter()
         .filter_map(|e| e.path().ok().map(str::to_string))
-        .filter(|p| p.ends_with(".pn"))
+        .filter(|p| is_synced(p))
         .collect())
 }
 
@@ -279,7 +289,10 @@ pub fn locally_modified_notes(root: &str) -> PattoResult<HashSet<String>> {
     let Ok(repo) = Repository::open(root) else {
         return Ok(HashSet::new());
     };
-    Ok(dirty_notes(&repo)?.into_iter().collect())
+    Ok(dirty_paths(&repo)?
+        .into_iter()
+        .filter(|p| p.ends_with(".pn"))
+        .collect())
 }
 
 /// When each note was last committed, in milliseconds since the epoch.
@@ -352,7 +365,7 @@ pub fn note_commit_times(root: &str) -> PattoResult<HashMap<String, i64>> {
 
 pub fn git_status(root: String) -> PattoResult<GitStatus> {
     let repo = Repository::open(&root)?;
-    let dirty = dirty_notes(&repo)?;
+    let dirty = dirty_paths(&repo)?;
 
     let branch = current_branch(&repo).unwrap_or_else(|_| "HEAD".to_string());
     let has_remote = repo.find_remote("origin").is_ok();
@@ -385,11 +398,15 @@ fn upstream_oid(repo: &Repository, branch: &str) -> Option<git2::Oid> {
         .target()
 }
 
-/// Stage every note change and commit, returning the new commit id if the tree
-/// actually differs from HEAD.
+/// Stage every note and attachment change and commit, returning the new
+/// commit id if the tree actually differs from HEAD.
 pub(crate) fn commit_notes(repo: &Repository, sig: &Signature) -> PattoResult<Option<git2::Oid>> {
     let mut index = repo.index()?;
-    index.add_all(["*.pn"], git2::IndexAddOption::DEFAULT, None)?;
+    index.add_all(
+        ["*.pn", ATTACHMENTS_DIR],
+        git2::IndexAddOption::DEFAULT,
+        None,
+    )?;
     index.update_all(["*"], None)?;
     index.write()?;
 

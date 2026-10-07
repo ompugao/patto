@@ -58,6 +58,7 @@ dependencies:
   cached_network_image: ^4.0.0
   pdfrx: ^2.6.5
   webview_flutter: ^4.14.1
+  file_picker: ^13.1.0
 
 dev_dependencies:
   flutter_test:

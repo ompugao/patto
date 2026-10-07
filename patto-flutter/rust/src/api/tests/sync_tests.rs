@@ -1,6 +1,7 @@
 //! Sync between a phone clone and a "desktop" clone through a bare origin on
 //! disk, so no network is involved.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use git2::{IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
@@ -178,6 +179,37 @@ fn edits_to_different_notes_merge_and_push() {
         "bread\nmilk\neggs\nbutter\n"
     );
     assert_eq!(read(&setup.phone_root(), "other.pn"), "y\n");
+}
+
+#[test]
+fn attachments_are_committed_and_pushed_with_the_notes() {
+    let setup = Setup::new();
+    let attachments = setup.phone_root().join("attachments").join("sub");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join("photo.png"), "fake png\n").unwrap();
+    write(&setup.phone_root(), "stray.txt", "not synced\n");
+    setup.phone_edit("other.pn", "[@img ./attachments/sub/photo.png]\n");
+
+    let status = git_status(setup.phone()).unwrap();
+    assert_eq!(status.dirty, vec!["attachments/sub/photo.png", "other.pn"]);
+    assert_eq!(
+        locally_modified_notes(&setup.phone()).unwrap(),
+        HashSet::from(["other.pn".to_string()])
+    );
+
+    let report = setup.sync().unwrap();
+    assert!(report.pushed);
+    assert_eq!(
+        origin_file(&setup, "attachments/sub/photo.png"),
+        "fake png\n"
+    );
+    let origin = Repository::open(setup.origin.path()).unwrap();
+    let tree = origin
+        .find_reference("refs/heads/main")
+        .unwrap()
+        .peel_to_tree()
+        .unwrap();
+    assert!(tree.get_path(Path::new("stray.txt")).is_err());
 }
 
 #[test]
