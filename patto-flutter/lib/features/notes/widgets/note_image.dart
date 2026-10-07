@@ -13,6 +13,15 @@ String resolveNotePath(String src, String root) {
   return '$root/$relative';
 }
 
+/// Forgets the decoded copies of files a sync replaced, which Flutter keys by
+/// path alone; without this a note keeps showing the old picture.
+void evictChangedImages(String root, Iterable<String> relPaths) {
+  for (final relPath in relPaths) {
+    if (relPath.endsWith('.pn')) continue;
+    FileImage(File('$root/$relPath')).evict();
+  }
+}
+
 String? _resolveLocalPath(ImageRef image, String? root) {
   if (!image.isLocal || root == null) return null;
   return resolveNotePath(image.src, root);

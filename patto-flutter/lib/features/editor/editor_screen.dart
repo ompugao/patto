@@ -403,23 +403,26 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   /// Copies a file the user picks into the workspace and inserts a reference
   /// to it: an image, an embedded PDF, or a link for anything else.
-  Future<void> _attachFile() async {
-    if (_inserting) return;
+  Future<void> _attachFile() => _guarded(() async {
     final file = await FilePicker.pickFile(dialogTitle: 'Attach a file');
     if (file == null || !mounted) return;
     await _insertAttachment(file.name, await file.readAsBytes());
-  }
+  });
 
   /// Inserts what the clipboard holds in the form the note understands: an
   /// image is saved into the workspace, a web address becomes a link, an
   /// embed or an image by what it points at, and other text is pasted as is.
-  Future<void> _pasteRich() async {
-    if (_inserting) return;
+  Future<void> _pasteRich() => _guarded(() async {
     final image = await ClipboardImage.read();
     if (!mounted) return;
-    if (image != null && image.isNotEmpty) {
-      final name = pastedImageName(widget.relPath, image, DateTime.now());
-      await _insertAttachment(name, image);
+    if (image != null) {
+      final name = pastedImageName(
+        widget.relPath,
+        image.bytes,
+        DateTime.now(),
+        mimeType: image.mimeType,
+      );
+      await _insertAttachment(name, image.bytes);
       return;
     }
     final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
@@ -431,31 +434,44 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     } else {
       _insert(text);
     }
-  }
+  });
 
   bool _inserting = false;
 
-  Future<void> _insertAttachment(String name, Uint8List bytes) async {
-    final workspace = await ref.read(workspaceProvider.future);
-    if (workspace == null || !mounted) return;
+  /// One insertion at a time: a second tap while a picker or lookup is open
+  /// would insert twice.
+  Future<void> _guarded(Future<void> Function() action) async {
+    if (_inserting) return;
     _inserting = true;
     try {
-      final relPath = await saveAttachment(workspace.root, name, bytes);
-      if (mounted) _insert(attachmentSnippet(relPath));
-    } catch (e) {
-      _notify('Could not save the file: $e');
+      await action();
     } finally {
       _inserting = false;
     }
   }
 
+  Future<void> _insertAttachment(String name, Uint8List bytes) async {
+    final workspace = await ref.read(workspaceProvider.future);
+    if (!mounted) return;
+    if (workspace == null) return _notify('No workspace is active');
+    try {
+      final relPath = await saveAttachment(
+        workspace.root,
+        workspace.config.attachmentsDir,
+        name,
+        bytes,
+      );
+      if (mounted) _insert(attachmentSnippet(relPath));
+    } catch (e) {
+      _notify('Could not save the file: $e');
+    }
+  }
+
   Future<void> _insertUrl(String url) async {
     final plain = urlSnippet(url);
-    if (!plain.startsWith('[$url')) return _insert(plain);
+    if (!plain.startsWith('[http')) return _insert(plain);
 
-    _inserting = true;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
+    final notice = ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Looking up the page title…'),
         duration: EmbedLookup.timeout,
@@ -465,8 +481,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final meta = await LinkPreviews.lookup(url);
       if (mounted) _insert(urlSnippet(url, title: meta?.title));
     } finally {
-      _inserting = false;
-      messenger.hideCurrentSnackBar();
+      notice.close();
     }
   }
 

@@ -16,8 +16,8 @@ use git2::{Index, IndexEntry, Oid, Repository, Signature};
 use crate::api::error::{GitErrorKind, PattoError, PattoResult};
 use crate::api::git::{
     changed_between, clear_conflict, commit_merge, commit_notes, conflict_paths, conflict_remote,
-    current_branch, fetch_branch, push, side_branch, GitCreds, GitPhase, GitProgress, MergeOutcome,
-    SyncReport,
+    current_branch, fetch_branch, keep_our_attachments, normalize_attachments_dir, push,
+    side_branch, GitCreds, GitPhase, GitProgress, MergeOutcome, SyncReport,
 };
 use crate::api::merge::{merge_lines, MergedNote};
 
@@ -103,12 +103,13 @@ struct TrialMerge {
     index: Index,
 }
 
-fn trial_merge(repo: &Repository) -> PattoResult<Option<TrialMerge>> {
+fn trial_merge(repo: &Repository, attachments_dir: &str) -> PattoResult<Option<TrialMerge>> {
     let Some(theirs) = conflict_remote(repo) else {
         return Ok(None);
     };
     let head = repo.head()?.peel_to_commit()?;
-    let index = repo.merge_commits(&head, &repo.find_commit(theirs)?, None)?;
+    let mut index = repo.merge_commits(&head, &repo.find_commit(theirs)?, None)?;
+    keep_our_attachments(&mut index, attachments_dir)?;
     Ok(Some(TrialMerge { theirs, index }))
 }
 
@@ -210,9 +211,12 @@ fn remote_changes(repo: &Repository, theirs: Oid) -> PattoResult<Vec<String>> {
 }
 
 /// The paused sync, if there is one.
-pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
+pub fn pending_conflict(
+    root: String,
+    attachments_dir: String,
+) -> PattoResult<Option<PendingConflict>> {
     let repo = Repository::open(&root)?;
-    let Some(trial) = trial_merge(&repo)? else {
+    let Some(trial) = trial_merge(&repo, &normalize_attachments_dir(&attachments_dir))? else {
         return Ok(None);
     };
 
@@ -245,9 +249,14 @@ pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
 }
 
 /// Everything needed to show and settle one clashing note.
-pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
+pub fn conflict_detail(
+    root: String,
+    attachments_dir: String,
+    rel_path: String,
+) -> PattoResult<ConflictDetail> {
     let repo = Repository::open(&root)?;
-    let trial = trial_merge(&repo)?.ok_or_else(|| stale("no sync is waiting to be merged"))?;
+    let trial = trial_merge(&repo, &normalize_attachments_dir(&attachments_dir))?
+        .ok_or_else(|| stale("no sync is waiting to be merged"))?;
     let sides = conflict_sides(&trial.index)?;
     let side = sides
         .get(&rel_path)
@@ -310,12 +319,14 @@ fn apply(
 /// since it was reviewed; the app then shows the conflict again.
 pub fn git_resolve(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
     resolutions: Vec<Resolution>,
     on_progress: impl Fn(GitProgress) + Send + Sync,
 ) -> PattoResult<SyncReport> {
+    let attachments_dir = normalize_attachments_dir(&attachments_dir);
     let repo = Repository::open(&root)?;
     let sig = Signature::now(&author_name, &author_email)?;
     let branch = current_branch(&repo)?;
@@ -329,7 +340,7 @@ pub fn git_resolve(
     });
     // Edits made since the sync paused are part of our side; if they touched a
     // clashing note, its id no longer matches and the user reviews it again.
-    let commit_id = commit_notes(&repo, &sig)?;
+    let commit_id = commit_notes(&repo, &sig, &attachments_dir)?;
 
     let expected =
         conflict_remote(&repo).ok_or_else(|| stale("no sync is waiting to be merged"))?;
@@ -347,8 +358,8 @@ pub fn git_resolve(
         total: 0,
         bytes: 0,
     });
-    let TrialMerge { theirs, mut index } =
-        trial_merge(&repo)?.ok_or_else(|| stale("no sync is waiting to be merged"))?;
+    let TrialMerge { theirs, mut index } = trial_merge(&repo, &attachments_dir)?
+        .ok_or_else(|| stale("no sync is waiting to be merged"))?;
     let sides = conflict_sides(&index)?;
     for (path, side) in &sides {
         let resolution = resolutions
@@ -392,6 +403,6 @@ pub fn git_resolve(
         merge: MergeOutcome::Merged,
         pushed: true,
         conflict_cleared,
-        changed_paths: changed_between(&repo, Some(before)),
+        changed_paths: changed_between(&repo, Some(before), &attachments_dir),
     })
 }

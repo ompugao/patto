@@ -244,12 +244,15 @@ pub fn git_clone(
     };
 }
 
-pub fn git_status(root: String) -> PattoResult<GitStatus> {
-    git::git_status(root)
+/// `attachments_dir` is the workspace's folder for inserted files, relative to
+/// the root; it is synced along with the notes.
+pub fn git_status(root: String, attachments_dir: String) -> PattoResult<GitStatus> {
+    git::git_status(root, attachments_dir)
 }
 
 pub fn git_sync(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
@@ -258,6 +261,7 @@ pub fn git_sync(
     let progress_sink = sink.clone();
     let result = git::git_sync(
         root.clone(),
+        attachments_dir,
         author_name,
         author_email,
         creds,
@@ -279,19 +283,27 @@ pub fn git_sync(
 // ─── conflicts ───────────────────────────────────────────────────────────────
 
 /// The sync that stopped at a conflict, if one is waiting to be merged.
-pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
-    conflict::pending_conflict(root)
+pub fn pending_conflict(
+    root: String,
+    attachments_dir: String,
+) -> PattoResult<Option<PendingConflict>> {
+    conflict::pending_conflict(root, attachments_dir)
 }
 
 /// Base, phone and remote versions of one clashing note, split into regions.
-pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
-    conflict::conflict_detail(root, rel_path)
+pub fn conflict_detail(
+    root: String,
+    attachments_dir: String,
+    rel_path: String,
+) -> PattoResult<ConflictDetail> {
+    conflict::conflict_detail(root, attachments_dir, rel_path)
 }
 
 /// Merge with the user's choice for every clashing note and push. Reports like
 /// [`git_sync`].
 pub fn git_resolve(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
@@ -301,6 +313,7 @@ pub fn git_resolve(
     let progress_sink = sink.clone();
     let result = conflict::git_resolve(
         root.clone(),
+        attachments_dir,
         author_name,
         author_email,
         creds,

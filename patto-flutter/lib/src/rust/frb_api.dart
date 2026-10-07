@@ -178,31 +178,47 @@ Stream<CloneEvent> gitClone({
   creds: creds,
 );
 
-Future<GitStatus> gitStatus({required String root}) =>
-    RustLib.instance.api.crateFrbApiGitStatus(root: root);
+/// `attachments_dir` is the workspace's folder for inserted files, relative to
+/// the root; it is synced along with the notes.
+Future<GitStatus> gitStatus({
+  required String root,
+  required String attachmentsDir,
+}) => RustLib.instance.api.crateFrbApiGitStatus(
+  root: root,
+  attachmentsDir: attachmentsDir,
+);
 
 Stream<SyncEvent> gitSync({
   required String root,
+  required String attachmentsDir,
   required String authorName,
   required String authorEmail,
   required GitCreds creds,
 }) => RustLib.instance.api.crateFrbApiGitSync(
   root: root,
+  attachmentsDir: attachmentsDir,
   authorName: authorName,
   authorEmail: authorEmail,
   creds: creds,
 );
 
 /// The sync that stopped at a conflict, if one is waiting to be merged.
-Future<PendingConflict?> pendingConflict({required String root}) =>
-    RustLib.instance.api.crateFrbApiPendingConflict(root: root);
+Future<PendingConflict?> pendingConflict({
+  required String root,
+  required String attachmentsDir,
+}) => RustLib.instance.api.crateFrbApiPendingConflict(
+  root: root,
+  attachmentsDir: attachmentsDir,
+);
 
 /// Base, phone and remote versions of one clashing note, split into regions.
 Future<ConflictDetail> conflictDetail({
   required String root,
+  required String attachmentsDir,
   required String relPath,
 }) => RustLib.instance.api.crateFrbApiConflictDetail(
   root: root,
+  attachmentsDir: attachmentsDir,
   relPath: relPath,
 );
 
@@ -210,12 +226,14 @@ Future<ConflictDetail> conflictDetail({
 /// [`git_sync`].
 Stream<SyncEvent> gitResolve({
   required String root,
+  required String attachmentsDir,
   required String authorName,
   required String authorEmail,
   required GitCreds creds,
   required List<Resolution> resolutions,
 }) => RustLib.instance.api.crateFrbApiGitResolve(
   root: root,
+  attachmentsDir: attachmentsDir,
   authorName: authorName,
   authorEmail: authorEmail,
   creds: creds,

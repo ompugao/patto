@@ -1,19 +1,56 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Files inserted into a note live here, under the workspace root, so a
-/// `./attachments/...` path resolves the same from every note.
-const attachmentsDir = 'attachments';
+import '../../core/workspace.dart';
+
+final _dirSegment = RegExp(
+  r'^[A-Za-z0-9_\-.ー\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}'
+  r'\p{Script=Hangul}\p{Script=Bopomofo}]+$',
+  unicode: true,
+);
+
+/// The attachment folder as typed, reduced to a relative path the grammar can
+/// spell inside `./...`; empty means the default, and null that it cannot be
+/// used.
+String? normalizeAttachmentsDir(String text) {
+  final trimmed = text.trim().replaceAll(RegExp(r'^/+|/+$'), '');
+  if (trimmed.isEmpty) return defaultAttachmentsDir;
+  final segments = trimmed.split('/');
+  for (final segment in segments) {
+    if (segment == '.' || segment == '..' || !_dirSegment.hasMatch(segment)) {
+      return null;
+    }
+  }
+  return segments.join('/');
+}
 
 const _imageExtensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'};
 
+const _mimeExtensions = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+  'image/svg+xml': 'svg',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/avif': 'avif',
+  'image/tiff': 'tiff',
+};
+
+/// Everything the grammar's `local_file` rule refuses in a path segment. Its
+/// CJK classes are Unicode scripts, so `・` or `゛` (script Common) must go
+/// even though they sit between the kana.
 final _unsafeChar = RegExp(
-  r'[^A-Za-z0-9_\-'
-  r'々぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]',
+  r'[^A-Za-z0-9_\-ー\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}'
+  r'\p{Script=Hangul}\p{Script=Bopomofo}]',
+  unicode: true,
 );
 
 /// A file name the patto grammar accepts inside `./...`: ASCII letters,
-/// digits, `_`, `-` or CJK in the stem, letters in the extension.
+/// digits, `_`, `-` or CJK in the stem, and an extension of letters only,
+/// which is why `mp4` loses its digit and a name without one gets `.bin`.
 String sanitizeAttachmentName(String name) {
   final dot = name.lastIndexOf('.');
   var stem = dot > 0 ? name.substring(0, dot) : name;
@@ -22,7 +59,8 @@ String sanitizeAttachmentName(String name) {
   stem = stem.replaceAll(RegExp(r'^_+|_+$'), '');
   if (stem.isEmpty) stem = 'file';
   ext = ext.toLowerCase().replaceAll(RegExp('[^a-z]'), '');
-  return ext.isEmpty ? stem : '$stem.$ext';
+  if (ext.isEmpty) ext = 'bin';
+  return '$stem.$ext';
 }
 
 String _stamp(DateTime now) {
@@ -32,10 +70,19 @@ String _stamp(DateTime now) {
 }
 
 /// Name for an image that arrived without one, such as a pasted screenshot.
-String pastedImageName(String noteRelPath, Uint8List bytes, DateTime now) {
+/// The format is read off the bytes, then off [mimeType], then taken as PNG.
+String pastedImageName(
+  String noteRelPath,
+  Uint8List bytes,
+  DateTime now, {
+  String? mimeType,
+}) {
   final file = noteRelPath.split('/').last;
   final stem = file.endsWith('.pn') ? file.substring(0, file.length - 3) : file;
-  final ext = imageExtensionOf(bytes) ?? 'png';
+  final ext =
+      imageExtensionOf(bytes) ??
+      _mimeExtensions[mimeType?.toLowerCase()] ??
+      'png';
   return sanitizeAttachmentName('$stem-${_stamp(now)}.$ext');
 }
 
@@ -70,15 +117,28 @@ bool isImageName(String path) => _imageExtensions.contains(extensionOf(path));
 
 /// Writes [bytes] under the attachments folder and returns the path relative
 /// to [root]; an existing file of that name is kept and the new one numbered.
-Future<String> saveAttachment(String root, String name, Uint8List bytes) async {
+Future<String> saveAttachment(
+  String root,
+  String attachmentsDir,
+  String name,
+  Uint8List bytes,
+) async {
   final dir = Directory('$root/$attachmentsDir');
   await dir.create(recursive: true);
-  final relPath = await _freePath(dir, sanitizeAttachmentName(name));
+  final relPath = await _freePath(
+    dir,
+    attachmentsDir,
+    sanitizeAttachmentName(name),
+  );
   await File('$root/$relPath').writeAsBytes(bytes, flush: true);
   return relPath;
 }
 
-Future<String> _freePath(Directory dir, String name) async {
+Future<String> _freePath(
+  Directory dir,
+  String attachmentsDir,
+  String name,
+) async {
   final dot = name.lastIndexOf('.');
   final stem = dot > 0 ? name.substring(0, dot) : name;
   final ext = dot > 0 ? name.substring(dot) : '';
@@ -109,11 +169,31 @@ final _httpUrl = RegExp(r'^https?://\S+$');
 /// Whether the clipboard text is a single web address and nothing else.
 bool isWebUrl(String text) => _httpUrl.hasMatch(text.trim());
 
+/// The characters the grammar's `URL` rule reads after the scheme; anything
+/// else, such as `[`, `|` or a space, would end the address early.
+final _urlChar = RegExp(
+  r"[A-Za-z0-9/:#%$&?@!()~.=+*\-_,';ー\p{Script=Han}\p{Script=Hiragana}"
+  r'\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]',
+  unicode: true,
+);
+
+/// [url] with every character the grammar would choke on percent-encoded.
+String noteSafeUrl(String url) {
+  final out = StringBuffer();
+  for (final rune in url.runes) {
+    final ch = String.fromCharCode(rune);
+    out.write(_urlChar.hasMatch(ch) ? ch : Uri.encodeComponent(ch));
+  }
+  return out.toString();
+}
+
 final _embedHosts = RegExp(
   r'^(www\.|m\.|mobile\.)?('
   r'youtube\.com|youtu\.be|twitter\.com|x\.com|speakerdeck\.com|'
   r'slideshare\.net|photos\.app\.goo\.gl|photos\.google\.com)$',
 );
+
+final _urlInTitle = RegExp(r'[A-Za-z][A-Za-z0-9+.\-]*://\S*');
 
 /// The note text for a pasted address: an embed for the sites the viewer can
 /// show inline, an image for one that points at a picture, and otherwise a
@@ -121,10 +201,16 @@ final _embedHosts = RegExp(
 String urlSnippet(String url, {String? title}) {
   final uri = Uri.tryParse(url);
   final path = uri?.path ?? '';
-  if (uri != null && _embedHosts.hasMatch(uri.host)) return '[@embed $url]';
-  if (path.toLowerCase().endsWith('.pdf')) return '[@embed $url]';
-  if (isImageName(path)) return '[@img $url]';
-  final cleaned = title?.replaceAll(RegExp(r'[\[\]\s]+'), ' ').trim();
-  if (cleaned == null || cleaned.isEmpty) return '[$url]';
-  return '[$url $cleaned]';
+  final safe = noteSafeUrl(url);
+  if (uri != null && _embedHosts.hasMatch(uri.host)) return '[@embed $safe]';
+  if (path.toLowerCase().endsWith('.pdf')) return '[@embed $safe]';
+  if (isImageName(path)) return '[@img $safe]';
+  // A title may not hold brackets or an address, which the grammar would
+  // read as the link's end or a second link.
+  final cleaned = title
+      ?.replaceAll(_urlInTitle, ' ')
+      .replaceAll(RegExp(r'[\[\]\s]+'), ' ')
+      .trim();
+  if (cleaned == null || cleaned.isEmpty) return '[$safe]';
+  return '[$safe $cleaned]';
 }

@@ -10,14 +10,24 @@ void main() {
       expect(sanitizeAttachmentName('Photo 2024 (1).PNG'), 'Photo_2024_1.png');
       expect(sanitizeAttachmentName('図面-最終.jpeg'), '図面-最終.jpeg');
       expect(sanitizeAttachmentName('a.b.tar.gz'), 'a_b_tar.gz');
-      expect(sanitizeAttachmentName('???'), 'file');
-      expect(sanitizeAttachmentName('.hidden'), 'hidden');
+      expect(sanitizeAttachmentName('???'), 'file.bin');
+      expect(sanitizeAttachmentName('.hidden'), 'hidden.bin');
+      expect(sanitizeAttachmentName('README'), 'README.bin');
+      expect(sanitizeAttachmentName('clip.mp4'), 'clip.mp');
+      expect(sanitizeAttachmentName('図面・最終゛.png'), '図面_最終.png');
+      expect(sanitizeAttachmentName('café résumé.pdf'), 'caf_r_sum.pdf');
     });
 
     test('a pasted image is named after the note and the time', () {
       final png = Uint8List.fromList([0x89, 0x50, 0x4e, 0x47, 0, 0]);
       final jpg = Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0]);
       final at = DateTime(2026, 10, 7, 9, 5, 3);
+      final svg = Uint8List.fromList('<svg'.codeUnits);
+      expect(
+        pastedImageName('a.pn', svg, at, mimeType: 'image/svg+xml'),
+        'a-20261007-090503.svg',
+      );
+      expect(pastedImageName('a.pn', svg, at), 'a-20261007-090503.png');
       expect(
         pastedImageName('daily/2026-10-07.pn', png, at),
         '2026-10-07-20261007-090503.png',
@@ -85,12 +95,37 @@ void main() {
         urlSnippet('https://notyoutube.com/x'),
         '[https://notyoutube.com/x]',
       );
+      expect(
+        urlSnippet('https://example.com/?tags[]=a|b "c"'),
+        '[https://example.com/?tags%5B%5D=a%7Cb%20%22c%22]',
+      );
+      expect(
+        urlSnippet('https://example.com/', title: 'Visit https://x.y/z now'),
+        '[https://example.com/ Visit now]',
+      );
+      expect(
+        urlSnippet('https://example.com/a?b=c&d=e#f'),
+        '[https://example.com/a?b=c&d=e#f]',
+      );
     });
 
     test('only a lone address counts as one', () {
       expect(isWebUrl(' https://example.com/a?b=c '), isTrue);
       expect(isWebUrl('see https://example.com'), isFalse);
       expect(isWebUrl('ftp://example.com'), isFalse);
+    });
+  });
+
+  group('folder', () {
+    test('is trimmed, defaulted when empty and refused when unspellable', () {
+      expect(normalizeAttachmentsDir(''), 'attachments');
+      expect(normalizeAttachmentsDir(' / '), 'attachments');
+      expect(normalizeAttachmentsDir('/media/notes/'), 'media/notes');
+      expect(normalizeAttachmentsDir('添付'), '添付');
+      expect(normalizeAttachmentsDir('my files'), isNull);
+      expect(normalizeAttachmentsDir('../up'), isNull);
+      expect(normalizeAttachmentsDir('a/./b'), isNull);
+      expect(normalizeAttachmentsDir('a//b'), isNull);
     });
   });
 
@@ -104,15 +139,15 @@ void main() {
     test('writes under attachments and numbers a clash', () async {
       final bytes = Uint8List.fromList([1, 2, 3]);
       expect(
-        await saveAttachment(root.path, 'a b.png', bytes),
+        await saveAttachment(root.path, 'attachments', 'a b.png', bytes),
         'attachments/a_b.png',
       );
       expect(
-        await saveAttachment(root.path, 'a_b.png', bytes),
+        await saveAttachment(root.path, 'attachments', 'a_b.png', bytes),
         'attachments/a_b-2.png',
       );
       expect(
-        await saveAttachment(root.path, 'a_b.png', bytes),
+        await saveAttachment(root.path, 'attachments', 'a_b.png', bytes),
         'attachments/a_b-3.png',
       );
       expect(

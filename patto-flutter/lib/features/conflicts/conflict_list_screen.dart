@@ -9,6 +9,7 @@ import '../../src/rust/api/error.dart';
 import '../../src/rust/api/events.dart';
 import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import '../notes/widgets/note_image.dart';
 import 'conflict_note_screen.dart';
 import 'conflict_state.dart';
 
@@ -49,6 +50,7 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
       for (final file in pending.files) {
         final detail = await rust.conflictDetail(
           root: workspace.root,
+          attachmentsDir: workspace.config.attachmentsDir,
           relPath: file.path,
         );
         final draft = drafts[file.path];
@@ -77,6 +79,7 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
       );
       final stream = rust.gitResolve(
         root: workspace.root,
+        attachmentsDir: workspace.config.attachmentsDir,
         authorName: authorName,
         authorEmail: authorEmail,
         creds: creds,
@@ -88,8 +91,9 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
         switch (event) {
           case SyncEvent_Progress(:final progress):
             setState(() => _phase = progress.phase.name);
-          case SyncEvent_Done():
+          case SyncEvent_Done(:final report):
             await ref.read(conflictDraftsProvider.notifier).clear();
+            evictChangedImages(workspace.root, report.changedPaths);
             ref.read(notesRevisionProvider.notifier).value++;
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
@@ -106,6 +110,7 @@ class _ConflictListScreenState extends ConsumerState<ConflictListScreen> {
               await rust
                   .gitSync(
                     root: workspace.root,
+                    attachmentsDir: workspace.config.attachmentsDir,
                     authorName: authorName,
                     authorEmail: authorEmail,
                     creds: creds,

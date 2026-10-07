@@ -170,11 +170,16 @@ fn wire__crate__frb_api__conflict_detail_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
+            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             let api_rel_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::conflict_detail(api_root, api_rel_path)?;
+                    let output_ok = crate::frb_api::conflict_detail(
+                        api_root,
+                        api_attachments_dir,
+                        api_rel_path,
+                    )?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -351,6 +356,7 @@ fn wire__crate__frb_api__git_resolve_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
+            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             let api_author_name = <String>::sse_decode(&mut deserializer);
             let api_author_email = <String>::sse_decode(&mut deserializer);
             let api_creds = <crate::api::git::GitCreds>::sse_decode(&mut deserializer);
@@ -366,6 +372,7 @@ fn wire__crate__frb_api__git_resolve_impl(
                     let output_ok = Ok::<_, ()>({
                         crate::frb_api::git_resolve(
                             api_root,
+                            api_attachments_dir,
                             api_author_name,
                             api_author_email,
                             api_creds,
@@ -402,10 +409,11 @@ fn wire__crate__frb_api__git_status_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
+            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::git_status(api_root)?;
+                    let output_ok = crate::frb_api::git_status(api_root, api_attachments_dir)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -435,6 +443,7 @@ fn wire__crate__frb_api__git_sync_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
+            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             let api_author_name = <String>::sse_decode(&mut deserializer);
             let api_author_email = <String>::sse_decode(&mut deserializer);
             let api_creds = <crate::api::git::GitCreds>::sse_decode(&mut deserializer);
@@ -448,6 +457,7 @@ fn wire__crate__frb_api__git_sync_impl(
                     let output_ok = Ok::<_, ()>({
                         crate::frb_api::git_sync(
                             api_root,
+                            api_attachments_dir,
                             api_author_name,
                             api_author_email,
                             api_creds,
@@ -817,10 +827,12 @@ fn wire__crate__frb_api__pending_conflict_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_root = <String>::sse_decode(&mut deserializer);
+            let api_attachments_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PattoError>((move || {
-                    let output_ok = crate::frb_api::pending_conflict(api_root)?;
+                    let output_ok =
+                        crate::frb_api::pending_conflict(api_root, api_attachments_dir)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }

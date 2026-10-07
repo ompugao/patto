@@ -20,9 +20,11 @@ you ask it to.
   server does
 - Plain-text editor with tab nesting and wiki-link completion
 - Insert a picture or a file from the device, or paste one from the clipboard:
-  the file is copied into the workspace's `attachments/` folder and referenced
-  as an image, an embedded PDF or a link. A pasted web address becomes a link
-  with the page's title, or an embed for sites the viewer can show inline
+  the file is copied into the workspace's attachment folder (`attachments/`
+  unless the workspace says otherwise) and referenced as an image, an embedded
+  PDF or a link. A pasted web address becomes a link with the page's title, an
+  embed for sites the viewer can show inline and for PDFs, or an image when it
+  points at one
 - Sync: commit, fetch, fast-forward or merge, push
 - Appearance: light, dark or system theme, and a note text size from 80% to
   180% that applies to the note view and the editor
@@ -173,14 +175,18 @@ the folder that one used (`notes`), so the clone already on the device is not
 thrown away. The link index is keyed by root, so switching back to a workspace
 does not rebuild it.
 
-**Attachments.** A file inserted from the editor is copied to
-`attachments/` under the workspace root, since `./` paths in a note resolve
-from the root wherever the note lives. Its name is reduced to what the patto
-grammar accepts in a `./` path (letters, digits, CJK, `-`, `_`, and a letters-only
-extension), and a clash gets a numeric suffix. Sync commits notes and the
-`attachments/` folder and nothing else in the working copy. Reading an image
-off the clipboard goes through a method channel in `MainActivity.kt`; a host
-without it, such as iOS today, only pastes text.
+**Attachments.** A file inserted from the editor is copied to the workspace's
+attachment folder under the root (`attachments/` by default, set per
+workspace), since `./` paths in a note resolve from the root wherever the note
+lives. Its name is reduced to what the patto grammar accepts in a `./` path
+(letters, digits, CJK, `-`, `_`, and a letters-only extension), and a clash
+gets a numeric suffix. Sync stages new files only under `*.pn` and the
+attachment folder, and stages changes and deletions of anything already
+tracked. A clash on an attachment between this device and the remote keeps
+this device's copy, as the line merge is for text; a clash on a note still
+pauses the sync for review. Reading an image off the clipboard goes through a
+method channel in `MainActivity.kt`; a host without it, such as iOS today, only
+pastes text.
 
 **Merge conflicts** are resolved in favour of the copy on the phone, which
 cannot present a merge. The sync report lists the files that were auto-resolved.

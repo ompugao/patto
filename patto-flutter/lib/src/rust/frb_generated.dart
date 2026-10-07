@@ -105,6 +105,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<ConflictDetail> crateFrbApiConflictDetail({
     required String root,
+    required String attachmentsDir,
     required String relPath,
   });
 
@@ -130,16 +131,21 @@ abstract class RustLibApi extends BaseApi {
 
   Stream<SyncEvent> crateFrbApiGitResolve({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
     required List<Resolution> resolutions,
   });
 
-  Future<GitStatus> crateFrbApiGitStatus({required String root});
+  Future<GitStatus> crateFrbApiGitStatus({
+    required String root,
+    required String attachmentsDir,
+  });
 
   Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -170,7 +176,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<OpenGraphMeta> crateFrbApiParseOpenGraph({required String html});
 
-  Future<PendingConflict?> crateFrbApiPendingConflict({required String root});
+  Future<PendingConflict?> crateFrbApiPendingConflict({
+    required String root,
+    required String attachmentsDir,
+  });
 
   Future<List<TaskItem>> crateFrbApiPendingTasks({required String root});
 
@@ -325,6 +334,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<ConflictDetail> crateFrbApiConflictDetail({
     required String root,
+    required String attachmentsDir,
     required String relPath,
   }) {
     return handler.executeNormal(
@@ -332,6 +342,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
+          sse_encode_String(attachmentsDir, serializer);
           sse_encode_String(relPath, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -345,7 +356,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiConflictDetailConstMeta,
-        argValues: [root, relPath],
+        argValues: [root, attachmentsDir, relPath],
         apiImpl: this,
       ),
     );
@@ -353,7 +364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateFrbApiConflictDetailConstMeta => const TaskConstMeta(
     debugName: "conflict_detail",
-    argNames: ["root", "relPath"],
+    argNames: ["root", "attachmentsDir", "relPath"],
   );
 
   @override
@@ -502,6 +513,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Stream<SyncEvent> crateFrbApiGitResolve({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -514,6 +526,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(root, serializer);
+            sse_encode_String(attachmentsDir, serializer);
             sse_encode_String(authorName, serializer);
             sse_encode_String(authorEmail, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
@@ -531,7 +544,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitResolveConstMeta,
-          argValues: [root, authorName, authorEmail, creds, resolutions, sink],
+          argValues: [
+            root,
+            attachmentsDir,
+            authorName,
+            authorEmail,
+            creds,
+            resolutions,
+            sink,
+          ],
           apiImpl: this,
         ),
       ),
@@ -543,6 +564,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "git_resolve",
     argNames: [
       "root",
+      "attachmentsDir",
       "authorName",
       "authorEmail",
       "creds",
@@ -552,12 +574,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Future<GitStatus> crateFrbApiGitStatus({required String root}) {
+  Future<GitStatus> crateFrbApiGitStatus({
+    required String root,
+    required String attachmentsDir,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
+          sse_encode_String(attachmentsDir, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -570,18 +596,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiGitStatusConstMeta,
-        argValues: [root],
+        argValues: [root, attachmentsDir],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateFrbApiGitStatusConstMeta =>
-      const TaskConstMeta(debugName: "git_status", argNames: ["root"]);
+  TaskConstMeta get kCrateFrbApiGitStatusConstMeta => const TaskConstMeta(
+    debugName: "git_status",
+    argNames: ["root", "attachmentsDir"],
+  );
 
   @override
   Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -593,6 +622,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(root, serializer);
+            sse_encode_String(attachmentsDir, serializer);
             sse_encode_String(authorName, serializer);
             sse_encode_String(authorEmail, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
@@ -609,7 +639,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitSyncConstMeta,
-          argValues: [root, authorName, authorEmail, creds, sink],
+          argValues: [
+            root,
+            attachmentsDir,
+            authorName,
+            authorEmail,
+            creds,
+            sink,
+          ],
           apiImpl: this,
         ),
       ),
@@ -619,7 +656,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateFrbApiGitSyncConstMeta => const TaskConstMeta(
     debugName: "git_sync",
-    argNames: ["root", "authorName", "authorEmail", "creds", "sink"],
+    argNames: [
+      "root",
+      "attachmentsDir",
+      "authorName",
+      "authorEmail",
+      "creds",
+      "sink",
+    ],
   );
 
   @override
@@ -912,12 +956,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "parse_open_graph", argNames: ["html"]);
 
   @override
-  Future<PendingConflict?> crateFrbApiPendingConflict({required String root}) {
+  Future<PendingConflict?> crateFrbApiPendingConflict({
+    required String root,
+    required String attachmentsDir,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
+          sse_encode_String(attachmentsDir, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -930,14 +978,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiPendingConflictConstMeta,
-        argValues: [root],
+        argValues: [root, attachmentsDir],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateFrbApiPendingConflictConstMeta =>
-      const TaskConstMeta(debugName: "pending_conflict", argNames: ["root"]);
+  TaskConstMeta get kCrateFrbApiPendingConflictConstMeta => const TaskConstMeta(
+    debugName: "pending_conflict",
+    argNames: ["root", "attachmentsDir"],
+  );
 
   @override
   Future<List<TaskItem>> crateFrbApiPendingTasks({required String root}) {
