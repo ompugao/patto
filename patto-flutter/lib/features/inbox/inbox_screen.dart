@@ -28,6 +28,12 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   void initState() {
     super.initState();
     ref.listenManual(inboxDraftProvider, (_, draft) => _takeDraft(draft));
+    // Scroll down when posts were added, not when a save merely started.
+    ref.listenManual(inboxPostsProvider, (previous, next) {
+      final before = previous?.value?.length ?? 0;
+      final after = next.value?.length ?? 0;
+      if (after > before && before > 0) _scrollToBottom();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _takeDraft(ref.read(inboxDraftProvider));
     });
@@ -49,11 +55,16 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         : _composer.text.isEmpty
         ? draft
         : '${_composer.text}\n$draft';
-    _composer.selection = TextSelection.collapsed(
-      offset: _composer.text.length,
-    );
-    _focus.requestFocus();
     setState(() {});
+    // The tab switch that brought the draft lands in the same frame; focus
+    // is only accepted once this screen is the visible child.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _composer.selection = TextSelection.collapsed(
+        offset: _composer.text.length,
+      );
+      _focus.requestFocus();
+    });
   }
 
   void _scrollToBottom({bool animate = true}) {
@@ -75,14 +86,15 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   Future<void> _send() async {
     final text = _composer.text;
     if (text.trim().isEmpty || _sending) return;
-    final workspace = await ref.read(workspaceProvider.future);
-    if (workspace == null || !mounted) return;
+    setState(() => _sending = true);
     final name = ref.read(inboxNoteNameProvider);
     final revision = ref.read(notesRevisionProvider.notifier);
+    final workspaceFuture = ref.read(workspaceProvider.future);
     final now = DateTime.now();
 
-    setState(() => _sending = true);
     try {
+      final workspace = await workspaceFuture;
+      if (workspace == null) return;
       await rust.inboxAppend(
         root: workspace.root,
         name: name,
@@ -94,7 +106,6 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
       if (!mounted) return;
       _composer.clear();
       _focus.requestFocus();
-      _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -140,6 +151,9 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           children: [
             Expanded(
               child: posts.when(
+                // Keep the list on screen while a post or an edit refreshes
+                // it; a remount would land at the top.
+                skipLoadingOnReload: true,
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(
                   child: Padding(
@@ -227,15 +241,18 @@ class _DateHeader extends StatelessWidget {
   final String date;
 
   static String label(String date, DateTime now) {
-    final parsed = DateTime.tryParse(date);
-    if (parsed == null) return date;
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(parsed.year, parsed.month, parsed.day);
-    final days = today.difference(day).inDays;
-    if (days == 0) return 'Today';
-    if (days == 1) return 'Yesterday';
+    final day = DateTime.tryParse(date);
+    if (day == null) return date;
+    // Calendar days are compared field by field: a Duration across a DST
+    // change is not a whole number of days.
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    if (_sameDay(day, now)) return 'Today';
+    if (_sameDay(day, yesterday)) return 'Yesterday';
     return DateFormat('EEE, d MMM yyyy').format(day);
   }
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   @override
   Widget build(BuildContext context) {

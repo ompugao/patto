@@ -155,11 +155,13 @@ class _RootShellState extends ConsumerState<RootShell> {
     final intents = ref.read(quickNoteIntentsProvider);
     _quickNotes = intents.requests.listen((request) {
       if (!mounted) return;
+      // Tab first: the composer only takes focus once it is the visible
+      // child of the IndexedStack.
+      ref.read(rootTabProvider.notifier).value = _inboxTab;
       ref.read(inboxDraftProvider.notifier).value = draftFromShared(
         text: request.text,
         subject: request.subject,
       );
-      ref.read(rootTabProvider.notifier).value = _inboxTab;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
   }
