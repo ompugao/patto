@@ -45,6 +45,16 @@ Future<NoteMeta> createNote({
   initialContent: initialContent,
 );
 
+Future<NoteMeta> appendToNote({
+  required String root,
+  required String name,
+  required String text,
+}) => RustLib.instance.api.crateFrbApiAppendToNote(
+  root: root,
+  name: name,
+  text: text,
+);
+
 Future<void> deleteNote({required String root, required String relPath}) =>
     RustLib.instance.api.crateFrbApiDeleteNote(root: root, relPath: relPath);
 

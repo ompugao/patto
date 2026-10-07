@@ -65,6 +65,12 @@ pub fn create_note(root: String, name: String, initial_content: String) -> Patto
     Ok(meta)
 }
 
+pub fn append_to_note(root: String, name: String, text: String) -> PattoResult<NoteMeta> {
+    let meta = store::append_to_note(root.clone(), name, text)?;
+    index::index_update_file(root, meta.rel_path.clone())?;
+    Ok(meta)
+}
+
 pub fn delete_note(root: String, rel_path: String) -> PattoResult<()> {
     store::delete_note(root.clone(), rel_path.clone())?;
     index::index_update_file(root, rel_path)

@@ -135,6 +135,28 @@ pub fn create_note(root: String, name: String, initial_content: String) -> Patto
     meta_for(Path::new(&root), &path).ok_or(PattoError::NotFound(rel_path))
 }
 
+/// Append `text` as new lines at the end of the note called `name`, creating
+/// the note if it does not exist. The result always ends with one newline.
+pub fn append_to_note(root: String, name: String, text: String) -> PattoResult<NoteMeta> {
+    let rel_path = name_to_rel_path(&name)?;
+    let path = resolve(&root, &rel_path)?;
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(PattoError::Io(e.to_string())),
+    };
+    let mut content = existing.replace("\r\n", "\n");
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    let entry = text.replace("\r\n", "\n");
+    content.push_str(entry.trim_end_matches('\n'));
+    content.push('\n');
+
+    write_note(root.clone(), rel_path.clone(), content)?;
+    meta_for(Path::new(&root), &path).ok_or(PattoError::NotFound(rel_path))
+}
+
 pub fn delete_note(root: String, rel_path: String) -> PattoResult<()> {
     let path = resolve(&root, &rel_path)?;
     std::fs::remove_file(&path).map_err(|e| match e.kind() {
