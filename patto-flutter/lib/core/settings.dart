@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'workspace.dart';
 
+/// Where a quick note lands: a note named after today, or one fixed note.
+enum QuickNoteTarget { daily, single }
+
 /// Everything the user configures. Access tokens are the only secrets and are
 /// kept out of shared preferences.
 @immutable
@@ -17,11 +20,18 @@ class Settings {
     this.authorEmail = '',
     this.themeMode = ThemeMode.system,
     this.fontScale = 1.0,
+    this.quickNoteTarget = QuickNoteTarget.daily,
+    this.quickNoteName = defaultQuickNoteName,
+    this.quickNoteDateFormat = defaultQuickNoteDateFormat,
+    this.quickNoteTimePrefix = true,
   });
 
   /// The smallest and largest note text the appearance setting offers.
   static const minFontScale = 0.8;
   static const maxFontScale = 1.8;
+
+  static const defaultQuickNoteName = 'Inbox';
+  static const defaultQuickNoteDateFormat = 'yyyy-MM-dd';
 
   final List<Workspace> workspaces;
 
@@ -38,6 +48,17 @@ class Settings {
   /// Multiplier for note text, applied in the note view and the editor.
   final double fontScale;
 
+  final QuickNoteTarget quickNoteTarget;
+
+  /// The note quick notes go to when [quickNoteTarget] is `single`.
+  final String quickNoteName;
+
+  /// `intl` pattern naming the daily note.
+  final String quickNoteDateFormat;
+
+  /// Prefix each quick note with the time it was captured.
+  final bool quickNoteTimePrefix;
+
   Workspace? get active {
     for (final workspace in workspaces) {
       if (workspace.id == activeWorkspaceId) return workspace;
@@ -53,6 +74,10 @@ class Settings {
     String? authorEmail,
     ThemeMode? themeMode,
     double? fontScale,
+    QuickNoteTarget? quickNoteTarget,
+    String? quickNoteName,
+    String? quickNoteDateFormat,
+    bool? quickNoteTimePrefix,
   }) {
     return Settings(
       workspaces: workspaces ?? this.workspaces,
@@ -63,6 +88,10 @@ class Settings {
       authorEmail: authorEmail ?? this.authorEmail,
       themeMode: themeMode ?? this.themeMode,
       fontScale: fontScale ?? this.fontScale,
+      quickNoteTarget: quickNoteTarget ?? this.quickNoteTarget,
+      quickNoteName: quickNoteName ?? this.quickNoteName,
+      quickNoteDateFormat: quickNoteDateFormat ?? this.quickNoteDateFormat,
+      quickNoteTimePrefix: quickNoteTimePrefix ?? this.quickNoteTimePrefix,
     );
   }
 
@@ -86,14 +115,10 @@ class Settings {
     if (activeWorkspaceId != id) {
       return copyWith(workspaces: next);
     }
-    return Settings(
-      workspaces: next,
-      activeWorkspaceId: next.isEmpty ? null : next.first.id,
-      authorName: authorName,
-      authorEmail: authorEmail,
-      themeMode: themeMode,
-      fontScale: fontScale,
-    );
+    if (next.isEmpty) {
+      return copyWith(workspaces: next, clearActiveWorkspace: true);
+    }
+    return copyWith(workspaces: next, activeWorkspaceId: next.first.id);
   }
 }
 
@@ -136,7 +161,24 @@ class SettingsStore {
         Settings.minFontScale,
         Settings.maxFontScale,
       ),
+      quickNoteTarget: QuickNoteTarget.values.byName(
+        prefs.getString('quickNoteTarget') ?? QuickNoteTarget.daily.name,
+      ),
+      quickNoteName: _nonEmpty(
+        prefs.getString('quickNoteName'),
+        Settings.defaultQuickNoteName,
+      ),
+      quickNoteDateFormat: _nonEmpty(
+        prefs.getString('quickNoteDateFormat'),
+        Settings.defaultQuickNoteDateFormat,
+      ),
+      quickNoteTimePrefix: prefs.getBool('quickNoteTimePrefix') ?? true,
     );
+  }
+
+  static String _nonEmpty(String? value, String fallback) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? fallback : trimmed;
   }
 
   Future<void> save(Settings settings) async {
@@ -154,6 +196,10 @@ class SettingsStore {
     await prefs.setString('authorEmail', settings.authorEmail);
     await prefs.setString('themeMode', settings.themeMode.name);
     await prefs.setDouble('fontScale', settings.fontScale);
+    await prefs.setString('quickNoteTarget', settings.quickNoteTarget.name);
+    await prefs.setString('quickNoteName', settings.quickNoteName);
+    await prefs.setString('quickNoteDateFormat', settings.quickNoteDateFormat);
+    await prefs.setBool('quickNoteTimePrefix', settings.quickNoteTimePrefix);
 
     for (final workspace in settings.workspaces) {
       await _writeToken(workspace.id, workspace.token);

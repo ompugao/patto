@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
+import '../quick_note/quick_note_entry.dart';
 import 'workspace_editor.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -22,12 +23,16 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _authorName = TextEditingController();
   final _authorEmail = TextEditingController();
+  final _quickNoteName = TextEditingController();
+  final _quickNoteDateFormat = TextEditingController();
   bool _filled = false;
 
   @override
   void dispose() {
     _authorName.dispose();
     _authorEmail.dispose();
+    _quickNoteName.dispose();
+    _quickNoteDateFormat.dispose();
     super.dispose();
   }
 
@@ -36,14 +41,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _filled = true;
     _authorName.text = settings.authorName;
     _authorEmail.text = settings.authorEmail;
+    _quickNoteName.text = settings.quickNoteName;
+    _quickNoteDateFormat.text = settings.quickNoteDateFormat;
   }
 
   Settings _collect(Settings base) => base.copyWith(
     authorName: _authorName.text.trim(),
     authorEmail: _authorEmail.text.trim(),
+    quickNoteName: _orDefault(
+      _quickNoteName.text,
+      Settings.defaultQuickNoteName,
+    ),
+    quickNoteDateFormat: _orDefault(
+      _quickNoteDateFormat.text,
+      Settings.defaultQuickNoteDateFormat,
+    ),
   );
 
-  Future<void> _saveAuthor(Settings base) async {
+  static String _orDefault(String value, String fallback) =>
+      value.trim().isEmpty ? fallback : value.trim();
+
+  Future<void> _saveFields(Settings base) async {
     await ref.read(settingsProvider.notifier).save(_collect(base));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -140,7 +158,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton(
-                  onPressed: () => _saveAuthor(data),
+                  onPressed: () => _saveFields(data),
                   child: const Text('Save'),
                 ),
               ),
@@ -164,6 +182,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (scale) => ref
                     .read(settingsProvider.notifier)
                     .save(_collect(data).copyWith(fontScale: scale)),
+              ),
+              const SizedBox(height: 24),
+              _Section('Quick note'),
+              Text(
+                'Where the bolt button, the launcher shortcut and text shared '
+                'from other apps are saved.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<QuickNoteTarget>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(
+                    value: QuickNoteTarget.daily,
+                    label: Text('Daily note'),
+                  ),
+                  ButtonSegment(
+                    value: QuickNoteTarget.single,
+                    label: Text('Single note'),
+                  ),
+                ],
+                selected: {data.quickNoteTarget},
+                onSelectionChanged: (s) => ref
+                    .read(settingsProvider.notifier)
+                    .save(_collect(data).copyWith(quickNoteTarget: s.first)),
+              ),
+              if (data.quickNoteTarget == QuickNoteTarget.daily)
+                TextField(
+                  controller: _quickNoteDateFormat,
+                  decoration: InputDecoration(
+                    labelText: 'Date format for the note name',
+                    helperText:
+                        'Today: ${quickNoteTargetName(data, DateTime.now())}',
+                  ),
+                  onSubmitted: (_) => _saveFields(data),
+                )
+              else
+                TextField(
+                  controller: _quickNoteName,
+                  decoration: const InputDecoration(labelText: 'Note name'),
+                  onSubmitted: (_) => _saveFields(data),
+                ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Prefix with the time'),
+                subtitle: const Text('For example "14:05 Call the dentist"'),
+                value: data.quickNoteTimePrefix,
+                onChanged: (v) => ref
+                    .read(settingsProvider.notifier)
+                    .save(_collect(data).copyWith(quickNoteTimePrefix: v)),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton(
+                  onPressed: () => _saveFields(data),
+                  child: const Text('Save'),
+                ),
               ),
               const SizedBox(height: 24),
             ],

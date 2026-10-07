@@ -176,6 +176,49 @@ void main() {
       expect(loaded.active?.id, 'ws-2');
     });
 
+    test('quick note settings default to a daily note with the time', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final settings = await SettingsStore().load();
+
+      expect(settings.quickNoteTarget, QuickNoteTarget.daily);
+      expect(settings.quickNoteName, Settings.defaultQuickNoteName);
+      expect(settings.quickNoteDateFormat, Settings.defaultQuickNoteDateFormat);
+      expect(settings.quickNoteTimePrefix, isTrue);
+    });
+
+    test('quick note settings survive a round trip', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = SettingsStore();
+
+      await store.save(
+        const Settings(
+          quickNoteTarget: QuickNoteTarget.single,
+          quickNoteName: 'Capture',
+          quickNoteDateFormat: 'yyyyMMdd',
+          quickNoteTimePrefix: false,
+        ),
+      );
+      final loaded = await store.load();
+
+      expect(loaded.quickNoteTarget, QuickNoteTarget.single);
+      expect(loaded.quickNoteName, 'Capture');
+      expect(loaded.quickNoteDateFormat, 'yyyyMMdd');
+      expect(loaded.quickNoteTimePrefix, isFalse);
+    });
+
+    test('an emptied quick note name falls back to the default', () async {
+      SharedPreferences.setMockInitialValues({
+        'flutter.quickNoteName': '  ',
+        'flutter.quickNoteDateFormat': '',
+      });
+
+      final settings = await SettingsStore().load();
+
+      expect(settings.quickNoteName, Settings.defaultQuickNoteName);
+      expect(settings.quickNoteDateFormat, Settings.defaultQuickNoteDateFormat);
+    });
+
     test('a clamped font scale never leaves the allowed range', () async {
       SharedPreferences.setMockInitialValues({'flutter.fontScale': 99.0});
 
