@@ -19,6 +19,12 @@ you ask it to.
   changes that write `completed_at` and time tracking the way the language
   server does
 - Plain-text editor with tab nesting and wiki-link completion
+- Insert a picture or a file from the device, or paste one from the clipboard:
+  the file is copied into the workspace's attachment folder (`attachments/`
+  unless the workspace says otherwise) and referenced as an image, an embedded
+  PDF or a link. A pasted web address becomes a link with the page's title, an
+  embed for sites the viewer can show inline and for PDFs, or an image when it
+  points at one
 - Inbox: the button on the notes list opens a sheet for quick time-stamped
   posts into one note (`Inbox` by default), grouped by day, like a chat with
   yourself; a launcher shortcut and the share sheet open it too. The note is
@@ -173,6 +179,21 @@ named after the workspace id. An upgrade from the single-workspace version keeps
 the folder that one used (`notes`), so the clone already on the device is not
 thrown away. The link index is keyed by root, so switching back to a workspace
 does not rebuild it.
+
+**Attachments.** A file inserted from the editor is copied to the workspace's
+attachment folder under the root (`attachments/` by default, set per
+workspace), since `./` paths in a note resolve from the root wherever the note
+lives. Its name is reduced to what the patto grammar accepts in a `./` path
+(letters, digits, CJK, `-`, `_`, and a letters-only extension), and a clash
+gets a numeric suffix. Sync stages new files only under `*.pn` and the
+attachment folder, and stages changes and deletions of anything already
+tracked. A clash on any file that is not a note is settled in favour of this
+device's copy, as the line merge is for text; a clash on a note still pauses
+the sync for review. Reading an image off the clipboard and opening the system
+file dialog go through a method channel in `MainActivity.kt` (the usual
+file-picker plugin brings a native module that wants a newer NDK than the Rust
+library is built against); a host without the channel, such as iOS today, only
+pastes text and cannot attach files.
 
 **Inbox note.** Posts are plain patto: a top-level `yyyy-MM-dd` heading per
 day, `HH:mm text` nested one tab under it, and further lines of a post one tab

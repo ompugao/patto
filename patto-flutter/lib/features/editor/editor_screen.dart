@@ -2,13 +2,18 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../../core/embed_lookup.dart';
+import '../../core/embed_metadata.dart';
 import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_state.dart';
+import 'attachments.dart';
+import 'device_files.dart';
 import 'indent_guides.dart';
 import 'outline.dart';
 import 'patto_editing_controller.dart';
@@ -395,6 +400,106 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
+  /// Copies a file the user picks into the workspace and inserts a reference
+  /// to it: an image, an embedded PDF, or a link for anything else.
+  Future<void> _attachFile() => _guarded(() async {
+    final picked = await DeviceFiles.pickFile();
+    if (!mounted) return;
+    if (picked == null) return _notify('No file was picked');
+    await _insertAttachment(
+      picked.name,
+      (root, dir) => saveAttachmentFile(root, dir, picked.name, picked.file),
+    );
+  });
+
+  /// Inserts what the clipboard holds in the form the note understands: an
+  /// image is saved into the workspace, a web address becomes a link, an
+  /// embed or an image by what it points at, and other text is pasted as is.
+  Future<void> _pasteRich() => _guarded(() async {
+    final image = await DeviceFiles.clipboardImage();
+    if (!mounted) return;
+    if (image != null) {
+      final name = pastedImageName(
+        widget.relPath,
+        image.bytes,
+        DateTime.now(),
+        mimeType: image.mimeType,
+      );
+      await _insertAttachment(
+        name,
+        (root, dir) => saveAttachment(root, dir, name, image.bytes),
+      );
+      return;
+    }
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    if (!mounted) return;
+    if (text == null || text.isEmpty) {
+      _notify('Nothing to paste');
+    } else if (isWebUrl(text)) {
+      await _insertUrl(text.trim());
+    } else {
+      _insert(text);
+    }
+  });
+
+  bool _inserting = false;
+
+  /// One insertion at a time: a second tap while a picker or lookup is open
+  /// would insert twice.
+  Future<void> _guarded(Future<void> Function() action) async {
+    if (_inserting) return;
+    _inserting = true;
+    try {
+      await action();
+    } finally {
+      _inserting = false;
+    }
+  }
+
+  /// Runs [save] against the active workspace and inserts a reference to the
+  /// path it returns.
+  Future<void> _insertAttachment(
+    String name,
+    Future<String> Function(String root, String attachmentsDir) save,
+  ) async {
+    final workspace = await ref.read(workspaceProvider.future);
+    if (!mounted) return;
+    if (workspace == null) return _notify('No workspace is active');
+    try {
+      final relPath = await save(
+        workspace.root,
+        workspace.config.attachmentsDir,
+      );
+      if (mounted) _insert(attachmentSnippet(relPath));
+    } catch (e) {
+      _notify('Could not save the file: $e');
+    }
+  }
+
+  Future<void> _insertUrl(String url) async {
+    final plain = urlSnippet(url);
+    if (!plain.startsWith('[http')) return _insert(plain);
+
+    final notice = ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Looking up the page title…'),
+        duration: EmbedLookup.timeout,
+      ),
+    );
+    try {
+      final meta = await LinkPreviews.lookup(url);
+      if (mounted) _insert(urlSnippet(url, title: meta?.title));
+    } finally {
+      notice.close();
+    }
+  }
+
+  void _notify(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   /// re_editor implements the long-press menu but leaves the widget to the
   /// application, so without this there is no cut, copy or paste.
   Widget _buildSelectionMenu({
@@ -596,6 +701,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           onIndent: () => _reindent(add: true),
                           onOutdent: () => _reindent(add: false),
                           onInsert: _insert,
+                          onAttach: _attachFile,
+                          onPaste: _pasteRich,
                           onMoveBlock: (up) => _moveBlock(up: up),
                           onSelectBlock: _selectBlock,
                           onUndo: _controller.undo,
@@ -665,6 +772,8 @@ class _Toolbar extends StatelessWidget {
     required this.onIndent,
     required this.onOutdent,
     required this.onInsert,
+    required this.onAttach,
+    required this.onPaste,
     required this.onMoveBlock,
     required this.onSelectBlock,
     required this.onUndo,
@@ -676,6 +785,8 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
   final void Function(String text, [int back]) onInsert;
+  final VoidCallback onAttach;
+  final VoidCallback onPaste;
   final void Function(bool up) onMoveBlock;
   final VoidCallback onSelectBlock;
   final VoidCallback onUndo;
@@ -737,6 +848,17 @@ class _Toolbar extends StatelessWidget {
                         icon: const Icon(Icons.redo),
                         tooltip: 'Redo',
                         onPressed: onRedo,
+                      ),
+                      const VerticalDivider(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.attach_file),
+                        tooltip: 'Attach a file',
+                        onPressed: onAttach,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.content_paste_go),
+                        tooltip: 'Paste as image, link or embed',
+                        onPressed: onPaste,
                       ),
                       const VerticalDivider(width: 8),
                       TextButton(

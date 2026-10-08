@@ -3,6 +3,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+/// Where files inserted into a note go unless the workspace says otherwise:
+/// a folder under the root, so a `./attachments/...` path resolves the same
+/// from every note.
+const defaultAttachmentsDir = 'attachments';
+
 /// One notes repository the app knows about.
 ///
 /// The token is held here while the app runs but is stored separately, in the
@@ -17,6 +22,7 @@ class Workspace {
     this.branch = '',
     this.username = '',
     this.token = '',
+    this.attachmentsDir = defaultAttachmentsDir,
   });
 
   /// Stable identifier. Also the keystore key for the token, so it must not
@@ -37,6 +43,10 @@ class Workspace {
   final String username;
   final String token;
 
+  /// Folder under the root that files inserted from the editor are copied
+  /// into. Synced along with the notes.
+  final String attachmentsDir;
+
   bool get hasRemote => repoUrl.trim().isNotEmpty;
 
   Workspace copyWith({
@@ -45,6 +55,7 @@ class Workspace {
     String? branch,
     String? username,
     String? token,
+    String? attachmentsDir,
   }) {
     return Workspace(
       id: id,
@@ -54,6 +65,7 @@ class Workspace {
       branch: branch ?? this.branch,
       username: username ?? this.username,
       token: token ?? this.token,
+      attachmentsDir: attachmentsDir ?? this.attachmentsDir,
     );
   }
 
@@ -65,6 +77,7 @@ class Workspace {
     'repoUrl': repoUrl,
     'branch': branch,
     'username': username,
+    'attachmentsDir': attachmentsDir,
   };
 
   static Workspace fromJson(Map<String, dynamic> json) {
@@ -76,6 +89,8 @@ class Workspace {
       repoUrl: json['repoUrl'] as String? ?? '',
       branch: json['branch'] as String? ?? '',
       username: json['username'] as String? ?? '',
+      attachmentsDir:
+          json['attachmentsDir'] as String? ?? defaultAttachmentsDir,
     );
   }
 

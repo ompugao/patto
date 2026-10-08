@@ -8,6 +8,7 @@ import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
+import '../notes/widgets/note_image.dart';
 import '../settings/settings_screen.dart';
 
 /// Shows what is uncommitted, and runs commit, pull and push.
@@ -53,6 +54,7 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
     try {
       final stream = rust.gitSync(
         root: workspace.root,
+        attachmentsDir: workspace.config.attachmentsDir,
         authorName: settings.authorName.isEmpty ? 'Patto' : settings.authorName,
         authorEmail: settings.authorEmail.isEmpty
             ? 'patto@localhost'
@@ -77,6 +79,7 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
             if (report.conflictCleared) {
               await ref.read(conflictDraftsProvider.notifier).clear();
             }
+            evictChangedImages(report.changedPaths);
             ref.read(notesRevisionProvider.notifier).value++;
           case SyncEvent_Failed(:final failure):
             setState(() {

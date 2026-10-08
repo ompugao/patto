@@ -137,8 +137,8 @@ class SyncReport {
   /// the app, and the side branch removed.
   final bool conflictCleared;
 
-  /// Note paths that changed on disk during the sync, so the app can refresh
-  /// just those.
+  /// Paths that changed on disk during the sync, so the app can refresh just
+  /// those notes and forget cached pictures.
   final List<String> changedPaths;
 
   const SyncReport({

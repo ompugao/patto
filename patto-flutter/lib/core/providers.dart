@@ -390,7 +390,10 @@ final gitStatusProvider = FutureProvider.autoDispose<GitStatus?>((ref) async {
   if (workspace == null || !workspace.isCloned) return null;
 
   try {
-    return await rust.gitStatus(root: workspace.root);
+    return await rust.gitStatus(
+      root: workspace.root,
+      attachmentsDir: workspace.config.attachmentsDir,
+    );
   } catch (_) {
     return null;
   }

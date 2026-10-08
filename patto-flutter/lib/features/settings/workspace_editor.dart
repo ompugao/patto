@@ -9,6 +9,7 @@ import '../../core/workspace.dart';
 import '../../src/rust/api/events.dart';
 import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import '../editor/attachments.dart';
 
 /// Add or edit one workspace, and clone it.
 ///
@@ -45,6 +46,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
   final _branch = TextEditingController();
   final _username = TextEditingController();
   final _token = TextEditingController();
+  final _attachmentsDir = TextEditingController();
 
   bool _cloning = false;
   String? _phase;
@@ -62,12 +64,20 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
       _branch.text = existing.branch;
       _username.text = existing.username;
       _token.text = existing.token;
+      _attachmentsDir.text = existing.attachmentsDir;
     }
   }
 
   @override
   void dispose() {
-    for (final c in [_name, _repoUrl, _branch, _username, _token]) {
+    for (final c in [
+      _name,
+      _repoUrl,
+      _branch,
+      _username,
+      _token,
+      _attachmentsDir,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -97,7 +107,23 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
       branch: _branch.text.trim(),
       username: _username.text.trim(),
       token: _token.text.trim(),
+      attachmentsDir:
+          normalizeAttachmentsDir(_attachmentsDir.text) ??
+          defaultAttachmentsDir,
     );
+  }
+
+  /// Rejects a form whose attachment folder could not be spelled in a note.
+  bool _validate() {
+    if (normalizeAttachmentsDir(_attachmentsDir.text) == null) {
+      setState(
+        () => _error =
+            'The attachment folder may only use letters, digits, CJK, '
+            '"-", "_" and "/".',
+      );
+      return false;
+    }
+    return true;
   }
 
   Future<String?> _rootFor(Workspace workspace) async {
@@ -106,6 +132,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
   }
 
   Future<void> _save() async {
+    if (!_validate()) return;
     final workspace = _collect();
     await ref.read(settingsProvider.notifier).saveWorkspace(workspace);
 
@@ -122,6 +149,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
   }
 
   Future<void> _clone() async {
+    if (!_validate()) return;
     final workspace = _collect();
     if (workspace.repoUrl.isEmpty) {
       setState(() => _error = 'Enter the repository URL.');
@@ -146,10 +174,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
         url: workspace.repoUrl,
         root: root,
         branch: workspace.branch.isEmpty ? null : workspace.branch,
-        creds: GitCreds(
-          username: workspace.username,
-          token: workspace.token,
-        ),
+        creds: GitCreds(username: workspace.username, token: workspace.token),
       );
 
       var cloned = false;
@@ -176,7 +201,9 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
       if (!cloned) return;
 
       // Show the workspace that was just cloned.
-      await ref.read(settingsProvider.notifier).setActiveWorkspace(workspace.id);
+      await ref
+          .read(settingsProvider.notifier)
+          .setActiveWorkspace(workspace.id);
       ref.read(indexProvider.notifier).forget(root);
       ref.read(notesRevisionProvider.notifier).value++;
       ref.invalidate(workspaceProvider);
@@ -281,6 +308,17 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
               helperText: 'Stored in the device keystore',
             ),
             obscureText: true,
+          ),
+          TextField(
+            controller: _attachmentsDir,
+            decoration: const InputDecoration(
+              labelText: 'Attachment folder',
+              hintText: defaultAttachmentsDir,
+              helperText:
+                  'Folder in the repository for pictures and files inserted '
+                  'from the editor. Changing it leaves earlier files where '
+                  'they are, outside the sync.',
+            ),
           ),
           const SizedBox(height: 24),
           if (_cloning) ...[

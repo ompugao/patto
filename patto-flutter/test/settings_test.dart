@@ -19,9 +19,11 @@ void main() {
         branch: 'main',
         username: 'someone',
         token: 'secret',
+        attachmentsDir: 'media/notes',
       );
 
       final restored = Workspace.fromJson(workspace.toJson());
+      expect(restored.attachmentsDir, 'media/notes');
 
       expect(restored.id, workspace.id);
       expect(restored.name, workspace.name);

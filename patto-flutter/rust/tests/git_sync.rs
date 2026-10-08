@@ -44,6 +44,7 @@ fn clone_to(remote: &Remote, into: &Path) {
 fn sync(root: &Path) -> SyncReport {
     git_sync(
         root.to_string_lossy().to_string(),
+        "attachments".to_string(),
         "Tester".to_string(),
         "tester@example.com".to_string(),
         creds(),
@@ -182,9 +183,12 @@ fn a_conflicting_edit_pauses_and_keeps_the_local_copy() {
 
     write(a.path(), "seed.pn", "edited on a\n");
     sync(a.path());
-    let branch = git_status(b.path().to_string_lossy().to_string())
-        .unwrap()
-        .branch;
+    let branch = git_status(
+        b.path().to_string_lossy().to_string(),
+        "attachments".to_string(),
+    )
+    .unwrap()
+    .branch;
     let remote_tip = remote_branch(&remote, &branch);
 
     write(b.path(), "seed.pn", "edited on b\n");
@@ -232,13 +236,21 @@ fn status_reports_the_branch_and_dirty_notes() {
     let local = tempfile::tempdir().unwrap();
     clone_to(&remote, local.path());
 
-    let clean = git_status(local.path().to_string_lossy().to_string()).unwrap();
+    let clean = git_status(
+        local.path().to_string_lossy().to_string(),
+        "attachments".to_string(),
+    )
+    .unwrap();
     assert!(clean.dirty.is_empty());
     assert!(clean.has_remote);
     assert!(!clean.branch.is_empty());
 
     write(local.path(), "draft.pn", "unsaved\n");
-    let dirty = git_status(local.path().to_string_lossy().to_string()).unwrap();
+    let dirty = git_status(
+        local.path().to_string_lossy().to_string(),
+        "attachments".to_string(),
+    )
+    .unwrap();
     assert_eq!(dirty.dirty, vec!["draft.pn".to_string()]);
 }
 
@@ -260,7 +272,11 @@ fn status_counts_how_far_behind_we_are() {
         .fetch(&[&format!("refs/heads/{branch}")], None, None)
         .unwrap();
 
-    let status = git_status(b.path().to_string_lossy().to_string()).unwrap();
+    let status = git_status(
+        b.path().to_string_lossy().to_string(),
+        "attachments".to_string(),
+    )
+    .unwrap();
     assert_eq!(status.behind, 1);
     assert_eq!(status.ahead, 0);
 }
@@ -285,6 +301,7 @@ fn syncing_a_directory_that_is_not_a_repository_fails() {
     let dir = tempfile::tempdir().unwrap();
     let err = git_sync(
         dir.path().to_string_lossy().to_string(),
+        "attachments".to_string(),
         "Tester".to_string(),
         "tester@example.com".to_string(),
         creds(),

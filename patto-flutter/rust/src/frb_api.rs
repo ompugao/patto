@@ -265,12 +265,15 @@ pub fn git_clone(
     };
 }
 
-pub fn git_status(root: String) -> PattoResult<GitStatus> {
-    git::git_status(root)
+/// `attachments_dir` is the workspace's folder for inserted files, relative to
+/// the root; it is synced along with the notes.
+pub fn git_status(root: String, attachments_dir: String) -> PattoResult<GitStatus> {
+    git::git_status(root, attachments_dir)
 }
 
 pub fn git_sync(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
@@ -279,6 +282,7 @@ pub fn git_sync(
     let progress_sink = sink.clone();
     let result = git::git_sync(
         root.clone(),
+        attachments_dir,
         author_name,
         author_email,
         creds,
@@ -313,6 +317,7 @@ pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDe
 /// [`git_sync`].
 pub fn git_resolve(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
@@ -322,6 +327,7 @@ pub fn git_resolve(
     let progress_sink = sink.clone();
     let result = conflict::git_resolve(
         root.clone(),
+        attachments_dir,
         author_name,
         author_email,
         creds,

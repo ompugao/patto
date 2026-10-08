@@ -71,8 +71,8 @@ pub struct SyncReport {
     /// A merge that was pending has now been completed, on the desktop or in
     /// the app, and the side branch removed.
     pub conflict_cleared: bool,
-    /// Note paths that changed on disk during the sync, so the app can refresh
-    /// just those.
+    /// Paths that changed on disk during the sync, so the app can refresh just
+    /// those notes and forget cached pictures.
     pub changed_paths: Vec<String>,
 }
 
@@ -259,15 +259,35 @@ pub(crate) fn current_branch(repo: &Repository) -> PattoResult<String> {
     Ok(head.shorthand()?.to_string())
 }
 
-/// Note paths that differ from HEAD, including untracked ones.
-fn dirty_notes(repo: &Repository) -> PattoResult<Vec<String>> {
+/// The folder under the root that the editor copies inserted files (images,
+/// PDFs) into, as the workspace configures it; synced along with the notes.
+/// Empty means no folder is synced.
+pub(crate) fn normalize_attachments_dir(dir: &str) -> String {
+    dir.trim().trim_matches('/').to_string()
+}
+
+/// Whether the phone commits changes to this path: notes and attachments,
+/// nothing else that may turn up in a working copy.
+fn is_synced(path: &str, attachments_dir: &str) -> bool {
+    path.ends_with(".pn") || is_attachment(path, attachments_dir)
+}
+
+fn is_attachment(path: &str, attachments_dir: &str) -> bool {
+    !attachments_dir.is_empty()
+        && path
+            .strip_prefix(attachments_dir)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Synced paths that differ from HEAD, including untracked ones.
+fn dirty_paths(repo: &Repository, attachments_dir: &str) -> PattoResult<Vec<String>> {
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(true);
     Ok(repo
         .statuses(Some(&mut opts))?
         .iter()
         .filter_map(|e| e.path().ok().map(str::to_string))
-        .filter(|p| p.ends_with(".pn"))
+        .filter(|p| is_synced(p, attachments_dir))
         .collect())
 }
 
@@ -279,7 +299,7 @@ pub fn locally_modified_notes(root: &str) -> PattoResult<HashSet<String>> {
     let Ok(repo) = Repository::open(root) else {
         return Ok(HashSet::new());
     };
-    Ok(dirty_notes(&repo)?.into_iter().collect())
+    Ok(dirty_paths(&repo, "")?.into_iter().collect())
 }
 
 /// When each note was last committed, in milliseconds since the epoch.
@@ -350,9 +370,9 @@ pub fn note_commit_times(root: &str) -> PattoResult<HashMap<String, i64>> {
     Ok(times)
 }
 
-pub fn git_status(root: String) -> PattoResult<GitStatus> {
+pub fn git_status(root: String, attachments_dir: String) -> PattoResult<GitStatus> {
     let repo = Repository::open(&root)?;
-    let dirty = dirty_notes(&repo)?;
+    let dirty = dirty_paths(&repo, &normalize_attachments_dir(&attachments_dir))?;
 
     let branch = current_branch(&repo).unwrap_or_else(|_| "HEAD".to_string());
     let has_remote = repo.find_remote("origin").is_ok();
@@ -385,11 +405,19 @@ fn upstream_oid(repo: &Repository, branch: &str) -> Option<git2::Oid> {
         .target()
 }
 
-/// Stage every note change and commit, returning the new commit id if the tree
-/// actually differs from HEAD.
-pub(crate) fn commit_notes(repo: &Repository, sig: &Signature) -> PattoResult<Option<git2::Oid>> {
+/// Stage every note and attachment change and commit, returning the new
+/// commit id if the tree actually differs from HEAD.
+pub(crate) fn commit_notes(
+    repo: &Repository,
+    sig: &Signature,
+    attachments_dir: &str,
+) -> PattoResult<Option<git2::Oid>> {
     let mut index = repo.index()?;
-    index.add_all(["*.pn"], git2::IndexAddOption::DEFAULT, None)?;
+    let mut pathspecs = vec!["*.pn"];
+    if !attachments_dir.is_empty() {
+        pathspecs.push(attachments_dir);
+    }
+    index.add_all(pathspecs, git2::IndexAddOption::DEFAULT, None)?;
     index.update_all(["*"], None)?;
     index.write()?;
 
@@ -438,7 +466,7 @@ pub(crate) fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> V
         &mut |delta, _| {
             for file in [delta.new_file(), delta.old_file()] {
                 if let Some(p) = file.path().and_then(|p| p.to_str()) {
-                    if p.ends_with(".pn") && !paths.contains(&p.to_string()) {
+                    if !paths.contains(&p.to_string()) {
                         paths.push(p.to_string());
                     }
                 }
@@ -566,6 +594,39 @@ fn fast_forward(repo: &Repository, branch: &str, target: Oid) -> PattoResult<()>
     Ok(())
 }
 
+/// Settles every clash on a file that is not a note in favour of this device's
+/// copy, the way the app settles every conflict it cannot present: such a file
+/// is an attachment or other binary that the line merge would only corrupt.
+/// Keeps ours where both sides have one, and the deletion where this side
+/// deleted it.
+pub(crate) fn settle_file_conflicts(index: &mut git2::Index) -> PattoResult<()> {
+    let mut clashes = Vec::new();
+    for conflict in index.conflicts()? {
+        let conflict = conflict?;
+        let Some(entry) = conflict
+            .our
+            .as_ref()
+            .or(conflict.their.as_ref())
+            .or(conflict.ancestor.as_ref())
+        else {
+            continue;
+        };
+        let path = String::from_utf8_lossy(&entry.path).to_string();
+        if !path.ends_with(".pn") {
+            clashes.push((path, conflict.our));
+        }
+    }
+    for (path, ours) in clashes {
+        index.conflict_remove(std::path::Path::new(&path))?;
+        if let Some(mut entry) = ours {
+            // Stage 0 marks the entry resolved.
+            entry.flags &= !0x3000;
+            index.add(&entry)?;
+        }
+    }
+    Ok(())
+}
+
 /// Paths the index still has conflicts for.
 pub(crate) fn conflict_paths(index: &git2::Index) -> PattoResult<Vec<String>> {
     let mut paths = Vec::new();
@@ -633,6 +694,7 @@ fn integrate(
     let head = repo.head()?.peel_to_commit()?;
     let theirs = repo.find_commit(fetched)?;
     let mut index = repo.merge_commits(&head, &theirs, None)?;
+    settle_file_conflicts(&mut index)?;
 
     if index.has_conflicts() {
         return Ok(MergeOutcome::Conflicted {
@@ -678,6 +740,7 @@ pub(crate) fn is_retryable(err: &PattoError) -> bool {
 /// branch instead and the report says which notes clash.
 pub fn git_sync(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
@@ -685,6 +748,7 @@ pub fn git_sync(
 ) -> PattoResult<SyncReport> {
     const PUSH_ATTEMPTS: usize = 3;
 
+    let attachments_dir = normalize_attachments_dir(&attachments_dir);
     let repo = Repository::open(&root)?;
     let sig = Signature::now(&author_name, &author_email)?;
     let branch = current_branch(&repo)?;
@@ -700,7 +764,7 @@ pub fn git_sync(
         total: 0,
         bytes: 0,
     });
-    let commit_id = commit_notes(&repo, &sig)?;
+    let commit_id = commit_notes(&repo, &sig, &attachments_dir)?;
 
     let Ok(mut remote) = repo.find_remote("origin") else {
         return Err(PattoError::Git {

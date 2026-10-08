@@ -16,8 +16,8 @@ use git2::{Index, IndexEntry, Oid, Repository, Signature};
 use crate::api::error::{GitErrorKind, PattoError, PattoResult};
 use crate::api::git::{
     changed_between, clear_conflict, commit_merge, commit_notes, conflict_paths, conflict_remote,
-    current_branch, fetch_branch, push, side_branch, GitCreds, GitPhase, GitProgress, MergeOutcome,
-    SyncReport,
+    current_branch, fetch_branch, normalize_attachments_dir, push, settle_file_conflicts,
+    side_branch, GitCreds, GitPhase, GitProgress, MergeOutcome, SyncReport,
 };
 use crate::api::merge::{merge_lines, MergedNote};
 
@@ -108,7 +108,8 @@ fn trial_merge(repo: &Repository) -> PattoResult<Option<TrialMerge>> {
         return Ok(None);
     };
     let head = repo.head()?.peel_to_commit()?;
-    let index = repo.merge_commits(&head, &repo.find_commit(theirs)?, None)?;
+    let mut index = repo.merge_commits(&head, &repo.find_commit(theirs)?, None)?;
+    settle_file_conflicts(&mut index)?;
     Ok(Some(TrialMerge { theirs, index }))
 }
 
@@ -310,12 +311,14 @@ fn apply(
 /// since it was reviewed; the app then shows the conflict again.
 pub fn git_resolve(
     root: String,
+    attachments_dir: String,
     author_name: String,
     author_email: String,
     creds: GitCreds,
     resolutions: Vec<Resolution>,
     on_progress: impl Fn(GitProgress) + Send + Sync,
 ) -> PattoResult<SyncReport> {
+    let attachments_dir = normalize_attachments_dir(&attachments_dir);
     let repo = Repository::open(&root)?;
     let sig = Signature::now(&author_name, &author_email)?;
     let branch = current_branch(&repo)?;
@@ -329,7 +332,7 @@ pub fn git_resolve(
     });
     // Edits made since the sync paused are part of our side; if they touched a
     // clashing note, its id no longer matches and the user reviews it again.
-    let commit_id = commit_notes(&repo, &sig)?;
+    let commit_id = commit_notes(&repo, &sig, &attachments_dir)?;
 
     let expected =
         conflict_remote(&repo).ok_or_else(|| stale("no sync is waiting to be merged"))?;

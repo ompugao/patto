@@ -200,16 +200,25 @@ Stream<CloneEvent> gitClone({
   creds: creds,
 );
 
-Future<GitStatus> gitStatus({required String root}) =>
-    RustLib.instance.api.crateFrbApiGitStatus(root: root);
+/// `attachments_dir` is the workspace's folder for inserted files, relative to
+/// the root; it is synced along with the notes.
+Future<GitStatus> gitStatus({
+  required String root,
+  required String attachmentsDir,
+}) => RustLib.instance.api.crateFrbApiGitStatus(
+  root: root,
+  attachmentsDir: attachmentsDir,
+);
 
 Stream<SyncEvent> gitSync({
   required String root,
+  required String attachmentsDir,
   required String authorName,
   required String authorEmail,
   required GitCreds creds,
 }) => RustLib.instance.api.crateFrbApiGitSync(
   root: root,
+  attachmentsDir: attachmentsDir,
   authorName: authorName,
   authorEmail: authorEmail,
   creds: creds,
@@ -232,12 +241,14 @@ Future<ConflictDetail> conflictDetail({
 /// [`git_sync`].
 Stream<SyncEvent> gitResolve({
   required String root,
+  required String attachmentsDir,
   required String authorName,
   required String authorEmail,
   required GitCreds creds,
   required List<Resolution> resolutions,
 }) => RustLib.instance.api.crateFrbApiGitResolve(
   root: root,
+  attachmentsDir: attachmentsDir,
   authorName: authorName,
   authorEmail: authorEmail,
   creds: creds,

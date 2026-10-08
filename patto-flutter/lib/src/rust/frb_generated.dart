@@ -130,16 +130,21 @@ abstract class RustLibApi extends BaseApi {
 
   Stream<SyncEvent> crateFrbApiGitResolve({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
     required List<Resolution> resolutions,
   });
 
-  Future<GitStatus> crateFrbApiGitStatus({required String root});
+  Future<GitStatus> crateFrbApiGitStatus({
+    required String root,
+    required String attachmentsDir,
+  });
 
   Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -515,6 +520,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Stream<SyncEvent> crateFrbApiGitResolve({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -527,6 +533,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(root, serializer);
+            sse_encode_String(attachmentsDir, serializer);
             sse_encode_String(authorName, serializer);
             sse_encode_String(authorEmail, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
@@ -544,7 +551,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitResolveConstMeta,
-          argValues: [root, authorName, authorEmail, creds, resolutions, sink],
+          argValues: [
+            root,
+            attachmentsDir,
+            authorName,
+            authorEmail,
+            creds,
+            resolutions,
+            sink,
+          ],
           apiImpl: this,
         ),
       ),
@@ -556,6 +571,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "git_resolve",
     argNames: [
       "root",
+      "attachmentsDir",
       "authorName",
       "authorEmail",
       "creds",
@@ -565,12 +581,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
-  Future<GitStatus> crateFrbApiGitStatus({required String root}) {
+  Future<GitStatus> crateFrbApiGitStatus({
+    required String root,
+    required String attachmentsDir,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
+          sse_encode_String(attachmentsDir, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -583,18 +603,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_patto_error,
         ),
         constMeta: kCrateFrbApiGitStatusConstMeta,
-        argValues: [root],
+        argValues: [root, attachmentsDir],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateFrbApiGitStatusConstMeta =>
-      const TaskConstMeta(debugName: "git_status", argNames: ["root"]);
+  TaskConstMeta get kCrateFrbApiGitStatusConstMeta => const TaskConstMeta(
+    debugName: "git_status",
+    argNames: ["root", "attachmentsDir"],
+  );
 
   @override
   Stream<SyncEvent> crateFrbApiGitSync({
     required String root,
+    required String attachmentsDir,
     required String authorName,
     required String authorEmail,
     required GitCreds creds,
@@ -606,6 +629,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           callFfi: (port_) {
             final serializer = SseSerializer(generalizedFrbRustBinding);
             sse_encode_String(root, serializer);
+            sse_encode_String(attachmentsDir, serializer);
             sse_encode_String(authorName, serializer);
             sse_encode_String(authorEmail, serializer);
             sse_encode_box_autoadd_git_creds(creds, serializer);
@@ -622,7 +646,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: null,
           ),
           constMeta: kCrateFrbApiGitSyncConstMeta,
-          argValues: [root, authorName, authorEmail, creds, sink],
+          argValues: [
+            root,
+            attachmentsDir,
+            authorName,
+            authorEmail,
+            creds,
+            sink,
+          ],
           apiImpl: this,
         ),
       ),
@@ -632,7 +663,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateFrbApiGitSyncConstMeta => const TaskConstMeta(
     debugName: "git_sync",
-    argNames: ["root", "authorName", "authorEmail", "creds", "sink"],
+    argNames: [
+      "root",
+      "attachmentsDir",
+      "authorName",
+      "authorEmail",
+      "creds",
+      "sink",
+    ],
   );
 
   @override

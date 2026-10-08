@@ -1,6 +1,7 @@
 //! Sync between a phone clone and a "desktop" clone through a bare origin on
 //! disk, so no network is involved.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use git2::{IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
@@ -56,6 +57,16 @@ fn origin_ref(setup: &Setup, name: &str) -> Option<Oid> {
     let origin = Repository::open(setup.origin.path()).unwrap();
     let target = origin.find_reference(name).ok()?.target();
     target
+}
+
+fn origin_has(setup: &Setup, rel: &str) -> bool {
+    let origin = Repository::open(setup.origin.path()).unwrap();
+    let tree = origin
+        .find_reference("refs/heads/main")
+        .unwrap()
+        .peel_to_tree()
+        .unwrap();
+    tree.get_path(Path::new(rel)).is_ok()
 }
 
 fn origin_file(setup: &Setup, rel: &str) -> String {
@@ -134,6 +145,7 @@ impl Setup {
     fn sync(&self) -> Result<SyncReport, PattoError> {
         git_sync(
             self.phone(),
+            "attachments".to_string(),
             "Phone".to_string(),
             "phone@example.com".to_string(),
             creds(),
@@ -144,6 +156,7 @@ impl Setup {
     fn resolve(&self, resolutions: Vec<Resolution>) -> Result<SyncReport, PattoError> {
         git_resolve(
             self.phone(),
+            "attachments".to_string(),
             "Phone".to_string(),
             "phone@example.com".to_string(),
             creds(),
@@ -178,6 +191,121 @@ fn edits_to_different_notes_merge_and_push() {
         "bread\nmilk\neggs\nbutter\n"
     );
     assert_eq!(read(&setup.phone_root(), "other.pn"), "y\n");
+}
+
+#[test]
+fn attachments_are_committed_and_pushed_with_the_notes() {
+    let setup = Setup::new();
+    let attachments = setup.phone_root().join("attachments").join("sub");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join("photo.png"), "fake png\n").unwrap();
+    write(&setup.phone_root(), "stray.txt", "not synced\n");
+    setup.phone_edit("other.pn", "[@img ./attachments/sub/photo.png]\n");
+
+    let status = git_status(setup.phone(), "attachments".to_string()).unwrap();
+    assert_eq!(status.dirty, vec!["attachments/sub/photo.png", "other.pn"]);
+    assert_eq!(
+        locally_modified_notes(&setup.phone()).unwrap(),
+        HashSet::from(["other.pn".to_string()])
+    );
+
+    let report = setup.sync().unwrap();
+    assert!(report.committed);
+    assert!(report.pushed);
+    assert_eq!(
+        origin_file(&setup, "attachments/sub/photo.png"),
+        "fake png\n"
+    );
+    assert!(!origin_has(&setup, "stray.txt"));
+
+    std::fs::remove_file(attachments.join("photo.png")).unwrap();
+    let report = setup.sync().unwrap();
+    assert!(report.committed);
+    assert!(!origin_has(&setup, "attachments/sub/photo.png"));
+}
+
+#[test]
+fn the_attachment_folder_is_the_workspaces_choice() {
+    let setup = Setup::new();
+    let media = setup.phone_root().join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("photo.png"), "fake png\n").unwrap();
+
+    let status = git_status(setup.phone(), "/media/".to_string()).unwrap();
+    assert_eq!(status.dirty, vec!["media/photo.png"]);
+    assert!(git_status(setup.phone(), "".to_string())
+        .unwrap()
+        .dirty
+        .is_empty());
+
+    git_sync(
+        setup.phone(),
+        "media".to_string(),
+        "Phone".to_string(),
+        "phone@example.com".to_string(),
+        creds(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(origin_file(&setup, "media/photo.png"), "fake png\n");
+}
+
+#[test]
+fn a_clashing_attachment_keeps_the_phone_copy_and_merges() {
+    let setup = Setup::new();
+    let desktop_attachments = setup.desktop_dir.path().join("attachments");
+    std::fs::create_dir_all(&desktop_attachments).unwrap();
+    std::fs::write(desktop_attachments.join("photo.png"), "desktop\n").unwrap();
+    std::fs::write(desktop_attachments.join("gone.png"), "gone\n").unwrap();
+    {
+        let repo = setup.desktop();
+        commit_all(&repo, "desktop: attachments");
+        push_main(&repo);
+    }
+    assert_eq!(setup.sync().unwrap().merge, MergeOutcome::FastForward);
+
+    // Both sides change photo.png; the desktop edits gone.png, which the
+    // phone deletes.
+    setup.desktop_edit("attachments/photo.png", "desktop again\n");
+    setup.desktop_edit("attachments/gone.png", "gone again\n");
+    setup.desktop_edit("other.pn", "y\n");
+    let phone_attachments = setup.phone_root().join("attachments");
+    std::fs::write(phone_attachments.join("photo.png"), "phone\n").unwrap();
+    std::fs::remove_file(phone_attachments.join("gone.png")).unwrap();
+
+    let report = setup.sync().unwrap();
+    assert_eq!(report.merge, MergeOutcome::Merged);
+    assert!(report.pushed);
+    assert_eq!(origin_file(&setup, "attachments/photo.png"), "phone\n");
+    assert_eq!(origin_file(&setup, "other.pn"), "y\n");
+    assert!(!origin_has(&setup, "attachments/gone.png"));
+    assert_eq!(
+        read(&setup.phone_root(), "attachments/photo.png"),
+        "phone\n"
+    );
+    assert!(report
+        .changed_paths
+        .iter()
+        .any(|p| p == "attachments/photo.png"));
+}
+
+#[test]
+fn a_clashing_attachment_does_not_join_a_paused_sync() {
+    let setup = Setup::new();
+    let attachments = setup.phone_root().join("attachments");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join("photo.png"), "phone\n").unwrap();
+    std::fs::create_dir_all(setup.desktop_dir.path().join("attachments")).unwrap();
+    setup.desktop_edit("attachments/photo.png", "desktop\n");
+    let report = setup.pause_on_conflict();
+
+    let MergeOutcome::Conflicted { paths, .. } = &report.merge else {
+        panic!("expected a conflict, got {:?}", report.merge);
+    };
+    assert_eq!(paths, &vec!["shopping.pn".to_string()]);
+    let pending = pending_conflict(setup.phone()).unwrap().unwrap();
+    assert_eq!(pending.files.len(), 1);
+    assert_eq!(pending.files[0].path, "shopping.pn");
 }
 
 #[test]
@@ -217,7 +345,11 @@ fn a_conflict_pauses_the_sync_and_pushes_a_side_branch() {
         phone_head
     );
 
-    assert!(git_status(setup.phone()).unwrap().conflict_pending);
+    assert!(
+        git_status(setup.phone(), "attachments".to_string())
+            .unwrap()
+            .conflict_pending
+    );
     let pending = pending_conflict(setup.phone()).unwrap().unwrap();
     assert_eq!(&pending.side_branch, side_branch);
     assert_eq!(pending.remote.id, desktop_tip.to_string());
@@ -296,7 +428,11 @@ fn resolving_on_the_phone_merges_pushes_and_removes_the_side_branch() {
         origin_ref(&setup, &format!("refs/heads/{side_branch}")),
         None
     );
-    assert!(!git_status(setup.phone()).unwrap().conflict_pending);
+    assert!(
+        !git_status(setup.phone(), "attachments".to_string())
+            .unwrap()
+            .conflict_pending
+    );
     assert_eq!(pending_conflict(setup.phone()).unwrap(), None);
 }
 
@@ -361,7 +497,11 @@ fn a_merge_done_on_the_desktop_is_picked_up_by_the_next_sync() {
         origin_ref(&setup, &format!("refs/heads/{side_branch}")),
         None
     );
-    assert!(!git_status(setup.phone()).unwrap().conflict_pending);
+    assert!(
+        !git_status(setup.phone(), "attachments".to_string())
+            .unwrap()
+            .conflict_pending
+    );
 }
 
 #[test]
@@ -391,7 +531,11 @@ fn a_resolution_is_refused_when_the_remote_moved() {
         "{err:?}"
     );
     // Nothing was merged.
-    assert!(git_status(setup.phone()).unwrap().conflict_pending);
+    assert!(
+        git_status(setup.phone(), "attachments".to_string())
+            .unwrap()
+            .conflict_pending
+    );
     assert_eq!(read(&setup.phone_root(), "other.pn"), "x\n");
 }
 

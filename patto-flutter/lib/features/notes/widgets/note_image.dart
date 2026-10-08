@@ -13,6 +13,27 @@ String resolveNotePath(String src, String root) {
   return '$root/$relative';
 }
 
+/// Forgets every decoded image once a sync replaced a file: Flutter keys the
+/// cache by path and display size, so a changed picture would otherwise keep
+/// showing as it was. The whole cache goes, since the resized keys cannot be
+/// rebuilt from a path alone, and it refills on the next scroll.
+void evictChangedImages(Iterable<String> changedPaths) {
+  if (!changedPaths.any((p) => !p.endsWith('.pn'))) return;
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
+}
+
+/// A key that changes with the file, so an image widget already on screen
+/// decodes the new file instead of keeping the picture it has.
+Key? _fileKey(String path) {
+  try {
+    return ValueKey(File(path).lastModifiedSync());
+  } on FileSystemException {
+    return null;
+  }
+}
+
 String? _resolveLocalPath(ImageRef image, String? root) {
   if (!image.isLocal || root == null) return null;
   return resolveNotePath(image.src, root);
@@ -47,10 +68,12 @@ class NoteImage extends StatelessWidget {
         if (path != null) {
           return Image.file(
             File(path),
+            key: _fileKey(path),
             cacheWidth: width,
             fit: inline ? BoxFit.contain : BoxFit.fitWidth,
             gaplessPlayback: true,
-            errorBuilder: (context, _, _) => _Broken(alt: image.alt ?? image.src),
+            errorBuilder: (context, _, _) =>
+                _Broken(alt: image.alt ?? image.src),
           );
         }
 
@@ -216,9 +239,10 @@ class _ImageLightboxState extends State<ImageLightbox>
         ..scaleByDouble(scale, scale, 1, 1)
         ..translateByDouble(-focus.dx, -focus.dy, 0, 1);
     }
-    _zoom = Matrix4Tween(begin: _controller.value, end: target).animate(
-      CurvedAnimation(parent: _animation, curve: Curves.easeOutCubic),
-    );
+    _zoom = Matrix4Tween(
+      begin: _controller.value,
+      end: target,
+    ).animate(CurvedAnimation(parent: _animation, curve: Curves.easeOutCubic));
     _animation.forward(from: 0);
   }
 
