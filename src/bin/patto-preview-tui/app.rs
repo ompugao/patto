@@ -636,11 +636,15 @@ impl App {
     }
 
     /// Leave the panel on the selected task, keeping it as the current view.
+    ///
+    /// The preview has usually loaded the task's file already, so the file
+    /// to record in the history is the one the panel was opened from, not
+    /// the one currently shown.
     fn commit_task_selection(&mut self) {
         let Some((uri, line)) = self.tasks.resolve_cursor() else {
             return;
         };
-        self.task_preview_state = None;
+        let origin = self.task_preview_state.take();
         self.tasks.close();
         let Ok(path) = uri.to_file_path() else {
             return;
@@ -649,9 +653,14 @@ impl App {
             let Ok(content) = std::fs::read_to_string(&path) else {
                 return;
             };
-            self.push_history();
-            self.file_path = path;
+            self.file_path = path.clone();
             self.re_render(&content);
+        }
+        if let Some(origin) = origin.filter(|origin| origin.file_path != path) {
+            self.nav_history.push(NavigationEntry {
+                file_path: origin.file_path,
+                scroll_offset: origin.scroll_offset,
+            });
         }
         self.scroll_to_line(line);
     }
@@ -1033,5 +1042,34 @@ mod tests {
         assert_eq!(app.file_path, ws.dir.path().join("a.pn"));
         assert_eq!(app.scroll_offset, 1);
         assert!(!app.tasks.visible);
+    }
+
+    #[tokio::test]
+    async fn enter_in_the_tasks_panel_lets_backspace_return_to_the_origin_note() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines()), ("b.pn", "x\ntask here\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Char('T')).await;
+        app.tasks.entries = vec![task_in(&ws, "b.pn", 1)];
+        app.tasks.list_state.select(Some(0));
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.file_path, ws.dir.path().join("b.pn"));
+        assert!(!app.tasks.visible);
+
+        ws.press(&mut app, KeyCode::Backspace).await;
+        assert_eq!(app.file_path, ws.dir.path().join("a.pn"));
+        assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[tokio::test]
+    async fn a_task_in_the_current_note_adds_no_history() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\ntask here\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('T')).await;
+        app.tasks.entries = vec![task_in(&ws, "a.pn", 1)];
+        app.tasks.list_state.select(Some(0));
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert!(app.nav_history.is_empty());
     }
 }
