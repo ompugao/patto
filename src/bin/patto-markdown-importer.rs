@@ -274,9 +274,6 @@ fn batch_convert(
             }
         };
 
-        total_warnings += result.report.warnings.len();
-        all_reports.push(result.report.clone());
-
         if !args.dry_run {
             if let Err(e) = fs::write(&output_path, &result.patto_content) {
                 eprintln!("✗ Failed to write {}: {}", output_path.display(), e);
@@ -285,6 +282,8 @@ fn batch_convert(
             }
         }
 
+        total_warnings += result.report.warnings.len();
+        all_reports.push(result.report.clone());
         succeeded += 1;
 
         if args.verbose && !result.report.warnings.is_empty() {
@@ -310,8 +309,13 @@ fn batch_convert(
 
     // Write batch report if requested
     if let Some(report_path) = &args.report {
-        let batch_report =
-            create_batch_report(dir, output_dir, &all_reports, duration.as_millis() as u64);
+        let batch_report = create_batch_report(
+            dir,
+            output_dir,
+            &all_reports,
+            failed,
+            duration.as_millis() as u64,
+        );
 
         let report_content = match args.report_format {
             ReportFormat::Json => serde_json::to_string_pretty(&batch_report)?,
@@ -367,6 +371,7 @@ fn create_batch_report(
     input_dir: &Path,
     output_dir: &Path,
     reports: &[ConversionReport],
+    files_failed: usize,
     duration_ms: u64,
 ) -> BatchReport {
     let files: Vec<FileReport> = reports
@@ -389,9 +394,9 @@ fn create_batch_report(
     BatchReport {
         input_directory: input_dir.display().to_string(),
         output_directory: output_dir.display().to_string(),
-        files_processed: reports.len(),
+        files_processed: reports.len() + files_failed,
         files_succeeded: reports.len(),
-        files_failed: 0,
+        files_failed,
         total_warnings,
         duration_ms,
         files,
