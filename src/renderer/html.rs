@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 
-use super::Renderer;
+use super::{wiki_target, Renderer, WikiTarget};
 use crate::utils::{get_gyazo_img_src, get_youtube_id};
 use html_escape::encode_text;
 
@@ -309,22 +309,21 @@ impl HtmlRenderer {
         anchor: Option<&str>,
         output: &mut dyn Write,
     ) -> io::Result<()> {
-        match anchor {
-            // TODO eliminate the logic that self-link if link is empty
-            Some(anchor) if link.is_empty() => write!(
+        match wiki_target(link, anchor) {
+            WikiTarget::SelfAnchor(anchor) => write!(
                 output,
                 "<a class=\"patto-selflink\" href=\"#{}\">#{}</a>",
                 anchor, anchor
             ),
-            Some(anchor) => write!(
+            WikiTarget::NoteAnchor { note, anchor } => write!(
                 output,
                 "<a class=\"patto-wikilink\" href=\"{}.pn#{}\">{}#{}</a>",
-                link, anchor, link, anchor
+                note, anchor, note, anchor
             ),
-            None => write!(
+            WikiTarget::Note(note) => write!(
                 output,
                 "<a class=\"patto-wikilink\" href=\"{}.pn\">{}</a>",
-                link, link
+                note, note
             ),
         }
     }

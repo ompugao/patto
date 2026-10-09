@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 
-use super::Renderer;
+use super::{wiki_target, write_lines, Renderer, WikiTarget};
 use crate::utils::{get_twitter_embed, get_youtube_id};
 
 use crate::markdown::{AnchorFormat, MarkdownRendererOptions, TaskFormat, WikiLinkFormat};
@@ -14,7 +14,6 @@ pub struct MarkdownRenderer {
 
 impl Renderer for MarkdownRenderer {
     fn format(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        // Add frontmatter if enabled
         if self.options.include_frontmatter() {
             writeln!(output, "---")?;
             writeln!(output, "patto_source: true")?;
@@ -23,9 +22,7 @@ impl Renderer for MarkdownRenderer {
             writeln!(output)?;
         }
 
-        let depth: usize = 0;
-        self.write_node(ast, output, depth, false)?;
-        Ok(())
+        self.write_node(ast, output, 0, false)
     }
 }
 
@@ -43,60 +40,44 @@ impl MarkdownRenderer {
         start_line: usize,
         end_line: usize,
     ) -> io::Result<()> {
-        let depth: usize = 0;
-        self._format_range_impl(ast, output, depth, false, start_line, end_line)?;
-        Ok(())
+        self.write_range(ast, output, start_line, end_line)
     }
 
-    fn _format_range_impl(
+    /// A line inside the range is written whole, children included. A line
+    /// before the range is only searched for children inside it.
+    fn write_range(
         &self,
         ast: &AstNode,
         output: &mut dyn Write,
-        depth: usize,
-        in_quote: bool,
         start_line: usize,
         end_line: usize,
     ) -> io::Result<()> {
-        match &ast.kind() {
-            AstNodeKind::Dummy => {
-                let children = ast.children();
-                for child in children.iter() {
-                    let child_row = child.location().row;
-                    // Check if this child or any of its descendants are in range
-                    if child_row <= end_line {
-                        self._format_range_impl(
-                            child, output, depth, in_quote, start_line, end_line,
-                        )?;
-                    }
-                }
-            }
+        match ast.kind() {
+            AstNodeKind::Dummy => self.write_range_children(ast, output, start_line, end_line),
             AstNodeKind::Line { .. } | AstNodeKind::QuoteContent { .. } => {
                 let row = ast.location().row;
                 if row >= start_line && row <= end_line {
-                    // This line is in range, render it normally
-                    self.write_node(ast, output, depth, in_quote)?;
+                    self.write_node(ast, output, 0, false)
                 } else if row < start_line {
-                    // This line is before range, but check children
-                    let children = ast.children();
-                    for child in children.iter() {
-                        let child_row = child.location().row;
-                        if child_row >= start_line && child_row <= end_line {
-                            self._format_range_impl(
-                                child, output, depth, in_quote, start_line, end_line,
-                            )?;
-                        } else if child_row < start_line {
-                            // Recurse to check deeper children
-                            self._format_range_impl(
-                                child, output, depth, in_quote, start_line, end_line,
-                            )?;
-                        }
-                    }
+                    self.write_range_children(ast, output, start_line, end_line)
+                } else {
+                    Ok(())
                 }
-                // If row > end_line, skip entirely
             }
-            _ => {
-                // For other node types, delegate to regular format
-                self.write_node(ast, output, depth, in_quote)?;
+            _ => self.write_node(ast, output, 0, false),
+        }
+    }
+
+    fn write_range_children(
+        &self,
+        ast: &AstNode,
+        output: &mut dyn Write,
+        start_line: usize,
+        end_line: usize,
+    ) -> io::Result<()> {
+        for child in ast.children().iter() {
+            if child.location().row <= end_line {
+                self.write_range(child, output, start_line, end_line)?;
             }
         }
         Ok(())
@@ -122,7 +103,7 @@ impl MarkdownRenderer {
             AstNodeKind::QuoteContent { properties } => {
                 self.write_line(ast, properties, true, output, depth, in_quote)
             }
-            AstNodeKind::Quote => self.render_quote_children(ast, output, depth, 0),
+            AstNodeKind::Quote => self.write_quote(ast, output, QuotePrefix::at(depth)),
             AstNodeKind::Math { inline } => self.write_math(ast, *inline, output),
             AstNodeKind::Code { lang, inline } => self.write_code(ast, lang, *inline, output),
             AstNodeKind::Image { src, alt } => {
@@ -237,7 +218,6 @@ impl MarkdownRenderer {
             }
         }
 
-        // Block containers handle their own newlines
         if !is_block_container {
             writeln!(output)?;
         }
@@ -280,7 +260,7 @@ impl MarkdownRenderer {
         }
 
         writeln!(output, "$$")?;
-        write_block_body(ast, output)?;
+        write_lines(ast, output, "")?;
         writeln!(output, "$$")
     }
 
@@ -300,7 +280,7 @@ impl MarkdownRenderer {
         }
 
         writeln!(output, "```{}", lang)?;
-        write_block_body(ast, output)?;
+        write_lines(ast, output, "")?;
         writeln!(output, "```")
     }
 
@@ -310,22 +290,25 @@ impl MarkdownRenderer {
         anchor: Option<&str>,
         output: &mut dyn Write,
     ) -> io::Result<()> {
+        let target = wiki_target(link, anchor);
         match self.options.wiki_link_format() {
-            WikiLinkFormat::WikiStyle => match anchor {
-                Some(anchor) if link.is_empty() => write!(output, "[[#{}]]", anchor),
-                Some(anchor) => write!(output, "[[{}#{}]]", link, anchor),
-                None => write!(output, "[[{}]]", link),
+            WikiLinkFormat::WikiStyle => match target {
+                WikiTarget::SelfAnchor(anchor) => write!(output, "[[#{}]]", anchor),
+                WikiTarget::NoteAnchor { note, anchor } => {
+                    write!(output, "[[{}#{}]]", note, anchor)
+                }
+                WikiTarget::Note(note) => write!(output, "[[{}]]", note),
             },
             WikiLinkFormat::Markdown => {
                 let ext = self.options.file_extension();
-                match anchor {
-                    Some(anchor) if link.is_empty() => {
+                match target {
+                    WikiTarget::SelfAnchor(anchor) => {
                         write!(output, "[#{}](#{})", anchor, anchor)
                     }
-                    Some(anchor) => {
-                        write!(output, "[{}#{}]({}{}#{})", link, anchor, link, ext, anchor)
+                    WikiTarget::NoteAnchor { note, anchor } => {
+                        write!(output, "[{}#{}]({}{}#{})", note, anchor, note, ext, anchor)
                     }
-                    None => write!(output, "[{}]({}{})", link, link, ext),
+                    WikiTarget::Note(note) => write!(output, "[{}]({}{})", note, note, ext),
                 }
             }
         }
@@ -426,172 +409,109 @@ impl MarkdownRenderer {
         Ok(())
     }
 
-    /// Helper to render quote children with nested indentation levels
-    /// `inner_depth` tracks nesting level inside the quote for visual indentation
-    fn render_quote_children(
+    fn write_quote(
         &self,
         quote: &AstNode,
         output: &mut dyn Write,
-        depth: usize,
-        inner_depth: usize,
+        prefix: QuotePrefix,
     ) -> io::Result<()> {
-        let children = quote.children();
-        for child in children.iter() {
-            match child.kind() {
-                AstNodeKind::QuoteContent { .. } => {
-                    self.render_quote_content(child, output, depth, inner_depth)?;
-                }
-                _ => {
-                    // Other children (shouldn't happen normally but handle gracefully)
-                    for _ in 0..depth {
-                        write!(output, "  ")?;
-                    }
-                    write!(output, "> ")?;
-                    self.write_node(child, output, depth, true)?;
-                }
+        for child in quote.children().iter() {
+            if let AstNodeKind::QuoteContent { .. } = child.kind() {
+                self.write_quote_content(child, output, prefix)?;
+            } else {
+                prefix.write(output)?;
+                self.write_node(child, output, prefix.depth, true)?;
             }
         }
         Ok(())
     }
 
-    /// Render a QuoteContent node with proper visual indentation
-    fn render_quote_content(
+    fn write_quote_content(
         &self,
         quote_content: &AstNode,
         output: &mut dyn Write,
-        depth: usize,
-        inner_depth: usize,
+        prefix: QuotePrefix,
     ) -> io::Result<()> {
-        // Output the "> " prefix with outer depth indentation
-        for _ in 0..depth {
-            write!(output, "  ")?;
-        }
-        write!(output, "> ")?;
+        prefix.write(output)?;
 
-        // Add visual indentation for inner depth (spaces after ">")
-        for _ in 0..inner_depth {
-            write!(output, "    ")?; // 4 spaces per indent level
-        }
-
-        // Check if this is a nested Quote block
         let contents = quote_content.contents();
-        let has_nested_quote =
-            contents.len() == 1 && matches!(contents[0].kind(), AstNodeKind::Quote);
-
-        if has_nested_quote {
-            // For nested quotes, we need to output with extra "> " markers
-            drop(contents);
-            let contents = quote_content.contents();
-            for content in contents.iter() {
-                if let AstNodeKind::Quote = content.kind() {
-                    writeln!(output)?; // End the current line
-                                       // Render nested quote with extra "> " marker
-                    self.render_nested_quote(content, output, depth, inner_depth + 1)?;
-                } else {
-                    self.write_node(content, output, depth, true)?;
-                }
-            }
+        let nested_quote = prefix.quote_level == 0
+            && contents.len() == 1
+            && matches!(contents[0].kind(), AstNodeKind::Quote);
+        if nested_quote {
+            writeln!(output)?;
+            self.write_quote(&contents[0], output, prefix.nested_quote())?;
         } else {
-            // Regular content
             for content in contents.iter() {
-                self.write_node(content, output, depth, true)?;
-            }
-            drop(contents);
-
-            // End the line
-            let properties = if let AstNodeKind::QuoteContent { properties } = quote_content.kind()
-            {
-                properties
-            } else {
-                &vec![]
-            };
-
-            if !properties.is_empty() {
-                // The newline was already written by write_line for lines with properties
+                self.write_node(content, output, prefix.depth, true)?;
             }
             writeln!(output)?;
         }
-
-        // Render children (nested QuoteContent) with increased inner_depth
-        let children = quote_content.children();
-        for child in children.iter() {
-            if let AstNodeKind::QuoteContent { .. } = child.kind() {
-                self.render_quote_content(child, output, depth, inner_depth + 1)?;
-            } else {
-                // Other children
-                for _ in 0..depth {
-                    write!(output, "  ")?;
-                }
-                write!(output, "> ")?;
-                for _ in 0..inner_depth {
-                    write!(output, "    ")?;
-                }
-                self.write_node(child, output, depth, true)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Render a nested Quote block using nested blockquote syntax (> >)
-    fn render_nested_quote(
-        &self,
-        quote: &AstNode,
-        output: &mut dyn Write,
-        depth: usize,
-        quote_level: usize,
-    ) -> io::Result<()> {
-        let children = quote.children();
-        for child in children.iter() {
-            if let AstNodeKind::QuoteContent { .. } = child.kind() {
-                self.render_nested_quote_content(child, output, depth, quote_level)?;
-            } else {
-                for _ in 0..depth {
-                    write!(output, "  ")?;
-                }
-                for _ in 0..=quote_level {
-                    write!(output, "> ")?;
-                }
-                self.write_node(child, output, depth, true)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Render QuoteContent in a nested quote context
-    fn render_nested_quote_content(
-        &self,
-        quote_content: &AstNode,
-        output: &mut dyn Write,
-        depth: usize,
-        quote_level: usize,
-    ) -> io::Result<()> {
-        // Output nested "> >" prefix
-        for _ in 0..depth {
-            write!(output, "  ")?;
-        }
-        for _ in 0..=quote_level {
-            write!(output, "> ")?;
-        }
-
-        // Render contents
-        let contents = quote_content.contents();
-        for content in contents.iter() {
-            self.write_node(content, output, depth, true)?;
-        }
         drop(contents);
 
-        writeln!(output)?;
-
-        // Render children
-        let children = quote_content.children();
-        for child in children.iter() {
+        for child in quote_content.children().iter() {
             if let AstNodeKind::QuoteContent { .. } = child.kind() {
-                self.render_nested_quote_content(child, output, depth, quote_level)?;
+                self.write_quote_content(child, output, prefix.child())?;
+            } else if prefix.quote_level == 0 {
+                prefix.write(output)?;
+                self.write_node(child, output, prefix.depth, true)?;
             }
         }
-
         Ok(())
+    }
+}
+
+/// What goes in front of a quoted line: the list indent, one `> ` per quote
+/// level, and four spaces per nesting level inside the quote.
+#[derive(Clone, Copy)]
+struct QuotePrefix {
+    depth: usize,
+    quote_level: usize,
+    inner_depth: usize,
+}
+
+impl QuotePrefix {
+    fn at(depth: usize) -> Self {
+        Self {
+            depth,
+            quote_level: 0,
+            inner_depth: 0,
+        }
+    }
+
+    fn write(&self, output: &mut dyn Write) -> io::Result<()> {
+        for _ in 0..self.depth {
+            write!(output, "  ")?;
+        }
+        for _ in 0..=self.quote_level {
+            write!(output, "> ")?;
+        }
+        for _ in 0..self.inner_depth {
+            write!(output, "    ")?;
+        }
+        Ok(())
+    }
+
+    /// The prefix of a quote block that is the whole content of a quoted line.
+    fn nested_quote(self) -> Self {
+        Self {
+            depth: self.depth,
+            quote_level: self.inner_depth + 1,
+            inner_depth: 0,
+        }
+    }
+
+    /// The prefix of a line nested under a quoted line.
+    fn child(self) -> Self {
+        // FIXME: inside a nested quote the children keep their parent's prefix,
+        // so their nesting is invisible. Kept so that the output does not change.
+        if self.quote_level > 0 {
+            return self;
+        }
+        Self {
+            inner_depth: self.inner_depth + 1,
+            ..self
+        }
     }
 }
 
@@ -655,12 +575,4 @@ fn emphasis_marker(fontsize: isize, italic: bool) -> &'static str {
         (true, true) => "***",
         (false, false) => "",
     }
-}
-
-/// The body of a fenced code or math block, one line per child.
-fn write_block_body(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-    for child in ast.children().iter() {
-        writeln!(output, "{}", child.extract_str())?;
-    }
-    Ok(())
 }
