@@ -114,6 +114,22 @@ class LinkPreviews {
   }
 }
 
+/// Looks up the thumbnail behind Google Photos share links.
+///
+/// Google Photos has no oEmbed endpoint, so the share page is fetched and its
+/// Open Graph tags parsed. See [EmbedLookup] for caching and timeouts.
+class GooglePhotos {
+  GooglePhotos._();
+
+  static Future<GooglePhotosMedia?> lookup(String shareUrl) {
+    return EmbedLookup.cachedPage(
+      'google-photos:$shareUrl',
+      shareUrl,
+      (html) => rust.parseGooglePhotosPage(html: html),
+    );
+  }
+}
+
 /// The Rust scraper leaves most character references as written (`&#039;`,
 /// `&#x27;`); decode them so titles read as the page shows them.
 OpenGraphMeta decodeOpenGraph(OpenGraphMeta meta) {
