@@ -1,3 +1,6 @@
+//! Turns parser errors into messages a note author can act on: what went
+//! wrong, how to write it, and a few examples.
+
 use std::borrow::Cow;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
@@ -18,6 +21,12 @@ pub struct DiagnosticTranslator {
     docs_base_url: &'static str,
 }
 
+impl Default for DiagnosticTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiagnosticTranslator {
     pub fn new() -> Self {
         Self {
@@ -27,265 +36,212 @@ impl DiagnosticTranslator {
 
     pub fn translate(&self, error: &ParserError) -> FriendlyDiagnostic {
         match error {
-            ParserError::InvalidIndentation(_) => self.invalid_indentation_message(),
+            ParserError::InvalidIndentation(_) => self.guided(&INVALID_INDENTATION),
             ParserError::ParseError(_, info) => self.translate_pest_error(info),
         }
     }
 
-    fn invalid_indentation_message(&self) -> FriendlyDiagnostic {
-        let primary = "Inconsistent indentation";
-        let help = "Use tabs to indent nested blocks. Child lines must be indented exactly one tab deeper than their parent.";
-        let examples = ["Heading", "\tChild line", "\t\tNested child"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-indentation"),
-            self.docs_base_url,
-        )
+    pub fn embed_error(&self) -> FriendlyDiagnostic {
+        self.guided(&EMBED)
+    }
+
+    pub fn img_error(&self) -> FriendlyDiagnostic {
+        self.guided(&IMG)
     }
 
     fn translate_pest_error(&self, info: &PestErrorInfo) -> FriendlyDiagnostic {
         match &info.variant {
             PestErrorVariantInfo::ParsingError { positives, .. } => {
-                match ErrorCategory::from_rules(positives) {
-                    Some(ErrorCategory::Embed) => self.embed_error(),
-                    Some(ErrorCategory::Img) => self.img_error(),
-                    Some(ErrorCategory::Link) => self.link_error(),
-                    Some(ErrorCategory::Command) => self.command_error(),
-                    Some(ErrorCategory::Property) => self.property_error(),
-                    Some(ErrorCategory::Task) => self.task_error(),
-                    Some(ErrorCategory::Anchor) => self.anchor_error(),
-                    Some(ErrorCategory::InlineCode) => self.inline_code_error(),
-                    Some(ErrorCategory::InlineMath) => self.inline_math_error(),
-                    Some(ErrorCategory::Decoration) => self.decoration_error(),
-                    Some(ErrorCategory::Statement) => self.statement_error(positives, info),
+                match RuleFamily::of(positives) {
+                    Some(RuleFamily::Statement) => self.statement_error(positives, info),
+                    Some(family) => self.guided(family.guide()),
                     None => self.generic_error(positives, info),
                 }
             }
-            PestErrorVariantInfo::CustomError { message } => {
-                let composed = compose_message("Invalid syntax", message, &[]);
-                FriendlyDiagnostic::new(composed, Some("syntax-error"), self.docs_base_url)
-            }
+            PestErrorVariantInfo::CustomError { message } => self.diagnostic(
+                compose_message("Invalid syntax", message, &[]),
+                "syntax-error",
+                DiagnosticSeverity::ERROR,
+            ),
         }
     }
 
-    pub fn embed_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid embed syntax";
-        let help = "Use [@embed ...] with a URL or local file path. \
-            Local paths must start with ./ or ../\n\
-            Note: bare filenames like file.pdf are not valid; use ./file.pdf";
-        let examples = [
-            "[@embed https://example.com/video]",
-            "[@embed https://example.com/video My Title]",
-            "[@embed My Title https://example.com/video]",
-            "[@embed ./path/to/file.pdf]",
-            "[@embed ./path/to/file.pdf My Title]",
-            r#"[@embed My Title ./path/to/file.pdf]   ← local paths require ./"#,
-        ];
-        FriendlyDiagnostic::new_with_severity(
-            compose_message(primary, help, &examples),
-            Some("invalid-embed"),
-            self.docs_base_url,
-            DiagnosticSeverity::WARNING,
-        )
-    }
-
-    pub fn img_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid image syntax";
-        let help = "Use [@img ...] with a URL or local file path and an optional alt text. \
-            Local paths must start with ./ or ../";
-        let examples = [
-            "[@img https://example.com/photo.jpg]",
-            "[@img https://example.com/photo.jpg My Caption]",
-            "[@img My Caption https://example.com/photo.jpg]",
-            "[@img ./path/to/image.jpg]",
-            "[@img ./path/to/image.jpg My Caption]",
-            r#"[@img My Caption ./path/to/image.jpg]   ← local paths require ./"#,
-        ];
-        FriendlyDiagnostic::new_with_severity(
-            compose_message(primary, help, &examples),
-            Some("invalid-img"),
-            self.docs_base_url,
-            DiagnosticSeverity::WARNING,
-        )
-    }
-
-    fn link_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid link syntax";
-        let help = "Wrap links in [ ] and include a note name, anchor, URL, or file path.";
-        let examples = [
-            "[ProjectPlan]",
-            "[ProjectPlan#milestones]",
-            "[https://example.com]",
-        ];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-link"),
-            self.docs_base_url,
-        )
-    }
-
-    fn command_error(&self) -> FriendlyDiagnostic {
-        let primary = "Unknown or malformed command";
-        let help = "Commands look like [@command-name optional-args]. Available commands include @code, @math, @quote, @table, and @img.";
-        let examples = ["[@code rust]", "[@math]", "[@quote]"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-command"),
-            self.docs_base_url,
-        )
-    }
-
-    fn property_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid property syntax";
-        let help = "Properties use {@name key=value ...}. Separate each key/value with spaces and close the property with }.";
-        let examples = ["{@tag project=patto}", "{@task status=todo due=2024-12-31}"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-property"),
-            self.docs_base_url,
-        )
-    }
-
-    fn task_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid task syntax";
-        let help = "Tasks use {@task status=<todo|doing|done> due=<YYYY-MM-DD or YYYY-MM-DDThh:mm>}. Provide both status and due date.";
-        let examples = [
-            "{@task status=todo due=2024-12-31}",
-            "{@task status=doing due=2024-12-31T14:00}",
-        ];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-task"),
-            self.docs_base_url,
-        )
-    }
-
-    fn anchor_error(&self) -> FriendlyDiagnostic {
-        let primary = "Invalid anchor";
-        let help = "Anchors start with # and may contain letters, numbers, _ or -. Example: #ProjectAlpha.";
-        let examples = ["#inbox", "[#ProjectAlpha]", "[MyNote#section]"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-anchor"),
-            self.docs_base_url,
-        )
-    }
-
-    fn inline_code_error(&self) -> FriendlyDiagnostic {
-        let primary = "Malformed inline code";
-        let help = "Inline code is written as [` code `]. Make sure both the opening [` and closing `] markers are present.";
-        let examples = ["[` println!(\"hello\"); `]"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-inline-code"),
-            self.docs_base_url,
-        )
-    }
-
-    fn inline_math_error(&self) -> FriendlyDiagnostic {
-        let primary = "Malformed inline math";
-        let help = "Inline math is written as [$ formula $]. Ensure you have both the opening [$ and closing $] markers.";
-        let examples = ["[$ a^2 + b^2 = c^2 $]"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-inline-math"),
-            self.docs_base_url,
-        )
-    }
-
-    fn decoration_error(&self) -> FriendlyDiagnostic {
-        let primary = "Malformed text decoration";
-        let help = "Decorations such as bold or italics must wrap content inside [ ]. Example: [* bold *] or [/ italic /].";
-        let examples = ["[* bold *]", "[/ emphasis /]"];
-        FriendlyDiagnostic::new(
-            compose_message(primary, help, &examples),
-            Some("invalid-decoration"),
-            self.docs_base_url,
+    fn guided(&self, guide: &Guide) -> FriendlyDiagnostic {
+        self.diagnostic(
+            compose_message(guide.primary, guide.help, guide.examples),
+            guide.code,
+            guide.severity,
         )
     }
 
     fn statement_error(&self, positives: &[Rule], info: &PestErrorInfo) -> FriendlyDiagnostic {
-        let primary = self
-            .describe_expectations(positives)
+        let primary = describe_expectations(positives)
             .map(|desc| format!("Couldn't understand this line – expected {}.", desc))
             .unwrap_or_else(|| "Couldn't understand this line.".to_string());
         let detail = summary_from_message(&info.message).unwrap_or_else(|| {
             "Check for missing brackets, unmatched commands, or typos in this line.".to_string()
         });
-        FriendlyDiagnostic::new(
+        self.diagnostic(
             compose_message(&primary, &detail, &[]),
-            Some("line-parse-error"),
-            self.docs_base_url,
+            "line-parse-error",
+            DiagnosticSeverity::ERROR,
         )
     }
 
     fn generic_error(&self, positives: &[Rule], info: &PestErrorInfo) -> FriendlyDiagnostic {
-        let expectation = self.describe_expectations(positives);
-        let primary = expectation
+        let primary = describe_expectations(positives)
             .map(|desc| format!("Unexpected text – expected {}.", desc))
             .unwrap_or_else(|| "Patto couldn't understand this part.".to_string());
         let detail = summary_from_message(&info.message).unwrap_or_else(|| {
             "Make sure brackets, commands, and properties are written correctly.".to_string()
         });
-        FriendlyDiagnostic::new(
+        self.diagnostic(
             compose_message(&primary, &detail, &[]),
-            Some("syntax-error"),
-            self.docs_base_url,
+            "syntax-error",
+            DiagnosticSeverity::ERROR,
         )
     }
 
-    fn describe_expectations(&self, positives: &[Rule]) -> Option<String> {
-        if positives.is_empty() {
-            return None;
-        }
-
-        let mut names: Vec<String> = positives
-            .iter()
-            .map(|rule| rule_display_name(*rule).to_string())
-            .collect();
-        names.sort();
-        names.dedup();
-
-        match names.len() {
-            0 => None,
-            1 => Some(names.remove(0)),
-            _ => Some(format!("one of {}", names.join(", "))),
-        }
-    }
-}
-
-impl Default for DiagnosticTranslator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FriendlyDiagnostic {
-    fn new(message: String, code: Option<&str>, docs_base_url: &str) -> Self {
-        Self::new_with_severity(message, code, docs_base_url, DiagnosticSeverity::ERROR)
-    }
-
-    fn new_with_severity(
+    fn diagnostic(
+        &self,
         message: String,
-        code: Option<&str>,
-        docs_base_url: &str,
+        code: &str,
         severity: DiagnosticSeverity,
-    ) -> Self {
-        let normalized_base = docs_base_url.trim_end_matches('/');
-        let code_owned = code.map(|value| value.to_string());
-        let code_description_uri = code_owned
-            .as_ref()
-            .map(|value| format!("{}/{}", normalized_base, value));
-        Self {
+    ) -> FriendlyDiagnostic {
+        let docs_base_url = self.docs_base_url.trim_end_matches('/');
+        FriendlyDiagnostic {
             message,
-            code: code_owned,
-            code_description_uri,
+            code: Some(code.to_string()),
+            code_description_uri: Some(format!("{}/{}", docs_base_url, code)),
             severity,
         }
     }
 }
 
-enum ErrorCategory {
+/// The fixed wording for one kind of mistake.
+struct Guide {
+    code: &'static str,
+    primary: &'static str,
+    help: &'static str,
+    examples: &'static [&'static str],
+    severity: DiagnosticSeverity,
+}
+
+const INVALID_INDENTATION: Guide = Guide {
+    code: "invalid-indentation",
+    primary: "Inconsistent indentation",
+    help: "Use tabs to indent nested blocks. Child lines must be indented exactly one tab deeper than their parent.",
+    examples: &["Heading", "\tChild line", "\t\tNested child"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+// Embed and img mistakes are warnings: the line still renders as plain text.
+const EMBED: Guide = Guide {
+    code: "invalid-embed",
+    primary: "Invalid embed syntax",
+    help: "Use [@embed ...] with a URL or local file path. \
+        Local paths must start with ./ or ../\n\
+        Note: bare filenames like file.pdf are not valid; use ./file.pdf",
+    examples: &[
+        "[@embed https://example.com/video]",
+        "[@embed https://example.com/video My Title]",
+        "[@embed My Title https://example.com/video]",
+        "[@embed ./path/to/file.pdf]",
+        "[@embed ./path/to/file.pdf My Title]",
+        "[@embed My Title ./path/to/file.pdf]   ← local paths require ./",
+    ],
+    severity: DiagnosticSeverity::WARNING,
+};
+
+const IMG: Guide = Guide {
+    code: "invalid-img",
+    primary: "Invalid image syntax",
+    help: "Use [@img ...] with a URL or local file path and an optional alt text. \
+        Local paths must start with ./ or ../",
+    examples: &[
+        "[@img https://example.com/photo.jpg]",
+        "[@img https://example.com/photo.jpg My Caption]",
+        "[@img My Caption https://example.com/photo.jpg]",
+        "[@img ./path/to/image.jpg]",
+        "[@img ./path/to/image.jpg My Caption]",
+        "[@img My Caption ./path/to/image.jpg]   ← local paths require ./",
+    ],
+    severity: DiagnosticSeverity::WARNING,
+};
+
+const LINK: Guide = Guide {
+    code: "invalid-link",
+    primary: "Invalid link syntax",
+    help: "Wrap links in [ ] and include a note name, anchor, URL, or file path.",
+    examples: &[
+        "[ProjectPlan]",
+        "[ProjectPlan#milestones]",
+        "[https://example.com]",
+    ],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const COMMAND: Guide = Guide {
+    code: "invalid-command",
+    primary: "Unknown or malformed command",
+    help: "Commands look like [@command-name optional-args]. Available commands include @code, @math, @quote, @table, and @img.",
+    examples: &["[@code rust]", "[@math]", "[@quote]"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const PROPERTY: Guide = Guide {
+    code: "invalid-property",
+    primary: "Invalid property syntax",
+    help: "Properties use {@name key=value ...}. Separate each key/value with spaces and close the property with }.",
+    examples: &["{@tag project=patto}", "{@task status=todo due=2024-12-31}"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const TASK: Guide = Guide {
+    code: "invalid-task",
+    primary: "Invalid task syntax",
+    help: "Tasks use {@task status=<todo|doing|done> due=<YYYY-MM-DD or YYYY-MM-DDThh:mm>}. Provide both status and due date.",
+    examples: &[
+        "{@task status=todo due=2024-12-31}",
+        "{@task status=doing due=2024-12-31T14:00}",
+    ],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const ANCHOR: Guide = Guide {
+    code: "invalid-anchor",
+    primary: "Invalid anchor",
+    help: "Anchors start with # and may contain letters, numbers, _ or -. Example: #ProjectAlpha.",
+    examples: &["#inbox", "[#ProjectAlpha]", "[MyNote#section]"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const INLINE_CODE: Guide = Guide {
+    code: "invalid-inline-code",
+    primary: "Malformed inline code",
+    help: "Inline code is written as [` code `]. Make sure both the opening [` and closing `] markers are present.",
+    examples: &["[` println!(\"hello\"); `]"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const INLINE_MATH: Guide = Guide {
+    code: "invalid-inline-math",
+    primary: "Malformed inline math",
+    help: "Inline math is written as [$ formula $]. Ensure you have both the opening [$ and closing $] markers.",
+    examples: &["[$ a^2 + b^2 = c^2 $]"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+const DECORATION: Guide = Guide {
+    code: "invalid-decoration",
+    primary: "Malformed text decoration",
+    help: "Decorations such as bold or italics must wrap content inside [ ]. Example: [* bold *] or [/ italic /].",
+    examples: &["[* bold *]", "[/ emphasis /]"],
+    severity: DiagnosticSeverity::ERROR,
+};
+
+#[derive(Debug, Clone, Copy)]
+enum RuleFamily {
     Embed,
     Img,
     Link,
@@ -299,63 +255,47 @@ enum ErrorCategory {
     Statement,
 }
 
-impl ErrorCategory {
-    fn from_rules(rules: &[Rule]) -> Option<Self> {
-        if rules.is_empty() {
-            return None;
-        }
-        if rules.iter().any(|rule| is_embed_rule(*rule)) {
-            return Some(ErrorCategory::Embed);
-        }
-        if rules.iter().any(|rule| is_img_rule(*rule)) {
-            return Some(ErrorCategory::Img);
-        }
-        if rules.iter().any(|rule| is_link_rule(*rule)) {
-            return Some(ErrorCategory::Link);
-        }
-        if rules.iter().any(|rule| is_command_rule(*rule)) {
-            return Some(ErrorCategory::Command);
-        }
-        if rules.iter().any(|rule| is_property_rule(*rule)) {
-            return Some(ErrorCategory::Property);
-        }
-        if rules.iter().any(|rule| is_task_rule(*rule)) {
-            return Some(ErrorCategory::Task);
-        }
-        if rules
+/// Most specific family first: a pest error lists every rule it expected,
+/// and `statement` is in nearly all of them.
+type RuleMatcher = fn(Rule) -> bool;
+
+const RULE_FAMILIES: &[(RuleFamily, RuleMatcher)] = &[
+    (RuleFamily::Embed, is_embed_rule),
+    (RuleFamily::Img, is_img_rule),
+    (RuleFamily::Link, is_link_rule),
+    (RuleFamily::Command, is_command_rule),
+    (RuleFamily::Property, is_property_rule),
+    (RuleFamily::Task, is_task_rule),
+    (RuleFamily::Anchor, is_anchor_rule),
+    (RuleFamily::InlineCode, is_inline_code_rule),
+    (RuleFamily::InlineMath, is_inline_math_rule),
+    (RuleFamily::Decoration, is_decoration_rule),
+    (RuleFamily::Statement, is_statement_rule),
+];
+
+impl RuleFamily {
+    fn of(expected: &[Rule]) -> Option<Self> {
+        RULE_FAMILIES
             .iter()
-            .any(|rule| matches!(rule, Rule::expr_anchor | Rule::anchor))
-        {
-            return Some(ErrorCategory::Anchor);
+            .find(|(_, is_member)| expected.iter().any(|rule| is_member(*rule)))
+            .map(|(family, _)| *family)
+    }
+
+    /// `Statement` has no fixed guide: its wording comes from the parser message.
+    fn guide(self) -> &'static Guide {
+        match self {
+            RuleFamily::Embed => &EMBED,
+            RuleFamily::Img => &IMG,
+            RuleFamily::Link => &LINK,
+            RuleFamily::Command => &COMMAND,
+            RuleFamily::Property => &PROPERTY,
+            RuleFamily::Task => &TASK,
+            RuleFamily::Anchor => &ANCHOR,
+            RuleFamily::InlineCode => &INLINE_CODE,
+            RuleFamily::InlineMath => &INLINE_MATH,
+            RuleFamily::Decoration => &DECORATION,
+            RuleFamily::Statement => unreachable!("statement errors are worded from the message"),
         }
-        if rules.iter().any(|rule| {
-            matches!(
-                rule,
-                Rule::expr_code_inline | Rule::code_inline | Rule::code_inline_char
-            )
-        }) {
-            return Some(ErrorCategory::InlineCode);
-        }
-        if rules.iter().any(|rule| {
-            matches!(
-                rule,
-                Rule::expr_math_inline | Rule::math_inline | Rule::math_inline_char
-            )
-        }) {
-            return Some(ErrorCategory::InlineMath);
-        }
-        if rules.iter().any(|rule| is_decoration_rule(*rule)) {
-            return Some(ErrorCategory::Decoration);
-        }
-        if rules.iter().any(|rule| {
-            matches!(
-                rule,
-                Rule::statement | Rule::statement_nestable | Rule::raw_sentence | Rule::line
-            )
-        }) {
-            return Some(ErrorCategory::Statement);
-        }
-        None
     }
 }
 
@@ -437,6 +377,24 @@ fn is_task_rule(rule: Rule) -> bool {
     )
 }
 
+fn is_anchor_rule(rule: Rule) -> bool {
+    matches!(rule, Rule::expr_anchor | Rule::anchor)
+}
+
+fn is_inline_code_rule(rule: Rule) -> bool {
+    matches!(
+        rule,
+        Rule::expr_code_inline | Rule::code_inline | Rule::code_inline_char
+    )
+}
+
+fn is_inline_math_rule(rule: Rule) -> bool {
+    matches!(
+        rule,
+        Rule::expr_math_inline | Rule::math_inline | Rule::math_inline_char
+    )
+}
+
 fn is_decoration_rule(rule: Rule) -> bool {
     matches!(
         rule,
@@ -447,6 +405,28 @@ fn is_decoration_rule(rule: Rule) -> bool {
             | Rule::symbol_underline
             | Rule::symbol_deleted
     )
+}
+
+fn is_statement_rule(rule: Rule) -> bool {
+    matches!(
+        rule,
+        Rule::statement | Rule::statement_nestable | Rule::raw_sentence | Rule::line
+    )
+}
+
+fn describe_expectations(positives: &[Rule]) -> Option<String> {
+    let mut names: Vec<String> = positives
+        .iter()
+        .map(|rule| rule_display_name(*rule).to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+
+    match names.len() {
+        0 => None,
+        1 => Some(names.remove(0)),
+        _ => Some(format!("one of {}", names.join(", "))),
+    }
 }
 
 fn rule_display_name(rule: Rule) -> Cow<'static, str> {
@@ -475,7 +455,7 @@ fn rule_display_name(rule: Rule) -> Cow<'static, str> {
         Rule::statement => Cow::Borrowed("line content"),
         Rule::statement_nestable => Cow::Borrowed("nested line content"),
         Rule::raw_sentence => Cow::Borrowed("plain text"),
-        _ => Cow::Owned(format!("{:?}", rule).replace('_', " ").to_string()),
+        _ => Cow::Owned(format!("{:?}", rule).replace('_', " ")),
     }
 }
 
@@ -499,10 +479,98 @@ fn compose_message(primary: &str, help: &str, examples: &[&str]) -> String {
     sections.join("\n\n")
 }
 
+/// The first line of a pest message that is not the `-->` location marker.
 fn summary_from_message(message: &str) -> Option<String> {
     message
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty() && !line.starts_with("-->"))
         .map(|line| line.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_text;
+
+    fn translated(text: &str) -> Vec<FriendlyDiagnostic> {
+        let translator = DiagnosticTranslator::default();
+        parse_text(text)
+            .parse_errors
+            .iter()
+            .map(|error| translator.translate(error))
+            .collect()
+    }
+
+    #[test]
+    fn code_links_to_its_wiki_page() {
+        let diagnostic = DiagnosticTranslator::default().embed_error();
+        assert_eq!(diagnostic.code.as_deref(), Some("invalid-embed"));
+        assert_eq!(
+            diagnostic.code_description_uri.as_deref(),
+            Some("https://github.com/ompugao/patto/wiki/Diagnostic-Errors/invalid-embed")
+        );
+    }
+
+    #[test]
+    fn embed_and_img_mistakes_are_warnings() {
+        let translator = DiagnosticTranslator::default();
+        assert_eq!(
+            translator.embed_error().severity,
+            DiagnosticSeverity::WARNING
+        );
+        assert_eq!(translator.img_error().severity, DiagnosticSeverity::WARNING);
+    }
+
+    #[test]
+    fn message_lists_primary_help_and_examples_as_sections() {
+        let message = DiagnosticTranslator::default().img_error().message;
+        let sections: Vec<&str> = message.split("\n\n").collect();
+        assert_eq!(sections[0], "Invalid image syntax");
+        assert!(sections[1].starts_with("Use [@img ...]"));
+        assert!(sections[2].starts_with("Examples:\n  [@img https://example.com/photo.jpg]"));
+    }
+
+    #[test]
+    fn inconsistent_indentation_is_an_error_with_its_own_code() {
+        let diagnostics = translated("parent\n\t\ttoo deep\n");
+        let indentation = diagnostics
+            .iter()
+            .find(|d| d.code.as_deref() == Some("invalid-indentation"))
+            .expect("indentation diagnostic");
+        assert_eq!(indentation.severity, DiagnosticSeverity::ERROR);
+        assert!(indentation.message.starts_with("Inconsistent indentation"));
+    }
+
+    #[test]
+    fn most_specific_rule_family_wins() {
+        assert!(matches!(
+            RuleFamily::of(&[Rule::statement, Rule::expr_task, Rule::task_due]),
+            Some(RuleFamily::Task)
+        ));
+        assert!(matches!(
+            RuleFamily::of(&[Rule::statement]),
+            Some(RuleFamily::Statement)
+        ));
+        assert!(RuleFamily::of(&[]).is_none());
+    }
+
+    #[test]
+    fn expectations_are_sorted_and_deduplicated() {
+        assert_eq!(
+            describe_expectations(&[Rule::expr_task, Rule::expr_anchor, Rule::expr_task])
+                .as_deref(),
+            Some("one of anchor, task")
+        );
+        assert_eq!(describe_expectations(&[]), None);
+    }
+
+    #[test]
+    fn summary_skips_the_pest_location_marker() {
+        assert_eq!(
+            summary_from_message(" --> 1:3\n  |\nexpected task\n").as_deref(),
+            Some("|")
+        );
+        assert_eq!(summary_from_message("\n   \n"), None);
+    }
 }
