@@ -10,6 +10,7 @@ import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
 import '../notes/widgets/note_image.dart';
 import '../settings/settings_screen.dart';
+import 'git_identity.dart';
 
 /// Shows what is uncommitted, and runs commit, pull and push.
 class SyncSheet extends ConsumerStatefulWidget {
@@ -39,7 +40,8 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
 
     if (workspace == null || !workspace.config.hasRemote) {
       setState(
-        () => _error = 'Set this workspace\'s repository URL in settings first.',
+        () =>
+            _error = 'Set this workspace\'s repository URL in settings first.',
       );
       return;
     }
@@ -55,14 +57,9 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
       final stream = rust.gitSync(
         root: workspace.root,
         attachmentsDir: workspace.config.attachmentsDir,
-        authorName: settings.authorName.isEmpty ? 'Patto' : settings.authorName,
-        authorEmail: settings.authorEmail.isEmpty
-            ? 'patto@localhost'
-            : settings.authorEmail,
-        creds: GitCreds(
-          username: workspace.config.username,
-          token: workspace.config.token,
-        ),
+        authorName: settings.commitAuthorName,
+        authorEmail: settings.commitAuthorEmail,
+        creds: gitCredsFor(workspace.config),
       );
 
       await for (final event in stream) {
@@ -110,7 +107,8 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
     GitErrorKind.noRemote => 'This clone has no "origin" remote.',
     GitErrorKind.notARepo =>
       'The notes folder is not a git repository. Clone again.',
-    GitErrorKind.nonFastForward => 'The remote moved on while syncing. Try again.',
+    GitErrorKind.nonFastForward =>
+      'The remote moved on while syncing. Try again.',
     GitErrorKind.conflict =>
       'The merge could not be resolved here. Resolve it on the desktop.',
     GitErrorKind.stale =>
