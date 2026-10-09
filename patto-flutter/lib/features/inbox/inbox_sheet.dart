@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/providers.dart';
-import '../../core/settings.dart';
 import '../../src/rust/api/error.dart';
-import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
+import 'inbox_entry.dart';
+import 'widgets/inbox_composer.dart';
+import 'widgets/inbox_posts.dart';
 
 /// Quick posts into one note, newest at the bottom, like a chat with
 /// yourself, opened as a sheet over the notes list. Reorganising the posts
@@ -87,11 +88,7 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
     // While the sheet is closing the draft stays put; `show` reopens for it.
     if (ModalRoute.of(context)?.isCurrent != true) return;
     ref.read(inboxDraftProvider.notifier).value = null;
-    _composer.text = draft.isEmpty
-        ? _composer.text
-        : _composer.text.isEmpty
-        ? draft
-        : '${_composer.text}\n$draft';
+    _composer.text = appendDraft(_composer.text, draft);
     _composer.selection = TextSelection.collapsed(
       offset: _composer.text.length,
     );
@@ -206,7 +203,7 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
             height: height,
             child: Column(
               children: [
-                _Header(name: name, onOpenNote: _openNote),
+                InboxHeader(name: name, onOpenNote: _openNote),
                 Expanded(
                   child: posts.when(
                     // Keep the list on screen while a post or an edit
@@ -225,7 +222,7 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
                         _scrolledOnce = true;
                         _scrollToBottom(animate: false);
                       }
-                      return _PostList(
+                      return InboxPostList(
                         posts: items,
                         controller: _scroll,
                         onTap: (post) => _openNote(row: post.line),
@@ -243,7 +240,7 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
                       ),
                     ),
                   ),
-                _Composer(
+                InboxComposer(
                   controller: _composer,
                   focusNode: _focus,
                   canSend: canSend,
@@ -256,246 +253,6 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
           ),
         );
       },
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({required this.name, required this.onOpenNote});
-
-  final String name;
-  final VoidCallback onOpenNote;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Inbox', style: theme.textTheme.titleMedium),
-                if (name != Settings.defaultInboxNoteName)
-                  Text(
-                    name,
-                    style: theme.textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_in_new),
-            tooltip: 'Open note',
-            onPressed: onOpenNote,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PostList extends StatelessWidget {
-  const _PostList({
-    required this.posts,
-    required this.controller,
-    required this.onTap,
-  });
-
-  final List<InboxPost> posts;
-  final ScrollController controller;
-  final void Function(InboxPost) onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    if (posts.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            'Nothing here yet. Write a quick note below; sort it into your '
-            'other notes later.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium
-                ?.copyWith(color: Theme.of(context).colorScheme.outline),
-          ),
-        ),
-      );
-    }
-
-    final rows = <Widget>[];
-    String? date;
-    for (final post in posts) {
-      if (post.date != date) {
-        date = post.date;
-        rows.add(_DateHeader(date: date));
-      }
-      rows.add(_PostTile(post: post, onTap: () => onTap(post)));
-    }
-
-    return ListView(
-      controller: controller,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      children: rows,
-    );
-  }
-}
-
-class _DateHeader extends StatelessWidget {
-  const _DateHeader({required this.date});
-
-  final String date;
-
-  static String label(String date, DateTime now) {
-    final day = DateTime.tryParse(date);
-    if (day == null) return date;
-    // Calendar days are compared field by field: a Duration across a DST
-    // change is not a whole number of days.
-    final yesterday = DateTime(now.year, now.month, now.day - 1);
-    if (_sameDay(day, now)) return 'Today';
-    if (_sameDay(day, yesterday)) return 'Yesterday';
-    return DateFormat('EEE, d MMM yyyy').format(day);
-  }
-
-  static bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 16, 4, 6),
-      child: Row(
-        children: [
-          Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              label(date, DateTime.now()),
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
-          Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
-        ],
-      ),
-    );
-  }
-}
-
-class _PostTile extends StatelessWidget {
-  const _PostTile({required this.post, required this.onTap});
-
-  final InboxPost post;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scale = theme.textTheme.bodyLarge!;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Material(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  post.time,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(post.text, style: scale),
-                for (final line in post.body)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 2),
-                    child: Text(line, style: scale),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Composer extends StatelessWidget {
-  const _Composer({
-    required this.controller,
-    required this.focusNode,
-    required this.canSend,
-    required this.sending,
-    required this.onChanged,
-    required this.onSend,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool canSend;
-  final bool sending;
-  final VoidCallback onChanged;
-  final VoidCallback onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surface,
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                autofocus: true,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.newline,
-                keyboardType: TextInputType.multiline,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  hintText: 'Write a quick note',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: (_) => onChanged(),
-              ),
-            ),
-            const SizedBox(width: 4),
-            sending
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox.square(
-                      dimension: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.send),
-                    tooltip: 'Post',
-                    onPressed: canSend ? onSend : null,
-                  ),
-          ],
-        ),
-      ),
     );
   }
 }
