@@ -214,8 +214,8 @@ return {
             return location_item
           end, vres.result)
 
-          for k,v in ipairs(locs) do
-            alllocs[k] = v
+          for _, v in ipairs(locs) do
+            alllocs[#alllocs + 1] = v
           end
 
           ::continue::
