@@ -9,6 +9,7 @@ import '../src/rust/api/index.dart';
 import '../src/rust/api/tasks.dart';
 import '../src/rust/api/types.dart';
 import '../src/rust/frb_api.dart' as rust;
+import 'dates.dart';
 import 'quick_note_intents.dart';
 import 'settings.dart';
 import 'workspace.dart';
@@ -366,18 +367,13 @@ final completedTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
 
   final timeframe = ref.watch(reviewTimeframeProvider);
   final range = ref.watch(reviewRangeProvider);
-  String? asDate(DateTime? d) => d == null
-      ? null
-      : '${d.year.toString().padLeft(4, '0')}-'
-            '${d.month.toString().padLeft(2, '0')}-'
-            '${d.day.toString().padLeft(2, '0')}';
 
   try {
     return await rust.completedTasks(
       root: workspace.root,
       timeframe: timeframe,
-      from: asDate(range?.start),
-      to: asDate(range?.end),
+      from: range == null ? null : isoDate(range.start),
+      to: range == null ? null : isoDate(range.end),
     );
   } catch (_) {
     return const [];
