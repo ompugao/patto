@@ -22,12 +22,12 @@ export function useFileSearch(files: FileEntry[], pinnedFiles: string[], onPick:
   const onKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
     const len = displayFiles.length
     if (len === 0) return
-    if (e.key === 'Tab' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      setHighlightedIndex(i => (i + 1) % len)
-    } else if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
+    if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
       e.preventDefault()
       setHighlightedIndex(i => (i - 1 + len) % len)
+    } else if (e.key === 'Tab' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedIndex(i => (i + 1) % len)
     } else if (e.key === 'Enter') {
       const idx = highlightedIndex >= 0 ? highlightedIndex : 0
       onPick(displayFiles[idx].path)
