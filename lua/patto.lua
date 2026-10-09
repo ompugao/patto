@@ -59,9 +59,7 @@ function PattoShowTwoHopLinks()
     local ns = vim.api.nvim_create_namespace('links')
 
     -- clear content
-    for m, _, _ in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, {})) do
-      vim.api.nvim_buf_del_extmark(bufnr, ns, m)
-    end
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
     vim.api.nvim_buf_set_option(bufnr, 'modified', false)
 
