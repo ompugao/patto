@@ -21,7 +21,6 @@ class MathBlock extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Math.tex(
           tex,
-          mathStyle: MathStyle.display,
           textStyle: theme.textTheme.bodyLarge?.copyWith(
             fontSize: (theme.textTheme.bodyLarge?.fontSize ?? 16) * textScale,
           ),

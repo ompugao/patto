@@ -1,7 +1,7 @@
-import 'embed_lookup.dart';
-import 'oembed.dart';
 import '../src/rust/api/types.dart';
 import '../src/rust/frb_api.dart' as rust;
+import 'embed_lookup.dart';
+import 'oembed.dart';
 
 /// What a card shows for a tweet before it is opened.
 class TweetSummary {
