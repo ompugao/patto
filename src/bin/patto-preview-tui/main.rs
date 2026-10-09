@@ -4,6 +4,7 @@ mod config;
 mod image_cache;
 mod math_render;
 mod search;
+mod selection;
 mod syntax_highlight;
 mod tasks;
 mod tui_renderer;

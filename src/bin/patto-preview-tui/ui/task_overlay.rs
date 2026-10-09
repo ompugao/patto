@@ -13,7 +13,7 @@ use crate::tasks::{fmt_timedelta, total_elapsed};
 /// Fidget-style overlay showing active (Doing/Paused) tasks in the bottom-right corner
 /// of the content area. Only drawn when the tasks panel is closed.
 pub(super) fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, app: &App) {
-    let active = app.tasks.active_tasks();
+    let active: Vec<_> = app.tasks.active_tasks().collect();
     if active.is_empty() {
         return;
     }
@@ -30,7 +30,13 @@ pub(super) fn draw_active_task_overlay(frame: &mut Frame, content_area: Rect, ap
 
     // Build lines first so we can measure actual rendered width.
     let mut lines: Vec<Line> = Vec::new();
-    for (status, text, base_time_spent, started_at_dt) in &tasks_to_show {
+    for item in &tasks_to_show {
+        let (status, text, base_time_spent, started_at_dt) = (
+            &item.status,
+            &item.text,
+            &item.base_time_spent,
+            &item.started_at_dt,
+        );
         let (annotation, ann_style, text_style) = match status {
             TaskStatus::Doing => (
                 "◑ doing",

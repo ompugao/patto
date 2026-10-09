@@ -10,9 +10,10 @@ use ratatui::{
 use crate::app::App;
 use crate::config::TasksPanelPosition;
 use crate::tasks::{
-    fmt_timedelta, task_status_icon, total_elapsed, DeadlineCategory, ReviewEntry, TaskEntry,
+    fmt_timedelta, task_status_icon, total_elapsed, ReviewEntry, ReviewItem, TaskEntry, TaskItem,
     TasksView,
 };
+use patto::tasks_view::PendingGroup;
 
 pub(super) fn draw_tasks_panel(frame: &mut Frame, app: &mut App) {
     let content_area = {
@@ -131,20 +132,21 @@ fn draw_tasks_upcoming_content(
                     Style::default().fg(Color::DarkGray),
                 )));
             }
-            TaskEntry::TaskItem {
-                text,
-                file_name,
-                due_str,
-                category,
-                status,
-                base_time_spent,
-                started_at_dt,
-                ..
-            } => {
+            TaskEntry::Item(item) => {
+                let TaskItem {
+                    text,
+                    file_name,
+                    due_str,
+                    group: category,
+                    status,
+                    base_time_spent,
+                    started_at_dt,
+                    ..
+                } = item;
                 // ── colours ───────────────────────────────────────────────
                 let text_fg = match category {
-                    DeadlineCategory::Overdue => Color::Red,
-                    DeadlineCategory::Today => Color::Yellow,
+                    PendingGroup::Overdue => Color::Red,
+                    PendingGroup::Today => Color::Yellow,
                     _ => Color::White,
                 };
                 let (text_style, sel_prefix) = if is_sel {
@@ -164,11 +166,11 @@ fn draw_tasks_upcoming_content(
                     text_style
                 } else {
                     match category {
-                        DeadlineCategory::Overdue => {
+                        PendingGroup::Overdue => {
                             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
                         }
-                        DeadlineCategory::Today => Style::default().fg(Color::Yellow),
-                        DeadlineCategory::Tomorrow => Style::default().fg(Color::Cyan),
+                        PendingGroup::Today => Style::default().fg(Color::Yellow),
+                        PendingGroup::Tomorrow => Style::default().fg(Color::Cyan),
                         _ => Style::default().fg(Color::DarkGray),
                     }
                 };
@@ -298,13 +300,14 @@ fn draw_tasks_review_content(
                     Style::default().fg(Color::DarkGray),
                 )));
             }
-            ReviewEntry::ReviewItem {
-                text,
-                file_name,
-                completed_at,
-                time_spent,
-                ..
-            } => {
+            ReviewEntry::Item(item) => {
+                let ReviewItem {
+                    text,
+                    file_name,
+                    completed_at,
+                    time_spent,
+                    ..
+                } = item;
                 let base_style = Style::default().fg(Color::Green);
                 let row_style = if is_sel {
                     base_style.add_modifier(Modifier::REVERSED)
