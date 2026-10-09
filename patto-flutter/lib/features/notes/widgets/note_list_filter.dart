@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/providers.dart';
+import '../note_providers.dart';
 
 /// The title filter and sort order above the note list.
 ///

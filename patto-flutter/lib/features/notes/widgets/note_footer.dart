@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
 import '../../../src/rust/api/types.dart';
 import '../../../src/rust/frb_api.dart' as rust;
+import '../note_providers.dart';
 import '../note_view_screen.dart';
 
 /// Under the note: its syntax issues, backlinks and 2-hop links.

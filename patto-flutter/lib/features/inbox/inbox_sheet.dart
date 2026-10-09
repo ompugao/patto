@@ -9,6 +9,7 @@ import '../../src/rust/api/error.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
 import 'inbox_entry.dart';
+import 'inbox_providers.dart';
 import 'widgets/inbox_composer.dart';
 import 'widgets/inbox_posts.dart';
 

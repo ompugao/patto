@@ -10,6 +10,7 @@ import '../notes/widgets/note_image.dart';
 import '../settings/settings_screen.dart';
 import 'git_identity.dart';
 import 'sync_messages.dart';
+import 'sync_providers.dart';
 import 'widgets/paused_card.dart';
 
 /// Shows what is uncommitted, and runs commit, pull and push.

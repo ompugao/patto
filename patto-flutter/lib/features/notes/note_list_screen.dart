@@ -11,6 +11,7 @@ import '../inbox/inbox_sheet.dart';
 import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../workspaces/workspace_switcher.dart';
+import 'note_providers.dart';
 import 'widgets/conflict_banner.dart';
 import 'widgets/note_list_filter.dart';
 import 'widgets/note_tile.dart';

@@ -12,6 +12,7 @@ import '../editor/editor_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
 import 'note_find.dart';
+import 'note_providers.dart';
 import 'open_embed.dart';
 import 'widgets/block_widget.dart';
 import 'widgets/find_bar.dart';
