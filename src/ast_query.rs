@@ -126,26 +126,22 @@ pub fn conceal_urls(text: &str) -> String {
 /// Return the line text with the task property token stripped and whitespace
 /// trimmed, e.g. `buy milk {@task status=todo due=2026-06-01}` → `buy milk`.
 pub fn task_label(line: &AstNode) -> String {
-    let label = if let AstNodeKind::Line { properties } = &line.kind() {
-        let task_prop = properties
-            .iter()
-            .find(|prop| matches!(prop, Property::Task { .. }));
-
-        if let Some(Property::Task { location, .. }) = task_prop {
-            let raw = line.extract_str();
-            let before = raw[..location.span.0.min(raw.len())].trim_end();
+    let raw = line.extract_str();
+    let task_location = line.properties().iter().find_map(|prop| match prop {
+        Property::Task { location, .. } => Some(location),
+        Property::Anchor { .. } => None,
+    });
+    let label = match task_location {
+        Some(location) => {
+            let before = raw[..location.span.0.min(raw.len())].trim();
             let after = raw[location.span.1.min(raw.len())..].trim_start();
-            match (before.is_empty(), after.is_empty()) {
-                (true, true) => String::new(),
-                (false, true) => before.trim_start().to_string(),
-                (true, false) => after.trim_start().to_string(),
-                (false, false) => format!("{} {}", before.trim_start(), after),
-            }
-        } else {
-            line.extract_str().trim_start().to_string()
+            [before, after]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
         }
-    } else {
-        line.extract_str().trim_start().to_string()
+        None => raw.trim_start().to_string(),
     };
     conceal_urls(&label)
 }

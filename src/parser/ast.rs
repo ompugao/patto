@@ -410,6 +410,16 @@ impl AstNode {
         &self.0.value.kind
     }
 
+    /// Properties of a line-like node; every other kind has none.
+    pub fn properties(&self) -> &[Property] {
+        match self.kind() {
+            AstNodeKind::Line { properties } | AstNodeKind::QuoteContent { properties } => {
+                properties
+            }
+            _ => &[],
+        }
+    }
+
     /// Inline contents of this node (text, links, decorations, ...).
     pub fn contents(&self) -> MutexGuard<'_, Vec<AstNode>> {
         self.0.value.contents.lock().unwrap()
