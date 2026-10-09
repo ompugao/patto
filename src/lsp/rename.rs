@@ -48,8 +48,8 @@ impl Backend {
             return Err(invalid_params("Name cannot be empty"));
         }
 
-        if let Some(edit) = self.rename_anchor(uri, position, new_name) {
-            return Ok(Some(edit));
+        if let Some(anchor_rename) = self.rename_anchor(uri, position, new_name) {
+            return anchor_rename.map(Some);
         }
 
         if new_name.contains('/') || new_name.contains('\\') {
@@ -69,13 +69,15 @@ impl Backend {
     }
 
     /// Rename the anchor under the cursor, and every `[note#anchor]` that points
-    /// at it. `None` when the cursor is not on an anchor definition.
+    /// at it. `None` when the cursor is not on an anchor definition; an invalid
+    /// name is an error rather than `None`, so it cannot fall through to a note
+    /// rename.
     fn rename_anchor(
         &self,
         uri: &Url,
         position: Position,
         new_name: &str,
-    ) -> Option<WorkspaceEdit> {
+    ) -> Option<Result<WorkspaceEdit>> {
         let repo_lock = self.repository.lock().unwrap();
         let repo = repo_lock.as_ref()?;
         let ast = repo.ast_map.get(uri)?;
@@ -94,7 +96,9 @@ impl Backend {
             || new_name.contains('\\')
             || new_name.contains('#')
         {
-            return None;
+            return Some(Err(invalid_params(
+                "Anchor name cannot be empty or contain '/', '\\' or '#'",
+            )));
         }
 
         log::info!("Renaming anchor '{}' to '{}'", old_name, new_name);
@@ -125,7 +129,7 @@ impl Backend {
                 .then(|| format!("[{}#{}]", note_link, new_name))
         }));
 
-        Some(workspace_edit(document_changes))
+        Some(Ok(workspace_edit(document_changes)))
     }
 
     /// Rename the note under the cursor — or the current note, when the cursor is

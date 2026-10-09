@@ -844,3 +844,20 @@ async fn test_multiline_content_rename() {
 
     println!("✅ Multiline content rename test passed");
 }
+
+#[tokio::test]
+async fn invalid_anchor_name_is_rejected_instead_of_renaming_the_note() {
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("note_a.pn", "Content here\n#section1\n");
+
+    let mut client = InProcessLspClient::new(&workspace).await;
+
+    let uri = workspace.get_uri("note_a.pn");
+    client
+        .did_open(uri.clone(), "Content here\n#section1\n".to_string())
+        .await;
+
+    let response = client.rename(uri, 1, 1, "a#b").await;
+
+    assert!(response.is_none(), "expected an error, got {:?}", response);
+}
