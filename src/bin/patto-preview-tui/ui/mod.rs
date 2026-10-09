@@ -5,6 +5,7 @@ mod image;
 mod status_bar;
 mod task_overlay;
 mod tasks;
+mod text;
 mod title_bar;
 
 #[cfg(test)]
