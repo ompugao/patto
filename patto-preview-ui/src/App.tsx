@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import VirtualRenderer, { AstNode } from './components/VirtualRenderer'
+import VirtualRenderer from './components/VirtualRenderer'
+import type { AstNode } from './ast'
 import PrintRenderer from './components/PrintRenderer'
 import { FileText, Folder, Search, PanelLeftClose, PanelLeftOpen, Pin, PinOff, List } from 'lucide-react'
 import type { FileEntry, ServerMessage } from './protocol'

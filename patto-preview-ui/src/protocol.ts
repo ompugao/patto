@@ -2,7 +2,7 @@
 // serde adjacent tagging — #[serde(tag = "type", content = "data")] — so every
 // message is { type, data }. See WsServerMessage / WsClientMessage in
 // src/bin/patto-preview.rs.
-import type { AstNode } from './components/VirtualRenderer'
+import type { AstNode } from './ast'
 
 export interface FileMetadata {
   modified: number;
