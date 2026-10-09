@@ -33,8 +33,13 @@ impl Repository {
 
     /// The link name of a note file under the repository root.
     pub fn path_to_link(&self, path: &Path) -> Option<String> {
-        let rel_path = path.strip_prefix(&self.root_dir).ok()?;
-        Some(rel_path.file_stem()?.to_str()?.to_string())
+        // Compared as URLs rather than with `Path::strip_prefix`: a canonicalised
+        // root on Windows carries the `\\?\` prefix, while a path recovered from
+        // a graph URI does not, and the two never share a prefix as paths.
+        let root_uri = Url::from_directory_path(&self.root_dir).ok()?;
+        let file_uri = Url::from_file_path(path).ok()?;
+        file_uri.as_str().strip_prefix(root_uri.as_str())?;
+        Some(path.file_stem()?.to_str()?.to_string())
     }
 
     /// The URI of the note a link name refers to, whether or not it exists.
