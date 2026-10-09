@@ -29,27 +29,15 @@ use patto::renderer;
 use patto::renderer::Renderer;
 
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use std::fs::File;
+use patto::cli::init_logger;
 
 const PATTO_CSS: &str = include_str!("../../assets/patto-html.css");
 
-fn init_logger(filter_level: log::LevelFilter, logfile: Option<PathBuf>) {
-    let mut loggers = Vec::new();
-    if let Some(filename) = logfile {
-        loggers.push(simplelog::WriteLogger::new(
-            filter_level,
-            simplelog::Config::default(),
-            File::create(filename).unwrap(),
-        ) as Box<dyn simplelog::SharedLogger>)
-    }
-    simplelog::CombinedLogger::init(loggers).unwrap();
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
-    init_logger(args.verbose.log_level_filter(), args.debuglogfile);
+    init_logger(args.verbose.log_level_filter(), args.debuglogfile)?;
 
-    let text = fs::read_to_string(&args.file).expect("cannot read input file");
+    let text = fs::read_to_string(&args.file)?;
     let parser::ParserResult {
         ast: rootnode,
         parse_errors: _,

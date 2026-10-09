@@ -1,9 +1,9 @@
-use std::fs;
-use std::io::{self, BufWriter, Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Parser as ClapParser, ValueEnum};
 
+use patto::cli::{input_name, open_output, read_input};
 use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser;
 use patto::renderer::{MarkdownRenderer, Renderer};
@@ -47,37 +47,25 @@ struct Cli {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
 
-    // Convert flavor enum
     let flavor = match args.flavor {
         FlavorArg::Standard => MarkdownFlavor::Standard,
         FlavorArg::Obsidian => MarkdownFlavor::Obsidian,
         FlavorArg::Github => MarkdownFlavor::GitHub,
     };
 
-    // Build options from flavor
     let mut options = MarkdownRendererOptions::new(flavor);
 
-    // Allow frontmatter override
     if args.no_frontmatter {
         options = options.with_frontmatter(false);
     }
 
-    // Read input (from file or stdin)
-    let text = match &args.file {
-        Some(path) => fs::read_to_string(path)?,
-        None => {
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer)?;
-            buffer
-        }
-    };
+    let text = read_input(args.file.as_deref())?;
 
     let parser::ParserResult {
         ast: rootnode,
         parse_errors,
     } = parser::parse_text(&text);
 
-    // Warn about parse errors but continue (to stderr)
     if !parse_errors.is_empty() {
         eprintln!("Warning: {} parse error(s) found", parse_errors.len());
         for error in parse_errors.iter().take(5) {
@@ -85,33 +73,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Render to output (file or stdout)
     let renderer = MarkdownRenderer::new(options);
+    let mut writer = open_output(args.output.as_deref())?;
+    renderer.format(&rootnode, &mut writer)?;
+    writer.flush()?;
 
-    match &args.output {
-        Some(path) => {
-            let mut writer = BufWriter::new(fs::File::create(path)?);
-            renderer.format(&rootnode, &mut writer)?;
-            writer.flush()?;
-
-            let input_name = args
-                .file
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "stdin".to_string());
-            eprintln!(
-                "✓ Exported {} to {} (flavor: {})",
-                input_name,
-                path.display(),
-                flavor
-            );
-        }
-        None => {
-            let stdout = io::stdout();
-            let mut writer = BufWriter::new(stdout.lock());
-            renderer.format(&rootnode, &mut writer)?;
-            writer.flush()?;
-        }
+    if let Some(path) = &args.output {
+        eprintln!(
+            "✓ Exported {} to {} (flavor: {})",
+            input_name(args.file.as_deref()),
+            path.display(),
+            flavor
+        );
     }
 
     Ok(())

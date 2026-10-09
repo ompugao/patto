@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
+import '../notes/note_providers.dart';
 import '../notes/note_view_screen.dart';
 import 'highlight.dart';
 
@@ -13,9 +13,8 @@ class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
   static Future<void> open(BuildContext context) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
-    );
+    return Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const SearchScreen()));
   }
 
   @override
@@ -76,7 +75,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ],
       ),
-      body: _query.isEmpty ? const _Message('Type to search every note.') : _results(),
+      body: _query.isEmpty
+          ? const _Message('Type to search every note.')
+          : _results(),
     );
   }
 
@@ -133,7 +134,9 @@ class _HitCard extends StatelessWidget {
           trailing: hit.totalMatches == 0
               ? null
               : Text(
-                  hit.totalMatches == 1 ? '1 line' : '${hit.totalMatches} lines',
+                  hit.totalMatches == 1
+                      ? '1 line'
+                      : '${hit.totalMatches} lines',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: colors.outline,
                   ),

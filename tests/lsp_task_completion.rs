@@ -21,7 +21,7 @@ fn collect_tasks(
             }
         }
     }
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         collect_tasks(child, out);
     }
 }

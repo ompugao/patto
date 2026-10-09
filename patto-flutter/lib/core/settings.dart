@@ -64,6 +64,11 @@ class Settings {
   /// The note that inbox posts are appended to.
   final String inboxNoteName;
 
+  /// The identity commits are made under; git refuses an empty one.
+  String get commitAuthorName => authorName.isEmpty ? 'Patto' : authorName;
+  String get commitAuthorEmail =>
+      authorEmail.isEmpty ? 'patto@localhost' : authorEmail;
+
   Workspace? get active {
     for (final workspace in workspaces) {
       if (workspace.id == activeWorkspaceId) return workspace;

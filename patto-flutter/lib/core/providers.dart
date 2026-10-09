@@ -1,13 +1,6 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../src/rust/api/events.dart';
-import '../src/rust/api/git.dart';
-import '../src/rust/api/index.dart';
-import '../src/rust/api/tasks.dart';
-import '../src/rust/api/types.dart';
 import '../src/rust/frb_api.dart' as rust;
 import 'quick_note_intents.dart';
 import 'settings.dart';
@@ -106,16 +99,6 @@ final notesRevisionProvider = valueProvider<int>(0);
 /// before the inbox sheet opens over it.
 final rootTabProvider = valueProvider<int>(0);
 
-/// Text waiting to be put into the inbox composer, from a share or the
-/// launcher shortcut. The composer takes it and sets this back to null.
-final inboxDraftProvider = valueProvider<String?>(null);
-
-/// How the note list is ordered.
-enum NoteSort { recent, linked, title }
-
-final noteSortProvider = valueProvider<NoteSort>(NoteSort.recent);
-final noteSearchProvider = valueProvider<String>('');
-
 class IndexState {
   const IndexState({
     this.building = false,
@@ -211,190 +194,21 @@ final indexProvider = NotifierProvider<IndexNotifier, IndexState>(
   IndexNotifier.new,
 );
 
-final inboxNoteNameProvider = Provider<String>((ref) {
-  return ref.watch(settingsProvider).value?.inboxNoteName ??
-      Settings.defaultInboxNoteName;
-});
-
-final inboxPostsProvider = FutureProvider<List<InboxPost>>((ref) async {
+/// Runs [query] against the active workspace once its index is ready, and
+/// again whenever the notes change. [empty] stands in before that, and when
+/// the query fails: the index may be mid-rebuild.
+Future<T> indexedQuery<T>(
+  Ref ref, {
+  required T empty,
+  required Future<T> Function(String root) query,
+}) async {
   final workspace = await ref.watch(workspaceProvider.future);
   ref.watch(notesRevisionProvider);
-  final name = ref.watch(inboxNoteNameProvider);
-  if (workspace == null) return const [];
-  return rust.inboxPosts(root: workspace.root, name: name);
-});
-
-final noteListProvider = FutureProvider<List<NoteMeta>>((ref) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  final query = ref.watch(noteSearchProvider);
-  final sort = ref.watch(noteSortProvider);
-  final inboxName = ref.watch(inboxNoteNameProvider);
-
-  if (workspace == null || !workspace.exists) return const [];
-
-  final found = query.trim().isEmpty
-      ? await rust.listNotes(root: workspace.root)
-      : await rust.searchNotes(root: workspace.root, query: query, limit: 200);
-  // The inbox has its own sheet; listing it too would show it twice.
-  final notes = found.where((n) => n.name != inboxName).toList();
-
-  if (sort == NoteSort.title) {
-    final sorted = [...notes]..sort((a, b) => a.name.compareTo(b.name));
-    return sorted;
-  }
-  if (sort == NoteSort.linked) {
-    final counts = <String, int>{};
-    try {
-      for (final c in await rust.linkCounts(root: workspace.root)) {
-        counts[c.name] = c.backlinks;
-      }
-    } catch (_) {
-      // The index may not be built yet; fall back to the filesystem order.
-      return notes;
-    }
-    final sorted = [...notes]
-      ..sort((a, b) {
-        final byCount = (counts[b.name] ?? 0).compareTo(counts[a.name] ?? 0);
-        return byCount != 0 ? byCount : a.name.compareTo(b.name);
-      });
-    return sorted;
-  }
-  // `search` already ranks by match, and `list` by modification time.
-  return notes;
-});
-
-/// Notes whose name or contents contain the query, for the search screen.
-final textSearchProvider = FutureProvider.autoDispose
-    .family<List<TextSearchHit>, String>((ref, query) async {
-      final workspace = await ref.watch(workspaceProvider.future);
-      ref.watch(notesRevisionProvider);
-      if (workspace == null || !workspace.exists || query.trim().isEmpty) {
-        return const [];
-      }
-      return rust.searchText(
-        root: workspace.root,
-        query: query,
-        maxNotes: 100,
-        maxLinesPerNote: 5,
-      );
-    });
-
-final linkCountsProvider = FutureProvider<Map<String, int>>((ref) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !ref.watch(indexProvider).ready) return const {};
+  if (workspace == null || !ref.watch(indexProvider).ready) return empty;
 
   try {
-    return {
-      for (final c in await rust.linkCounts(root: workspace.root))
-        c.name: c.backlinks,
-    };
+    return await query(workspace.root);
   } catch (_) {
-    return const {};
+    return empty;
   }
-});
-
-final renderedNoteProvider = FutureProvider.autoDispose
-    .family<RenderedNote, String>((ref, relPath) async {
-      final workspace = await ref.watch(workspaceProvider.future);
-      ref.watch(notesRevisionProvider);
-      if (workspace == null) {
-        throw StateError('no workspace is active');
-      }
-
-      // Keep recently viewed notes parsed so going back is instant.
-      final link = ref.keepAlive();
-      final timer = Timer(const Duration(minutes: 5), link.close);
-      ref.onDispose(timer.cancel);
-
-      final content = await rust.readNote(
-        root: workspace.root,
-        relPath: relPath,
-      );
-      return rust.renderNote(content: content);
-    });
-
-final backlinksProvider = FutureProvider.autoDispose
-    .family<List<BackLink>, String>((ref, relPath) async {
-      final workspace = await ref.watch(workspaceProvider.future);
-      ref.watch(notesRevisionProvider);
-      if (workspace == null || !ref.watch(indexProvider).ready) return const [];
-
-      try {
-        return await rust.backlinks(root: workspace.root, relPath: relPath);
-      } catch (_) {
-        return const [];
-      }
-    });
-
-final twoHopProvider = FutureProvider.autoDispose.family<List<TwoHop>, String>((
-  ref,
-  relPath,
-) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
-
-  try {
-    return await rust.twoHopLinks(root: workspace.root, relPath: relPath);
-  } catch (_) {
-    return const [];
-  }
-});
-
-final pendingTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
-
-  try {
-    return await rust.pendingTasks(root: workspace.root);
-  } catch (_) {
-    return const [];
-  }
-});
-
-/// Timeframe for the completed-tasks review.
-final reviewTimeframeProvider = valueProvider<String>('today');
-final reviewRangeProvider = valueProvider<DateTimeRange?>(null);
-
-final completedTasksProvider = FutureProvider<List<TaskItem>>((ref) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !ref.watch(indexProvider).ready) return const [];
-
-  final timeframe = ref.watch(reviewTimeframeProvider);
-  final range = ref.watch(reviewRangeProvider);
-  String? asDate(DateTime? d) => d == null
-      ? null
-      : '${d.year.toString().padLeft(4, '0')}-'
-            '${d.month.toString().padLeft(2, '0')}-'
-            '${d.day.toString().padLeft(2, '0')}';
-
-  try {
-    return await rust.completedTasks(
-      root: workspace.root,
-      timeframe: timeframe,
-      from: asDate(range?.start),
-      to: asDate(range?.end),
-    );
-  } catch (_) {
-    return const [];
-  }
-});
-
-final gitStatusProvider = FutureProvider.autoDispose<GitStatus?>((ref) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null || !workspace.isCloned) return null;
-
-  try {
-    return await rust.gitStatus(
-      root: workspace.root,
-      attachmentsDir: workspace.config.attachmentsDir,
-    );
-  } catch (_) {
-    return null;
-  }
-});
+}

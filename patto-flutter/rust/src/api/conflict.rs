@@ -1,23 +1,23 @@
 //! A sync paused at a conflict, seen from the app.
 //!
-//! When a sync cannot merge cleanly it keeps the remote commit under
-//! [`CONFLICT_REF`] and changes nothing else (see [`crate::api::git`]). This
+//! When a sync cannot merge cleanly it keeps the remote commit under a
+//! reference of its own and changes nothing else (see [`crate::api::git`]). This
 //! module reads that state back: which notes clash, what each side did to
 //! them, and applies the choices the user made on the phone.
 //!
 //! The merge is always recomputed from HEAD and the kept remote commit, so it
 //! reflects any commits made since the sync paused.
 
-use std::collections::HashMap;
 use std::path::Path;
 
-use git2::{Index, IndexEntry, Oid, Repository, Signature};
+use git2::{Index, IndexEntry, Oid, Remote, Repository, Signature};
 
 use crate::api::error::{GitErrorKind, PattoError, PattoResult};
 use crate::api::git::{
-    changed_between, clear_conflict, commit_merge, commit_notes, conflict_paths, conflict_remote,
-    current_branch, fetch_branch, normalize_attachments_dir, push, settle_file_conflicts,
-    side_branch, GitCreds, GitPhase, GitProgress, MergeOutcome, SyncReport,
+    changed_between, clear_conflict, commit_merge, commit_notes, conflict_remote, current_branch,
+    diff_paths, fetch_branch, head_commit, index_conflicts, normalize_attachments_dir, origin,
+    push, resolved, settle_file_conflicts, side_branch, GitCreds, GitPhase, GitProgress,
+    IndexConflict, MergeOutcome, OnProgress, SyncReport,
 };
 use crate::api::merge::{merge_lines, MergedNote};
 
@@ -103,54 +103,33 @@ struct TrialMerge {
     index: Index,
 }
 
+impl TrialMerge {
+    fn conflicts(&self) -> PattoResult<Vec<IndexConflict>> {
+        index_conflicts(&self.index)
+    }
+}
+
 fn trial_merge(repo: &Repository) -> PattoResult<Option<TrialMerge>> {
     let Some(theirs) = conflict_remote(repo) else {
         return Ok(None);
     };
-    let head = repo.head()?.peel_to_commit()?;
+    let head = head_commit(repo)?;
     let mut index = repo.merge_commits(&head, &repo.find_commit(theirs)?, None)?;
     settle_file_conflicts(&mut index)?;
     Ok(Some(TrialMerge { theirs, index }))
 }
 
-struct Sides {
-    ancestor: Option<IndexEntry>,
-    ours: Option<IndexEntry>,
-    theirs: Option<IndexEntry>,
-}
-
-fn conflict_sides(index: &Index) -> PattoResult<HashMap<String, Sides>> {
-    let mut sides = HashMap::new();
-    for conflict in index.conflicts()? {
-        let conflict = conflict?;
-        let Some(entry) = conflict
-            .our
-            .as_ref()
-            .or(conflict.their.as_ref())
-            .or(conflict.ancestor.as_ref())
-        else {
-            continue;
-        };
-        let path = String::from_utf8_lossy(&entry.path).to_string();
-        sides.insert(
-            path,
-            Sides {
-                ancestor: conflict.ancestor,
-                ours: conflict.our,
-                theirs: conflict.their,
-            },
-        );
-    }
-    Ok(sides)
-}
-
-fn kind_of(sides: &Sides) -> ConflictKind {
-    match (&sides.ancestor, &sides.ours, &sides.theirs) {
+fn kind_of(conflict: &IndexConflict) -> ConflictKind {
+    match (&conflict.ancestor, &conflict.ours, &conflict.theirs) {
         (None, _, _) => ConflictKind::BothAdded,
         (Some(_), None, _) => ConflictKind::DeletedByUs,
         (Some(_), _, None) => ConflictKind::DeletedByThem,
         _ => ConflictKind::BothModified,
     }
+}
+
+fn blob_id(entry: &Option<IndexEntry>) -> Option<String> {
+    entry.as_ref().map(|e| e.id.to_string())
 }
 
 fn blob_text(repo: &Repository, entry: Option<&IndexEntry>) -> PattoResult<Option<String>> {
@@ -163,11 +142,11 @@ fn blob_text(repo: &Repository, entry: Option<&IndexEntry>) -> PattoResult<Optio
 
 fn merge_sides(
     repo: &Repository,
-    sides: &Sides,
+    conflict: &IndexConflict,
 ) -> PattoResult<(Option<String>, Option<String>, MergedNote)> {
-    let base = blob_text(repo, sides.ancestor.as_ref())?.unwrap_or_default();
-    let ours = blob_text(repo, sides.ours.as_ref())?;
-    let theirs = blob_text(repo, sides.theirs.as_ref())?;
+    let base = blob_text(repo, conflict.ancestor.as_ref())?.unwrap_or_default();
+    let ours = blob_text(repo, conflict.ours.as_ref())?;
+    let theirs = blob_text(repo, conflict.theirs.as_ref())?;
     // A deleted side is compared as empty, which shows everything the other
     // side has as its change.
     let merged = merge_lines(
@@ -191,23 +170,14 @@ fn remote_commit(repo: &Repository, id: Oid) -> PattoResult<RemoteCommit> {
 
 /// Notes the remote changed since the common ancestor.
 fn remote_changes(repo: &Repository, theirs: Oid) -> PattoResult<Vec<String>> {
-    let head = repo.head()?.peel_to_commit()?.id();
-    let base = repo.merge_base(head, theirs)?;
+    let base = repo.merge_base(head_commit(repo)?.id(), theirs)?;
     let old = repo.find_commit(base)?.tree()?;
     let new = repo.find_commit(theirs)?.tree()?;
     let diff = repo.diff_tree_to_tree(Some(&old), Some(&new), None)?;
-
-    let mut paths = Vec::new();
-    for delta in diff.deltas() {
-        for file in [delta.new_file(), delta.old_file()] {
-            if let Some(p) = file.path().and_then(|p| p.to_str()) {
-                if p.ends_with(".pn") && !paths.iter().any(|q| q == p) {
-                    paths.push(p.to_string());
-                }
-            }
-        }
-    }
-    Ok(paths)
+    Ok(diff_paths(&diff)
+        .into_iter()
+        .filter(|p| p.ends_with(".pn"))
+        .collect())
 }
 
 /// The paused sync, if there is one.
@@ -217,15 +187,14 @@ pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
         return Ok(None);
     };
 
-    let sides = conflict_sides(&trial.index)?;
+    let conflicts = trial.conflicts()?;
     let mut files = Vec::new();
-    for path in conflict_paths(&trial.index)? {
-        let side = &sides[&path];
-        let (_, _, merged) = merge_sides(&repo, side)?;
+    for conflict in &conflicts {
+        let (_, _, merged) = merge_sides(&repo, conflict)?;
         let (ours_changed, theirs_changed) = merged.changed_lines();
         files.push(ConflictFile {
-            kind: kind_of(side),
-            path,
+            path: conflict.path.clone(),
+            kind: kind_of(conflict),
             ours_changed,
             theirs_changed,
             conflicts: merged.conflict_count() as u32,
@@ -234,7 +203,7 @@ pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
 
     let held_back = remote_changes(&repo, trial.theirs)?
         .into_iter()
-        .filter(|p| !sides.contains_key(p))
+        .filter(|p| !conflicts.iter().any(|c| &c.path == p))
         .collect();
 
     Ok(Some(PendingConflict {
@@ -249,17 +218,18 @@ pub fn pending_conflict(root: String) -> PattoResult<Option<PendingConflict>> {
 pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDetail> {
     let repo = Repository::open(&root)?;
     let trial = trial_merge(&repo)?.ok_or_else(|| stale("no sync is waiting to be merged"))?;
-    let sides = conflict_sides(&trial.index)?;
-    let side = sides
-        .get(&rel_path)
+    let conflicts = trial.conflicts()?;
+    let conflict = conflicts
+        .iter()
+        .find(|c| c.path == rel_path)
         .ok_or_else(|| stale(format!("{rel_path} no longer conflicts")))?;
 
-    let (ours, theirs, merged) = merge_sides(&repo, side)?;
+    let (ours, theirs, merged) = merge_sides(&repo, conflict)?;
     Ok(ConflictDetail {
         path: rel_path,
-        kind: kind_of(side),
-        ours_id: side.ours.as_ref().map(|e| e.id.to_string()),
-        theirs_id: side.theirs.as_ref().map(|e| e.id.to_string()),
+        kind: kind_of(conflict),
+        ours_id: blob_id(&conflict.ours),
+        theirs_id: blob_id(&conflict.theirs),
         ours,
         theirs,
         merged,
@@ -270,38 +240,68 @@ pub fn conflict_detail(root: String, rel_path: String) -> PattoResult<ConflictDe
 fn apply(
     repo: &Repository,
     index: &mut Index,
-    sides: &Sides,
+    conflict: &IndexConflict,
     resolution: &Resolution,
 ) -> PattoResult<()> {
-    let id = |e: &Option<IndexEntry>| e.as_ref().map(|e| e.id.to_string());
-    if id(&sides.ours) != resolution.ours_id || id(&sides.theirs) != resolution.theirs_id {
+    if blob_id(&conflict.ours) != resolution.ours_id
+        || blob_id(&conflict.theirs) != resolution.theirs_id
+    {
         return Err(stale(format!(
             "{} changed after it was reviewed",
             resolution.path
         )));
     }
 
-    let path = Path::new(&resolution.path);
-    index.conflict_remove(path)?;
+    index.conflict_remove(Path::new(&resolution.path))?;
 
     let Some(content) = &resolution.content else {
         return Ok(());
     };
-    let template = sides
-        .ours
-        .as_ref()
-        .or(sides.theirs.as_ref())
-        .or(sides.ancestor.as_ref())
-        .expect("a conflict has at least one side");
+    let template = conflict.any_side();
     let entry = IndexEntry {
         id: repo.blob(content.as_bytes())?,
         file_size: content.len() as u32,
-        // Stage 0 marks the entry resolved.
-        flags: template.flags & !0x3000,
         path: template.path.clone(),
         ..*template
     };
-    index.add(&entry)?;
+    index.add(&resolved(entry))?;
+    Ok(())
+}
+
+fn apply_resolutions(
+    repo: &Repository,
+    index: &mut Index,
+    resolutions: &[Resolution],
+) -> PattoResult<()> {
+    for conflict in index_conflicts(index)? {
+        let resolution = resolutions
+            .iter()
+            .find(|r| r.path == conflict.path)
+            .ok_or_else(|| stale(format!("{} has not been resolved", conflict.path)))?;
+        apply(repo, index, &conflict, resolution)?;
+    }
+    if index.has_conflicts() {
+        return Err(stale("a conflict is left unresolved"));
+    }
+    Ok(())
+}
+
+/// The kept remote commit must still be the tip of the branch, or the user
+/// reviewed a merge that is no longer the one to make.
+fn expect_remote_unmoved(
+    repo: &Repository,
+    remote: &mut Remote,
+    branch: &str,
+    creds: &GitCreds,
+    on_progress: &OnProgress<'_>,
+) -> PattoResult<()> {
+    let expected = conflict_remote(repo).ok_or_else(|| stale("no sync is waiting to be merged"))?;
+    let fetched = fetch_branch(repo, remote, branch, creds, on_progress)?;
+    if fetched != expected {
+        return Err(stale(
+            "the remote changed while the conflict was being resolved",
+        ));
+    }
     Ok(())
 }
 
@@ -322,48 +322,20 @@ pub fn git_resolve(
     let repo = Repository::open(&root)?;
     let sig = Signature::now(&author_name, &author_email)?;
     let branch = current_branch(&repo)?;
-    let before = repo.head()?.peel_to_commit()?.id();
+    let before = head_commit(&repo)?.id();
 
-    on_progress(GitProgress {
-        phase: GitPhase::Committing,
-        current: 0,
-        total: 0,
-        bytes: 0,
-    });
+    on_progress(GitProgress::at(GitPhase::Committing));
     // Edits made since the sync paused are part of our side; if they touched a
     // clashing note, its id no longer matches and the user reviews it again.
     let commit_id = commit_notes(&repo, &sig, &attachments_dir)?;
 
-    let expected =
-        conflict_remote(&repo).ok_or_else(|| stale("no sync is waiting to be merged"))?;
-    let mut remote = repo.find_remote("origin")?;
-    let fetched = fetch_branch(&repo, &mut remote, &branch, &creds, &on_progress)?;
-    if fetched != expected {
-        return Err(stale(
-            "the remote changed while the conflict was being resolved",
-        ));
-    }
+    let mut remote = origin(&repo)?;
+    expect_remote_unmoved(&repo, &mut remote, &branch, &creds, &on_progress)?;
 
-    on_progress(GitProgress {
-        phase: GitPhase::Merging,
-        current: 0,
-        total: 0,
-        bytes: 0,
-    });
+    on_progress(GitProgress::at(GitPhase::Merging));
     let TrialMerge { theirs, mut index } =
         trial_merge(&repo)?.ok_or_else(|| stale("no sync is waiting to be merged"))?;
-    let sides = conflict_sides(&index)?;
-    for (path, side) in &sides {
-        let resolution = resolutions
-            .iter()
-            .find(|r| &r.path == path)
-            .ok_or_else(|| stale(format!("{path} has not been resolved")))?;
-        apply(&repo, &mut index, side, resolution)?;
-    }
-    if index.has_conflicts() {
-        return Err(stale("a conflict is left unresolved"));
-    }
-
+    apply_resolutions(&repo, &mut index, &resolutions)?;
     commit_merge(
         &repo,
         &mut index,
@@ -381,13 +353,7 @@ pub fn git_resolve(
         &on_progress,
     )?;
     let conflict_cleared = clear_conflict(&repo, &mut remote, &creds, &on_progress)?;
-
-    on_progress(GitProgress {
-        phase: GitPhase::Done,
-        current: 0,
-        total: 0,
-        bytes: 0,
-    });
+    on_progress(GitProgress::at(GitPhase::Done));
 
     Ok(SyncReport {
         committed: commit_id.is_some(),

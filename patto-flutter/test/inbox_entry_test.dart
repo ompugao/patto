@@ -45,4 +45,35 @@ void main() {
       );
     });
   });
+
+  group('appendDraft', () {
+    test('a draft goes on its own line after what was typed', () {
+      expect(appendDraft('typed', 'shared'), 'typed\nshared');
+    });
+
+    test('an empty composer takes the draft as is', () {
+      expect(appendDraft('', 'shared'), 'shared');
+    });
+
+    test('an empty draft changes nothing', () {
+      expect(appendDraft('typed', ''), 'typed');
+    });
+  });
+
+  group('inboxDateLabel', () {
+    final now = DateTime(2026, 3, 1, 9, 30);
+
+    test('today and yesterday are named', () {
+      expect(inboxDateLabel('2026-03-01', now), 'Today');
+      expect(inboxDateLabel('2026-02-28', now), 'Yesterday');
+    });
+
+    test('other days are spelled out', () {
+      expect(inboxDateLabel('2026-02-27', now), 'Fri, 27 Feb 2026');
+    });
+
+    test('a heading that is not a date is shown as written', () {
+      expect(inboxDateLabel('someday', now), 'someday');
+    });
+  });
 }

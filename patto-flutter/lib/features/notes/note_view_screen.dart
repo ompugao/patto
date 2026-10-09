@@ -9,13 +9,14 @@ import '../../core/providers.dart';
 import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
-import '../search/highlight.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
+import 'note_find.dart';
+import 'note_providers.dart';
+import 'open_embed.dart';
 import 'widgets/block_widget.dart';
-import 'widgets/embed_viewer_screen.dart';
-import 'widgets/note_image.dart';
-import 'widgets/pdf_viewer_screen.dart';
+import 'widgets/find_bar.dart';
+import 'widgets/note_footer.dart';
 import 'widgets/spans_text.dart';
 
 class NoteViewScreen extends ConsumerStatefulWidget {
@@ -62,10 +63,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   bool _finding = false;
   final _findController = TextEditingController();
   Timer? _findDebounce;
-  String _findTerm = '';
-  List<int> _findHits = const [];
-  Set<int> _findHitSet = const {};
-  int _findCurrent = 0;
+  NoteFind _find = NoteFind();
   List<String> _sourceLines = const [];
   RenderedNote? _sourceFor;
 
@@ -77,23 +75,6 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     _findController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  /// Index of the block that renders source line [row]: the last one starting
-  /// at or before it, since code blocks and tables span several lines. Blocks
-  /// are in source order.
-  int _blockForRow(List<Block> blocks, int row) {
-    var low = 0;
-    var high = blocks.length;
-    while (low < high) {
-      final mid = (low + high) >> 1;
-      if (blocks[mid].row <= row) {
-        low = mid + 1;
-      } else {
-        high = mid;
-      }
-    }
-    return (low - 1).clamp(0, blocks.length - 1);
   }
 
   void _jumpTo(int index) {
@@ -127,10 +108,12 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       if (widget.initialAnchor != null) {
         _jumpToAnchor(note, widget.initialAnchor!);
       } else if (widget.initialRow != null) {
-        _jumpTo(_blockForRow(note.blocks, widget.initialRow!));
+        _jumpTo(blockIndexForRow(_rowsOf(note), widget.initialRow!));
       }
     });
   }
+
+  List<int> _rowsOf(RenderedNote note) => [for (final b in note.blocks) b.row];
 
   void _toggleFind() {
     _findDebounce?.cancel();
@@ -138,10 +121,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       _finding = !_finding;
       if (!_finding) {
         _findController.clear();
-        _findTerm = '';
-        _findHits = const [];
-        _findHitSet = const {};
-        _findCurrent = 0;
+        _find = NoteFind();
       }
     });
   }
@@ -149,7 +129,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   void _onFindChanged(String value) {
     _findDebounce?.cancel();
     _findDebounce = Timer(const Duration(milliseconds: 150), () {
-      _findTerm = value.trim();
+      _find = _find.withTerm(value.trim());
       _runFind(jump: true);
     });
   }
@@ -158,15 +138,9 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   /// changes underneath, without moving the view.
   Future<void> _runFind({required bool jump}) async {
     final note = ref.read(renderedNoteProvider(widget.relPath)).value;
-    final term = _findTerm;
+    final term = _find.term;
     if (note == null || term.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _findHits = const [];
-          _findHitSet = const {};
-          _findCurrent = 0;
-        });
-      }
+      if (mounted) setState(() => _find = _find.withHits(const [], jump: true));
       return;
     }
 
@@ -174,8 +148,10 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       final workspace = await ref.read(workspaceProvider.future);
       if (workspace == null) return;
       try {
-        final content =
-            await rust.readNote(root: workspace.root, relPath: widget.relPath);
+        final content = await rust.readNote(
+          root: workspace.root,
+          relPath: widget.relPath,
+        );
         _sourceLines = content.split('\n');
         _sourceFor = note;
       } catch (e) {
@@ -183,76 +159,17 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
         return;
       }
     }
-    if (!mounted || term != _findTerm || note.blocks.isEmpty) return;
+    if (!mounted || term != _find.term || note.blocks.isEmpty) return;
 
-    final hits = <int>[];
-    for (var row = 0; row < _sourceLines.length; row++) {
-      if (!containsIgnoringCase(_sourceLines[row], term)) continue;
-      final index = _blockForRow(note.blocks, row);
-      // Rows ascend, so repeats of a multi-line block are adjacent.
-      if (hits.isEmpty || hits.last != index) hits.add(index);
-    }
-
-    setState(() {
-      _findHits = hits;
-      _findHitSet = hits.toSet();
-      _findCurrent = _findCurrent.clamp(0, hits.isEmpty ? 0 : hits.length - 1);
-      if (jump) _findCurrent = 0;
-    });
+    final hits = findHitBlocks(_sourceLines, _rowsOf(note), term);
+    setState(() => _find = _find.withHits(hits, jump: jump));
     if (jump && hits.isNotEmpty) _jumpTo(hits.first);
   }
 
   void _stepFind(int delta) {
-    if (_findHits.isEmpty) return;
-    setState(() {
-      _findCurrent = (_findCurrent + delta) % _findHits.length;
-    });
-    _jumpTo(_findHits[_findCurrent]);
-  }
-
-  PreferredSizeWidget _findBar(BuildContext context) {
-    final theme = Theme.of(context);
-    final count = _findHits.isEmpty
-        ? (_findTerm.isEmpty ? '' : 'No matches')
-        : '${_findCurrent + 1} / ${_findHits.length}';
-
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(52),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 4, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _findController,
-                autofocus: true,
-                onChanged: _onFindChanged,
-                onSubmitted: (_) => _stepFind(1),
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Find in note',
-                  isDense: true,
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(count, style: theme.textTheme.labelMedium),
-            IconButton(
-              icon: const Icon(Icons.keyboard_arrow_up),
-              tooltip: 'Previous match',
-              onPressed: _findHits.isEmpty ? null : () => _stepFind(-1),
-            ),
-            IconButton(
-              icon: const Icon(Icons.keyboard_arrow_down),
-              tooltip: 'Next match',
-              onPressed: _findHits.isEmpty ? null : () => _stepFind(1),
-            ),
-          ],
-        ),
-      ),
-    );
+    if (_find.hits.isEmpty) return;
+    setState(() => _find = _find.stepped(delta));
+    _jumpTo(_find.hits[_find.current]);
   }
 
   void _toast(String message) {
@@ -304,39 +221,9 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);
-    if (uri == null || !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    if (uri == null ||
+        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       _toast('Could not open $url');
-    }
-  }
-
-  /// PDFs open in the app, local ones because nothing else can reach them.
-  /// Videos and Google Photos shares go to the app that owns them, since
-  /// neither can be framed; everything else opens in the in-app web view,
-  /// as the web preview frames it.
-  void _openEmbed(EmbedRef embed, String? root) {
-    final title = embed.title ?? embed.url.split('/').last;
-    switch (embed.kind) {
-      case EmbedKind_Pdf():
-        if (embed.isLocal) {
-          if (root == null) return;
-          PdfViewerScreen.open(
-            context,
-            PdfViewerScreen.file(path: resolveNotePath(embed.url, root), title: title),
-          );
-          return;
-        }
-        final uri = Uri.tryParse(embed.url);
-        if (uri != null) {
-          PdfViewerScreen.open(context, PdfViewerScreen.uri(uri: uri, title: title));
-          return;
-        }
-        _openUrl(embed.url);
-      case EmbedKind_Youtube() || EmbedKind_GooglePhotos():
-        _openUrl(embed.url);
-      case _ when embed.isLocal:
-        _openUrl(embed.url);
-      default:
-        EmbedViewerScreen.open(context, embed);
     }
   }
 
@@ -387,7 +274,15 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text(_title, overflow: TextOverflow.ellipsis),
-        bottom: _finding ? _findBar(context) : null,
+        bottom: _finding
+            ? FindBar(
+                controller: _findController,
+                countLabel: _find.countLabel,
+                hasHits: _find.hits.isNotEmpty,
+                onChanged: _onFindChanged,
+                onStep: _stepFind,
+              )
+            : null,
         actions: [
           IconButton(
             icon: Icon(_finding ? Icons.search_off : Icons.search),
@@ -414,192 +309,54 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
             child: Text('Could not open this note.\n\n$e'),
           ),
         ),
-        data: (data) {
-          _applyInitialJump(data);
-          if (_finding && _findTerm.isNotEmpty && !identical(_sourceFor, data)) {
-            // The note was edited or synced; the old matches point at stale
-            // blocks.
-            WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _runFind(jump: false),
-            );
-          }
-
-          final actions = SpanActions(
-            onWikiLink: _openWikiLink,
-            onUrl: _openUrl,
-            onAnchor: (anchor) => _jumpToAnchor(data, anchor),
-            onEmbed: (embed) => _openEmbed(embed, workspace?.root),
-          );
-
-          return SuperListView.builder(
-            listController: _listController,
-            controller: _scrollController,
-            extentEstimation: (_, _) => 30 * textScale,
-            padding: const EdgeInsets.only(top: 8, bottom: 32),
-            itemCount: data.blocks.length + 1,
-            itemBuilder: (context, i) {
-              if (i == data.blocks.length) {
-                return _NoteFooter(
-                  relPath: widget.relPath,
-                  errors: data.errors,
-                );
-              }
-              return RepaintBoundary(
-                child: BlockWidget(
-                  key: ValueKey(i),
-                  block: data.blocks[i],
-                  actions: actions,
-                  root: workspace?.root,
-                  textScale: textScale,
-                  highlighted: i == _flashed,
-                  matched: _findHitSet.contains(i),
-                  searchTerm: _finding ? _findTerm : null,
-                  onTaskTap: _changeTaskStatus,
-                  onLongPress: (block) =>
-                      EditorScreen.open(context, widget.relPath, row: block.row),
-                ),
-              );
-            },
-          );
-        },
+        data: (data) => _blockList(data, workspace?.root, textScale),
       ),
     );
   }
-}
 
-class _NoteFooter extends ConsumerWidget {
-  const _NoteFooter({required this.relPath, required this.errors});
+  Widget _blockList(RenderedNote data, String? root, double textScale) {
+    _applyInitialJump(data);
+    if (_finding && _find.term.isNotEmpty && !identical(_sourceFor, data)) {
+      // The note was edited or synced; the old matches point at stale
+      // blocks.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _runFind(jump: false),
+      );
+    }
 
-  static const _backlinkLimit = 50;
+    final actions = SpanActions(
+      onWikiLink: _openWikiLink,
+      onUrl: _openUrl,
+      onAnchor: (anchor) => _jumpToAnchor(data, anchor),
+      onEmbed: (embed) => openEmbed(context, embed, root, openUrl: _openUrl),
+    );
 
-  final String relPath;
-  final List<ParseIssue> errors;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final backlinks = ref.watch(backlinksProvider(relPath));
-    final twoHop = ref.watch(twoHopProvider(relPath));
-    final indexing = ref.watch(indexProvider).building;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (errors.isNotEmpty) ...[
-            _Heading('Syntax (${errors.length})'),
-            for (final issue in errors.take(10))
-              Text(
-                'line ${issue.row + 1}: ${issue.message}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            const SizedBox(height: 16),
-          ],
-          const Divider(),
-          _Heading('Backlinks'),
-          if (indexing)
-            Text('Indexing…', style: theme.textTheme.bodySmall)
-          else
-            backlinks.when(
-              loading: () => const LinearProgressIndicator(minHeight: 2),
-              error: (_, _) => const SizedBox.shrink(),
-              data: (links) => links.isEmpty
-                  ? Text('None', style: theme.textTheme.bodySmall)
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // A note linked from thousands of lines would otherwise
-                        // make the footer longer than the note itself.
-                        for (final link in links.take(_backlinkLimit))
-                          ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(link.sourceName),
-                            subtitle: Text(
-                              link.context,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () => NoteViewScreen.open(
-                              context,
-                              link.sourceRelPath,
-                              row: link.row,
-                            ),
-                          ),
-                        if (links.length > _backlinkLimit)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'and ${links.length - _backlinkLimit} more',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                      ],
-                    ),
-            ),
-          const SizedBox(height: 16),
-          _Heading('2-hop links'),
-          twoHop.when(
-            loading: () => const SizedBox.shrink(),
-            error: (_, _) => const SizedBox.shrink(),
-            data: (hops) => hops.isEmpty
-                ? Text('None', style: theme.textTheme.bodySmall)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final hop in hops)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'via ${hop.viaName}',
-                                style: theme.textTheme.labelMedium,
-                              ),
-                              Wrap(
-                                spacing: 6,
-                                children: [
-                                  for (final name in hop.names)
-                                    ActionChip(
-                                      label: Text(name),
-                                      onPressed: () => _openByName(context, ref, name),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
+    return SuperListView.builder(
+      listController: _listController,
+      controller: _scrollController,
+      extentEstimation: (_, _) => 30 * textScale,
+      padding: const EdgeInsets.only(top: 8, bottom: 32),
+      itemCount: data.blocks.length + 1,
+      itemBuilder: (context, i) {
+        if (i == data.blocks.length) {
+          return NoteFooter(relPath: widget.relPath, errors: data.errors);
+        }
+        return RepaintBoundary(
+          child: BlockWidget(
+            key: ValueKey(i),
+            block: data.blocks[i],
+            actions: actions,
+            root: root,
+            textScale: textScale,
+            highlighted: i == _flashed,
+            matched: _find.hitSet.contains(i),
+            searchTerm: _finding ? _find.term : null,
+            onTaskTap: _changeTaskStatus,
+            onLongPress: (block) =>
+                EditorScreen.open(context, widget.relPath, row: block.row),
           ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openByName(BuildContext context, WidgetRef ref, String name) async {
-    final workspace = await ref.read(workspaceProvider.future);
-    if (workspace == null) return;
-    final target = rust.resolveWikiLink(root: workspace.root, name: name);
-    if (!context.mounted || target == null) return;
-    await NoteViewScreen.open(context, target);
-  }
-}
-
-class _Heading extends StatelessWidget {
-  const _Heading(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(text, style: Theme.of(context).textTheme.titleSmall),
+        );
+      },
     );
   }
 }

@@ -161,7 +161,7 @@ impl PaperCache {
         });
     }
 
-    pub(crate) async fn refresh_once(
+    async fn refresh_once(
         &self,
         provider: Arc<DynPaperProvider>,
     ) -> Result<(), PaperProviderError> {
@@ -236,14 +236,18 @@ impl PaperCatalog {
         self.provider.as_ref().map(|provider| provider.name())
     }
 
-    pub async fn health_check(&self) -> Result<(), PaperProviderError> {
-        if let Some(provider) = &self.provider {
-            provider.health_check().await
-        } else {
-            Err(PaperProviderError::NotConfigured)
-        }
+    fn provider(&self) -> Result<&Arc<DynPaperProvider>, PaperProviderError> {
+        self.provider
+            .as_ref()
+            .ok_or(PaperProviderError::NotConfigured)
     }
 
+    pub async fn health_check(&self) -> Result<(), PaperProviderError> {
+        self.provider()?.health_check().await
+    }
+
+    /// Served from the cache once it has ever been filled, even when empty;
+    /// the provider is only asked directly before the first snapshot lands.
     pub async fn search(&self, query: &str) -> Result<Vec<PaperReference>, PaperProviderError> {
         let trimmed = query.trim();
 
@@ -252,25 +256,15 @@ impl PaperCatalog {
             return Ok(cached);
         }
 
-        if let Some(provider) = &self.provider {
-            provider.search(trimmed, DEFAULT_LIMIT).await
-        } else {
-            Err(PaperProviderError::NotConfigured)
-        }
+        self.provider()?.search(trimmed, DEFAULT_LIMIT).await
     }
 
     pub async fn refresh(&self) -> Result<(), PaperProviderError> {
-        if let Some(provider) = &self.provider {
-            match self.cache.refresh_once(provider.clone()).await {
-                Ok(_) => Ok(()),
-                Err(err) => {
-                    log::warn!("paper cache refresh failed: {}", err);
-                    Err(err)
-                }
-            }
-        } else {
-            Err(PaperProviderError::NotConfigured)
-        }
+        let provider = self.provider()?.clone();
+        self.cache
+            .refresh_once(provider)
+            .await
+            .inspect_err(|err| log::warn!("paper cache refresh failed: {}", err))
     }
 }
 
@@ -382,10 +376,4 @@ fn extract_references(value: &Value) -> Vec<PaperReference> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-#[cfg(not(feature = "zotero"))]
-#[allow(dead_code)]
-fn extract_references(_: &serde_json::Value) -> Vec<PaperReference> {
-    vec![]
 }

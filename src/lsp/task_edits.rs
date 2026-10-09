@@ -7,10 +7,7 @@ use tower_lsp::lsp_types::{Position, Range, TextEdit};
 
 use crate::task::TaskTransition;
 
-pub use crate::task_edits::{
-    apply_edits, collect_task_snapshots, detect_task_transitions, rewrite_task_token,
-    walk_task_lines,
-};
+pub use crate::task_edits::{collect_task_snapshots, detect_task_transitions};
 
 fn to_lsp_edit(edit: crate::task_edits::TextEdit) -> TextEdit {
     let line = edit.row as u32;

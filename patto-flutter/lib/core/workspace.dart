@@ -132,9 +132,6 @@ class ActiveWorkspace {
       await dir.delete(recursive: true);
     }
   }
-
-  /// Absolute path for a note path relative to the root.
-  String absolute(String relPath) => '$root/$relPath';
 }
 
 /// Where workspaces live on the device.
