@@ -1,4 +1,4 @@
-" Port of lua/patto_preview_toggle.lua
+" Vim port of lua/patto_preview_toggle.lua.
 "
 " Toggle patto-preview-tui in a zoomed tmux pane with viewport sync.
 "
@@ -10,10 +10,6 @@
 "   cmd = '''vim --servername "$VIM_SERVERNAME" --remote "{file}" && vim --servername "$VIM_SERVERNAME" --remote-expr "patto_preview_toggle#schedule_restore({top_line}, {line})"'''
 "   action = "quit"
 
-" ---------------------------------------------------------------------------
-" patto_preview_toggle#toggle()
-" Open patto-preview-tui for the current buffer in a zoomed tmux pane.
-" ---------------------------------------------------------------------------
 function! patto_preview_toggle#toggle() abort
     if empty($TMUX)
         echohl WarningMsg
@@ -41,22 +37,16 @@ function! patto_preview_toggle#toggle() abort
     endfor
     let l:tui_cmd = join(l:cmd_parts, ' ')
 
-    " Pass $VIM_SERVERNAME so the TUI's editor command can reach this Vim
-    " instance via --remote / --remote-expr.
+    " $VIM_SERVERNAME lets the TUI's editor command reach this Vim instance
+    " via --remote / --remote-expr.
     call system(['tmux', 'split-window', '-Z',
                 \ '-e', 'VIM_SERVERNAME=' . v:servername,
                 \ l:tui_cmd])
 endfunction
 
-" ---------------------------------------------------------------------------
-" patto_preview_toggle#schedule_restore(topline, lnum)
-" Called via --remote-expr from the TUI's editor command.
-" Restores the viewport after the next VimResized event (fired when tmux
-" un-zooms the pane and the terminal is resized).
-" ---------------------------------------------------------------------------
+" Called via --remote-expr from the TUI's editor command. The tmux unzoom
+" resizes the terminal, so the restore runs on the next VimResized.
 function! patto_preview_toggle#schedule_restore(topline, lnum) abort
-    " Store pending restore info in script-local variables; the autocmd
-    " fires once and then removes itself.
     let s:_restore_topline = a:topline
     let s:_restore_lnum    = a:lnum
 
@@ -65,20 +55,17 @@ function! patto_preview_toggle#schedule_restore(topline, lnum) abort
         au VimResized * call s:do_restore() | autocmd! patto_preview_toggle_restore
     augroup END
 
-    " --remote-expr requires a non-empty string return value
     return ''
 endfunction
 
-" ---------------------------------------------------------------------------
-" Internal: apply winrestview while keeping scrolloff from shifting the view.
-" ---------------------------------------------------------------------------
 function! s:do_restore() abort
     let l:topline = get(s:, '_restore_topline', 1)
     let l:lnum    = get(s:, '_restore_lnum',    1)
     let l:so      = &scrolloff
     let l:siso    = &sidescrolloff
 
-    " Clamp lnum so it is never above topline (scrolloff would shift view)
+    " scrolloff would move topline while the cursor is placed, so lnum is
+    " clamped below it and scrolloff is turned off around winrestview.
     let l:safe_lnum = max([l:lnum, l:topline + l:so])
     let l:safe_lnum = min([l:safe_lnum, line('$')])
 
