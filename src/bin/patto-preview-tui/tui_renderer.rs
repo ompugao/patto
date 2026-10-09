@@ -64,8 +64,6 @@ pub struct RenderedDoc {
     pub anchors: HashMap<String, usize>,
 }
 
-impl RenderedDoc {}
-
 /// Render an AST root node into a flat list of DocElements.
 pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
     let mut builder = DocBuilder::new(syntax_theme);
@@ -73,16 +71,13 @@ pub fn render_ast(ast: &AstNode, syntax_theme: Option<&str>) -> RenderedDoc {
     builder.finish()
 }
 
-/// Result of inline rendering — may contain image blocks that need to be
-/// emitted between text line fragments.
+/// What an inline node contributed: either spans on the current line, or an
+/// image that has to become its own element.
 enum InlineResult {
-    /// Pure inline content (appended to current spans).
     Inline,
-    /// An image block that must be emitted as a separate DocElement.
     ImageBlock { src: String, alt: Option<String> },
 }
 
-/// Returns true if `spans` contains any non-whitespace text.
 fn spans_have_content(spans: &[Span<'_>]) -> bool {
     spans.iter().any(|s| !s.content.trim().is_empty())
 }
@@ -187,18 +182,10 @@ impl<'a> DocBuilder<'a> {
                     );
                 }
             }
-            AstNodeKind::HorizontalLine => {
-                self.push_text(
-                    vec![Span::styled(
-                        "─".repeat(40),
-                        Style::default().fg(Color::DarkGray),
-                    )],
-                    ast.location().row,
-                );
-            }
             AstNodeKind::Table { caption } => self.table(ast, caption.as_deref(), indent),
-            // Inline kinds are rendered by `render_inline` from their line, and
-            // table rows and columns by `table`.
+            // Inline kinds (including horizontal lines) are rendered by
+            // `render_inline` from their line, and table rows and columns by
+            // `table`.
             _ => {}
         }
     }
@@ -240,14 +227,12 @@ impl<'a> DocBuilder<'a> {
         // Images that follow each other with no text between them share a row.
         let mut image_row: Vec<(String, Option<String>)> = Vec::new();
         for content in ast.contents().iter() {
-            let elem_idx = self.elements.len();
-            match render_inline(
-                content,
-                &mut spans,
-                base_style,
-                &mut self.focusables,
-                elem_idx,
-            ) {
+            let mut target = InlineTarget {
+                spans: &mut spans,
+                focusables: &mut self.focusables,
+                elem_idx: self.elements.len(),
+            };
+            match render_inline(content, &mut target, base_style) {
                 InlineResult::ImageBlock { src, alt } => {
                     if spans_have_content(&spans) {
                         let row = ast.location().row;
@@ -396,13 +381,12 @@ impl<'a> DocBuilder<'a> {
                 spans.push(Span::styled(" │ ", separator));
             }
             for content in column.contents().iter() {
-                render_inline(
-                    content,
-                    &mut spans,
-                    Style::default(),
-                    &mut self.focusables,
+                let mut target = InlineTarget {
+                    spans: &mut spans,
+                    focusables: &mut self.focusables,
                     elem_idx,
-                );
+                };
+                render_inline(content, &mut target, Style::default());
             }
         }
         spans.push(Span::styled(" │", separator));
@@ -435,136 +419,56 @@ fn is_blank(ast: &AstNode) -> bool {
             .all(|c| matches!(c.kind(), AstNodeKind::Text) && c.extract_str().trim().is_empty())
 }
 
-/// Count total character width of accumulated spans.
-fn spans_char_width(spans: &[Span<'_>]) -> usize {
-    spans.iter().map(|s| s.content.chars().count()).sum()
+/// The line being built by inline rendering: its spans, plus the focusables
+/// registered against the element it will become.
+struct InlineTarget<'a> {
+    spans: &'a mut Vec<Span<'static>>,
+    focusables: &'a mut Vec<FocusableItem>,
+    elem_idx: usize,
 }
 
-fn render_inline(
-    ast: &AstNode,
-    spans: &mut Vec<Span<'static>>,
-    base_style: Style,
-    focusables: &mut Vec<FocusableItem>,
-    current_elem_idx: usize,
-) -> InlineResult {
+impl InlineTarget<'_> {
+    fn push(&mut self, text: String, style: Style) {
+        self.spans.push(Span::styled(text, style));
+    }
+
+    /// Push `text` and register it as focusable over the characters it covers.
+    fn push_focusable(&mut self, text: String, style: Style, action: LinkAction) {
+        let char_start = self
+            .spans
+            .iter()
+            .map(|s| s.content.chars().count())
+            .sum::<usize>();
+        let char_end = char_start + text.chars().count();
+        self.spans.push(Span::styled(text, style));
+        self.focusables.push(FocusableItem {
+            elem_idx: self.elem_idx,
+            char_start,
+            char_end,
+            action,
+        });
+    }
+}
+
+fn render_inline(ast: &AstNode, target: &mut InlineTarget, base_style: Style) -> InlineResult {
     match ast.kind() {
-        AstNodeKind::Text => {
-            spans.push(Span::styled(ast.extract_str().to_string(), base_style));
-        }
+        AstNodeKind::Text => target.push(ast.extract_str().to_string(), base_style),
         AstNodeKind::WikiLink { link, anchor } => {
-            let display = if let Some(anchor) = anchor {
-                if link.is_empty() {
-                    format!("#{}", anchor)
-                } else {
-                    format!("{}#{}", link, anchor)
-                }
-            } else {
-                link.clone()
-            };
-            let text = format!("[{}]", display);
-            let char_start = spans_char_width(spans);
-            let char_end = char_start + text.chars().count();
-            spans.push(Span::styled(
-                text,
-                base_style
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::UNDERLINED),
-            ));
-            // Self-link: empty link name with anchor -> jump within current doc
-            let action = if link.is_empty() {
-                if let Some(anc) = anchor {
-                    LinkAction::JumpToAnchor {
-                        anchor: anc.clone(),
-                    }
-                } else {
-                    // Edge case: empty link with no anchor (shouldn't happen normally)
-                    LinkAction::OpenNote {
-                        name: link.clone(),
-                        anchor: anchor.clone(),
-                    }
-                }
-            } else {
-                LinkAction::OpenNote {
-                    name: link.clone(),
-                    anchor: anchor.clone(),
-                }
-            };
-            focusables.push(FocusableItem {
-                elem_idx: current_elem_idx,
-                char_start,
-                char_end,
-                action,
-            });
+            inline_wikilink(target, base_style, link, anchor.as_deref())
         }
         AstNodeKind::Link { link, title } => {
-            let display = title.as_deref().unwrap_or(link.as_str());
-            let char_start = spans_char_width(spans);
-            let char_end = char_start + display.chars().count();
-            spans.push(Span::styled(
-                display.to_string(),
-                base_style
-                    .fg(Color::Blue)
-                    .add_modifier(Modifier::UNDERLINED),
-            ));
-            focusables.push(FocusableItem {
-                elem_idx: current_elem_idx,
-                char_start,
-                char_end,
-                action: LinkAction::OpenUrl(link.clone()),
-            });
-            // Shared Google Photos have no inline player; show the thumbnail
-            // below the link (the image cache resolves the share page to it).
-            if is_google_photos_url(link) {
-                return InlineResult::ImageBlock {
-                    src: link.clone(),
-                    alt: title.clone(),
-                };
-            }
+            return inline_link(target, base_style, link, title.as_deref());
         }
         AstNodeKind::Embed { link, title } => {
-            let is_pdf = link.to_lowercase().ends_with(".pdf");
-            let display = title.as_deref().unwrap_or(link.as_str());
-            let text = if is_pdf {
-                format!("[PDF: {}]", display)
-            } else {
-                format!("[embed: {}]", display)
-            };
-            let char_start = spans_char_width(spans);
-            let char_end = char_start + text.chars().count();
-            let style = if is_pdf {
-                base_style
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::UNDERLINED)
-            } else {
-                base_style
-                    .fg(Color::Blue)
-                    .add_modifier(Modifier::UNDERLINED)
-            };
-            spans.push(Span::styled(text, style));
-            focusables.push(FocusableItem {
-                elem_idx: current_elem_idx,
-                char_start,
-                char_end,
-                action: LinkAction::OpenUrl(link.clone()),
-            });
+            inline_embed(target, base_style, link, title.as_deref())
         }
-        AstNodeKind::Code { inline: true, .. } => {
-            let contents = ast.contents();
-            for content in contents.iter() {
-                spans.push(Span::styled(
-                    content.extract_str().to_string(),
-                    base_style.fg(Color::Yellow).bg(Color::DarkGray),
-                ));
-            }
-        }
+        AstNodeKind::Code { inline: true, .. } => inline_contents(
+            ast,
+            target,
+            base_style.fg(Color::Yellow).bg(Color::DarkGray),
+        ),
         AstNodeKind::Math { inline: true } => {
-            let contents = ast.contents();
-            for content in contents.iter() {
-                spans.push(Span::styled(
-                    content.extract_str().to_string(),
-                    base_style.fg(Color::Magenta),
-                ));
-            }
+            inline_contents(ast, target, base_style.fg(Color::Magenta))
         }
         AstNodeKind::Decoration {
             fontsize,
@@ -572,58 +476,127 @@ fn render_inline(
             underline,
             deleted,
         } => {
-            let mut style = base_style;
-            if *fontsize > 0 {
-                style = style.add_modifier(Modifier::BOLD);
-            }
-            if *italic {
-                style = style.add_modifier(Modifier::ITALIC);
-            }
-            if *underline {
-                style = style.add_modifier(Modifier::UNDERLINED);
-            }
-            if *deleted {
-                style = style.add_modifier(Modifier::CROSSED_OUT);
-            }
-            let contents = ast.contents();
-            for content in contents.iter() {
-                let result = render_inline(content, spans, style, focusables, current_elem_idx);
-                if matches!(result, InlineResult::ImageBlock { .. }) {
-                    return result;
-                }
-            }
+            let style = decorated_style(base_style, *fontsize > 0, *italic, *underline, *deleted);
+            return inline_decoration(ast, target, style);
         }
         AstNodeKind::Image { src, alt } => {
-            let mut src_resolved = src.clone();
-            if let Some(gyazo_src) = get_gyazo_img_src(src) {
-                src_resolved = gyazo_src;
-            }
             return InlineResult::ImageBlock {
-                src: src_resolved,
+                src: get_gyazo_img_src(src).unwrap_or_else(|| src.clone()),
                 alt: alt.clone(),
             };
         }
-        AstNodeKind::Quote => {
-            let children = ast.children();
-            for child in children.iter() {
-                render_inline(
-                    child,
-                    spans,
-                    base_style.fg(Color::DarkGray),
-                    focusables,
-                    current_elem_idx,
-                );
-            }
-        }
+        AstNodeKind::Quote => inline_quote(ast, target, base_style),
         _ => {
-            // Fallback: raw text
             let text = ast.extract_str();
             if !text.is_empty() {
-                spans.push(Span::styled(text.to_string(), base_style));
+                target.push(text.to_string(), base_style);
             }
         }
     }
     InlineResult::Inline
+}
+
+fn inline_wikilink(target: &mut InlineTarget, base_style: Style, link: &str, anchor: Option<&str>) {
+    let display = match anchor {
+        Some(anchor) if link.is_empty() => format!("#{}", anchor),
+        Some(anchor) => format!("{}#{}", link, anchor),
+        None => link.to_string(),
+    };
+    let action = match anchor {
+        Some(anchor) if link.is_empty() => LinkAction::JumpToAnchor {
+            anchor: anchor.to_string(),
+        },
+        _ => LinkAction::OpenNote {
+            name: link.to_string(),
+            anchor: anchor.map(str::to_string),
+        },
+    };
+    target.push_focusable(
+        format!("[{}]", display),
+        base_style
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::UNDERLINED),
+        action,
+    );
+}
+
+fn inline_link(
+    target: &mut InlineTarget,
+    base_style: Style,
+    link: &str,
+    title: Option<&str>,
+) -> InlineResult {
+    target.push_focusable(
+        title.unwrap_or(link).to_string(),
+        base_style
+            .fg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED),
+        LinkAction::OpenUrl(link.to_string()),
+    );
+    // Shared Google Photos have no inline player; show the thumbnail
+    // below the link (the image cache resolves the share page to it).
+    if is_google_photos_url(link) {
+        return InlineResult::ImageBlock {
+            src: link.to_string(),
+            alt: title.map(str::to_string),
+        };
+    }
+    InlineResult::Inline
+}
+
+fn inline_embed(target: &mut InlineTarget, base_style: Style, link: &str, title: Option<&str>) {
+    let display = title.unwrap_or(link);
+    let (text, color) = if link.to_lowercase().ends_with(".pdf") {
+        (format!("[PDF: {}]", display), Color::Cyan)
+    } else {
+        (format!("[embed: {}]", display), Color::Blue)
+    };
+    target.push_focusable(
+        text,
+        base_style.fg(color).add_modifier(Modifier::UNDERLINED),
+        LinkAction::OpenUrl(link.to_string()),
+    );
+}
+
+/// The node's contents as plain text in one style.
+fn inline_contents(ast: &AstNode, target: &mut InlineTarget, style: Style) {
+    for content in ast.contents().iter() {
+        target.push(content.extract_str().to_string(), style);
+    }
+}
+
+fn decorated_style(base: Style, bold: bool, italic: bool, underline: bool, deleted: bool) -> Style {
+    let mut style = base;
+    if bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if italic {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if underline {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
+    if deleted {
+        style = style.add_modifier(Modifier::CROSSED_OUT);
+    }
+    style
+}
+
+/// An image inside a decoration ends the decoration's line, like any other
+/// image block.
+fn inline_decoration(ast: &AstNode, target: &mut InlineTarget, style: Style) -> InlineResult {
+    for content in ast.contents().iter() {
+        if let block @ InlineResult::ImageBlock { .. } = render_inline(content, target, style) {
+            return block;
+        }
+    }
+    InlineResult::Inline
+}
+
+fn inline_quote(ast: &AstNode, target: &mut InlineTarget, base_style: Style) {
+    for child in ast.children().iter() {
+        render_inline(child, target, base_style.fg(Color::DarkGray));
+    }
 }
 
 #[cfg(test)]
@@ -813,8 +786,7 @@ mod tests {
     }
 
     /// A horizontal line is inline content of a line, so `render_inline`
-    /// handles it — through its raw-text fallback. `render_node`'s
-    /// `HorizontalLine` arm, which draws a box-drawing rule, is never reached.
+    /// handles it through its raw-text fallback.
     #[test]
     fn horizontal_line_is_shown_as_its_source_text() {
         let doc = render("------\n");
