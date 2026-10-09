@@ -6,7 +6,7 @@
 //! `total_height` — which replaces `DocElement::height` / `RenderedDoc::total_height`
 //! so that the data model stays free of rendering parameters.
 
-use patto::tui_renderer::DocElement;
+use crate::tui_renderer::DocElement;
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -100,7 +100,7 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 ///
 /// - Pass a `WrapConfig` to get soft-wrap–aware height for `TextLine` elements.
 /// - Pass `None` (or a zero-width config) to get the unwarpped height (always 1
-///   for `TextLine` / `Spacer`).
+///   for `TextLine`).
 /// - `img_h` is the configured default height in terminal rows (fallback).
 /// - `elem_heights` maps cache key → actual row height for each loaded element;
 ///   both images (stored at `height_rows`) and math (pixel-computed) live here.
@@ -118,7 +118,7 @@ pub fn elem_height(
         }
     }
     match elem {
-        DocElement::TextLine(_, _) | DocElement::Spacer => 1,
+        DocElement::TextLine(_, _) => 1,
         DocElement::Image { src, .. } => elem_heights
             .and_then(|m| m.get(src.as_str()).copied())
             .unwrap_or(img_h) as usize,
