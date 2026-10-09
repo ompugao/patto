@@ -52,10 +52,7 @@ void main() {
   test('the merged text follows the choices and undone changes', () {
     final detail = _detail(regions);
     var draft = freshDraft(detail).copyWith(
-      choices: {
-        1: const Choice(Pick.suggested),
-        3: const Choice(Pick.both),
-      },
+      choices: {1: const Choice(Pick.suggested), 3: const Choice(Pick.both)},
     );
     expect(
       mergedContent(detail, draft),
@@ -76,6 +73,36 @@ void main() {
     );
   });
 
+  group('nextConflictCursor', () {
+    const indices = [1, 3, 5];
+
+    test('the first jump lands on the first unresolved conflict', () {
+      expect(nextConflictCursor(indices, const {}, -1, 1), 0);
+      expect(
+        nextConflictCursor(indices, {1: const Choice(Pick.ours)}, -1, 1),
+        1,
+      );
+    });
+
+    test('skips conflicts that already have a choice', () {
+      expect(
+        nextConflictCursor(indices, {3: const Choice(Pick.ours)}, 0, 1),
+        2,
+      );
+    });
+
+    test('wraps around in both directions', () {
+      expect(nextConflictCursor(indices, const {}, 2, 1), 0);
+      expect(nextConflictCursor(indices, const {}, 0, -1), 2);
+    });
+
+    test('steps to the neighbour once every conflict has a choice', () {
+      final all = {for (final i in indices) i: const Choice(Pick.ours)};
+      expect(nextConflictCursor(indices, all, 0, 1), 1);
+      expect(nextConflictCursor(indices, all, 0, -1), 2);
+    });
+  });
+
   test('a note deleted on one side is kept or deleted as a whole', () {
     final detail = _detail(
       const [],
@@ -85,46 +112,51 @@ void main() {
     );
     expect(conflictIndices(detail), [-1]);
 
-    final keep = freshDraft(detail).copyWith(
-      choices: {-1: const Choice(Pick.ours)},
-    );
+    final keep = freshDraft(detail)
+        .copyWith(choices: {-1: const Choice(Pick.ours)});
     expect(mergedContent(detail, keep), 'mine\n');
 
-    final delete = freshDraft(detail).copyWith(
-      choices: {-1: const Choice(Pick.theirs)},
-    );
+    final delete = freshDraft(detail)
+        .copyWith(choices: {-1: const Choice(Pick.theirs)});
     expect(mergedContent(detail, delete), isNull);
   });
 
-  test('a draft survives json and only matches the versions it was made for',
-      () {
-    final detail = _detail(regions);
-    final draft = freshDraft(detail).copyWith(
-      choices: {3: const Choice(Pick.custom, ['chai'])},
-      undone: {2},
-      done: true,
-    );
+  test(
+    'a draft survives json and only matches the versions it was made for',
+    () {
+      final detail = _detail(regions);
+      final draft = freshDraft(detail).copyWith(
+        choices: {
+          3: const Choice(Pick.custom, ['chai']),
+        },
+        undone: {2},
+        done: true,
+      );
 
-    final back = NoteDraft.fromJson(
-      (jsonDecode(jsonEncode(draft.toJson())) as Map).cast<String, Object?>(),
-    );
-    expect(back.choices[3]!.pick, Pick.custom);
-    expect(back.choices[3]!.custom, ['chai']);
-    expect(back.undone, {2});
-    expect(back.done, isTrue);
-    expect(back.matches(detail), isTrue);
-    expect(back.matches(_detail(regions, ours: 'edited\n')), isTrue,
-        reason: 'ids, not texts, identify a version');
+      final back = NoteDraft.fromJson(
+        (jsonDecode(jsonEncode(draft.toJson())) as Map).cast<String, Object?>(),
+      );
+      expect(back.choices[3]!.pick, Pick.custom);
+      expect(back.choices[3]!.custom, ['chai']);
+      expect(back.undone, {2});
+      expect(back.done, isTrue);
+      expect(back.matches(detail), isTrue);
+      expect(
+        back.matches(_detail(regions, ours: 'edited\n')),
+        isTrue,
+        reason: 'ids, not texts, identify a version',
+      );
 
-    final changed = ConflictDetail(
-      path: detail.path,
-      kind: detail.kind,
-      oursId: 'o2',
-      theirsId: detail.theirsId,
-      ours: detail.ours,
-      theirs: detail.theirs,
-      merged: detail.merged,
-    );
-    expect(back.matches(changed), isFalse);
-  });
+      final changed = ConflictDetail(
+        path: detail.path,
+        kind: detail.kind,
+        oursId: 'o2',
+        theirsId: detail.theirsId,
+        ours: detail.ours,
+        theirs: detail.theirs,
+        merged: detail.merged,
+      );
+      expect(back.matches(changed), isFalse);
+    },
+  );
 }
