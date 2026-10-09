@@ -1,24 +1,15 @@
-local default_port = 9527
+local launch = require("patto.preview_launch")
+
+local DEFAULT_PORT = 9527
 local warned = false
 
-local function get_port()
-  return vim.g.patto_preview_tui_port or default_port
-end
-
-local function is_port_open(host, port)
-  local tcp = vim.uv.new_tcp()
-  if not tcp then
-    return false
-  end
-  local connected = false
-  local done = false
-  tcp:connect(host, port, function(err)
-    connected = not err
-    done = true
+local function warn_not_running()
+  if warned then return end
+  warned = true
+  vim.schedule(function()
+    vim.notify("patto-preview-tui is not running. Start it first", vim.log.levels.INFO)
+    vim.defer_fn(function() warned = false end, 5000)
   end)
-  vim.wait(200, function() return done end, 10)
-  tcp:close()
-  return connected
 end
 
 -- No-op RPC client that satisfies Neovim's LSP client interface.
@@ -34,9 +25,7 @@ local function noop_rpc(dispatchers)
     is_closing = function() return true end,
     terminate = function() end,
     request = function(_, _, callback)
-      callback(nil, {
-        capabilities = {},
-      })
+      callback(nil, { capabilities = {} })
       return true, 1
     end,
     notify = function() return true end,
@@ -46,18 +35,9 @@ end
 ---@type vim.lsp.Config
 return {
   cmd = function(dispatchers)
-    local port = get_port()
-    if not is_port_open("127.0.0.1", port) then
-      if not warned then
-        warned = true
-        vim.schedule(function()
-          vim.notify(
-            "patto-preview-tui is not running. Start it first",
-            vim.log.levels.INFO
-          )
-          vim.defer_fn(function() warned = false end, 5000)
-        end)
-      end
+    local port = vim.g.patto_preview_tui_port or DEFAULT_PORT
+    if not launch.is_port_open("127.0.0.1", port) then
+      warn_not_running()
       return noop_rpc(dispatchers)
     end
     return vim.lsp.rpc.connect("127.0.0.1", port)(dispatchers)
@@ -69,7 +49,7 @@ return {
     allow_incremental_sync = true,
   },
   capabilities = {
-    offsetEncoding = { 'utf-8' },
+    offsetEncoding = { "utf-8" },
   },
   docs = {
     description = [[
