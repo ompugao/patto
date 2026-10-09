@@ -4,7 +4,7 @@
 
 use pest::Parser as _;
 use tower_lsp::lsp_types::{
-    CodeDescription, Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range, Url,
+    CodeDescription, Diagnostic, DiagnosticSeverity, NumberOrString, Range, Url,
 };
 
 use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
@@ -21,9 +21,10 @@ pub(super) fn diagnostics_for(text: &str) -> Vec<Diagnostic> {
         .iter()
         .map(|error| {
             let location = error.location();
-            let range = Range::new(
-                Position::new(location.row as u32, location.span.0 as u32),
-                Position::new(location.row as u32, location.span.1 as u32),
+            let range = utf16_range(
+                &location.input,
+                location.row as u32,
+                (location.span.0, location.span.1),
             );
             lsp_diagnostic(range, translator.translate(error))
         })
@@ -214,6 +215,17 @@ mod tests {
     #[test]
     fn unclosed_command_is_left_to_the_parser() {
         assert!(!codes("[@embed docs/a.pdf").contains(&"invalid-embed".to_string()));
+    }
+
+    #[test]
+    fn parse_error_range_is_in_utf16_units() {
+        let diagnostics = diagnostics_for("牛乳 {@task status=todo due=");
+        let parse_error = diagnostics
+            .iter()
+            .find(|d| d.code == Some(NumberOrString::String("invalid-property".into())))
+            .expect("the unfinished property fails to parse");
+        assert_eq!(parse_error.range.start.character, 0);
+        assert_eq!(parse_error.range.end.character, 26);
     }
 
     #[test]
