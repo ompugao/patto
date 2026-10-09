@@ -1,7 +1,7 @@
 //! A sync paused at a conflict, seen from the app.
 //!
-//! When a sync cannot merge cleanly it keeps the remote commit under
-//! [`CONFLICT_REF`] and changes nothing else (see [`crate::api::git`]). This
+//! When a sync cannot merge cleanly it keeps the remote commit under a
+//! reference of its own and changes nothing else (see [`crate::api::git`]). This
 //! module reads that state back: which notes clash, what each side did to
 //! them, and applies the choices the user made on the phone.
 //!
