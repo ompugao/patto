@@ -3,404 +3,6 @@ use pest::iterators::Pair;
 use super::property::transform_property;
 use super::{AstNode, Property, Rule, Span};
 
-fn transform_img<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let span = Into::<Span>::into(pair.as_span()) + indent;
-    let inner = pair.into_inner().next().unwrap();
-    match inner.as_rule() {
-        Rule::img_alt_path_opts => {
-            let mut inner2 = inner.into_inner();
-            let alt_img = inner2
-                .next()
-                .unwrap()
-                .into_inner()
-                .next()
-                .unwrap()
-                .into_inner()
-                .next()
-                .unwrap()
-                .as_str();
-            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            // inner2.chunks(2).map(|(k,v)| {
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                Some(alt_img),
-            ))
-        }
-        Rule::img_path_alt_opts => {
-            let mut inner2 = inner.into_inner();
-            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            let alt_img = inner2
-                .next()
-                .unwrap()
-                .into_inner()
-                .next()
-                .unwrap()
-                .into_inner()
-                .next()
-                .unwrap()
-                .as_str();
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                Some(alt_img),
-            ))
-        }
-        Rule::img_unquoted_alt_path_opts => {
-            let mut inner2 = inner.into_inner();
-            let alt_img = inner2.next().unwrap().as_str(); // url_title
-            let img_path = inner2.next().unwrap().as_str(); // local_file
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                Some(alt_img),
-            ))
-        }
-        Rule::img_path_unquoted_alt_opts => {
-            let mut inner2 = inner.into_inner();
-            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            let alt_img = inner2.next().unwrap().as_str(); // url_title
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                Some(alt_img),
-            ))
-        }
-        Rule::img_unquoted_alt_url_opts => {
-            let mut inner2 = inner.into_inner();
-            let alt_img = inner2.next().unwrap().as_str(); // url_title
-            let img_path = inner2.next().unwrap().as_str(); // URL
-            Some(AstNode::image(
-                line,
-                row,
-                Some(span),
-                img_path,
-                Some(alt_img),
-            ))
-        }
-        Rule::img_path_opts => {
-            let mut inner2 = inner.into_inner();
-            let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
-            Some(AstNode::image(line, row, Some(span), img_path, None))
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
-/// assuming pair is expr_wiki_link
-fn transform_wiki_link<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let span = Into::<Span>::into(pair.as_span()) + indent;
-    let inner = pair.into_inner().next().unwrap();
-    match inner.as_rule() {
-        Rule::wiki_link_anchored => {
-            let mut inner2 = inner.into_inner();
-            let wiki_link = inner2.next().unwrap();
-            let expr_anchor = inner2.next().unwrap();
-            Some(AstNode::wikilink(
-                line,
-                row,
-                Some(span),
-                wiki_link.as_str(),
-                Some(expr_anchor.into_inner().next().unwrap().as_str()),
-            ))
-        }
-        Rule::wiki_link => Some(AstNode::wikilink(
-            line,
-            row,
-            Some(span),
-            inner.as_str(),
-            None,
-        )),
-        Rule::self_link_anchored => Some(AstNode::wikilink(
-            line,
-            row,
-            Some(span),
-            "",
-            Some(
-                inner
-                    .into_inner()
-                    .next()
-                    .unwrap()
-                    .into_inner()
-                    .next()
-                    .unwrap()
-                    .as_str(),
-            ),
-        )),
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
-/// assuming input pair is url stuff
-fn transform_url_link<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let inner = pair.into_inner().next().unwrap();
-    let span = Into::<Span>::into(inner.as_span()) + indent;
-    match inner.as_rule() {
-        Rule::expr_url_title => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            let title = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_title_url => {
-            let mut inner2 = inner.into_inner();
-            let title = inner2.next().unwrap();
-            let url = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_url_only => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            Some(AstNode::link(line, row, Some(span), url.as_str(), None))
-        }
-        Rule::expr_url_url => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            let url2 = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(url2.as_str()),
-            ))
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
-fn transform_local_file_link<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let inner = pair.into_inner().next().unwrap();
-    let span = Into::<Span>::into(inner.as_span()) + indent;
-    match inner.as_rule() {
-        Rule::expr_local_file_title => {
-            let mut inner2 = inner.into_inner();
-            let local_file = inner2.next().unwrap();
-            let title = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                local_file.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_title_local_file => {
-            let mut inner2 = inner.into_inner();
-            let title = inner2.next().unwrap();
-            let local_file = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                local_file.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_local_file_only => {
-            let mut inner2 = inner.into_inner();
-            let local_file = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                local_file.as_str(),
-                None,
-            ))
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
-fn transform_mail_link<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let inner = pair.into_inner().next().unwrap();
-    let span = Into::<Span>::into(inner.as_span()) + indent;
-    match inner.as_rule() {
-        Rule::expr_mail_title => {
-            let mut inner2 = inner.into_inner();
-            let mail = inner2.next().unwrap();
-            let title = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                mail.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_title_mail => {
-            let mut inner2 = inner.into_inner();
-            let title = inner2.next().unwrap();
-            let mail = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                mail.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::expr_mail_only => {
-            let mut inner2 = inner.into_inner();
-            let mail = inner2.next().unwrap();
-            Some(AstNode::link(line, row, Some(span), mail.as_str(), None))
-        }
-        Rule::expr_mail_mail => {
-            let mut inner2 = inner.into_inner();
-            let mail = inner2.next().unwrap();
-            let mail2 = inner2.next().unwrap();
-            Some(AstNode::link(
-                line,
-                row,
-                Some(span),
-                mail.as_str(),
-                Some(mail2.as_str()),
-            ))
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
-fn transform_embed<'a>(
-    pair: Pair<'a, Rule>,
-    line: &'a str,
-    row: usize,
-    indent: usize,
-) -> Option<AstNode> {
-    let inner = pair.into_inner().next().unwrap();
-    let span = Into::<Span>::into(inner.as_span()) + indent;
-    match inner.as_rule() {
-        Rule::embed_url_title => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            let title = inner2.next().unwrap();
-            Some(AstNode::embed(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::embed_title_url => {
-            let mut inner2 = inner.into_inner();
-            let title = inner2.next().unwrap();
-            let url = inner2.next().unwrap();
-            Some(AstNode::embed(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::embed_url_url => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            let url2 = inner2.next().unwrap();
-            Some(AstNode::embed(
-                line,
-                row,
-                Some(span),
-                url.as_str(),
-                Some(url2.as_str()),
-            ))
-        }
-        Rule::embed_url_only => {
-            let mut inner2 = inner.into_inner();
-            let url = inner2.next().unwrap();
-            Some(AstNode::embed(line, row, Some(span), url.as_str(), None))
-        }
-        Rule::embed_local_only => {
-            let mut inner2 = inner.into_inner();
-            let path = inner2.next().unwrap();
-            Some(AstNode::embed(line, row, Some(span), path.as_str(), None))
-        }
-        Rule::embed_title_local => {
-            let mut inner2 = inner.into_inner();
-            let title = inner2.next().unwrap(); // url_title
-            let path = inner2.next().unwrap(); // local_file
-            Some(AstNode::embed(
-                line,
-                row,
-                Some(span),
-                path.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        Rule::embed_local_title => {
-            let mut inner2 = inner.into_inner();
-            let path = inner2.next().unwrap();
-            let title = inner2.next().unwrap();
-            Some(AstNode::embed(
-                line,
-                row,
-                Some(span),
-                path.as_str(),
-                Some(title.as_str()),
-            ))
-        }
-        _ => {
-            unreachable!();
-        }
-    }
-}
-
 pub(super) fn transform_statement<'a>(
     pair: Pair<'a, Rule>,
     line: &'a str,
@@ -412,150 +14,228 @@ pub(super) fn transform_statement<'a>(
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
-            Rule::expr_img => {
-                if let Some(node) = transform_img(inner, line, row, indent) {
-                    nodes.push(node);
-                }
-            }
-            Rule::expr_embed => {
-                if let Some(node) = transform_embed(inner, line, row, indent) {
-                    nodes.push(node);
-                }
-            }
+            Rule::expr_img => nodes.push(transform_img(inner, line, row, indent)),
+            Rule::expr_embed => nodes.push(transform_embed(inner, line, row, indent)),
             Rule::expr_builtin_symbols => {
-                let s = Some(Into::<Span>::into(inner.as_span()) + indent);
-                let mut inner2 = inner.into_inner();
-                let symbols = inner2.by_ref().next().unwrap();
-                let mut boldsize = 0;
-                let mut italic = false;
-                let mut underline = false;
-                let mut deleted = false;
-                for symbol in symbols.into_inner() {
-                    match symbol.as_rule() {
-                        Rule::symbol_bold => {
-                            boldsize += 1;
-                        }
-                        Rule::symbol_italic => {
-                            italic = true;
-                        }
-                        Rule::symbol_underline => {
-                            underline = true;
-                        }
-                        Rule::symbol_deleted => {
-                            deleted = true;
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-
-                let node = AstNode::decoration(line, row, s, boldsize, italic, underline, deleted);
-                // WARN `statement_nestable' must be the subset of `statement'
-                let (inner_nodes, _) =
-                    transform_statement(inner2.next().unwrap(), line, row, indent);
-                // elements in nodes are moved and the nodes will become empty. therefore,
-                // mut is required.
-                node.add_contents(inner_nodes);
-                nodes.push(node);
+                nodes.push(transform_decoration(inner, line, row, indent))
             }
-            Rule::expr_wiki_link => {
-                if let Some(node) = transform_wiki_link(inner, line, row, indent) {
-                    nodes.push(node);
-                }
+            Rule::expr_wiki_link => nodes.push(transform_wiki_link(inner, line, row, indent)),
+            Rule::expr_url_link | Rule::expr_local_file_link | Rule::expr_mail_link => {
+                nodes.push(transform_link(inner, line, row, indent))
             }
-            Rule::expr_url_link => {
-                if let Some(node) = transform_url_link(inner, line, row, indent) {
-                    nodes.push(node);
-                }
+            Rule::expr_code_inline => nodes.push(transform_inline_code(inner, line, row, indent)),
+            Rule::expr_math_inline => nodes.push(transform_inline_math(inner, line, row, indent)),
+            Rule::expr_property | Rule::expr_anchor | Rule::expr_task => {
+                props.extend(transform_property(inner, line, row, indent))
             }
-            Rule::expr_local_file_link => {
-                if let Some(node) = transform_local_file_link(inner, line, row, indent) {
-                    nodes.push(node);
-                }
-            }
-            Rule::expr_mail_link => {
-                if let Some(node) = transform_mail_link(inner, line, row, indent) {
-                    nodes.push(node);
-                }
-            }
-            Rule::expr_code_inline => {
-                //assert!(matches!(line.value.kind, AstNodeKind::Line { .. }));
-                let code = AstNode::code(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(inner.as_span()) + indent),
-                    "",
-                    true,
-                );
-                let code_inline = inner.into_inner().next().unwrap();
-                code.add_content(AstNode::text(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(code_inline.as_span()) + indent),
-                ));
-                nodes.push(code);
-            }
-            Rule::expr_math_inline => {
-                let math = AstNode::math(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(inner.as_span()) + indent),
-                    true,
-                );
-                let math_inline = inner.into_inner().next().unwrap();
-                math.add_content(AstNode::text(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(math_inline.as_span()) + indent),
-                ));
-                nodes.push(math);
-            }
-            Rule::expr_property => {
-                if let Some(prop) = transform_property(inner, line, row, indent) {
-                    props.push(prop);
-                }
-            }
-            Rule::expr_anchor => {
-                //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
-                if let Some(prop) = transform_property(inner, line, row, indent) {
-                    props.push(prop);
-                }
-            }
-            Rule::expr_task => {
-                if let Some(prop) = transform_property(inner, line, row, indent) {
-                    props.push(prop);
-                }
-            }
+            Rule::trailing_properties => props.extend(
+                inner
+                    .into_inner()
+                    .filter_map(|prop| transform_property(prop, line, row, indent)),
+            ),
             Rule::raw_sentence => {
-                nodes.push(AstNode::text(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(inner.as_span()) + indent),
-                ));
+                nodes.push(AstNode::text(line, row, Some(span_of(&inner, indent))))
             }
-            Rule::expr_hr => {
-                nodes.push(AstNode::horizontal_line(
-                    line,
-                    row,
-                    Some(Into::<Span>::into(inner.as_span()) + indent),
-                ));
-            }
-            Rule::trailing_properties => {
-                props.extend(
-                    inner
-                        .into_inner()
-                        .filter_map(|e| transform_property(e, line, row, indent)),
-                );
-            }
-            Rule::EOI => {
-                continue;
-            }
-            _ => {
-                log::warn!("{:?} not implemented", inner.as_rule());
-                unreachable!()
-            }
+            Rule::expr_hr => nodes.push(AstNode::horizontal_line(
+                line,
+                row,
+                Some(span_of(&inner, indent)),
+            )),
+            Rule::EOI => {}
+            other => unreachable!("{:?} is not part of a statement", other),
         }
     }
     (nodes, props)
+}
+
+fn span_of(pair: &Pair<Rule>, indent: usize) -> Span {
+    Span::from(pair.as_span()) + indent
+}
+
+fn transform_decoration<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> AstNode {
+    let span = span_of(&pair, indent);
+    let mut inner = pair.into_inner();
+    let symbols = inner.next().unwrap();
+    let mut fontsize = 0;
+    let mut italic = false;
+    let mut underline = false;
+    let mut deleted = false;
+    for symbol in symbols.into_inner() {
+        match symbol.as_rule() {
+            Rule::symbol_bold => fontsize += 1,
+            Rule::symbol_italic => italic = true,
+            Rule::symbol_underline => underline = true,
+            Rule::symbol_deleted => deleted = true,
+            other => unreachable!("{:?} is not a decoration symbol", other),
+        }
+    }
+    let node = AstNode::decoration(line, row, Some(span), fontsize, italic, underline, deleted);
+    // The body is a `statement_nestable`, which the grammar keeps a subset of
+    // `statement`, so the same transform serves both.
+    let (body, _) = transform_statement(inner.next().unwrap(), line, row, indent);
+    node.add_contents(body);
+    node
+}
+
+fn transform_inline_code<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> AstNode {
+    let code = AstNode::code(line, row, Some(span_of(&pair, indent)), "", true);
+    code.add_content(inner_text(pair, line, row, indent));
+    code
+}
+
+fn transform_inline_math<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> AstNode {
+    let math = AstNode::math(line, row, Some(span_of(&pair, indent)), true);
+    math.add_content(inner_text(pair, line, row, indent));
+    math
+}
+
+fn inner_text<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> AstNode {
+    let inner = pair.into_inner().next().unwrap();
+    AstNode::text(line, row, Some(span_of(&inner, indent)))
+}
+
+fn transform_img<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> AstNode {
+    let span = span_of(&pair, indent);
+    let inner = pair.into_inner().next().unwrap();
+    let rule = inner.as_rule();
+    let mut parts = inner.into_inner();
+    let (path, alt) = match rule {
+        Rule::img_alt_path_opts => {
+            let alt = quoted_alt(parts.next().unwrap());
+            (img_path(parts.next().unwrap()), Some(alt))
+        }
+        Rule::img_path_alt_opts => {
+            let path = img_path(parts.next().unwrap());
+            (path, Some(quoted_alt(parts.next().unwrap())))
+        }
+        Rule::img_unquoted_alt_path_opts | Rule::img_unquoted_alt_url_opts => {
+            let alt = parts.next().unwrap().as_str();
+            (parts.next().unwrap().as_str(), Some(alt))
+        }
+        Rule::img_path_unquoted_alt_opts => {
+            let path = img_path(parts.next().unwrap());
+            (path, Some(parts.next().unwrap().as_str()))
+        }
+        Rule::img_path_opts => (img_path(parts.next().unwrap()), None),
+        other => unreachable!("{:?} is not an image form", other),
+    };
+    AstNode::image(line, row, Some(span), path, alt)
+}
+
+/// `alt_img` wraps `escaped_string`, which wraps the quote-free `inner_string`.
+fn quoted_alt<'a>(alt_img: Pair<'a, Rule>) -> &'a str {
+    alt_img
+        .into_inner()
+        .next()
+        .unwrap()
+        .into_inner()
+        .next()
+        .unwrap()
+        .as_str()
+}
+
+/// `img_path` wraps either a `URL` or a `local_file`.
+fn img_path<'a>(img_path: Pair<'a, Rule>) -> &'a str {
+    img_path.into_inner().next().unwrap().as_str()
+}
+
+fn transform_wiki_link<'a>(
+    pair: Pair<'a, Rule>,
+    line: &'a str,
+    row: usize,
+    indent: usize,
+) -> AstNode {
+    let span = span_of(&pair, indent);
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::wiki_link_anchored => {
+            let mut parts = inner.into_inner();
+            let link = parts.next().unwrap().as_str();
+            let anchor = anchor_name(parts.next().unwrap());
+            AstNode::wikilink(line, row, Some(span), link, Some(anchor))
+        }
+        Rule::wiki_link => AstNode::wikilink(line, row, Some(span), inner.as_str(), None),
+        Rule::self_link_anchored => {
+            let anchor = anchor_name(inner.into_inner().next().unwrap());
+            AstNode::wikilink(line, row, Some(span), "", Some(anchor))
+        }
+        other => unreachable!("{:?} is not a wiki link form", other),
+    }
+}
+
+/// `expr_anchor` is `#` followed by the bare `anchor` token.
+fn anchor_name<'a>(expr_anchor: Pair<'a, Rule>) -> &'a str {
+    expr_anchor.into_inner().next().unwrap().as_str()
+}
+
+/// Which of the one or two bracket parts is the link target.
+enum PartOrder {
+    TargetOnly,
+    TargetThenTitle,
+    TitleThenTarget,
+}
+
+fn link_parts<'a>(inner: Pair<'a, Rule>, order: PartOrder) -> (&'a str, Option<&'a str>) {
+    let mut parts = inner.into_inner();
+    let first = parts.next().unwrap().as_str();
+    match order {
+        PartOrder::TargetOnly => (first, None),
+        PartOrder::TargetThenTitle => (first, Some(parts.next().unwrap().as_str())),
+        PartOrder::TitleThenTarget => (parts.next().unwrap().as_str(), Some(first)),
+    }
+}
+
+/// URL, local file and mail links share one node kind; only the grammar rules
+/// that name their part order differ.
+fn transform_link<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> AstNode {
+    let inner = pair.into_inner().next().unwrap();
+    let span = span_of(&inner, indent);
+    let order = match inner.as_rule() {
+        Rule::expr_url_title
+        | Rule::expr_url_url
+        | Rule::expr_local_file_title
+        | Rule::expr_mail_title
+        | Rule::expr_mail_mail => PartOrder::TargetThenTitle,
+        Rule::expr_title_url | Rule::expr_title_local_file | Rule::expr_title_mail => {
+            PartOrder::TitleThenTarget
+        }
+        Rule::expr_url_only | Rule::expr_local_file_only | Rule::expr_mail_only => {
+            PartOrder::TargetOnly
+        }
+        other => unreachable!("{:?} is not a link form", other),
+    };
+    let (target, title) = link_parts(inner, order);
+    AstNode::link(line, row, Some(span), target, title)
+}
+
+fn transform_embed<'a>(pair: Pair<'a, Rule>, line: &'a str, row: usize, indent: usize) -> AstNode {
+    let inner = pair.into_inner().next().unwrap();
+    let span = span_of(&inner, indent);
+    let order = match inner.as_rule() {
+        Rule::embed_url_title | Rule::embed_url_url | Rule::embed_local_title => {
+            PartOrder::TargetThenTitle
+        }
+        Rule::embed_title_url | Rule::embed_title_local => PartOrder::TitleThenTarget,
+        Rule::embed_url_only | Rule::embed_local_only => PartOrder::TargetOnly,
+        other => unreachable!("{:?} is not an embed form", other),
+    };
+    let (target, title) = link_parts(inner, order);
+    AstNode::embed(line, row, Some(span), target, title)
 }
 
 #[cfg(test)]
@@ -918,8 +598,7 @@ mod tests {
         ] {
             match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
-                    let node = transform_img(parsed.next().unwrap(), input, 0, 0)
-                        .ok_or("transform_img failed")?;
+                    let node = transform_img(parsed.next().unwrap(), input, 0, 0);
                     if let AstNodeKind::Image { src, alt } = node.kind() {
                         assert_eq!(src, exp_src, "src mismatch for: {input}");
                         assert_eq!(
@@ -998,7 +677,8 @@ mod tests {
     fn test_parse_wiki_link() {
         let input = "[test wiki_page]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
-            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+            {
+                let wiki_link = transform_wiki_link(parsed.next().unwrap(), input, 0, 0);
                 match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
@@ -1017,7 +697,8 @@ mod tests {
     fn test_parse_wiki_link_anchored() {
         let input = "[test wiki_page#anchored]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
-            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+            {
+                let wiki_link = transform_wiki_link(parsed.next().unwrap(), input, 0, 0);
                 match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "test wiki_page");
@@ -1039,7 +720,8 @@ mod tests {
     fn test_parse_self_link_anchored() {
         let input = "[#anchored]";
         if let Ok(mut parsed) = PattoLineParser::parse(Rule::expr_wiki_link, input) {
-            if let Some(wiki_link) = transform_wiki_link(parsed.next().unwrap(), input, 0, 0) {
+            {
+                let wiki_link = transform_wiki_link(parsed.next().unwrap(), input, 0, 0);
                 match &wiki_link.kind() {
                     AstNodeKind::WikiLink { link, anchor } => {
                         assert_eq!(link, "");
@@ -1093,8 +775,7 @@ mod tests {
         ] {
             match PattoLineParser::parse(Rule::expr_img, input) {
                 Ok(mut parsed) => {
-                    let node = transform_img(parsed.next().unwrap(), input, 0, 0)
-                        .ok_or("transform_img failed")?;
+                    let node = transform_img(parsed.next().unwrap(), input, 0, 0);
                     if let AstNodeKind::Image { src, alt } = &node.kind() {
                         assert_eq!(src, g_path);
                         assert_eq!(*alt, g_alt);
@@ -1152,7 +833,7 @@ mod tests {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_url_link, input) {
                 Ok(mut parsed) => {
-                    if let Some(link) = transform_url_link(parsed.next().unwrap(), input, 0, 0) {
+                    { let link = transform_link(parsed.next().unwrap(), input, 0, 0);
                         match &link.kind() {
                             AstNodeKind::Link { link, title } => {
                                 assert_eq!(link, g_url);
@@ -1201,9 +882,8 @@ mod tests {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_local_file_link, input) {
                 Ok(mut parsed) => {
-                    if let Some(link) =
-                        transform_local_file_link(parsed.next().unwrap(), input, 0, 0)
                     {
+                        let link = transform_link(parsed.next().unwrap(), input, 0, 0);
                         match &link.kind() {
                             AstNodeKind::Link { link, title } => {
                                 assert_eq!(link, g_local_file);
@@ -1236,7 +916,8 @@ mod tests {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_mail_link, input) {
                 Ok(mut parsed) => {
-                    if let Some(link) = transform_mail_link(parsed.next().unwrap(), input, 0, 0) {
+                    {
+                        let link = transform_link(parsed.next().unwrap(), input, 0, 0);
                         match &link.kind() {
                             AstNodeKind::Link { link, title } => {
                                 assert_eq!(link, g_mail);
