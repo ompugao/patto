@@ -173,8 +173,6 @@ impl Backend {
             .unwrap()
             .as_ref()
             .and_then(|root_uri| root_uri.to_file_path().ok())?;
-        let root_len = root_path.to_string_lossy().len();
-
         let range = cursor.range_from(bracket + 1);
         let matcher = SkimMatcherV2::default();
 
@@ -183,9 +181,8 @@ impl Backend {
             .iter()
             .filter_map(|entry| {
                 let path = entry.key().to_file_path().ok()?;
-                let relative = decode(&path.to_string_lossy()[root_len + 1..])
-                    .ok()?
-                    .into_owned();
+                let relative = path.strip_prefix(&root_path).ok()?;
+                let relative = decode(&relative.to_string_lossy()).ok()?.into_owned();
                 let name = relative
                     .strip_suffix(".pn")
                     .unwrap_or(&relative)
