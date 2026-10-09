@@ -6,19 +6,21 @@
 //!   patto-markdown-importer -d ./notes -o ./patto-notes --mode lossy
 //!   cat input.md | patto-markdown-importer > output.pn
 
+use std::error::Error;
 use std::fs;
-use std::io::{self, BufWriter, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::{Parser as ClapParser, ValueEnum};
 
-use patto::cli::{self, read_input};
+use patto::cli::{input_name, open_output, output_name, read_input};
 use patto::importer::{
-    ConversionReport, ImportMode, ImportOptions, MarkdownImporter, MarkdownInputFlavor,
+    ConversionReport, ImportMode, ImportOptions, ImportWarning, MarkdownImporter,
+    MarkdownInputFlavor,
 };
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Copy, Debug)]
 enum ModeArg {
     /// Stop at first unsupported feature
     Strict,
@@ -28,7 +30,17 @@ enum ModeArg {
     Preserve,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+impl From<ModeArg> for ImportMode {
+    fn from(mode: ModeArg) -> Self {
+        match mode {
+            ModeArg::Strict => ImportMode::Strict,
+            ModeArg::Lossy => ImportMode::Lossy,
+            ModeArg::Preserve => ImportMode::Preserve,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
 enum FlavorArg {
     /// Standard CommonMark
     Standard,
@@ -38,7 +50,17 @@ enum FlavorArg {
     Github,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+impl From<FlavorArg> for MarkdownInputFlavor {
+    fn from(flavor: FlavorArg) -> Self {
+        match flavor {
+            FlavorArg::Standard => MarkdownInputFlavor::Standard,
+            FlavorArg::Obsidian => MarkdownInputFlavor::Obsidian,
+            FlavorArg::Github => MarkdownInputFlavor::GitHub,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
 enum ReportFormat {
     /// JSON format
     Json,
@@ -99,251 +121,202 @@ struct Cli {
     verbose: bool,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+type Failure = Box<dyn Error>;
+
+fn main() -> Result<(), Failure> {
     let args = Cli::parse();
 
-    // Convert mode enum
-    let mode = match args.mode {
-        ModeArg::Strict => ImportMode::Strict,
-        ModeArg::Lossy => ImportMode::Lossy,
-        ModeArg::Preserve => ImportMode::Preserve,
-    };
-
-    // Convert flavor enum (clone to avoid partial move)
-    let flavor = args.flavor.clone().map(|f| match f {
-        FlavorArg::Standard => MarkdownInputFlavor::Standard,
-        FlavorArg::Obsidian => MarkdownInputFlavor::Obsidian,
-        FlavorArg::Github => MarkdownInputFlavor::GitHub,
-    });
-
-    // Build options
-    let mut options = ImportOptions::new(mode);
-    if let Some(f) = flavor {
-        options = options.with_flavor(f);
+    let mut options = ImportOptions::new(args.mode.into());
+    if let Some(flavor) = args.flavor {
+        options = options.with_flavor(flavor.into());
     }
-
     let importer = MarkdownImporter::new(options);
 
-    // Handle batch conversion
-    if let Some(ref dir) = args.directory {
-        return batch_convert(&importer, dir, &args);
+    match args.directory.as_deref() {
+        Some(dir) => convert_directory(&importer, dir, &args),
+        None => convert_single(&importer, &args),
     }
+}
 
-    let input_content = read_input(args.file.as_deref())?;
-    let input_name = cli::input_name(args.file.as_deref());
+fn convert_single(importer: &MarkdownImporter, args: &Cli) -> Result<(), Failure> {
+    let input = read_input(args.file.as_deref())?;
+    let input_name = input_name(args.file.as_deref());
+    let output_name = output_name(args.output.as_deref());
 
-    let output_name = args
-        .output
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "stdout".to_string());
+    let result = importer.import(&input, &input_name, &output_name)?;
+    print_warnings(&result.report.warnings, "");
 
-    // Import
-    let result = importer.import(&input_content, &input_name, &output_name)?;
-
-    // Show warnings if verbose
-    if args.verbose || !result.report.warnings.is_empty() {
-        for warning in &result.report.warnings {
-            eprintln!("⚠ {}", warning);
-        }
-    }
-
-    // Dry run - just show report
     if args.dry_run {
         eprintln!("\n{}", result.report.to_text());
         return Ok(());
     }
 
-    // Write output
-    match &args.output {
-        Some(path) => {
-            let mut writer = BufWriter::new(fs::File::create(path)?);
-            writer.write_all(result.patto_content.as_bytes())?;
-            writer.flush()?;
-
-            eprintln!(
-                "✓ Converted {} to {} (mode: {}, flavor: {})",
-                input_name,
-                path.display(),
-                result.report.mode,
-                result.report.flavor
-            );
-
-            if result.report.warnings.is_empty() {
-                eprintln!(
-                    "✓ {} lines converted successfully",
-                    result.report.statistics.converted_lines
-                );
-            } else {
-                eprintln!(
-                    "✓ {} lines converted with {} warning(s)",
-                    result.report.statistics.converted_lines,
-                    result.report.warnings.len()
-                );
-            }
-        }
-        None => {
-            let stdout = io::stdout();
-            let mut writer = BufWriter::new(stdout.lock());
-            writer.write_all(result.patto_content.as_bytes())?;
-            writer.flush()?;
-        }
+    let mut writer = open_output(args.output.as_deref())?;
+    writer.write_all(result.patto_content.as_bytes())?;
+    writer.flush()?;
+    if let Some(path) = &args.output {
+        print_single_summary(&input_name, path, &result.report);
     }
 
-    // Write report if requested
-    if let Some(report_path) = args.report {
-        write_report(&result.report, &report_path, &args.report_format)?;
-        eprintln!("✓ Report written to {}", report_path.display());
+    if let Some(report_path) = &args.report {
+        let content = match args.report_format {
+            ReportFormat::Json => result.report.to_json()?,
+            ReportFormat::Text => result.report.to_text(),
+        };
+        write_report(report_path, &content)?;
     }
-
     Ok(())
 }
 
-fn batch_convert(
-    importer: &MarkdownImporter,
-    dir: &Path,
-    args: &Cli,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn print_warnings(warnings: &[ImportWarning], indent: &str) {
+    for warning in warnings {
+        eprintln!("{indent}⚠ {warning}");
+    }
+}
+
+fn print_single_summary(input_name: &str, output: &Path, report: &ConversionReport) {
+    eprintln!(
+        "✓ Converted {} to {} (mode: {}, flavor: {})",
+        input_name,
+        output.display(),
+        report.mode,
+        report.flavor
+    );
+    let converted = report.statistics.converted_lines;
+    if report.warnings.is_empty() {
+        eprintln!("✓ {} lines converted successfully", converted);
+    } else {
+        eprintln!(
+            "✓ {} lines converted with {} warning(s)",
+            converted,
+            report.warnings.len()
+        );
+    }
+}
+
+fn write_report(path: &Path, content: &str) -> Result<(), Failure> {
+    fs::write(path, content)?;
+    eprintln!("✓ Report written to {}", path.display());
+    Ok(())
+}
+
+#[derive(Default)]
+struct BatchOutcome {
+    reports: Vec<ConversionReport>,
+    failed: usize,
+}
+
+impl BatchOutcome {
+    fn processed(&self) -> usize {
+        self.reports.len() + self.failed
+    }
+
+    fn total_warnings(&self) -> usize {
+        self.reports.iter().map(|r| r.warnings.len()).sum()
+    }
+}
+
+fn convert_directory(importer: &MarkdownImporter, dir: &Path, args: &Cli) -> Result<(), Failure> {
     let output_dir = args
         .output
-        .as_ref()
+        .as_deref()
         .ok_or("Output directory required for batch conversion")?;
-
     if !output_dir.exists() {
         fs::create_dir_all(output_dir)?;
     }
 
     let start_time = Instant::now();
-    let mut total_files = 0;
-    let mut succeeded = 0;
-    let mut failed = 0;
-    let mut total_warnings = 0;
-    let mut all_reports = Vec::new();
-
-    // Find all matching files
-    let pattern = format!("{}/{}", dir.display(), args.pattern);
-    let entries: Vec<_> = glob::glob(&pattern)
-        .map_err(|e| format!("Invalid pattern: {}", e))?
-        .filter_map(|e| e.ok())
-        .collect();
-
-    for entry in entries {
-        total_files += 1;
-
-        let input_path = entry.clone();
-        let relative = entry
-            .strip_prefix(dir)
-            .unwrap_or(&entry)
-            .with_extension("pn");
-        let output_path = output_dir.join(relative);
-
-        // Create parent directories if needed
+    let mut outcome = BatchOutcome::default();
+    for input_path in matching_files(dir, &args.pattern)? {
+        let relative = input_path.strip_prefix(dir).unwrap_or(&input_path);
+        let output_path = output_dir.join(relative.with_extension("pn"));
         if let Some(parent) = output_path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent)?;
             }
         }
 
-        if args.verbose {
-            eprintln!(
-                "Converting {} -> {}",
-                input_path.display(),
-                output_path.display()
-            );
-        }
-
-        let input_content = match fs::read_to_string(&input_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("✗ Failed to read {}: {}", input_path.display(), e);
-                failed += 1;
-                continue;
-            }
-        };
-
-        let result = match importer.import(
-            &input_content,
-            &input_path.display().to_string(),
-            &output_path.display().to_string(),
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("✗ Failed to convert {}: {}", input_path.display(), e);
-                failed += 1;
-                continue;
-            }
-        };
-
-        if !args.dry_run {
-            if let Err(e) = fs::write(&output_path, &result.patto_content) {
-                eprintln!("✗ Failed to write {}: {}", output_path.display(), e);
-                failed += 1;
-                continue;
-            }
-        }
-
-        total_warnings += result.report.warnings.len();
-        all_reports.push(result.report.clone());
-        succeeded += 1;
-
-        if args.verbose && !result.report.warnings.is_empty() {
-            for warning in &result.report.warnings {
-                eprintln!("  ⚠ {}", warning);
+        match convert_file(importer, &input_path, &output_path, args) {
+            Ok(report) => outcome.reports.push(report),
+            Err(message) => {
+                eprintln!("{message}");
+                outcome.failed += 1;
             }
         }
     }
-
     let duration = start_time.elapsed();
 
-    eprintln!("\nBatch Conversion Summary");
-    eprintln!("========================");
-    eprintln!("Files processed: {}", total_files);
-    eprintln!("Succeeded:       {}", succeeded);
-    eprintln!("Failed:          {}", failed);
-    eprintln!("Total warnings:  {}", total_warnings);
-    eprintln!("Duration:        {:?}", duration);
+    print_batch_summary(&outcome, duration, args.dry_run);
 
-    if args.dry_run {
-        eprintln!("\n(Dry run - no files were written)");
-    }
-
-    // Write batch report if requested
     if let Some(report_path) = &args.report {
-        let batch_report = create_batch_report(
-            dir,
-            output_dir,
-            &all_reports,
-            failed,
-            duration.as_millis() as u64,
-        );
-
-        let report_content = match args.report_format {
-            ReportFormat::Json => serde_json::to_string_pretty(&batch_report)?,
-            ReportFormat::Text => format_batch_report_text(&batch_report),
+        let report = BatchReport::new(dir, output_dir, &outcome, duration);
+        let content = match args.report_format {
+            ReportFormat::Json => serde_json::to_string_pretty(&report)?,
+            ReportFormat::Text => report.to_text(),
         };
-
-        fs::write(report_path, report_content)?;
-        eprintln!("✓ Report written to {}", report_path.display());
+        write_report(report_path, &content)?;
     }
 
-    if failed > 0 {
+    if outcome.failed > 0 {
         std::process::exit(1);
     }
-
     Ok(())
 }
 
-fn write_report(
-    report: &ConversionReport,
-    path: &Path,
-    format: &ReportFormat,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let content = match format {
-        ReportFormat::Json => report.to_json()?,
-        ReportFormat::Text => report.to_text(),
-    };
-    fs::write(path, content)?;
-    Ok(())
+fn matching_files(dir: &Path, pattern: &str) -> Result<Vec<PathBuf>, Failure> {
+    let pattern = format!("{}/{}", dir.display(), pattern);
+    let paths = glob::glob(&pattern).map_err(|e| format!("Invalid pattern: {}", e))?;
+    Ok(paths.filter_map(Result::ok).collect())
+}
+
+/// Convert one file of a batch. The error is the line to show the user.
+fn convert_file(
+    importer: &MarkdownImporter,
+    input_path: &Path,
+    output_path: &Path,
+    args: &Cli,
+) -> Result<ConversionReport, String> {
+    if args.verbose {
+        eprintln!(
+            "Converting {} -> {}",
+            input_path.display(),
+            output_path.display()
+        );
+    }
+
+    let input = fs::read_to_string(input_path)
+        .map_err(|e| format!("✗ Failed to read {}: {}", input_path.display(), e))?;
+    let result = importer
+        .import(
+            &input,
+            &input_path.display().to_string(),
+            &output_path.display().to_string(),
+        )
+        .map_err(|e| format!("✗ Failed to convert {}: {}", input_path.display(), e))?;
+
+    if !args.dry_run {
+        fs::write(output_path, &result.patto_content)
+            .map_err(|e| format!("✗ Failed to write {}: {}", output_path.display(), e))?;
+    }
+
+    if args.verbose {
+        print_warnings(&result.report.warnings, "  ");
+    }
+    Ok(result.report)
+}
+
+fn print_batch_summary(outcome: &BatchOutcome, duration: Duration, dry_run: bool) {
+    eprintln!("\nBatch Conversion Summary");
+    eprintln!("========================");
+    eprintln!("Files processed: {}", outcome.processed());
+    eprintln!("Succeeded:       {}", outcome.reports.len());
+    eprintln!("Failed:          {}", outcome.failed);
+    eprintln!("Total warnings:  {}", outcome.total_warnings());
+    eprintln!("Duration:        {:?}", duration);
+
+    if dry_run {
+        eprintln!("\n(Dry run - no files were written)");
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -367,71 +340,71 @@ struct FileReport {
     duration_ms: u64,
 }
 
-fn create_batch_report(
-    input_dir: &Path,
-    output_dir: &Path,
-    reports: &[ConversionReport],
-    files_failed: usize,
-    duration_ms: u64,
-) -> BatchReport {
-    let files: Vec<FileReport> = reports
-        .iter()
-        .map(|r| FileReport {
-            input: r.input_file.clone(),
-            output: r.output_file.clone(),
-            status: if r.warnings.is_empty() {
-                "success".to_string()
+impl BatchReport {
+    fn new(
+        input_dir: &Path,
+        output_dir: &Path,
+        outcome: &BatchOutcome,
+        duration: Duration,
+    ) -> Self {
+        let files = outcome
+            .reports
+            .iter()
+            .map(|report| FileReport {
+                input: report.input_file.clone(),
+                output: report.output_file.clone(),
+                status: if report.warnings.is_empty() {
+                    "success".to_string()
+                } else {
+                    "success_with_warnings".to_string()
+                },
+                warnings: report.warnings.len(),
+                duration_ms: report.duration_ms,
+            })
+            .collect();
+
+        Self {
+            input_directory: input_dir.display().to_string(),
+            output_directory: output_dir.display().to_string(),
+            files_processed: outcome.processed(),
+            files_succeeded: outcome.reports.len(),
+            files_failed: outcome.failed,
+            total_warnings: outcome.total_warnings(),
+            duration_ms: duration.as_millis() as u64,
+            files,
+        }
+    }
+
+    fn to_text(&self) -> String {
+        let mut output = String::new();
+
+        output.push_str("Batch Conversion Report\n");
+        output.push_str("=======================\n");
+        output.push_str(&format!("Input directory:  {}\n", self.input_directory));
+        output.push_str(&format!("Output directory: {}\n", self.output_directory));
+        output.push_str(&format!("Duration:         {}ms\n\n", self.duration_ms));
+
+        output.push_str("Summary\n");
+        output.push_str("-------\n");
+        output.push_str(&format!("Files processed:  {}\n", self.files_processed));
+        output.push_str(&format!("Succeeded:        {}\n", self.files_succeeded));
+        output.push_str(&format!("Failed:           {}\n", self.files_failed));
+        output.push_str(&format!("Total warnings:   {}\n\n", self.total_warnings));
+
+        output.push_str("Files\n");
+        output.push_str("-----\n");
+        for file in &self.files {
+            let status_icon = if file.status == "success" {
+                "✓"
             } else {
-                "success_with_warnings".to_string()
-            },
-            warnings: r.warnings.len(),
-            duration_ms: r.duration_ms,
-        })
-        .collect();
+                "⚠"
+            };
+            output.push_str(&format!(
+                "{} {} -> {} ({} warnings, {}ms)\n",
+                status_icon, file.input, file.output, file.warnings, file.duration_ms
+            ));
+        }
 
-    let total_warnings: usize = reports.iter().map(|r| r.warnings.len()).sum();
-
-    BatchReport {
-        input_directory: input_dir.display().to_string(),
-        output_directory: output_dir.display().to_string(),
-        files_processed: reports.len() + files_failed,
-        files_succeeded: reports.len(),
-        files_failed,
-        total_warnings,
-        duration_ms,
-        files,
+        output
     }
-}
-
-fn format_batch_report_text(report: &BatchReport) -> String {
-    let mut output = String::new();
-
-    output.push_str("Batch Conversion Report\n");
-    output.push_str("=======================\n");
-    output.push_str(&format!("Input directory:  {}\n", report.input_directory));
-    output.push_str(&format!("Output directory: {}\n", report.output_directory));
-    output.push_str(&format!("Duration:         {}ms\n\n", report.duration_ms));
-
-    output.push_str("Summary\n");
-    output.push_str("-------\n");
-    output.push_str(&format!("Files processed:  {}\n", report.files_processed));
-    output.push_str(&format!("Succeeded:        {}\n", report.files_succeeded));
-    output.push_str(&format!("Failed:           {}\n", report.files_failed));
-    output.push_str(&format!("Total warnings:   {}\n\n", report.total_warnings));
-
-    output.push_str("Files\n");
-    output.push_str("-----\n");
-    for file in &report.files {
-        let status_icon = if file.status == "success" {
-            "✓"
-        } else {
-            "⚠"
-        };
-        output.push_str(&format!(
-            "{} {} -> {} ({} warnings, {}ms)\n",
-            status_icon, file.input, file.output, file.warnings, file.duration_ms
-        ));
-    }
-
-    output
 }
