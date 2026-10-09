@@ -1,4 +1,4 @@
-use pest::iterators::Pair;
+use pest::iterators::{Pair, Pairs};
 use pest::Parser;
 
 use super::property::transform_property;
@@ -12,21 +12,18 @@ pub(super) fn parse_command_line(
     let Ok(mut pairs) = PattoLineParser::parse(Rule::expr_command_line, &line[indent..]) else {
         return (None, vec![]);
     };
-    let parsed_command_line = pairs.next().unwrap();
-    let mut pairs = parsed_command_line.into_inner();
-    let parsed_command = pairs.next().unwrap();
-    let command_node = transform_command(parsed_command, line, row, indent);
-
-    let mut properties: Vec<Property> = vec![];
-
-    if let Some(parsed_props) = pairs.next() {
-        for pair in parsed_props.into_inner() {
-            if let Some(prop) = transform_property(pair, line, row, indent) {
-                properties.push(prop);
-            }
-        }
-    };
-    (command_node, properties)
+    let mut parts = pairs.next().unwrap().into_inner();
+    let command = transform_command(parts.next().unwrap(), line, row, indent);
+    let properties = parts
+        .next()
+        .map(|trailing| {
+            trailing
+                .into_inner()
+                .filter_map(|prop| transform_property(prop, line, row, indent))
+                .collect()
+        })
+        .unwrap_or_default();
+    (command, properties)
 }
 
 fn transform_command<'a>(
@@ -35,84 +32,69 @@ fn transform_command<'a>(
     row: usize,
     indent: usize,
 ) -> Option<AstNode> {
-    let span = Into::<Span>::into(pair.as_span()) + indent;
-    match pair.as_rule() {
-        Rule::expr_command => {
-            let mut inner = pair.into_inner();
-            let builtin_commands = inner.next().unwrap(); // consume the command
-            let command = builtin_commands.into_inner().next().unwrap();
-            match command.as_rule() {
-                Rule::command_math => {
-                    return Some(AstNode::math(line, row, Some(span), false));
-                }
-                Rule::command_quote => {
-                    return Some(AstNode::quote(line, row, Some(span)));
-                }
-                Rule::command_code => {
-                    // 1st parameter
-                    let mut lang = "";
-                    if let Some(lang_part) = inner.next() {
-                        lang = lang_part.as_str();
-                    } else {
-                        log::warn!("No language specified for code block");
-                    }
-                    return Some(AstNode::code(line, row, Some(span), lang, false));
-                }
-                Rule::command_table => {
-                    // Parse parameters for table command
-                    let mut caption: Option<String> = None;
-
-                    for param in inner {
-                        if param.as_rule() == Rule::parameter {
-                            let param_str = param.as_str();
-
-                            // Check if this is a key=value parameter
-                            if let Some(eq_pos) = param_str.find('=') {
-                                let key = &param_str[..eq_pos];
-                                let value = &param_str[eq_pos + 1..];
-
-                                if key == "caption" {
-                                    // Handle quoted strings by removing quotes
-                                    if value.starts_with('"') && value.ends_with('"') {
-                                        caption = Some(value[1..value.len() - 1].to_string());
-                                    } else {
-                                        caption = Some(value.to_string());
-                                    }
-                                }
-                            } else {
-                                // Handle quoted parameter as caption (for backward compatibility)
-                                if param_str.starts_with('"') && param_str.ends_with('"') {
-                                    caption = Some(param_str[1..param_str.len() - 1].to_string());
-                                } else {
-                                    caption = Some(param_str.to_string());
-                                }
-                            }
-                        }
-                    }
-
-                    return Some(AstNode::table(line, row, Some(span), caption.as_deref()));
-                }
-                Rule::parameter => {
-                    log::warn!(
-                        "parameter must have already been consumed: {}",
-                        command.as_str()
-                    );
-                    // TODO return text?
-                    return Some(AstNode::text(line, row, Some(span)));
-                }
-                _ => {
-                    return None;
-                }
-            }
-        }
-        _ => {
-            log::warn!(
-                "Do you provide other than expr_command to fn transform_command: {:?}",
-                pair.as_rule()
-            );
+    if pair.as_rule() != Rule::expr_command {
+        log::warn!(
+            "Do you provide other than expr_command to fn transform_command: {:?}",
+            pair.as_rule()
+        );
+        return None;
+    }
+    let span = Span::from(pair.as_span()) + indent;
+    let mut inner = pair.into_inner();
+    let command = inner.next().unwrap().into_inner().next().unwrap();
+    match command.as_rule() {
+        Rule::command_math => Some(AstNode::math(line, row, Some(span), false)),
+        Rule::command_quote => Some(AstNode::quote(line, row, Some(span))),
+        Rule::command_code => Some(AstNode::code(
+            line,
+            row,
+            Some(span),
+            code_language(inner),
+            false,
+        )),
+        Rule::command_table => Some(AstNode::table(
+            line,
+            row,
+            Some(span),
+            table_caption(inner).as_deref(),
+        )),
+        other => {
+            log::warn!("Unhandled builtin command: {:?}", other);
+            None
         }
     }
-    None
+}
+
+fn code_language<'a>(mut params: Pairs<'a, Rule>) -> &'a str {
+    match params.next() {
+        Some(lang) => lang.as_str(),
+        None => {
+            log::warn!("No language specified for code block");
+            ""
+        }
+    }
+}
+
+/// A bare parameter is still read as the caption because older notes wrote
+/// `[@table "Caption"]` before the `caption=` form existed.
+fn table_caption(params: Pairs<Rule>) -> Option<String> {
+    let mut caption = None;
+    for param in params.filter(|param| param.as_rule() == Rule::parameter) {
+        let text = param.as_str();
+        match text.split_once('=') {
+            Some(("caption", value)) => caption = Some(unquote(value).to_string()),
+            Some(_) => {}
+            None => caption = Some(unquote(text).to_string()),
+        }
+    }
+    caption
+}
+
+fn unquote(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
 }
 
 #[cfg(test)]
