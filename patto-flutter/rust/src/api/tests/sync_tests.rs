@@ -600,3 +600,119 @@ fn a_note_deleted_on_the_remote_can_be_kept() {
         "bread\nmilk\neggs\ntea\n"
     );
 }
+
+#[test]
+fn a_fast_forward_reports_the_notes_it_changed_on_disk() {
+    let setup = Setup::new();
+    setup.desktop_edit("other.pn", "y\n");
+
+    let report = setup.sync().unwrap();
+    assert_eq!(report.merge, MergeOutcome::FastForward);
+    assert_eq!(report.changed_paths, vec!["other.pn".to_string()]);
+}
+
+#[test]
+fn asking_for_a_note_that_does_not_conflict_is_stale() {
+    let setup = Setup::new();
+    setup.pause_on_conflict();
+
+    let err = conflict_detail(setup.phone(), "other.pn".to_string()).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            PattoError::Git {
+                kind: GitErrorKind::Stale,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn a_resolution_set_missing_a_note_is_stale_and_merges_nothing() {
+    let setup = Setup::new();
+    setup.pause_on_conflict();
+
+    let err = setup.resolve(Vec::new()).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            PattoError::Git {
+                kind: GitErrorKind::Stale,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+    assert!(
+        git_status(setup.phone(), "attachments".to_string())
+            .unwrap()
+            .conflict_pending
+    );
+    assert_eq!(read(&setup.phone_root(), "other.pn"), "x\n");
+}
+
+#[test]
+fn a_resolution_without_content_deletes_the_note() {
+    let setup = Setup::new();
+    setup.pause_on_conflict();
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
+
+    let report = setup
+        .resolve(vec![Resolution {
+            path: detail.path,
+            ours_id: detail.ours_id,
+            theirs_id: detail.theirs_id,
+            content: None,
+        }])
+        .unwrap();
+
+    assert!(report.pushed);
+    assert!(!origin_has(&setup, "shopping.pn"));
+    assert!(!setup.phone_root().join("shopping.pn").exists());
+    assert_eq!(origin_file(&setup, "other.pn"), "y\n");
+}
+
+#[test]
+fn a_note_created_on_both_sides_is_both_added() {
+    let setup = Setup::new();
+    setup.desktop_edit("new.pn", "from the desktop\n");
+    setup.phone_edit("new.pn", "from the phone\n");
+
+    let report = setup.sync().unwrap();
+    let MergeOutcome::Conflicted { paths, .. } = &report.merge else {
+        panic!("expected a conflict, got {:?}", report.merge);
+    };
+    assert_eq!(paths, &vec!["new.pn".to_string()]);
+
+    let detail = conflict_detail(setup.phone(), "new.pn".to_string()).unwrap();
+    assert_eq!(detail.kind, ConflictKind::BothAdded);
+    assert_eq!(detail.ours.as_deref(), Some("from the phone\n"));
+    assert_eq!(detail.theirs.as_deref(), Some("from the desktop\n"));
+    assert_eq!(detail.merged.changed_lines(), (1, 1));
+}
+
+#[test]
+fn a_note_deleted_on_the_phone_can_be_dropped() {
+    let setup = Setup::new();
+    setup.desktop_edit("shopping.pn", "bread\nmilk\neggs\ntea\n");
+    std::fs::remove_file(setup.phone_root().join("shopping.pn")).unwrap();
+
+    let report = setup.sync().unwrap();
+    assert!(matches!(report.merge, MergeOutcome::Conflicted { .. }));
+    let detail = conflict_detail(setup.phone(), "shopping.pn".to_string()).unwrap();
+    assert_eq!(detail.kind, ConflictKind::DeletedByUs);
+    assert_eq!(detail.ours, None);
+
+    setup
+        .resolve(vec![Resolution {
+            path: detail.path,
+            ours_id: detail.ours_id,
+            theirs_id: detail.theirs_id,
+            content: None,
+        }])
+        .unwrap();
+    assert!(!origin_has(&setup, "shopping.pn"));
+    assert_eq!(pending_conflict(setup.phone()).unwrap(), None);
+}
