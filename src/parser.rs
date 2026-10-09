@@ -1,13 +1,12 @@
 use chrono;
+use log;
 use pest::Parser;
 use pest_derive::Parser;
 use std::cmp;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops;
-use std::sync::{Arc, Mutex};
-//use std::time::{Instant};
-use log;
+use std::sync::{Arc, Mutex, MutexGuard};
 use thiserror::Error;
 
 use crate::line_tracker::LineTracker;
@@ -56,9 +55,6 @@ where
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", self.input)?;
-        // if self.span.0 >= self.input.len() {
-        //     log::warn!("input: {}, span: {:?}", self.input, self.span);
-        // }
         write!(
             f,
             "{}",
@@ -119,24 +115,15 @@ pub struct Annotation<T> {
     pub location: Location,
 }
 
-//impl<T> fmt::Display for Annotation<'_, T>
-// where
-//     T: fmt::Display,
-//{
-//    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//        write!(f, "{}", self.location)
-//    }
-//}
-
 #[derive(Debug, Default, Serialize)]
 pub struct AstNodeInternal {
     #[serde(serialize_with = "serialize_mutex_vec")]
-    pub contents: Mutex<Vec<AstNode>>,
+    contents: Mutex<Vec<AstNode>>,
     #[serde(serialize_with = "serialize_mutex_vec")]
-    pub children: Mutex<Vec<AstNode>>,
-    pub kind: AstNodeKind,
+    children: Mutex<Vec<AstNode>>,
+    kind: AstNodeKind,
     #[serde(serialize_with = "serialize_mutex_opt_i64")]
-    pub stable_id: Mutex<Option<i64>>,
+    stable_id: Mutex<Option<i64>>,
 }
 
 fn serialize_mutex_vec<S, T: Serialize>(
@@ -157,12 +144,6 @@ where
     let opt = mutex.lock().unwrap();
     opt.serialize(serializer)
 }
-
-// impl<'a> fmt::Display for AstNodeInternal<'a> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.contents)
-//     }
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub enum Deadline {
@@ -287,12 +268,6 @@ pub enum AstNodeKind {
         title: Option<String>,
     },
 
-    //Bold {
-    //    size: usize
-    //},
-    //Italic,
-    //Underline,
-    //Deleted,
     Decoration {
         fontsize: isize,
         italic: bool,
@@ -505,20 +480,36 @@ impl AstNode {
         )
     }
 
-    pub fn value(&self) -> &AstNodeInternal {
-        &self.0.value
-    }
     pub fn kind(&self) -> &AstNodeKind {
-        &self.value().kind
+        &self.0.value.kind
     }
+
+    /// Inline contents of this node (text, links, decorations, ...).
+    pub fn contents(&self) -> MutexGuard<'_, Vec<AstNode>> {
+        self.0.value.contents.lock().unwrap()
+    }
+
+    /// Nested block children of this node (indented lines, block body, ...).
+    pub fn children(&self) -> MutexGuard<'_, Vec<AstNode>> {
+        self.0.value.children.lock().unwrap()
+    }
+
+    pub fn stable_id(&self) -> Option<i64> {
+        *self.0.value.stable_id.lock().unwrap()
+    }
+
+    pub fn set_stable_id(&self, stable_id: i64) {
+        *self.0.value.stable_id.lock().unwrap() = Some(stable_id);
+    }
+
     pub fn add_content(&self, content: AstNode) {
-        self.value().contents.lock().unwrap().push(content);
+        self.contents().push(content);
     }
     pub fn add_contents(&self, contents: Vec<AstNode>) {
-        self.value().contents.lock().unwrap().extend(contents);
+        self.contents().extend(contents);
     }
     pub fn add_child(&self, child: AstNode) {
-        self.value().children.lock().unwrap().push(child);
+        self.children().push(child);
     }
     pub fn location(&self) -> &Location {
         &self.0.location
@@ -537,7 +528,7 @@ impl Clone for AstNode {
 impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "extracted: {}", self.extract_str())?;
-        for content in self.value().contents.lock().unwrap().iter() {
+        for content in self.contents().iter() {
             write!(f, "-- {}", content)?;
         }
         if let AstNodeKind::Line { properties } = &self.kind() {
@@ -545,7 +536,7 @@ impl fmt::Display for AstNode {
                 writeln!(f, "property -- {:?}", prop)?;
             }
         }
-        for (i, child) in self.value().children.lock().unwrap().iter().enumerate() {
+        for (i, child) in self.children().iter().enumerate() {
             writeln!(f, "\t{i}child -- {:?}", child)?;
         }
         Ok(())
@@ -607,10 +598,7 @@ fn find_parent_line(parent: AstNode, depth: usize) -> Option<AstNode> {
         return Some(parent);
     }
     let last_child_line = parent
-        .value()
-        .children
-        .lock()
-        .unwrap()
+        .children()
         .iter()
         .filter_map(|e| match e.kind() {
             AstNodeKind::Line { .. } => Some(e.clone()),
@@ -627,7 +615,7 @@ fn find_parent_quote_content(quote: &AstNode, relative_indent: usize) -> AstNode
         return quote.clone();
     }
 
-    let children = quote.value().children.lock().unwrap();
+    let children = quote.children();
     if let Some(last_qc) = children
         .iter()
         .rfind(|c| matches!(c.kind(), AstNodeKind::QuoteContent { .. }))
@@ -1026,11 +1014,8 @@ pub fn parse_text_with_persistent_line_tracking(
     line_tracker: &mut LineTracker,
 ) -> ParserResult {
     // First, run regular parsing
-    //let start = Instant::now();
     let result = parse_text(text);
-    //println!("-- {} ms for parsing", start.elapsed().as_millis());
 
-    //let start = Instant::now();
     let _line_ids = match line_tracker.process_file_content(text) {
         Ok(ids) => ids,
         Err(_) => {
@@ -1038,7 +1023,6 @@ pub fn parse_text_with_persistent_line_tracking(
             return result;
         }
     };
-    //println!("-- {} ms for processing file", start.elapsed().as_millis());
 
     // Apply line IDs to Line and relevant nodes in the AST
     apply_line_ids_to_ast(&result.ast, line_tracker, text);
@@ -1053,22 +1037,16 @@ fn apply_line_ids_to_ast(node: &AstNode, line_tracker: &LineTracker, _text: &str
         if let Some(line_id) = line_tracker.get_line_id(row + 1) {
             // negative id corresponds to special cases such as empty lines
             if line_id > 0 {
-                // We need to access the internal mutable state to set stable_id
-                // This is tricky due to Arc wrapping, but we can modify the approach
-                set_node_stable_id(node, line_id);
+                node.set_stable_id(line_id);
             }
         }
     }
 
     // Recursively apply to children
-    let children = node.value().children.lock().unwrap();
+    let children = node.children();
     for child in children.iter() {
         apply_line_ids_to_ast(child, line_tracker, _text);
     }
-}
-
-fn set_node_stable_id(node: &AstNode, stable_id: i64) {
-    *node.value().stable_id.lock().unwrap() = Some(stable_id);
 }
 
 fn parse_command_line(line: &str, row: usize, indent: usize) -> (Option<AstNode>, Vec<Property>) {
@@ -1201,12 +1179,6 @@ fn transform_img<'a>(
                 .as_str();
             let img_path = inner2.next().unwrap().into_inner().next().unwrap().as_str();
             // inner2.chunks(2).map(|(k,v)| {
-            //     match k.unwrap().as_str() {
-            //         "width" => {
-            //             match v.parse::<isize>() {
-            //                 Ok(v) =>
-            //     }
-            // }
             Some(AstNode::image(
                 line,
                 row,
@@ -1909,7 +1881,6 @@ fn transform_statement<'a>(
                 }
             }
             Rule::expr_anchor => {
-                //println!("non-trailing anchor will be treated as a text");
                 //nodes.push(AstNode::text(line, row, Some(Into::<Span>::into(inner.as_span()) + indent)));
                 if let Some(prop) = transform_property(inner, line, row, indent) {
                     props.push(prop);
@@ -1961,11 +1932,8 @@ mod tests {
     #[test]
     fn test_parse_code_command() {
         let input = "[@code rust]";
-        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
@@ -1985,11 +1953,8 @@ mod tests {
     #[test]
     fn test_parse_code_emtpy_lang() {
         let input = "[@code   ]";
-        // let parsed = PattoLineParser::parse(Rule::expr_command, input);
         // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // let mut pairs = parsed.unwrap();
         // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // let parsed_command = pairs.next().unwrap();
         // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
@@ -2049,7 +2014,6 @@ mod tests {
     #[test]
     fn test_parse_trailing_properties() -> Result<(), Box<dyn std::error::Error>> {
         let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2";
-        //let input = "   #anchor1 {@task status=todo due=2024-09-24} #anchor2 {@anchor anchor3}";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
         let anchor1 = &props[0];
@@ -2079,12 +2043,6 @@ mod tests {
             panic!("anchor2 is not extracted properly");
         };
 
-        // let anchor3 = &props[3];
-        // if let Property::Anchor { name, .. } = anchor3 {
-        //     assert_eq!(name, "anchor3");
-        // } else {
-        //     panic!("anchor3 is not extracted properly");
-        // };
         Ok(())
     }
 
@@ -2230,10 +2188,7 @@ mod tests {
         } else {
             panic! {"Inline math could not be parsed"};
         }
-        assert_eq!(
-            math.value().contents.lock().unwrap()[0].extract_str(),
-            "math = a * b * c"
-        );
+        assert_eq!(math.contents()[0].extract_str(), "math = a * b * c");
         Ok(())
     }
 
@@ -2543,7 +2498,6 @@ mod tests {
                 panic! {"it is weird"};
             }
         }
-        //println!("{:?}", code.value.contents[0].extract_str());
         //
         let raw_text = &nodes[1];
         if let AstNodeKind::Text = raw_text.kind() {
@@ -2629,7 +2583,7 @@ mod tests {
 
     #[test]
     fn test_parse_img() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_path, g_alt) in vec![
+        for (input, g_path, g_alt) in [
             (
                 "[@img \"img alt title\" https://gyazo.com/path/to/icon.png]",
                 "https://gyazo.com/path/to/icon.png",
@@ -2683,8 +2637,7 @@ mod tests {
 
     #[test]
     fn test_parse_urls() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_url, g_title) in vec![
-            (
+        for (input, g_url, g_title) in [(
                 "[https://username@example.com google]",
                 "https://username@example.com",
                 Some("google".to_string()),
@@ -2719,8 +2672,7 @@ mod tests {
                 "[https://google.com https://google.com]",
                 "https://google.com",
                 Some("https://google.com".to_string()),
-            ),
-        ] {
+            )] {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_url_link, input) {
                 Ok(mut parsed) => {
@@ -2798,11 +2750,12 @@ mod tests {
 
     #[test]
     fn test_parse_mails() -> Result<(), Box<dyn std::error::Error>> {
-        for (input, g_mail, g_title) in [(
-            "[mailto:hoge@example.com example email]",
-            "mailto:hoge@example.com",
-            Some("example email".to_string()),
-        )] {
+        {
+            let (input, g_mail, g_title) = (
+                "[mailto:hoge@example.com example email]",
+                "mailto:hoge@example.com",
+                Some("example email".to_string()),
+            );
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_mail_link, input) {
                 Ok(mut parsed) => {
@@ -2905,13 +2858,6 @@ mod tests {
     }
 
     // #[test]
-    // fn test_parse_error() {
-    //     let err = PattoLineParser::parse(Rule::expr_command, "[@  ] #anchor").unwrap_err();
-    //     println!("{:?}", err);
-    //     log::debug!("{:?}", err.variant.message());
-    //     todo!();
-    //     ()
-    // }
 }
 
 #[cfg(test)]
@@ -2939,13 +2885,13 @@ mod tab_indentation_tests {
         );
 
         let root = result.ast;
-        let children = root.value().children.lock().unwrap();
+        let children = root.children();
 
         // Debug output
         eprintln!("Root has {} children", children.len());
         for (i, child) in children.iter().enumerate() {
             eprintln!("Child {}: {:?}", i, child.kind());
-            let subchildren = child.value().children.lock().unwrap();
+            let subchildren = child.children();
             for (j, subchild) in subchildren.iter().enumerate() {
                 eprintln!("  Subchild {}: {:?}", j, subchild.kind());
             }
@@ -2953,7 +2899,7 @@ mod tab_indentation_tests {
 
         // Should have parsed successfully
         assert!(
-            children.len() > 0,
+            !children.is_empty(),
             "Should have at least one top-level line"
         );
     }

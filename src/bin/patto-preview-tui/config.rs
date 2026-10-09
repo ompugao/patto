@@ -1,8 +1,9 @@
 use serde::Deserialize;
 
 /// Background color used when compositing images that have an alpha channel.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ImageBackground {
+    #[default]
     White,
     Black,
     /// Arbitrary RGB color.
@@ -20,12 +21,6 @@ impl ImageBackground {
             ImageBackground::Custom(rgb) => Some(*rgb),
             ImageBackground::None => Option::None,
         }
-    }
-}
-
-impl Default for ImageBackground {
-    fn default() -> Self {
-        ImageBackground::White
     }
 }
 

@@ -55,7 +55,8 @@ pub fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
         let Some(line) = lines.get_mut(row) else {
             continue;
         };
-        row_edits.sort_by(|a, b| b.start_byte.cmp(&a.start_byte));
+        // Apply from the end of the line, so earlier spans keep their offsets.
+        row_edits.sort_by_key(|edit| std::cmp::Reverse(edit.start_byte));
         for edit in row_edits {
             if edit.start_byte > edit.end_byte || edit.end_byte > line.len() {
                 continue;
@@ -93,7 +94,7 @@ pub fn walk_task_lines(node: &AstNode, f: &mut impl FnMut(&AstNode, &Property)) 
         }
     }
 
-    for child in node.value().children.lock().unwrap().iter() {
+    for child in node.children().iter() {
         walk_task_lines(child, f);
     }
 }
@@ -480,7 +481,7 @@ mod tests {
             due: Deadline::Uninterpretable("".to_string()),
             scheduled: None,
             completed_at: None,
-            started_at: started_at.map(|s| crate::parser::parse_deadline_pub(s)),
+            started_at: started_at.map(crate::parser::parse_deadline_pub),
             time_spent: None,
             prop_span: crate::parser::Span(0, 10),
             is_shorthand: false,

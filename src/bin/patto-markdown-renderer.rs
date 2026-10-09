@@ -1,9 +1,10 @@
 use std::fs;
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
 use clap::{Parser as ClapParser, ValueEnum};
 
+use patto::cli::{input_name, read_input};
 use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser;
 use patto::renderer::{MarkdownRenderer, Renderer};
@@ -62,15 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options = options.with_frontmatter(false);
     }
 
-    // Read input (from file or stdin)
-    let text = match &args.file {
-        Some(path) => fs::read_to_string(path)?,
-        None => {
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer)?;
-            buffer
-        }
-    };
+    let text = read_input(args.file.as_deref())?;
 
     let parser::ParserResult {
         ast: rootnode,
@@ -94,14 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             renderer.format(&rootnode, &mut writer)?;
             writer.flush()?;
 
-            let input_name = args
-                .file
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "stdin".to_string());
             eprintln!(
                 "✓ Exported {} to {} (flavor: {})",
-                input_name,
+                input_name(args.file.as_deref()),
                 path.display(),
                 flavor
             );
