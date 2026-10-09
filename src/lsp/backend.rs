@@ -1,34 +1,28 @@
+//! The `LanguageServer` implementation. Each request is unwrapped here and
+//! delegated to the sibling module that owns the feature.
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
-use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
-
-use super::paper::{PaperCatalog, PaperProviderError};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::ast_query::{find_anchor, task_label};
-use crate::lsp::commands::SUPPORTED_COMMANDS;
-use crate::lsp::diagnostic_translator::{DiagnosticTranslator, FriendlyDiagnostic};
-use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range, LEGEND_TYPE};
-use crate::lsp::task_edits::{
-    collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
-};
-use crate::parser::{
-    self, AstNode, AstNodeKind, Deadline, ParserResult, PattoLineParser, Property, Rule, TaskStatus,
-};
-use crate::repository::{Repository, RepositoryMessage};
-use pest::Parser as _;
+use crate::lsp::capabilities::server_capabilities;
+use crate::lsp::folding::collect_folding_ranges;
+use crate::lsp::paper::PaperCatalog;
+use crate::lsp::semantic_token::{get_semantic_tokens, get_semantic_tokens_range};
+use crate::parser::AstNode;
+use crate::repository::Repository;
+use crate::task::TaskSnapshot;
 
-/// LSP settings that can be configured by clients
+/// Settings sent by the client through `workspace/didChangeConfiguration`.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PattoSettings {
-    /// Markdown export settings
     #[serde(default)]
     pub(super) markdown: MarkdownSettings,
 }
@@ -36,12 +30,11 @@ pub struct PattoSettings {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
-    /// Default markdown flavor for export (standard, obsidian, github)
+    /// `standard`, `obsidian` or `github`.
     #[serde(default)]
     pub(super) default_flavor: Option<String>,
 }
 
-//#[derive(Debug)]
 pub struct Backend {
     pub(super) client: Client,
     /// Set once the client sends `initialize` with a workspace root.
@@ -49,11 +42,10 @@ pub struct Backend {
     pub(super) root_uri: Arc<Mutex<Option<Url>>>,
     pub(super) paper_catalog: PaperCatalog,
     pub(super) settings: Arc<Mutex<PattoSettings>>,
-    /// Last *valid* (successfully parsed) task snapshot per file, keyed by row.
+    /// Last successfully parsed task snapshot per file, keyed by row.
     /// Retained across keystrokes so that mid-edit parse failures (e.g. `status=`)
     /// don't lose the `Doing` state needed to compute elapsed time on clock-out.
-    pub(super) last_valid_task_snapshots:
-        Arc<DashMap<Url, HashMap<usize, crate::task::TaskSnapshot>>>,
+    pub(super) last_valid_task_snapshots: Arc<DashMap<Url, HashMap<usize, TaskSnapshot>>>,
 }
 
 impl Backend {
@@ -71,546 +63,22 @@ impl Backend {
 
     /// Parsed AST of a document the workspace knows about.
     pub fn document_ast(&self, uri: &Url) -> Option<AstNode> {
-        let uri = Repository::normalize_url_percent_encoding(uri);
-        let repository = self.repository.lock().unwrap();
-        let ast = repository.as_ref()?.ast_map.get(&uri)?;
-        Some(ast.value().clone())
+        self.with_document_ast(uri, AstNode::clone)
     }
 
     /// Task snapshots from the last successful parse of a document.
-    pub fn task_snapshots(&self, uri: &Url) -> Option<HashMap<usize, crate::task::TaskSnapshot>> {
+    pub fn task_snapshots(&self, uri: &Url) -> Option<HashMap<usize, TaskSnapshot>> {
         let uri = Repository::normalize_url_percent_encoding(uri);
         self.last_valid_task_snapshots
             .get(&uri)
             .map(|entry| entry.value().clone())
     }
-}
 
-fn get_node_range(from: &AstNode) -> Range {
-    let row = from.location().row as u32;
-    let s = utf16_from_byte_idx(from.extract_str(), from.location().span.0) as u32;
-    let e = utf16_from_byte_idx(from.extract_str(), from.location().span.1) as u32;
-    Range::new(Position::new(row, s), Position::new(row, e))
-}
-
-fn parse_text(text: &str) -> (AstNode, Vec<Diagnostic>) {
-    let ParserResult { ast, parse_errors } = parser::parse_text(text);
-    let translator = DiagnosticTranslator::default();
-    let mut diagnostics: Vec<Diagnostic> = parse_errors
-        .into_iter()
-        .map(|error| {
-            let location = error.location().clone();
-            let FriendlyDiagnostic {
-                message,
-                code,
-                code_description_uri,
-                severity,
-            } = translator.translate(&error);
-
-            let code_value = code.map(NumberOrString::String);
-            let code_description = code_description_uri
-                .and_then(|href| Url::parse(&href).ok())
-                .map(|href| CodeDescription { href });
-
-            Diagnostic {
-                range: Range::new(
-                    Position::new(location.row as u32, location.span.0 as u32),
-                    Position::new(location.row as u32, location.span.1 as u32),
-                ),
-                severity: Some(severity),
-                code: code_value,
-                code_description,
-                source: Some("patto".into()),
-                message,
-                ..Diagnostic::default()
-            }
-        })
-        .collect();
-
-    diagnostics.extend(gather_malformed_command_diagnostics(text));
-    diagnostics.extend(gather_stale_started_at_diagnostics(&ast));
-    (ast, diagnostics)
-}
-
-/// Scan raw text for `[@embed ...]` / `[@img ...]` patterns that failed to parse
-/// (i.e. fell through to raw_sentence). Emit WARNING diagnostics for each.
-fn gather_malformed_command_diagnostics(text: &str) -> Vec<Diagnostic> {
-    let translator = DiagnosticTranslator::default();
-    let mut diags = Vec::new();
-
-    for (row, line) in text.lines().enumerate() {
-        for (prefix, rule, err_fn) in [
-            (
-                "[@embed ",
-                Rule::expr_embed,
-                DiagnosticTranslator::embed_error
-                    as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
-            ),
-            (
-                "[@img ",
-                Rule::expr_img,
-                DiagnosticTranslator::img_error as fn(&DiagnosticTranslator) -> FriendlyDiagnostic,
-            ),
-        ] {
-            if !line.contains(prefix) {
-                continue;
-            }
-            let mut search_start = 0;
-            while let Some(rel) = line[search_start..].find(prefix) {
-                let start = search_start + rel;
-                let rest = &line[start..];
-                if let Some(end_rel) = rest.find(']') {
-                    let expr = &rest[..=end_rel];
-                    if PattoLineParser::parse(rule, expr).is_err() {
-                        let FriendlyDiagnostic {
-                            message,
-                            code,
-                            code_description_uri,
-                            severity,
-                        } = err_fn(&translator);
-                        let col_start = utf16_from_byte_idx(line, start) as u32;
-                        let col_end = utf16_from_byte_idx(line, start + end_rel + 1) as u32;
-                        diags.push(Diagnostic {
-                            range: Range::new(
-                                Position::new(row as u32, col_start),
-                                Position::new(row as u32, col_end),
-                            ),
-                            severity: Some(severity),
-                            code: code.map(NumberOrString::String),
-                            code_description: code_description_uri
-                                .and_then(|href| Url::parse(&href).ok())
-                                .map(|href| CodeDescription { href }),
-                            source: Some("patto".into()),
-                            message,
-                            ..Diagnostic::default()
-                        });
-                    }
-                    search_start = start + end_rel + 1;
-                } else {
-                    break; // no closing ] found, stop scanning
-                }
-            }
-        }
-    }
-    diags
-}
-
-/// Walk the AST and emit a WARNING diagnostic for every done task that still has
-/// a `started_at` field.  Such a field is stale: the clock-out transition should
-/// have removed it and accumulated elapsed time into `time_spent`.  Leaving it in
-/// place can mislead tooling into double-counting elapsed time.
-fn gather_stale_started_at_diagnostics(root: &AstNode) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    gather_stale_started_at_diagnostics_impl(root, &mut diags);
-    diags
-}
-
-fn gather_stale_started_at_diagnostics_impl(node: &AstNode, diags: &mut Vec<Diagnostic>) {
-    if let AstNodeKind::Line { ref properties } = node.kind() {
-        for prop in properties {
-            if let Property::Task {
-                status,
-                started_at: Some(_),
-                location,
-                ..
-            } = prop
-            {
-                if matches!(status, TaskStatus::Done) {
-                    let row = node.location().row as u32;
-                    let line_text = node.extract_str();
-                    let col_start = utf16_from_byte_idx(line_text, location.span.0) as u32;
-                    let col_end =
-                        utf16_from_byte_idx(line_text, location.span.1.min(line_text.len())) as u32;
-                    diags.push(Diagnostic {
-                        range: Range::new(
-                            Position::new(row, col_start),
-                            Position::new(row, col_end),
-                        ),
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        code: Some(NumberOrString::String("stale-started-at".into())),
-                        code_description: None,
-                        source: Some("patto".into()),
-                        message: "Done task has a stale started_at field. \
-                            The time_spent field already accounts for all accumulated time. \
-                            Remove started_at= to silence this warning."
-                            .into(),
-                        ..Diagnostic::default()
-                    });
-                    break; // at most one Task property per line
-                }
-            }
-        }
-    }
-    for child in node.children().iter() {
-        gather_stale_started_at_diagnostics_impl(child, diags);
-    }
-}
-
-pub(super) fn gather_anchors(parent: &AstNode, anchors: &mut Vec<(String, usize)>) {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Anchor { name, location } = prop {
-                anchors.push((name.to_string(), location.row));
-            }
-        }
-    }
-
-    for child in parent.children().iter() {
-        gather_anchors(child, anchors);
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
-pub struct TaskInformation {
-    /// The location of this task
-    pub location: Location,
-
-    /// Human-readable label: raw line text with the task property token removed.
-    pub text: String,
-
-    pub message: String,
-
-    /// The deadline of this task
-    pub due: Deadline,
-
-    /// Optional scheduled date
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scheduled: Option<Deadline>,
-
-    /// Optional completion timestamp
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<Deadline>,
-
-    /// Optional clock-in timestamp (currently running session)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<Deadline>,
-
-    /// Accumulated time spent
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time_spent: Option<crate::task::Duration>,
-
-    /// Task status
-    pub status: TaskStatus,
-}
-
-impl TaskInformation {
-    pub fn new(location: Location, text: String, message: String, due: Deadline) -> Self {
-        Self {
-            location,
-            text,
-            message,
-            due,
-            scheduled: None,
-            completed_at: None,
-            started_at: None,
-            time_spent: None,
-            status: TaskStatus::Todo,
-        }
-    }
-}
-
-/// Build a TaskInformation from an AstNode that has a Task property.
-pub(super) fn task_information(
-    uri: &tower_lsp::lsp_types::Url,
-    line: &AstNode,
-    due: &Deadline,
-) -> TaskInformation {
-    let mut info = TaskInformation::new(
-        Location::new(uri.clone(), get_node_range(line)),
-        task_label(line),
-        String::new(),
-        due.clone(),
-    );
-    if let AstNodeKind::Line { properties } = &line.kind() {
-        for prop in properties {
-            if let Property::Task {
-                status,
-                scheduled,
-                completed_at,
-                started_at,
-                time_spent,
-                ..
-            } = prop
-            {
-                info.status = status.clone();
-                info.scheduled = scheduled.clone();
-                info.completed_at = completed_at.clone();
-                info.started_at = started_at.clone();
-                info.time_spent = time_spent.clone();
-                break;
-            }
-        }
-    }
-    info
-}
-
-/// Find anchor definition at the given row and column position
-/// Returns (anchor_name, anchor_location) if cursor is on an anchor definition
-pub(super) fn find_anchor_at_position(
-    parent: &AstNode,
-    row: usize,
-    col: usize,
-) -> Option<(String, parser::Location)> {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        if parent.location().row == row {
-            for prop in properties {
-                if let Property::Anchor { name, location } = prop {
-                    if location.span.contains(col) {
-                        return Some((name.clone(), location.clone()));
-                    }
-                }
-            }
-        }
-    }
-
-    for child in parent.children().iter() {
-        if let Some(result) = find_anchor_at_position(child, row, col) {
-            return Some(result);
-        }
-    }
-    None
-}
-
-pub(super) fn locate_node_route(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
-    if let Some(route) = locate_node_route_impl(parent, row, col) {
-        //route.reverse();
-        return Some(route);
-    }
-    None
-}
-
-fn locate_node_route_impl(parent: &AstNode, row: usize, col: usize) -> Option<Vec<AstNode>> {
-    let parentrow = parent.location().row;
-    log::debug!(
-        "finding row, col ({}, {}), scanning row: {}",
-        row,
-        col,
-        parentrow
-    );
-    if matches!(parent.kind(), AstNodeKind::Dummy) || parentrow < row {
-        for child in parent.children().iter() {
-            if let Some(mut route) = locate_node_route_impl(child, row, col) {
-                route.push(parent.clone());
-                return Some(route);
-            }
-        }
-    } else if parentrow == row {
-        if parent.contents().is_empty() {
-            log::debug!("{:?} must be leaf", parent.extract_str());
-            return Some(vec![parent.clone()]);
-        }
-        for content in parent.contents().iter() {
-            if content.location().span.contains(col) {
-                log::debug!(
-                    "in content: {:?}, spanning ({}, {})",
-                    content.extract_str(),
-                    content.location().span.0,
-                    content.location().span.1
-                );
-                if let Some(mut route) = locate_node_route_impl(content, row, col) {
-                    route.push(parent.clone());
-                    return Some(route);
-                }
-            }
-        }
-    }
-    None
-}
-
-impl Backend {
-    async fn on_change(&self, params: TextDocumentItem) {
-        let uri = Repository::normalize_url_percent_encoding(&params.uri);
-
-        if let Ok(file_path) = uri.to_file_path() {
-            // Update graph with new content.
-            if let Some(repo) = self.repository.lock().unwrap().as_ref() {
-                repo.add_file_to_graph(&file_path, &params.text);
-            }
-
-            // Fetch the new AST and compute task snapshots for this version.
-            let new_ast: Option<AstNode> = self
-                .repository
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|repo| repo.ast_map.get(&uri).map(|e| e.value().clone()));
-
-            if let Some(new_ast) = new_ast {
-                let now = chrono::Local::now().naive_local();
-                let new_snapshots = collect_task_snapshots(&new_ast);
-
-                // Retrieve the sticky old snapshots (last valid state per row).
-                // These survive keystrokes where the task is temporarily unparseable
-                // (e.g. `status=` during a `doing`→`todo` edit).
-                let old_snapshots: HashMap<usize, crate::task::TaskSnapshot> = self
-                    .last_valid_task_snapshots
-                    .get(&uri)
-                    .map(|e| e.value().clone())
-                    .unwrap_or_default();
-
-                // Update the sticky map: only overwrite rows where the new snapshot
-                // has a canonical status value. Non-canonical mid-edit states (e.g.
-                // `status=doin`) are ignored so the previous Doing state is preserved.
-                {
-                    let mut entry = self
-                        .last_valid_task_snapshots
-                        .entry(uri.clone())
-                        .or_default();
-                    for (row, snap) in &new_snapshots {
-                        if snap.status_is_canonical {
-                            entry.insert(*row, snap.clone());
-                        }
-                    }
-                }
-
-                let transitions = detect_task_transitions(&new_snapshots, &old_snapshots);
-
-                let edits: Vec<tower_lsp::lsp_types::TextEdit> = transitions
-                    .iter()
-                    .flat_map(|t| generate_edits_for_transition(t, now))
-                    .collect();
-
-                if !edits.is_empty() {
-                    let workspace_edit = WorkspaceEdit {
-                        changes: Some([(uri.clone(), edits)].iter().cloned().collect()),
-                        document_changes: None,
-                        change_annotations: None,
-                    };
-                    let _ = self.client.apply_edit(workspace_edit).await;
-                }
-            }
-        }
-
-        // Parse for diagnostics (LSP-specific, not handled by repository).
-        let (_, diagnostics) = parse_text(&params.text);
-        self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
-            .await;
-    }
-
-    async fn start_repository_listener(&self) {
-        let repo_guard = self.repository.lock().unwrap();
-        if let Some(repo) = repo_guard.as_ref() {
-            let mut rx = repo.subscribe();
-            drop(repo_guard); // Release lock before async loop
-
-            let client = self.client.clone();
-
-            tokio::spawn(async move {
-                let token = NumberOrString::String("patto-scan".to_string());
-                let mut progress_active = false;
-
-                while let Ok(msg) = rx.recv().await {
-                    match msg {
-                        RepositoryMessage::ScanStarted { total_files } => {
-                            let _ = client
-                                .send_notification::<notification::Progress>(ProgressParams {
-                                    token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
-                                        WorkDoneProgressBegin {
-                                            title: "Scanning notes".to_string(),
-                                            message: Some(format!("0/{} files", total_files)),
-                                            percentage: Some(0),
-                                            cancellable: Some(false),
-                                        },
-                                    )),
-                                })
-                                .await;
-                            progress_active = true;
-
-                            client
-                                .log_message(
-                                    MessageType::INFO,
-                                    format!("Starting to scan {} patto files", total_files),
-                                )
-                                .await;
-                        }
-
-                        RepositoryMessage::ScanProgress { scanned, total } => {
-                            if progress_active {
-                                let percentage =
-                                    (scanned * 100).checked_div(total).unwrap_or(0) as u32;
-
-                                let _ = client
-                                    .send_notification::<notification::Progress>(ProgressParams {
-                                        token: token.clone(),
-                                        value: ProgressParamsValue::WorkDone(
-                                            WorkDoneProgress::Report(WorkDoneProgressReport {
-                                                message: Some(format!(
-                                                    "{}/{} files",
-                                                    scanned, total
-                                                )),
-                                                percentage: Some(percentage),
-                                                cancellable: Some(false),
-                                            }),
-                                        ),
-                                    })
-                                    .await;
-                            }
-                        }
-
-                        RepositoryMessage::ScanCompleted { total_files } => {
-                            if progress_active {
-                                let _ = client
-                                    .send_notification::<notification::Progress>(ProgressParams {
-                                        token: token.clone(),
-                                        value: ProgressParamsValue::WorkDone(
-                                            WorkDoneProgress::End(WorkDoneProgressEnd {
-                                                message: Some("Complete".to_string()),
-                                            }),
-                                        ),
-                                    })
-                                    .await;
-                                progress_active = false;
-                            }
-
-                            client
-                                .log_message(
-                                    MessageType::INFO,
-                                    format!("Scan completed: {} files indexed", total_files),
-                                )
-                                .await;
-                        }
-
-                        _ => {}
-                    }
-                }
-            });
-        }
-    }
-
-    pub(super) async fn paper_completion_items(
-        &self,
-        query: &str,
-        range: &Range,
-    ) -> Vec<CompletionItem> {
-        match self.paper_catalog.search(query).await {
-            Ok(papers) => papers
-                .into_iter()
-                .map(|paper: super::paper::PaperReference| CompletionItem {
-                    label: paper.title.clone(),
-                    detail: Some(format!("Zotero · {}", paper.title)),
-                    kind: Some(CompletionItemKind::REFERENCE),
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        new_text: format!("{} {}", paper.title, paper.link),
-                        range: *range,
-                    })),
-                    ..Default::default()
-                })
-                .collect(),
-            Err(PaperProviderError::NotConfigured) => Vec::new(),
-            Err(err) => {
-                log::warn!("paper completion failed: {}", err);
-                self.client
-                    .log_message(
-                        MessageType::WARNING,
-                        &format!("paper completion failed: {}", err),
-                    )
-                    .await;
-                Vec::new()
-            }
-        }
+    fn with_document_ast<T>(&self, uri: &Url, read: impl FnOnce(&AstNode) -> T) -> Option<T> {
+        let uri = Repository::normalize_url_percent_encoding(uri);
+        let repository = self.repository.lock().unwrap();
+        let ast = repository.as_ref()?.ast_map.get(&uri)?;
+        Some(read(ast.value()))
     }
 }
 
@@ -618,96 +86,11 @@ impl Backend {
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         if let Some(root_uri) = params.root_uri {
-            {
-                let mut backend_root_uri = self.root_uri.lock().unwrap();
-                *backend_root_uri = Some(root_uri.clone());
-            } // Drop backend_root_uri here
-
-            if let Ok(path) = root_uri.to_file_path() {
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        &format!("LSP workspace root set to {:?}", path),
-                    )
-                    .await;
-
-                let repository = Repository::new(path);
-                *self.repository.lock().unwrap() = Some(repository.clone());
-
-                // Subscribe before scanning, so no scan progress is missed.
-                self.start_repository_listener().await;
-                repository.spawn_initial_scan();
-            }
+            self.open_workspace(root_uri).await;
         }
-
-        // vscode sets both root_uri and workspace_folders; we use root_uri
-        // because vim-lsp supports workspace_folders only experimentally.
-
         Ok(InitializeResult {
             server_info: None,
-            capabilities: ServerCapabilities {
-                position_encoding: Some(PositionEncodingKind::UTF16), // vscode only supports utf-16 ;(
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
-                completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: Some(
-                        vec!["[", "#", "@img", "@math", "@quote", "@table", "@task"]
-                            .into_iter()
-                            .map(ToString::to_string)
-                            .collect(),
-                    ),
-                    work_done_progress_options: Default::default(),
-                    all_commit_characters: None,
-                    ..Default::default()
-                }),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: SUPPORTED_COMMANDS.iter().map(|c| c.to_string()).collect(),
-                    work_done_progress_options: Default::default(),
-                }),
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
-                        supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
-                    }),
-                    file_operations: None,
-                }),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
-                        SemanticTokensRegistrationOptions {
-                            text_document_registration_options: {
-                                TextDocumentRegistrationOptions {
-                                    document_selector: Some(vec![DocumentFilter {
-                                        language: Some("patto".to_string()),
-                                        scheme: Some("file".to_string()),
-                                        pattern: None,
-                                    }]),
-                                }
-                            },
-                            semantic_tokens_options: SemanticTokensOptions {
-                                work_done_progress_options: WorkDoneProgressOptions::default(),
-                                legend: SemanticTokensLegend {
-                                    token_types: LEGEND_TYPE.into(),
-                                    token_modifiers: vec![],
-                                },
-                                range: Some(true),
-                                full: Some(SemanticTokensFullOptions::Bool(true)),
-                            },
-                            static_registration_options: StaticRegistrationOptions::default(),
-                        },
-                    ),
-                ),
-                // definition: Some(GotoCapability::default()),
-                definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Right(RenameOptions {
-                    prepare_provider: Some(true),
-                    work_done_progress_options: Default::default(),
-                })),
-                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
-                ..ServerCapabilities::default()
-            },
+            capabilities: server_capabilities(),
             ..Default::default()
         })
     }
@@ -716,35 +99,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "patto-lsp server initialized!")
             .await;
-
-        if self.paper_catalog.is_configured() {
-            let client = self.client.clone();
-            let manager = self.paper_catalog.clone();
-            let provider_label = manager
-                .provider_name()
-                .unwrap_or("paper client")
-                .to_string();
-            tokio::spawn(async move {
-                match manager.health_check().await {
-                    Ok(_) => {
-                        client
-                            .show_message(
-                                MessageType::INFO,
-                                format!("Connected to {}", provider_label),
-                            )
-                            .await;
-                    }
-                    Err(err) => {
-                        client
-                            .show_message(
-                                MessageType::WARNING,
-                                format!("Failed to connect to {}: {}", provider_label, err),
-                            )
-                            .await;
-                    }
-                }
-            });
-        }
+        self.announce_paper_provider();
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -752,63 +107,37 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
-        // Try to extract patto settings from the configuration
-        // VSCode sends: { "patto": { "markdown": { "defaultFlavor": "obsidian" } } }
-        // or just the patto section depending on client
-        let settings_value = if let Some(patto) = params.settings.get("patto") {
-            patto.clone()
-        } else {
-            params.settings
-        };
-
-        match serde_json::from_value::<PattoSettings>(settings_value) {
-            Ok(new_settings) => {
-                log::info!("Updated patto settings: {:?}", new_settings);
-                let mut settings = self.settings.lock().unwrap();
-                *settings = new_settings;
-            }
-            Err(e) => {
-                log::warn!("Failed to parse patto settings: {:?}", e);
-            }
-        }
+        self.update_settings(params.settings);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         log::info!("did_open: {:?}", params.text_document.uri);
-        self.on_change(TextDocumentItem {
-            language_id: "".to_string(),
-            uri: params.text_document.uri,
-            text: params.text_document.text,
-            version: params.text_document.version,
-        })
-        .await
+        let document = params.text_document;
+        self.on_change(document.uri, document.text, document.version)
+            .await
     }
 
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
-        self.on_change(TextDocumentItem {
-            uri: params.text_document.uri,
-            language_id: "".to_string(),
-            text: std::mem::take(&mut params.content_changes[0].text),
-            version: params.text_document.version,
-        })
-        .await
+        let text = std::mem::take(&mut params.content_changes[0].text);
+        self.on_change(params.text_document.uri, text, params.text_document.version)
+            .await
     }
 
-    async fn did_save(&self, param: DidSaveTextDocumentParams) {
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
         self.client
             .log_message(
                 MessageType::INFO,
-                format!("file {} saved!", param.text_document.uri.as_str()),
+                format!("file {} saved!", params.text_document.uri.as_str()),
             )
             .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri;
-        //self.repository.document_map.remove(&uri);
-        //self.repository.ast_map.remove(&uri);
         self.client
-            .log_message(MessageType::INFO, format!("file {} is closed!", uri))
+            .log_message(
+                MessageType::INFO,
+                format!("file {} is closed!", params.text_document.uri),
+            )
             .await;
     }
 
@@ -832,169 +161,45 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let definition = async {
-            let uri = Repository::normalize_url_percent_encoding(
-                &params.text_document_position_params.text_document.uri,
-            );
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-
-            let position = params.text_document_position_params.position;
-            let line = rope.get_line(position.line as usize)?;
-            // NOTE: spans in our parser (and in pest) are in bytes, not chars
-            let posbyte = utf16_to_byte_idx(line.as_str()?, position.character as usize);
-            let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) else {
-                log::debug!("Node not found at {:?}, posbyte: {:?}", position, posbyte);
-                return None;
-            };
-            let Some((link, anchor)) = node_route.iter().find_map(|n| {
-                if let AstNodeKind::WikiLink { link, anchor } = &n.kind() {
-                    Some((link, anchor))
-                } else {
-                    None
-                }
-            }) else {
-                log::debug!("it is not wikilink");
-                return None;
-            };
-            let Some(root_uri) = self.root_uri.lock().unwrap().as_ref().cloned() else {
-                log::debug!("root_uri is not set");
-                return None;
-            };
-            let linkuri = repo.link_to_uri(link, &root_uri).unwrap_or(uri);
-            let start = Range::new(Position::new(0, 0), Position::new(0, 1));
-            if let Some(anchor) = anchor {
-                let range = repo
-                    .ast_map
-                    .get(&linkuri)
-                    .and_then(|r| {
-                        let linkast = r.value();
-                        find_anchor(linkast, anchor)
-                    })
-                    .map_or(start, |anchored_line| get_node_range(&anchored_line));
-                Some(GotoDefinitionResponse::Scalar(Location::new(
-                    linkuri, range,
-                )))
-            } else {
-                Some(GotoDefinitionResponse::Scalar(Location::new(
-                    linkuri, start,
-                )))
-            }
-        }
-        .await;
-        Ok(definition)
+        let uri = Repository::normalize_url_percent_encoding(
+            &params.text_document_position_params.text_document.uri,
+        );
+        let position = params.text_document_position_params.position;
+        Ok(self
+            .definition_at(&uri, position)
+            .map(GotoDefinitionResponse::Scalar))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let references = async {
-            let uri = Repository::normalize_url_percent_encoding(
-                &params.text_document_position.text_document.uri,
-            );
-
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let Ok(graph) = repo.document_graph.lock() else {
-                log::debug!("failed to lock graph");
-                return None;
-            };
-            let Some(node) = graph.get(&uri) else {
-                log::debug!("node not found in the graph");
-                return None;
-            };
-
-            let mut references = Vec::new();
-
-            // Iterate through all incoming edges
-            for edge in node.iter_in() {
-                let source_uri = edge.source().key();
-                let edge_data = edge.value();
-
-                // Get the rope for UTF-16 conversion
-                let source_rope = repo.document_map.get(source_uri);
-
-                // Create a Location for each link location
-                for link_loc in &edge_data.locations {
-                    // Get line content for UTF-16 conversion
-                    if let Some(rope) = source_rope.as_ref() {
-                        if let Some(line) = rope.value().get_line(link_loc.source_line) {
-                            if let Some(line_str) = line.as_str() {
-                                // Convert byte offsets to UTF-16 positions for LSP
-                                let start_char =
-                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.0)
-                                        as u32;
-                                let end_char =
-                                    utf16_from_byte_idx(line_str, link_loc.source_col_range.1)
-                                        as u32;
-
-                                let range = Range::new(
-                                    Position::new(link_loc.source_line as u32, start_char),
-                                    Position::new(link_loc.source_line as u32, end_char),
-                                );
-                                references.push(Location::new(source_uri.clone(), range));
-                            }
-                        }
-                    }
-                }
-            }
-
-            log::debug!(
-                "references retrieved from graph: {} locations",
-                references.len()
-            );
-            Some(references)
-        }
-        .await;
-        Ok(references)
+        let uri = Repository::normalize_url_percent_encoding(
+            &params.text_document_position.text_document.uri,
+        );
+        Ok(self.references_to(&uri))
     }
 
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-
-        let result = || -> Option<SemanticTokensResult> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-
-            let ast = repo.ast_map.get(&uri)?;
-            let data = get_semantic_tokens(ast.value());
-
-            Some(SemanticTokensResult::Tokens(SemanticTokens {
+        Ok(self.with_document_ast(&params.text_document.uri, |ast| {
+            SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: None,
-                data,
-            }))
-        }();
-
-        Ok(result)
+                data: get_semantic_tokens(ast),
+            })
+        }))
     }
 
     async fn semantic_tokens_range(
         &self,
         params: SemanticTokensRangeParams,
     ) -> Result<Option<SemanticTokensRangeResult>> {
-        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-
-        let result = || -> Option<SemanticTokensRangeResult> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-
-            let ast = repo.ast_map.get(&uri)?;
-            let data = get_semantic_tokens_range(
-                ast.value(),
-                params.range.start.line,
-                params.range.end.line,
-            );
-
-            Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
+        let (start_line, end_line) = (params.range.start.line, params.range.end.line);
+        Ok(self.with_document_ast(&params.text_document.uri, |ast| {
+            SemanticTokensRangeResult::Tokens(SemanticTokens {
                 result_id: None,
-                data,
-            }))
-        }();
-
-        Ok(result)
+                data: get_semantic_tokens_range(ast, start_line, end_line),
+            })
+        }))
     }
 
     async fn prepare_rename(
@@ -1002,84 +207,7 @@ impl LanguageServer for Backend {
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
         let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-        let position = params.position;
-
-        let prepare_result = || -> Option<PrepareRenameResponse> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let ast = repo.ast_map.get(&uri)?;
-            let rope = repo.document_map.get(&uri)?;
-
-            let line = rope.value().get_line(position.line as usize)?;
-            let line_str = line.as_str()?;
-            let posbyte = utf16_to_byte_idx(line_str, position.character as usize);
-
-            // Try to find anchor definition at cursor
-            if let Some((anchor_name, anchor_loc)) =
-                find_anchor_at_position(&ast, position.line as usize, posbyte)
-            {
-                // Return range of the anchor name (excluding # prefix for short form, or {@anchor } for long form)
-                // The location includes the full anchor expression
-                let start_char = utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32;
-                let end_char = utf16_from_byte_idx(line_str, anchor_loc.span.1) as u32;
-
-                let range = Range::new(
-                    Position::new(position.line, start_char),
-                    Position::new(position.line, end_char),
-                );
-
-                return Some(PrepareRenameResponse::RangeWithPlaceholder {
-                    range,
-                    placeholder: anchor_name,
-                });
-            }
-
-            // Try to find WikiLink at cursor
-            if let Some(node_route) = locate_node_route(&ast, position.line as usize, posbyte) {
-                for node in &node_route {
-                    if let AstNodeKind::WikiLink { link, .. } = &node.kind() {
-                        // Return range of the link name (excluding anchor and brackets)
-                        // The node range includes brackets, we need to extract just the link text
-                        let loc = node.location();
-                        let link_start = loc.span.0 + 1; // Skip '['
-                        let link_end = link_start + link.len();
-
-                        let start_char = utf16_from_byte_idx(line_str, link_start) as u32;
-                        let end_char = utf16_from_byte_idx(line_str, link_end) as u32;
-
-                        let range = Range::new(
-                            Position::new(position.line, start_char),
-                            Position::new(position.line, end_char),
-                        );
-
-                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
-                            range,
-                            placeholder: link.to_string(),
-                        });
-                    }
-                }
-            }
-
-            // If not on a WikiLink, allow renaming the current file
-            // Get the file name from the URI
-            if let Ok(path) = uri.to_file_path() {
-                if let Some(file_stem) = path.file_stem() {
-                    if let Some(name) = file_stem.to_str() {
-                        // Return a synthetic range at the beginning of the file
-                        let range = Range::new(Position::new(0, 0), Position::new(0, 0));
-
-                        return Some(PrepareRenameResponse::RangeWithPlaceholder {
-                            range,
-                            placeholder: name.to_string(),
-                        });
-                    }
-                }
-            }
-
-            None
-        }();
-
-        Ok(prepare_result)
+        Ok(self.prepare_rename_at(&uri, params.position))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
@@ -1094,302 +222,6 @@ impl LanguageServer for Backend {
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        let uri = Repository::normalize_url_percent_encoding(&params.text_document.uri);
-
-        let result = || -> Option<Vec<FoldingRange>> {
-            let repo_lock = self.repository.lock().unwrap();
-            let repo = repo_lock.as_ref()?;
-            let ast = repo.ast_map.get(&uri)?;
-            Some(collect_folding_ranges(ast.value()))
-        }();
-
-        Ok(result)
-    }
-}
-
-/// Recursively find the maximum row number in a node's subtree.
-/// Recurses into both `children` (nested lines / block content) and
-/// `contents` (inline nodes — needed because block command nodes like
-/// `Code`/`Math`/`Quote`/`Table` are stored as *contents* of their
-/// parent `Line`, while their own content lines are *children*).
-fn last_row_of(node: &AstNode) -> usize {
-    let mut max = node.location().row;
-
-    for child in node.children().iter() {
-        let child_row = last_row_of(child);
-        if child_row > max {
-            max = child_row;
-        }
-    }
-
-    for content in node.contents().iter() {
-        let content_row = last_row_of(content);
-        if content_row > max {
-            max = content_row;
-        }
-    }
-
-    max
-}
-
-/// Collect LSP `FoldingRange`s from the parsed AST of a patto document.
-///
-/// Fold sources:
-/// - `Line` nodes with at least one child (indentation-based hierarchy)
-/// - `Code { inline: false }`, `Math { inline: false }`, `Quote`, `Table`
-///   block header nodes with at least one child  (kind = Region)
-/// - `QuoteContent` nodes with children (nested quote indentation)
-fn collect_folding_ranges(root: &AstNode) -> Vec<FoldingRange> {
-    let mut ranges = Vec::new();
-    // The Dummy root has no location; iterate its children directly
-    let children = root.children().clone();
-    for child in children.iter() {
-        collect_folding_ranges_node(child, &mut ranges);
-    }
-    ranges
-}
-
-fn collect_folding_ranges_node(node: &AstNode, ranges: &mut Vec<FoldingRange>) {
-    let start_row = node.location().row;
-
-    // Determine whether/what kind of fold to emit for this node
-    let fold_kind: Option<Option<FoldingRangeKind>> = match node.kind() {
-        AstNodeKind::Line { .. } => Some(None),
-        AstNodeKind::Code { inline, .. } => {
-            if *inline {
-                None // inline code — no fold, but still recurse
-            } else {
-                Some(Some(FoldingRangeKind::Region))
-            }
-        }
-        AstNodeKind::Math { inline } => {
-            if *inline {
-                None
-            } else {
-                Some(Some(FoldingRangeKind::Region))
-            }
-        }
-        AstNodeKind::Quote => Some(Some(FoldingRangeKind::Region)),
-        AstNodeKind::Table { .. } => Some(Some(FoldingRangeKind::Region)),
-        AstNodeKind::QuoteContent { .. } => Some(None),
-        // All other node types are not fold containers
-        _ => None,
-    };
-
-    // Recurse into children and contents (depth-first, so inner folds are added first)
-    {
-        let children = node.children().clone();
-        for child in children.iter() {
-            collect_folding_ranges_node(child, ranges);
-        }
-    }
-    {
-        let contents = node.contents().clone();
-        for content in contents.iter() {
-            collect_folding_ranges_node(content, ranges);
-        }
-    }
-
-    // Only emit a fold range if this node type is a fold container
-    if let Some(kind) = fold_kind {
-        let end_row = last_row_of(node);
-        if end_row > start_row {
-            ranges.push(FoldingRange {
-                start_line: start_row as u32,
-                start_character: None,
-                end_line: end_row as u32,
-                end_character: None,
-                kind,
-                collapsed_text: None,
-            });
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_embed_valid_no_diagnostic() {
-        // Valid URL embed — no warnings
-        let (_ast, diags) = parse_text("[@embed https://example.com/video]");
-        assert!(diags
-            .iter()
-            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
-
-        // Valid local embed with ./
-        let (_ast, diags) = parse_text("[@embed ./docs/report.pdf]");
-        assert!(diags
-            .iter()
-            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
-
-        // Valid title + local path — unquoted is fine now because ./ is unambiguous
-        let (_ast, diags) = parse_text("[@embed My Title ./docs/report.pdf]");
-        assert!(diags
-            .iter()
-            .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)));
-    }
-
-    #[test]
-    fn test_embed_bare_path_produces_error() {
-        // Bare path without ./ → parse error → @embed diagnostic
-        let (_ast, diags) = parse_text("[@embed docs/report.pdf]");
-        assert!(
-            diags
-                .iter()
-                .any(|d| d.code == Some(NumberOrString::String("invalid-embed".into()))),
-            "bare path without ./ should produce invalid-embed diagnostic"
-        );
-    }
-
-    #[test]
-    fn test_img_ambiguous_produces_error() {
-        // filename-as-alt before bare path (no ./) → parse error → @img diagnostic
-        let (_ast, diags) =
-            parse_text("[@img 2026-03-04-10-20-35.png assets/2026-03-04-10-20-35.png]");
-        assert!(
-            diags
-                .iter()
-                .any(|d| d.code == Some(NumberOrString::String("invalid-img".into()))),
-            "filename-as-alt before bare path should produce invalid-img diagnostic"
-        );
-    }
-
-    #[test]
-    fn test_img_unquoted_alt_dotslash_path_valid() {
-        // unquoted alt before ./ path — now valid and unambiguous
-        let (_ast, diags) =
-            parse_text("[@img 2026-03-04-10-20-35.png ./assets/2026-03-04-10-20-35.png]");
-        assert!(
-            diags
-                .iter()
-                .all(|d| d.severity != Some(DiagnosticSeverity::WARNING)),
-            "unquoted alt before ./ path should not warn"
-        );
-    }
-
-    #[test]
-    fn test_multiple_invalid_commands_on_one_line() {
-        // Two bad commands on the same line — both should produce diagnostics
-        let (_ast, diags) =
-            parse_text("see [@embed docs/a.pdf] and [@img assets/b.png] for details");
-        let invalid_embed = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
-            .count();
-        let invalid_img = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("invalid-img".into())))
-            .count();
-        assert_eq!(invalid_embed, 1, "should warn about bare embed path");
-        assert_eq!(invalid_img, 1, "should warn about bare img path");
-    }
-
-    #[test]
-    fn test_multiple_same_invalid_commands_on_one_line() {
-        // Two bad @embed on the same line — both should produce diagnostics
-        let (_ast, diags) = parse_text("[@embed docs/a.pdf] and [@embed docs/b.pdf]");
-        let count = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("invalid-embed".into())))
-            .count();
-        assert_eq!(count, 2, "should warn about both bare embed paths");
-    }
-
-    #[test]
-    fn test_task_label_conceal_urls() {
-        let (ast, _) = parse_text(
-            "buy milk [https://example.com/foo milk title] {@task status=todo due=2026-06-01}",
-        );
-        let children = ast.children();
-        let line = &children[0];
-        let label = task_label(line);
-        assert_eq!(label, "buy milk [🔗milk title]");
-
-        let (ast2, _) = parse_text(
-            "[milk title https://example.com/foo] buy milk {@task status=todo due=2026-06-01}",
-        );
-        let children2 = ast2.children();
-        let line2 = &children2[0];
-        let label2 = task_label(line2);
-        assert_eq!(label2, "[milk title🔗] buy milk");
-
-        let (ast3, _) =
-            parse_text("buy milk [https://example.com/foo] {@task status=todo due=2026-06-01}");
-        let children3 = ast3.children();
-        let line3 = &children3[0];
-        let label3 = task_label(line3);
-        assert_eq!(label3, "buy milk [https://example.com/foo]");
-
-        // Multi-byte character tests
-        let (ast4, _) = parse_text(
-            "牛乳を買う [https://example.com/foo 牛乳] {@task status=todo due=2026-06-01}",
-        );
-        let children4 = ast4.children();
-        let line4 = &children4[0];
-        let label4 = task_label(line4);
-        assert_eq!(label4, "牛乳を買う [🔗牛乳]");
-
-        let (ast5, _) = parse_text(
-            "[牛乳 https://example.com/foo] 牛乳を買う {@task status=todo due=2026-06-01}",
-        );
-        let children5 = ast5.children();
-        let line5 = &children5[0];
-        let label5 = task_label(line5);
-        assert_eq!(label5, "[牛乳🔗] 牛乳を買う");
-    }
-
-    // ── stale started_at diagnostics ────────────────────────────────────────
-
-    #[test]
-    fn test_stale_started_at_warn_on_done_task() {
-        // Done task with started_at still present → should emit stale-started-at warning.
-        let (_ast, diags) = parse_text(
-            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 started_at=2026-06-01T09:00 time_spent=2h}\n",
-        );
-        let stale: Vec<_> = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
-            .collect();
-        assert_eq!(
-            stale.len(),
-            1,
-            "expected one stale-started-at diagnostic, got: {:?}",
-            diags
-        );
-        assert_eq!(stale[0].severity, Some(DiagnosticSeverity::WARNING));
-    }
-
-    #[test]
-    fn test_stale_started_at_no_warn_on_doing_task() {
-        // Doing task with started_at is legitimate — must NOT emit the warning.
-        let (_ast, diags) = parse_text(
-            "buy milk {@task status=doing due=2026-06-01 started_at=2026-06-01T09:00}\n",
-        );
-        let stale: Vec<_> = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
-            .collect();
-        assert!(
-            stale.is_empty(),
-            "doing task with started_at should not produce stale-started-at warning"
-        );
-    }
-
-    #[test]
-    fn test_stale_started_at_no_warn_on_done_task_without_started_at() {
-        // Clean done task (no started_at) → no warning.
-        let (_ast, diags) = parse_text(
-            "buy milk {@task status=done due=2026-06-01 completed_at=2026-06-01T11:00 time_spent=2h}\n",
-        );
-        let stale: Vec<_> = diags
-            .iter()
-            .filter(|d| d.code == Some(NumberOrString::String("stale-started-at".into())))
-            .collect();
-        assert!(
-            stale.is_empty(),
-            "done task without started_at should not produce stale-started-at warning"
-        );
+        Ok(self.with_document_ast(&params.text_document.uri, collect_folding_ranges))
     }
 }

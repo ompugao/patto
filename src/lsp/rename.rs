@@ -1,23 +1,43 @@
-//! `textDocument/rename` for notes and anchors.
+//! `textDocument/prepareRename` and `textDocument/rename` for notes and anchors.
 //!
-//! Both cases rewrite the same thing — every wiki link pointing at the renamed
-//! note — so they share `retarget_link_edits` and differ only in which links
-//! they touch and what they write.
+//! Both rename cases rewrite the same thing — every wiki link pointing at the
+//! renamed note — so they share `retarget_link_edits` and differ only in which
+//! links they touch and what they write.
 
 use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
 use tower_lsp::lsp_types::{
     DocumentChangeOperation, DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier,
-    Position, Range, RenameFile, RenameFileOptions, ResourceOp, TextDocumentEdit, TextEdit, Url,
-    WorkspaceEdit,
+    Position, PrepareRenameResponse, Range, RenameFile, RenameFileOptions, ResourceOp,
+    TextDocumentEdit, TextEdit, Url, WorkspaceEdit,
 };
 
-use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
-
-use crate::lsp::backend::{find_anchor_at_position, locate_node_route, Backend};
-use crate::parser::AstNodeKind;
+use crate::lsp::backend::Backend;
+use crate::lsp::locate::{
+    cursor_byte, find_anchor_at_position, line_str, locate_node_route, utf16_range, wiki_link_at,
+};
+use crate::parser::{AstNode, AstNodeKind};
 use crate::repository::{LinkLocation, Repository};
 
 impl Backend {
+    pub(super) fn prepare_rename_at(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<PrepareRenameResponse> {
+        let repository = self.repository.lock().unwrap();
+        let repo = repository.as_ref()?;
+        let ast = repo.ast_map.get(uri)?;
+        let rope = repo.document_map.get(uri)?;
+        let line = line_str(rope.value(), position.line)?;
+        let row = position.line as usize;
+        let col = cursor_byte(line, position);
+
+        let (range, placeholder) = anchor_rename_target(&ast, line, row, col)
+            .or_else(|| wiki_link_rename_target(&ast, line, row, col))
+            .or_else(|| current_note_rename_target(uri))?;
+        Some(PrepareRenameResponse::RangeWithPlaceholder { range, placeholder })
+    }
+
     pub(super) fn rename_workspace_edit(
         &self,
         uri: &Url,
@@ -61,9 +81,8 @@ impl Backend {
         let ast = repo.ast_map.get(uri)?;
         let rope = repo.document_map.get(uri)?;
 
-        let line = rope.value().get_line(position.line as usize)?;
-        let line_str = line.as_str()?;
-        let position_byte = utf16_to_byte_idx(line_str, position.character as usize);
+        let line_str = line_str(rope.value(), position.line)?;
+        let position_byte = cursor_byte(line_str, position);
 
         let (old_name, anchor_loc) =
             find_anchor_at_position(&ast, position.line as usize, position_byte)?;
@@ -92,15 +111,10 @@ impl Backend {
         };
 
         let definition_edit = TextEdit {
-            range: Range::new(
-                Position::new(
-                    anchor_loc.row as u32,
-                    utf16_from_byte_idx(line_str, anchor_loc.span.0) as u32,
-                ),
-                Position::new(
-                    anchor_loc.row as u32,
-                    utf16_from_byte_idx(line_str, anchor_loc.span.1) as u32,
-                ),
+            range: utf16_range(
+                line_str,
+                anchor_loc.row as u32,
+                (anchor_loc.span.0, anchor_loc.span.1),
             ),
             new_text: new_anchor_text,
         };
@@ -122,21 +136,12 @@ impl Backend {
         let ast = repo.ast_map.get(uri)?;
         let rope = repo.document_map.get(uri)?;
 
-        let line = rope.value().get_line(position.line as usize)?;
-        let line_str = line.as_str()?;
-        let position_byte = utf16_to_byte_idx(line_str, position.character as usize);
+        let line_str = line_str(rope.value(), position.line)?;
+        let position_byte = cursor_byte(line_str, position);
 
-        let link_at_cursor = locate_node_route(&ast, position.line as usize, position_byte)
-            .and_then(|route| {
-                route.iter().find_map(|node| match node.kind() {
-                    AstNodeKind::WikiLink { link, .. } => Some(link.clone()),
-                    _ => None,
-                })
-            });
-
-        let old_name = match link_at_cursor {
-            Some(name) => name,
-            None => uri.to_file_path().ok()?.file_stem()?.to_str()?.to_string(),
+        let old_name = match wiki_link_at(&ast, position.line as usize, position_byte) {
+            Some((link, _)) => link,
+            None => note_name(uri)?,
         };
 
         log::info!("Renaming note '{}' to '{}'", old_name, new_name);
@@ -177,6 +182,45 @@ impl Backend {
     }
 }
 
+fn anchor_rename_target(
+    ast: &AstNode,
+    line: &str,
+    row: usize,
+    col: usize,
+) -> Option<(Range, String)> {
+    let (name, location) = find_anchor_at_position(ast, row, col)?;
+    let range = utf16_range(line, row as u32, (location.span.0, location.span.1));
+    Some((range, name))
+}
+
+/// Only the note name is renamed: the `[` and any `#anchor]` stay in place.
+fn wiki_link_rename_target(
+    ast: &AstNode,
+    line: &str,
+    row: usize,
+    col: usize,
+) -> Option<(Range, String)> {
+    let route = locate_node_route(ast, row, col)?;
+    let (link, span_start) = route.iter().find_map(|node| match node.kind() {
+        AstNodeKind::WikiLink { link, .. } => Some((link.clone(), node.location().span.0)),
+        _ => None,
+    })?;
+    let name_start = span_start + 1;
+    let range = utf16_range(line, row as u32, (name_start, name_start + link.len()));
+    Some((range, link))
+}
+
+/// Away from any link or anchor the current note itself is renamed; there is
+/// no text to select, so the range is empty.
+fn current_note_rename_target(uri: &Url) -> Option<(Range, String)> {
+    let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+    Some((range, note_name(uri)?))
+}
+
+fn note_name(uri: &Url) -> Option<String> {
+    Some(uri.to_file_path().ok()?.file_stem()?.to_str()?.to_string())
+}
+
 /// Rewrite the links pointing at `target_uri` for which `replacement` yields
 /// new text, grouped one edit operation per source document.
 fn retarget_link_edits(
@@ -204,19 +248,9 @@ fn retarget_link_edits(
             .iter()
             .filter_map(|link| {
                 let new_text = replacement(link)?;
-                let line = source_rope.value().get_line(link.source_line)?;
-                let line_str = line.as_str()?;
+                let line = line_str(source_rope.value(), link.source_line as u32)?;
                 Some(TextEdit {
-                    range: Range::new(
-                        Position::new(
-                            link.source_line as u32,
-                            utf16_from_byte_idx(line_str, link.source_col_range.0) as u32,
-                        ),
-                        Position::new(
-                            link.source_line as u32,
-                            utf16_from_byte_idx(line_str, link.source_col_range.1) as u32,
-                        ),
-                    ),
+                    range: utf16_range(line, link.source_line as u32, link.source_col_range),
                     new_text,
                 })
             })
