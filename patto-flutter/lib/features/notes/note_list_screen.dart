@@ -2,20 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../core/providers.dart';
-import '../../src/rust/api/conflict.dart';
-import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
-import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
 import '../editor/editor_screen.dart';
 import '../inbox/inbox_sheet.dart';
 import '../search/search_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../workspaces/workspace_switcher.dart';
-import 'note_view_screen.dart';
+import 'note_providers.dart';
+import 'widgets/conflict_banner.dart';
+import 'widgets/note_list_filter.dart';
+import 'widgets/note_tile.dart';
 
 class NoteListScreen extends ConsumerStatefulWidget {
   const NoteListScreen({super.key});
@@ -42,31 +41,14 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
     });
   }
 
-  Future<void> _createNote() async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New note'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Note name'),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
+  void _clearQuery() {
+    _searchController.clear();
+    _onQueryChanged('');
+    setState(() {});
+  }
 
+  Future<void> _createNote() async {
+    final name = await _askNoteName(context);
     if (name == null || name.trim().isEmpty || !mounted) return;
 
     final workspace = await ref.read(workspaceProvider.future);
@@ -99,23 +81,8 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // The title names the workspace and opens the switcher: with several
-        // repositories it is the fastest way to tell them apart and move
-        // between them.
-        title: InkWell(
-          onTap: () => WorkspaceSwitcher.show(context),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  ref.watch(workspaceProvider).value?.config.name ?? 'Notes',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const Icon(Icons.arrow_drop_down),
-            ],
-          ),
+        title: _WorkspaceTitle(
+          name: ref.watch(workspaceProvider).value?.config.name ?? 'Notes',
         ),
         actions: [
           IconButton(
@@ -156,47 +123,12 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
       body: Column(
         children: [
           if (pending != null) ConflictBanner(pending: pending),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              onChanged: _onQueryChanged,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Filter by title',
-                prefixIcon: const Icon(Icons.search),
-                isDense: true,
-                border: const OutlineInputBorder(),
-                suffixIcon: _searchController.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _onQueryChanged('');
-                          setState(() {});
-                        },
-                      ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SegmentedButton<NoteSort>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: NoteSort.recent, label: Text('Recent')),
-                  ButtonSegment(value: NoteSort.linked, label: Text('Linked')),
-                  ButtonSegment(value: NoteSort.title, label: Text('Title')),
-                ],
-                selected: {sort},
-                onSelectionChanged: (s) =>
-                    ref.read(noteSortProvider.notifier).value = s.first,
-              ),
-            ),
+          NoteListFilter(
+            controller: _searchController,
+            onQueryChanged: _onQueryChanged,
+            onClear: _clearQuery,
+            sort: sort,
+            onSortChanged: (s) => ref.read(noteSortProvider.notifier).value = s,
           ),
           const SizedBox(height: 8),
           Expanded(
@@ -204,15 +136,15 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
               onRefresh: () async => SyncSheet.show(context),
               child: notes.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => _Message('Could not list notes.\n\n$e'),
+                error: (e, _) => NoteListMessage('Could not list notes.\n\n$e'),
                 data: (list) => list.isEmpty
-                    ? const _Message(
+                    ? const NoteListMessage(
                         'No notes yet. Use the new-note button above to create one.',
                       )
                     : ListView.builder(
                         key: const PageStorageKey('note-list'),
                         itemCount: list.length,
-                        itemBuilder: (context, i) => _NoteTile(
+                        itemBuilder: (context, i) => NoteTile(
                           note: list[i],
                           backlinks: counts[list[i].name] ?? 0,
                           conflicted: conflicted.contains(list[i].relPath),
@@ -227,104 +159,51 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen> {
   }
 }
 
-class _NoteTile extends StatelessWidget {
-  const _NoteTile({
-    required this.note,
-    required this.backlinks,
-    required this.conflicted,
-  });
+/// The title names the workspace and opens the switcher: with several
+/// repositories it is the fastest way to tell them apart and move between
+/// them.
+class _WorkspaceTitle extends StatelessWidget {
+  const _WorkspaceTitle({required this.name});
 
-  final NoteMeta note;
-  final int backlinks;
-
-  /// Changed on both sides and waiting for a merge.
-  final bool conflicted;
+  final String name;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final modified = DateTime.fromMillisecondsSinceEpoch(note.modifiedMs);
-
-    return ListTile(
-      title: Row(
+    return InkWell(
+      onTap: () => WorkspaceSwitcher.show(context),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (conflicted)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Icon(
-                Icons.warning_amber_rounded,
-                size: 18,
-                color: Colors.amber.shade800,
-              ),
-            ),
-          Flexible(child: Text(note.name, overflow: TextOverflow.ellipsis)),
+          Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
+          const Icon(Icons.arrow_drop_down),
         ],
       ),
-      subtitle: Text(DateFormat.yMMMd().add_Hm().format(modified)),
-      trailing: backlinks == 0
-          ? null
-          : Chip(
-              label: Text('$backlinks'),
-              visualDensity: VisualDensity.compact,
-              labelStyle: theme.textTheme.labelSmall,
-            ),
-      onTap: () => NoteViewScreen.open(context, note.relPath),
     );
   }
 }
 
-class _Message extends StatelessWidget {
-  const _Message(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(text, textAlign: TextAlign.center),
+Future<String?> _askNoteName(BuildContext context) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('New note'),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Note name'),
+        onSubmitted: (v) => Navigator.pop(context, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, controller.text),
+          child: const Text('Create'),
         ),
       ],
-    );
-  }
-}
-
-/// A standing reminder that a sync is paused, until the merge is done.
-class ConflictBanner extends StatelessWidget {
-  const ConflictBanner({super.key, required this.pending});
-
-  final PendingConflict pending;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final n = pending.files.length;
-    return Material(
-      color: Colors.amber.withValues(alpha: 0.18),
-      child: InkWell(
-        onTap: () => ConflictListScreen.open(context),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  n == 0
-                      ? 'A sync is paused. Sync again to finish.'
-                      : '$n ${n == 1 ? 'note is' : 'notes are'} waiting to '
-                            'be merged',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }

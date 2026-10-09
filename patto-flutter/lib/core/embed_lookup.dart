@@ -78,9 +78,7 @@ class EmbedLookup {
     final html = StringBuffer();
     var size = 0;
     var tail = '';
-    await for (final chunk in response.transform(
-      const Utf8Decoder(allowMalformed: true),
-    )) {
+    await for (final chunk in _text(response)) {
       html.write(chunk);
       size += chunk.length;
       // Carry the previous chunk's end over, in case the tag straddles two.
@@ -97,15 +95,16 @@ class EmbedLookup {
     final response = await _get(uri);
     if (response == null) return null;
     final body = StringBuffer();
-    await for (final chunk in response.transform(
-      const Utf8Decoder(allowMalformed: true),
-    )) {
+    await for (final chunk in _text(response)) {
       body.write(chunk);
       if (body.length > maxBytes) return null;
     }
     final decoded = jsonDecode(body.toString());
     return decoded is Map<String, Object?> ? decoded : null;
   }
+
+  static Stream<String> _text(HttpClientResponse response) =>
+      response.transform(const Utf8Decoder(allowMalformed: true));
 
   /// A successful response in UTF-8. Bodies are decoded as UTF-8 and a lookup
   /// is kept for the life of the app, so a page declaring another charset is

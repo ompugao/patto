@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
-import '../../src/rust/api/error.dart';
 import '../../src/rust/api/events.dart';
 import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
-import '../conflicts/conflict_list_screen.dart';
 import '../conflicts/conflict_state.dart';
 import '../notes/widgets/note_image.dart';
 import '../settings/settings_screen.dart';
+import 'git_identity.dart';
+import 'sync_messages.dart';
+import 'sync_providers.dart';
+import 'widgets/paused_card.dart';
 
 /// Shows what is uncommitted, and runs commit, pull and push.
 class SyncSheet extends ConsumerStatefulWidget {
@@ -39,7 +41,8 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
 
     if (workspace == null || !workspace.config.hasRemote) {
       setState(
-        () => _error = 'Set this workspace\'s repository URL in settings first.',
+        () =>
+            _error = 'Set this workspace\'s repository URL in settings first.',
       );
       return;
     }
@@ -55,21 +58,16 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
       final stream = rust.gitSync(
         root: workspace.root,
         attachmentsDir: workspace.config.attachmentsDir,
-        authorName: settings.authorName.isEmpty ? 'Patto' : settings.authorName,
-        authorEmail: settings.authorEmail.isEmpty
-            ? 'patto@localhost'
-            : settings.authorEmail,
-        creds: GitCreds(
-          username: workspace.config.username,
-          token: workspace.config.token,
-        ),
+        authorName: settings.commitAuthorName,
+        authorEmail: settings.commitAuthorEmail,
+        creds: gitCredsFor(workspace.config),
       );
 
       await for (final event in stream) {
         if (!mounted) return;
         switch (event) {
           case SyncEvent_Progress(:final progress):
-            setState(() => _phase = _phaseLabel(progress));
+            setState(() => _phase = syncPhaseLabel(progress));
           case SyncEvent_Done(:final report):
             setState(() {
               _running = false;
@@ -84,7 +82,7 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
           case SyncEvent_Failed(:final failure):
             setState(() {
               _running = false;
-              _error = _advice(failure);
+              _error = syncAdvice(failure);
             });
         }
       }
@@ -99,36 +97,6 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
       }
     }
   }
-
-  /// Turn a failure into something the user can act on.
-  String _advice(Failure failure) => switch (failure.gitKind) {
-    GitErrorKind.auth =>
-      'The server rejected the credentials. Check the username and token.',
-    GitErrorKind.network => 'Could not reach the server. Check the connection.',
-    GitErrorKind.certificate =>
-      'The server certificate could not be verified.\n\n${failure.message}',
-    GitErrorKind.noRemote => 'This clone has no "origin" remote.',
-    GitErrorKind.notARepo =>
-      'The notes folder is not a git repository. Clone again.',
-    GitErrorKind.nonFastForward => 'The remote moved on while syncing. Try again.',
-    GitErrorKind.conflict =>
-      'The merge could not be resolved here. Resolve it on the desktop.',
-    GitErrorKind.stale =>
-      'Something changed while you were resolving. Review the conflicts again.',
-    _ => failure.message,
-  };
-
-  String _phaseLabel(GitProgress p) => switch (p.phase) {
-    GitPhase.connecting => 'Connecting',
-    GitPhase.counting => 'Counting objects',
-    GitPhase.receiving => 'Receiving ${p.current}/${p.total}',
-    GitPhase.resolving => 'Resolving',
-    GitPhase.checkingOut => 'Checking out',
-    GitPhase.committing => 'Committing',
-    GitPhase.merging => 'Merging',
-    GitPhase.pushing => 'Pushing',
-    GitPhase.done => 'Done',
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -168,24 +136,7 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
               error: (e, _) => Text('$e'),
               data: (s) => s == null
                   ? const Text('No repository cloned yet.')
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Branch: ${s.branch}'),
-                        Text(
-                          '${s.dirty.length} changed, '
-                          '${s.ahead} to push, ${s.behind} to pull',
-                        ),
-                        if (s.dirty.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              s.dirty.take(6).join('\n'),
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                      ],
-                    ),
+                  : _StatusSummary(status: s),
             ),
             const SizedBox(height: 16),
             if (_running) ...[
@@ -196,24 +147,14 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
             if (_report case SyncReport(
               merge: MergeOutcome_Conflicted(:final sideBranch, :final paths),
             ))
-              _PausedCard(sideBranch: sideBranch, count: paths.length)
+              PausedCard(sideBranch: sideBranch, count: paths.length)
             else if (_report != null)
               Text(
-                [
-                  if (_report!.committed) 'Committed',
-                  switch (_report!.merge) {
-                    MergeOutcome_UpToDate() => 'Already up to date',
-                    MergeOutcome_FastForward() => 'Fast-forwarded',
-                    MergeOutcome_Merged() => 'Merged',
-                    MergeOutcome_Conflicted() => 'Paused',
-                  },
-                  if (_report!.pushed) 'Pushed',
-                  if (_report!.conflictCleared) 'Conflicts resolved',
-                ].join(' · '),
+                syncReportSummary(_report!),
                 style: theme.textTheme.bodyMedium,
               )
             else if (status.value?.conflictPending ?? false)
-              const _PausedCard(),
+              const PausedCard(),
             if (_error != null)
               Container(
                 width: double.infinity,
@@ -243,66 +184,32 @@ class _SyncSheetState extends ConsumerState<SyncSheet> {
   }
 }
 
-/// Says the sync stopped short of merging, why that is safe, and where to go.
-class _PausedCard extends StatelessWidget {
-  const _PausedCard({this.sideBranch, this.count});
+/// The branch, the counts and the first few changed files.
+class _StatusSummary extends StatelessWidget {
+  const _StatusSummary({required this.status});
 
-  /// Set right after the sync that paused; otherwise the pause is older.
-  final String? sideBranch;
-  final int? count;
+  final GitStatus status;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final n = count;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.amber.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
-              const SizedBox(width: 8),
-              Text('Sync paused', style: theme.textTheme.titleSmall),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            [
-              n == null
-                  ? 'Some notes changed both here and on another device.'
-                  : '$n ${n == 1 ? 'note' : 'notes'} changed both here and '
-                        'on another device.',
-              sideBranch == null
-                  ? 'Your edits are safe on the remote.'
-                  : 'Your edits are safe: they were pushed to $sideBranch.',
-              'Resolve them here, or merge that branch on your desktop.',
-            ].join(' '),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                // The sheet's context is gone once it is popped.
-                final navigator = Navigator.of(context);
-                navigator.pop();
-                navigator.push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ConflictListScreen(),
-                  ),
-                );
-              },
-              child: const Text('Review conflicts'),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Branch: ${status.branch}'),
+        Text(
+          '${status.dirty.length} changed, '
+          '${status.ahead} to push, ${status.behind} to pull',
+        ),
+        if (status.dirty.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              status.dirty.take(6).join('\n'),
+              style: theme.textTheme.bodySmall,
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

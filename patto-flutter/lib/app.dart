@@ -5,14 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/providers.dart';
 import 'core/quick_note_intents.dart';
-import 'features/notes/note_list_screen.dart';
+import 'core/workspace.dart';
 import 'features/inbox/inbox_entry.dart';
 import 'features/inbox/inbox_sheet.dart';
+import 'features/notes/note_list_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/workspace_editor.dart';
 import 'features/tasks/tasks_screen.dart';
 import 'features/workspaces/workspace_switcher.dart';
-import 'core/workspace.dart';
 
 class PattoApp extends ConsumerWidget {
   const PattoApp({super.key});

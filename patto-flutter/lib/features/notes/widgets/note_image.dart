@@ -272,7 +272,6 @@ class _ImageLightboxState extends State<ImageLightbox>
                 child: Image(
                   image: _provider,
                   fit: BoxFit.contain,
-                  filterQuality: FilterQuality.medium,
                   errorBuilder: (context, _, _) =>
                       _Broken(alt: widget.image.alt ?? widget.image.src),
                 ),
