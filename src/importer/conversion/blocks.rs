@@ -58,28 +58,33 @@ impl Conversion<'_> {
         );
     }
 
+    /// Headings and list items collect their paragraph's inline content
+    /// themselves, so only a top-level paragraph opens a line.
     pub(super) fn start_paragraph(&mut self) {
-        if self.heading.is_none() && self.line_node.is_none() {
+        if self.heading.is_none() && self.line_node.is_none() && !self.in_list_item() {
             self.line_node = Some(AstNode::line("", self.line, None, None));
         }
     }
 
     pub(super) fn end_paragraph(&mut self) {
+        if let Some(quote) = self.quote.clone() {
+            let quote_content = AstNode::quotecontent("", self.line, None, None);
+            self.flush_pending_into(&quote_content);
+            quote.add_child(quote_content);
+            self.line_node = None;
+            return;
+        }
+
+        if self.in_list_item() {
+            self.write_item_line();
+            return;
+        }
+
         let Some(line_node) = self.line_node.take() else {
             return;
         };
         self.flush_pending_into(&line_node);
-
-        match self.quote.as_ref() {
-            None => self.root.add_child(line_node),
-            Some(quote) => {
-                let quote_content = AstNode::quotecontent("", self.line, None, None);
-                for content in line_node.contents().iter() {
-                    quote_content.add_content(content.clone());
-                }
-                quote.add_child(quote_content);
-            }
-        }
+        self.root.add_child(line_node);
     }
 
     pub(super) fn start_quote(&mut self) {

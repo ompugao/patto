@@ -4,66 +4,98 @@ use crate::parser::AstNode;
 /// Nesting of the lists currently open.
 #[derive(Default)]
 pub(super) struct Lists {
-    /// One entry per open list, `true` when that list is ordered.
-    pub(super) stack: Vec<bool>,
+    /// Number of lists open around the current position.
+    open: usize,
     /// Line the outermost list hangs from.
-    pub(super) root: Option<AstNode>,
-    /// Depth of the item being built, i.e. the stack size when it started.
-    pub(super) depth: usize,
-    /// `Some` while building a task list item, holding its checkbox state.
-    pub(super) task_checked: Option<bool>,
+    root: Option<AstNode>,
+    /// One entry per open item, innermost last.
+    items: Vec<ListItem>,
+}
+
+/// A list item between its start and end events.
+struct ListItem {
+    /// Lists open when the item started, which is its depth under the list root.
+    depth: usize,
+    /// `Some` for a task list item, holding its checkbox state.
+    task_checked: Option<bool>,
+    /// The item's line, once written. A nested list or a paragraph break
+    /// forces it out before the item ends; whatever follows hangs under it.
+    line: Option<AstNode>,
 }
 
 impl Conversion<'_> {
-    pub(super) fn start_list(&mut self, ordered: bool) {
-        // A nested list interrupts its parent item, so close that item's line first.
-        if let Some(line_node) = self.line_node.take() {
-            self.flush_pending_into(&line_node);
-            if self.lists.task_checked.take().is_some() {
-                self.report.statistics.increment_feature("tasks");
-            }
-            self.attach_list_item(line_node);
-        }
+    pub(super) fn start_list(&mut self) {
+        // A nested list interrupts its parent item: write the parent's line
+        // now so the nested items have something to hang from.
+        self.write_item_line();
 
-        if self.lists.stack.is_empty() {
+        if self.lists.open == 0 {
             let list_root = AstNode::line("", self.line, None, None);
             self.root.add_child(list_root.clone());
             self.lists.root = Some(list_root);
         }
 
-        self.lists.stack.push(ordered);
+        self.lists.open += 1;
         self.report.statistics.increment_feature("lists");
     }
 
     pub(super) fn end_list(&mut self) {
-        self.lists.stack.pop();
-        self.lists.depth = self.lists.stack.len();
-        if self.lists.stack.is_empty() {
+        self.lists.open -= 1;
+        if self.lists.open == 0 {
             self.lists.root = None;
         }
     }
 
     pub(super) fn start_item(&mut self) {
-        self.lists.depth = self.lists.stack.len();
-        self.lists.task_checked = None;
-        self.line_node = Some(AstNode::line("", self.line, None, None));
+        self.lists.items.push(ListItem {
+            depth: self.lists.open,
+            task_checked: None,
+            line: None,
+        });
     }
 
     pub(super) fn end_item(&mut self) {
-        let checked = self.lists.task_checked.take();
-        let properties = checked.map(|checked| self.task_property(checked));
-
-        let line_node = AstNode::line("", self.line, None, properties);
-        self.flush_pending_into(&line_node);
-
-        // The line created on Tag::Item was only a placeholder.
-        self.line_node = None;
-        self.attach_list_item(line_node);
+        self.write_item_line();
+        self.lists.items.pop();
     }
 
-    fn attach_list_item(&self, line_node: AstNode) {
+    pub(super) fn set_task_checked(&mut self, checked: bool) {
+        if let Some(item) = self.lists.items.last_mut() {
+            item.task_checked = Some(checked);
+        }
+    }
+
+    pub(super) fn in_list_item(&self) -> bool {
+        !self.lists.items.is_empty()
+    }
+
+    /// Write the pending inline content as the innermost item's line, or as
+    /// a child of that line when it has already been written.
+    pub(super) fn write_item_line(&mut self) {
+        let Some(item) = self.lists.items.last() else {
+            return;
+        };
+
+        if let Some(line) = item.line.clone() {
+            if self.pending.is_empty() {
+                return;
+            }
+            let continuation = AstNode::line("", self.line, None, None);
+            self.flush_pending_into(&continuation);
+            line.add_child(continuation);
+            return;
+        }
+
+        let depth = item.depth;
+        let properties = item.task_checked.map(|checked| self.task_property(checked));
+        let line = AstNode::line("", self.line, None, properties);
+        self.flush_pending_into(&line);
+
         let parent = self.lists.root.as_ref().unwrap_or(&self.root);
-        add_child_at_depth(parent, line_node, self.lists.depth);
+        add_child_at_depth(parent, line.clone(), depth);
+        if let Some(item) = self.lists.items.last_mut() {
+            item.line = Some(line);
+        }
     }
 }
 

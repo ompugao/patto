@@ -89,7 +89,7 @@ impl<'a> Conversion<'a> {
             Event::Html(html) => self.html(&html)?,
             Event::SoftBreak | Event::HardBreak => self.line += 1,
             Event::Rule => self.rule(),
-            Event::TaskListMarker(checked) => self.lists.task_checked = Some(checked),
+            Event::TaskListMarker(checked) => self.set_task_checked(checked),
             Event::FootnoteReference(name) => self.footnote_reference(&name)?,
             _ => {}
         }
@@ -99,7 +99,7 @@ impl<'a> Conversion<'a> {
     fn start(&mut self, tag: Tag) -> Result<(), ImportError> {
         match tag {
             Tag::Heading { level, .. } => self.start_heading(level),
-            Tag::List(ordered) => self.start_list(ordered.is_some()),
+            Tag::List(_) => self.start_list(),
             Tag::Item => self.start_item(),
             Tag::CodeBlock(kind) => self.start_code_block(kind),
             Tag::BlockQuote(_) => self.start_quote(),
