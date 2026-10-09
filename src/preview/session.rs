@@ -193,6 +193,10 @@ impl PreviewSession {
     async fn select_file(&mut self, path: &str) {
         eprintln!("Client selected file: {}", path);
         let file_path = self.state.repository.root_dir.join(path);
+        if !super::within_root(&self.state.repository.root_dir, &file_path) {
+            eprintln!("Refusing a path outside the notes directory: {}", path);
+            return;
+        }
 
         let Ok(content) = tokio::fs::read_to_string(&file_path).await else {
             eprintln!("Error reading file: {}", file_path.display());
