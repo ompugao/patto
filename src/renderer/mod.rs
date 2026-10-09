@@ -32,7 +32,6 @@ fn wiki_target<'a>(link: &'a str, anchor: Option<&'a str>) -> WikiTarget<'a> {
     }
 }
 
-/// The body of a code or math block: one child per line, each after `prefix`.
 fn write_lines(ast: &AstNode, output: &mut dyn Write, prefix: &str) -> io::Result<()> {
     for child in ast.children().iter() {
         writeln!(output, "{}{}", prefix, child.extract_str())?;

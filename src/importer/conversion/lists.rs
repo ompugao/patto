@@ -99,8 +99,6 @@ impl Conversion<'_> {
     }
 }
 
-/// Attach `child` under the item chain of `root`, `depth` levels down.
-/// `depth <= 1` makes it a direct child.
 fn add_child_at_depth(root: &AstNode, child: AstNode, depth: usize) {
     if depth <= 1 {
         root.add_child(child);
