@@ -229,12 +229,10 @@ impl ImageCache {
         }
     }
 
-    /// Get a mutable reference to a cached image entry.
     pub(crate) fn get_mut(&mut self, src: &str) -> Option<&mut CachedImage> {
         self.cache.get_mut(src)
     }
 
-    /// Clear all cached images and their stored heights.
     pub(crate) fn clear(&mut self) {
         self.cache.clear();
         self.remote.clear();

@@ -9,15 +9,12 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use patto::{line_tracker::LineTracker, parser, repository::Repository};
 use std::path::{Path, PathBuf};
 
-/// Action returned by `App::handle_key()` to signal side-effects to the caller.
+/// Side effect requested by `App::handle_key()`.
 ///
-/// Follows an Elm-like command pattern: `App` mutates its own state and returns
-/// a command; `main` executes the side-effecting part (terminal manipulation,
-/// spawning processes).
+/// `App` mutates its own state and returns a command; `main` performs the
+/// part that touches the terminal or spawns processes.
 pub(crate) enum AppAction {
-    /// No side-effect needed; continue the event loop.
     None,
-    /// Exit the event loop.
     Quit,
     /// Launch an external editor. The caller handles terminal suspend/quit/bg.
     LaunchEditor {
@@ -26,14 +23,13 @@ pub(crate) enum AppAction {
     },
 }
 
-/// Saved navigation state for back-navigation.
 pub(crate) struct NavigationEntry {
     pub(crate) file_path: PathBuf,
     pub(crate) scroll_offset: usize,
 }
 
-/// Snapshot of the view taken when the tasks panel is opened, so that `Esc`
-/// can restore it without committing a navigation history entry.
+/// The view as it was when the tasks panel opened, so that `Esc` can restore
+/// it without committing a navigation history entry.
 pub(crate) struct TaskPreviewState {
     pub(crate) file_path: PathBuf,
     pub(crate) scroll_offset: usize,
@@ -55,24 +51,96 @@ pub(crate) struct App {
     /// String prepended to continuation rows when wrap is on (vim `showbreak`).
     pub(crate) showbreak: String,
     pub(crate) line_tracker: LineTracker,
-    /// Index into `rendered_doc.focusables` of the currently focused item. None = no focus.
+    /// Index into `rendered_doc.focusables` of the currently focused item.
     pub(crate) focused_item_idx: Option<usize>,
-    /// Navigation history for back-navigation.
     pub(crate) nav_history: Vec<NavigationEntry>,
-    /// Image loading, caching, and display.
     pub(crate) images: ImageCache,
-    /// Backlinks/two-hop-links panel.
     pub(crate) backlinks: BacklinksPanel,
-    /// Tasks panel.
     pub(crate) tasks: TasksPanel,
-    /// Snapshot saved when tasks panel opens; restored on Esc.
     pub(crate) task_preview_state: Option<TaskPreviewState>,
-    /// TUI configuration (loaded once at startup).
     pub(crate) tui_config: config::TuiConfig,
-    /// syntect theme name for code block syntax highlighting.
-    pub(crate) syntax_theme: String,
     /// Active incremental search state. `None` when no search is active.
     pub(crate) search: Option<SearchState>,
+}
+
+enum Scroll {
+    Down(usize),
+    Up(usize),
+    Top,
+    Bottom,
+}
+
+fn scroll_for_key(code: KeyCode, modifiers: KeyModifiers, page: usize) -> Option<Scroll> {
+    Some(match (code, modifiers) {
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Scroll::Down(1),
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Scroll::Up(1),
+        (KeyCode::PageDown, _)
+        | (KeyCode::Char(' '), _)
+        | (KeyCode::Char('f'), KeyModifiers::CONTROL) => Scroll::Down(page),
+        (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => Scroll::Up(page),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => Scroll::Down(page / 2),
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => Scroll::Up(page / 2),
+        (KeyCode::Char('g'), _) | (KeyCode::Home, _) => Scroll::Top,
+        (KeyCode::Char('G'), _) | (KeyCode::End, _) => Scroll::Bottom,
+        _ => return None,
+    })
+}
+
+/// What a key does to the search prompt, and what has to follow it.
+enum SearchKey {
+    Cancel,
+    Confirm,
+    /// Changes the query, so the matches are recomputed.
+    EditQuery(fn(&mut SearchState)),
+    MoveCursor(fn(&mut SearchState)),
+    /// Moves between matches, so the view jumps to the current one.
+    StepMatch(fn(&mut SearchState)),
+    Insert(char),
+}
+
+fn search_key(code: KeyCode, modifiers: KeyModifiers) -> Option<SearchKey> {
+    use SearchKey::*;
+    Some(match (code, modifiers) {
+        (KeyCode::Esc, _) => Cancel,
+        (KeyCode::Enter, _) => Confirm,
+        (KeyCode::Backspace, _) | (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
+            EditQuery(SearchState::delete_before_cursor)
+        }
+        (KeyCode::Delete, _) => EditQuery(SearchState::delete_after_cursor),
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+            EditQuery(SearchState::delete_word_before_cursor)
+        }
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => EditQuery(SearchState::delete_to_start),
+        (KeyCode::Left, KeyModifiers::NONE) => MoveCursor(SearchState::move_left),
+        (KeyCode::Right, KeyModifiers::NONE) => MoveCursor(SearchState::move_right),
+        (KeyCode::Left, KeyModifiers::CONTROL) | (KeyCode::Left, KeyModifiers::SHIFT) => {
+            MoveCursor(SearchState::move_word_left)
+        }
+        (KeyCode::Right, KeyModifiers::CONTROL) | (KeyCode::Right, KeyModifiers::SHIFT) => {
+            MoveCursor(SearchState::move_word_right)
+        }
+        (KeyCode::Char('b'), KeyModifiers::CONTROL) | (KeyCode::Home, _) => {
+            MoveCursor(SearchState::move_to_start)
+        }
+        (KeyCode::Char('e'), KeyModifiers::CONTROL) | (KeyCode::End, _) => {
+            MoveCursor(SearchState::move_to_end)
+        }
+        (KeyCode::Down, _) => StepMatch(SearchState::next_match),
+        (KeyCode::Up, _) => StepMatch(SearchState::prev_match),
+        (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            Insert(c)
+        }
+        _ => return None,
+    })
+}
+
+fn open_url(root_dir: &Path, url: &str) {
+    let target = if url.contains("://") {
+        url.to_string()
+    } else {
+        format!("file://{}", root_dir.join(url).to_string_lossy())
+    };
+    let _ = open::that_detached(&target);
 }
 
 impl App {
@@ -102,12 +170,9 @@ impl App {
             tasks: TasksPanel::new(),
             task_preview_state: None,
             tui_config: config::TuiConfig::default(),
-            syntax_theme: String::new(),
             search: None,
         }
     }
-
-    // --- Wrap-aware height ---
 
     /// `WrapConfig` derived from the current app state.
     pub(crate) fn wrap_config(&self) -> Option<WrapConfig> {
@@ -141,8 +206,6 @@ impl App {
         )
     }
 
-    // --- Scrolling ---
-
     pub(crate) fn scroll_down(&mut self, amount: usize) {
         let max = self.total_display_height().saturating_sub(1);
         self.scroll_offset = (self.scroll_offset + amount).min(max);
@@ -160,21 +223,26 @@ impl App {
         self.scroll_offset = self.total_display_height().saturating_sub(1);
     }
 
-    // --- Rendering ---
+    fn scroll(&mut self, scroll: Scroll) {
+        match scroll {
+            Scroll::Down(rows) => self.scroll_down(rows),
+            Scroll::Up(rows) => self.scroll_up(rows),
+            Scroll::Top => self.scroll_to_top(),
+            Scroll::Bottom => self.scroll_to_bottom(),
+        }
+    }
 
     pub(crate) fn re_render(&mut self, content: &str) {
         let result =
             parser::parse_text_with_persistent_line_tracking(content, &mut self.line_tracker);
-        self.rendered_doc = tui_renderer::render_ast(&result.ast, Some(self.syntax_theme.as_str()));
+        self.rendered_doc =
+            tui_renderer::render_ast(&result.ast, Some(self.tui_config.syntax_theme.as_str()));
     }
 
-    /// Return a reference to the currently focused item, if any.
     pub(crate) fn focused_item(&self) -> Option<&FocusableItem> {
         self.focused_item_idx
             .and_then(|idx| self.rendered_doc.focusables.get(idx))
     }
-
-    // --- Focus ---
 
     /// Indices (into `rendered_doc.focusables`) of focusable items visible in the viewport.
     fn visible_focusable_indices(&self) -> Vec<usize> {
@@ -247,9 +315,23 @@ impl App {
         }
     }
 
-    // --- Navigation ---
+    fn push_history(&mut self) {
+        self.nav_history.push(NavigationEntry {
+            file_path: self.file_path.clone(),
+            scroll_offset: self.scroll_offset,
+        });
+    }
 
-    /// Navigate to a wiki-linked note. Saves current state in history.
+    /// Show `content` as `path`, scrolled to the top.
+    fn show_file(&mut self, path: PathBuf, content: &str) {
+        self.file_path = path;
+        self.scroll_offset = 0;
+        self.focused_item_idx = None;
+        self.images.fullscreen_src = None;
+        self.re_render(content);
+    }
+
+    /// Navigate to a wiki-linked note, recording the current view in history.
     pub(crate) fn open_note(&mut self, name: &str, anchor: Option<&str>) -> bool {
         let target_path = if name.ends_with(".pn") {
             self.root_dir.join(name)
@@ -261,21 +343,12 @@ impl App {
             return false;
         }
 
-        let content = match std::fs::read_to_string(&target_path) {
-            Ok(c) => c,
-            Err(_) => return false,
+        let Ok(content) = std::fs::read_to_string(&target_path) else {
+            return false;
         };
 
-        self.nav_history.push(NavigationEntry {
-            file_path: self.file_path.clone(),
-            scroll_offset: self.scroll_offset,
-        });
-
-        self.file_path = target_path;
-        self.scroll_offset = 0;
-        self.focused_item_idx = None;
-        self.images.fullscreen_src = None;
-        self.re_render(&content);
+        self.push_history();
+        self.show_file(target_path, &content);
 
         if let Some(anchor_text) = anchor {
             self.scroll_to_anchor(anchor_text);
@@ -284,56 +357,24 @@ impl App {
         true
     }
 
-    /// Navigate to a file by path. Saves current state in history.
-    #[allow(dead_code)]
-    pub(crate) fn open_file(&mut self, path: &Path) -> bool {
-        if !path.exists() || !path.is_file() {
+    pub(crate) fn go_back(&mut self) -> bool {
+        let Some(entry) = self.nav_history.pop() else {
             return false;
-        }
-
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return false,
         };
-
-        self.nav_history.push(NavigationEntry {
-            file_path: self.file_path.clone(),
-            scroll_offset: self.scroll_offset,
-        });
-
-        self.file_path = path.to_path_buf();
-        self.scroll_offset = 0;
-        self.focused_item_idx = None;
-        self.images.fullscreen_src = None;
-        self.re_render(&content);
+        let Ok(content) = std::fs::read_to_string(&entry.file_path) else {
+            return false;
+        };
+        self.show_file(entry.file_path, &content);
+        self.scroll_offset = entry.scroll_offset;
         true
     }
 
-    /// Go back in navigation history.
-    pub(crate) fn go_back(&mut self) -> bool {
-        if let Some(entry) = self.nav_history.pop() {
-            let content = match std::fs::read_to_string(&entry.file_path) {
-                Ok(c) => c,
-                Err(_) => return false,
-            };
-            self.file_path = entry.file_path;
-            self.scroll_offset = entry.scroll_offset;
-            self.focused_item_idx = None;
-            self.images.fullscreen_src = None;
-            self.re_render(&content);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Try to scroll to a heading/anchor matching the given text.
+    /// Scroll to the element defining `anchor`, or failing that to the first
+    /// line that starts with the anchor text.
     fn scroll_to_anchor(&mut self, anchor: &str) {
         let anchor_lower = anchor.to_lowercase();
 
-        // First, try exact anchor match via the anchor map
         if let Some(&elem_idx) = self.rendered_doc.anchors.get(&anchor_lower) {
-            // Calculate scroll offset by summing heights of elements before target
             let mut row = 0usize;
             for (i, elem) in self.rendered_doc.elements.iter().enumerate() {
                 if i == elem_idx {
@@ -344,15 +385,13 @@ impl App {
             }
         }
 
-        // Fallback: text-based search (skip self-links by requiring the anchor
-        // to appear at the start of non-whitespace content)
+        // Requiring the anchor at the start of the content skips the
+        // self-links that mention it.
         let mut row = 0usize;
         for elem in &self.rendered_doc.elements {
             if let DocElement::TextLine(line, _) = elem {
                 let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-                let trimmed = text.trim_start();
-                // Match if line starts with the anchor text (heading-like)
-                if trimmed.to_lowercase().starts_with(&anchor_lower) {
+                if text.trim_start().to_lowercase().starts_with(&anchor_lower) {
                     self.scroll_offset = row;
                     return;
                 }
@@ -382,7 +421,7 @@ impl App {
     /// Scroll to the element whose stored source row matches the given 1-indexed line number.
     /// Used for `--goto-line` (user-facing, 1-indexed).
     pub(crate) fn scroll_to_source_line(&mut self, line: usize) {
-        let target_row = line.saturating_sub(1); // convert to 0-indexed
+        let target_row = line.saturating_sub(1);
         let mut display_row = 0usize;
         for elem in &self.rendered_doc.elements {
             if let DocElement::TextLine(_, source_row) = elem {
@@ -396,8 +435,8 @@ impl App {
         self.scroll_offset = display_row.saturating_sub(self.viewport_height);
     }
 
-    /// Return the 1-indexed source line number visible at the current scroll position.
-    /// This is the viewport's top line, used for `{top_line}` in editor commands.
+    /// The 1-indexed source line at the top of the viewport, used for
+    /// `{top_line}` in editor commands.
     pub(crate) fn source_line_at_offset(&self) -> usize {
         let mut display_row = 0usize;
         let mut last_source_row = 0usize;
@@ -410,25 +449,19 @@ impl App {
             }
             display_row += self.elem_display_height(elem);
         }
-        last_source_row + 1 // convert to 1-indexed
+        last_source_row + 1
     }
 
-    /// Return the 1-indexed source line of the currently focused item (Tab-selected link/image),
-    /// or `None` if nothing is focused. Used for `{line}` in editor commands.
+    /// The 1-indexed source line of the focused item, used for `{line}` in
+    /// editor commands.
     pub(crate) fn source_line_of_focused_item(&self) -> Option<usize> {
         let fi = self.focused_item()?;
-        if let Some(DocElement::TextLine(_, source_row)) =
-            self.rendered_doc.elements.get(fi.elem_idx)
-        {
-            Some(source_row + 1)
-        } else {
-            None
+        match self.rendered_doc.elements.get(fi.elem_idx) {
+            Some(DocElement::TextLine(_, source_row)) => Some(source_row + 1),
+            _ => None,
         }
     }
 
-    // --- Search ---
-
-    /// Compute per-element cumulative display row offsets.
     /// `result[i]` = display row at which element `i` starts.
     fn elem_display_offsets(&self) -> Vec<usize> {
         let mut offsets = Vec::with_capacity(self.rendered_doc.elements.len());
@@ -465,12 +498,15 @@ impl App {
         }
     }
 
-    // --- Input handling ---
+    fn edit_search(&mut self, edit: impl FnOnce(&mut SearchState)) {
+        if let Some(search) = &mut self.search {
+            edit(search);
+        }
+    }
 
-    /// Unified key dispatcher (Elm-like update function).
-    ///
-    /// Dispatches to the appropriate sub-handler based on current mode and returns
-    /// an `AppAction` describing any side-effect (`main` should perform.
+    /// Dispatch a key to the handler for the current mode. Modes take
+    /// priority in the order tasks panel, backlinks popup, search prompt,
+    /// normal view.
     pub(crate) async fn handle_key(
         &mut self,
         repository: &Repository,
@@ -478,9 +514,8 @@ impl App {
         modifiers: KeyModifiers,
         viewport_height: usize,
     ) -> AppAction {
-        // Mode priority: tasks panel > backlinks popup > search input > normal
         if self.tasks.visible {
-            return self.handle_tasks_key(repository, code, modifiers).await;
+            return self.handle_tasks_key(repository, code, modifiers);
         }
 
         if self.backlinks.visible {
@@ -496,7 +531,6 @@ impl App {
             .await
     }
 
-    /// Handle a key event while the backlinks popup is open.
     async fn handle_backlinks_key(
         &mut self,
         repository: &Repository,
@@ -530,8 +564,7 @@ impl App {
         AppAction::None
     }
 
-    /// Handle a key event while the tasks panel is open.
-    async fn handle_tasks_key(
+    fn handle_tasks_key(
         &mut self,
         repository: &Repository,
         code: KeyCode,
@@ -547,47 +580,23 @@ impl App {
             }
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
                 self.tasks.navigate_down();
-                self.load_task_preview(repository).await;
+                self.load_task_preview();
             }
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
                 self.tasks.navigate_up();
-                self.load_task_preview(repository).await;
+                self.load_task_preview();
             }
-            (KeyCode::Enter, _) => {
-                if let Some((uri, line)) = self.tasks.resolve_cursor() {
-                    // Commit the navigation: drop preview state, keep current view.
-                    self.task_preview_state = None;
-                    self.tasks.close();
-                    if let Ok(path) = uri.to_file_path() {
-                        if path != self.file_path {
-                            // Push history so the user can go back.
-                            let content = match std::fs::read_to_string(&path) {
-                                Ok(c) => c,
-                                Err(_) => return AppAction::None,
-                            };
-                            self.nav_history.push(crate::app::NavigationEntry {
-                                file_path: self.file_path.clone(),
-                                scroll_offset: self.scroll_offset,
-                            });
-                            self.file_path = path;
-                            self.re_render(&content);
-                        }
-                        self.scroll_to_line(line);
-                    }
-                }
-            }
+            (KeyCode::Enter, _) => self.commit_task_selection(),
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => return AppAction::Quit,
             _ => {}
         }
         AppAction::None
     }
 
-    /// Open the tasks panel: save current view as a preview snapshot, then
-    /// load the first task's file as the background preview.
+    /// Open the tasks panel over a snapshot of the current view, and preview
+    /// the first task's file behind it.
     pub(crate) async fn open_tasks_panel(&mut self, repository: &Repository) {
-        // Mutually exclusive with backlinks.
         self.backlinks.close();
-        // Save current view (store raw content so we can re-render on restore).
         let saved_content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
         self.task_preview_state = Some(TaskPreviewState {
             file_path: self.file_path.clone(),
@@ -596,7 +605,7 @@ impl App {
         });
         self.tasks.refresh(repository);
         self.tasks.open();
-        self.load_task_preview(repository).await;
+        self.load_task_preview();
     }
 
     /// Restore the view snapshot saved when the tasks panel was opened.
@@ -609,8 +618,9 @@ impl App {
         self.tasks.close();
     }
 
-    /// Load the file of the currently selected task into the main view (preview).
-    async fn load_task_preview(&mut self, _repository: &Repository) {
+    /// Show the selected task's file behind the panel, without touching the
+    /// navigation history.
+    fn load_task_preview(&mut self) {
         let Some((uri, line)) = self.tasks.resolve_cursor() else {
             return;
         };
@@ -620,112 +630,67 @@ impl App {
         let Ok(content) = std::fs::read_to_string(&path) else {
             return;
         };
-        // Update file path + rendered content without touching nav history.
         self.file_path = path;
         self.re_render(&content);
         self.scroll_to_line(line);
     }
 
-    /// Handle a key event while the user is typing a search query.
+    /// Leave the panel on the selected task, keeping it as the current view.
+    ///
+    /// The preview has usually loaded the task's file already, so the file
+    /// to record in the history is the one the panel was opened from, not
+    /// the one currently shown.
+    fn commit_task_selection(&mut self) {
+        let Some((uri, line)) = self.tasks.resolve_cursor() else {
+            return;
+        };
+        let origin = self.task_preview_state.take();
+        self.tasks.close();
+        let Ok(path) = uri.to_file_path() else {
+            return;
+        };
+        if path != self.file_path {
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                return;
+            };
+            self.file_path = path.clone();
+            self.re_render(&content);
+        }
+        if let Some(origin) = origin.filter(|origin| origin.file_path != path) {
+            self.nav_history.push(NavigationEntry {
+                file_path: origin.file_path,
+                scroll_offset: origin.scroll_offset,
+            });
+        }
+        self.scroll_to_line(line);
+    }
+
     fn handle_search_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        match (code, modifiers) {
-            (KeyCode::Esc, _) => {
-                self.search = None;
-            }
-            (KeyCode::Enter, _) => {
-                if let Some(search) = &mut self.search {
-                    search.confirm();
-                }
+        let Some(key) = search_key(code, modifiers) else {
+            return;
+        };
+        match key {
+            SearchKey::Cancel => self.search = None,
+            SearchKey::Confirm => {
+                self.edit_search(SearchState::confirm);
                 self.jump_to_current_match();
             }
-            // Delete char before cursor: Backspace or C-h
-            (KeyCode::Backspace, _) | (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
-                if let Some(search) = &mut self.search {
-                    search.delete_before_cursor();
-                }
+            SearchKey::EditQuery(edit) => {
+                self.edit_search(edit);
                 self.refresh_search();
             }
-            // Delete char at cursor
-            (KeyCode::Delete, _) => {
-                if let Some(search) = &mut self.search {
-                    search.delete_after_cursor();
-                }
-                self.refresh_search();
-            }
-            // Delete word before cursor (C-w)
-            (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
-                if let Some(search) = &mut self.search {
-                    search.delete_word_before_cursor();
-                }
-                self.refresh_search();
-            }
-            // Delete to start of query (C-u)
-            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                if let Some(search) = &mut self.search {
-                    search.delete_to_start();
-                }
-                self.refresh_search();
-            }
-            // Move cursor left one char
-            (KeyCode::Left, KeyModifiers::NONE) => {
-                if let Some(search) = &mut self.search {
-                    search.move_left();
-                }
-            }
-            // Move cursor right one char
-            (KeyCode::Right, KeyModifiers::NONE) => {
-                if let Some(search) = &mut self.search {
-                    search.move_right();
-                }
-            }
-            // Move cursor left one WORD (C-Left or S-Left)
-            (KeyCode::Left, KeyModifiers::CONTROL) | (KeyCode::Left, KeyModifiers::SHIFT) => {
-                if let Some(search) = &mut self.search {
-                    search.move_word_left();
-                }
-            }
-            // Move cursor right one WORD (C-Right or S-Right)
-            (KeyCode::Right, KeyModifiers::CONTROL) | (KeyCode::Right, KeyModifiers::SHIFT) => {
-                if let Some(search) = &mut self.search {
-                    search.move_word_right();
-                }
-            }
-            // Move to start of query (C-b or Home)
-            (KeyCode::Char('b'), KeyModifiers::CONTROL) | (KeyCode::Home, _) => {
-                if let Some(search) = &mut self.search {
-                    search.move_to_start();
-                }
-            }
-            // Move to end of query (C-e or End)
-            (KeyCode::Char('e'), KeyModifiers::CONTROL) | (KeyCode::End, _) => {
-                if let Some(search) = &mut self.search {
-                    search.move_to_end();
-                }
-            }
-            (KeyCode::Down, _) => {
-                if let Some(search) = &mut self.search {
-                    search.next_match();
-                }
+            SearchKey::MoveCursor(edit) => self.edit_search(edit),
+            SearchKey::StepMatch(edit) => {
+                self.edit_search(edit);
                 self.jump_to_current_match();
             }
-            (KeyCode::Up, _) => {
-                if let Some(search) = &mut self.search {
-                    search.prev_match();
-                }
-                self.jump_to_current_match();
-            }
-            (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
-                if let Some(search) = &mut self.search {
-                    search.insert_at_cursor(c);
-                }
+            SearchKey::Insert(c) => {
+                self.edit_search(|search| search.insert_at_cursor(c));
                 self.refresh_search();
             }
-            _ => {}
         }
     }
 
-    /// Handle a key event in normal (non-popup, non-search-input) mode.
-    /// Returns an `AppAction` describing any required side-effect.
     async fn handle_normal_key(
         &mut self,
         repository: &Repository,
@@ -733,54 +698,14 @@ impl App {
         modifiers: KeyModifiers,
         viewport_height: usize,
     ) -> AppAction {
+        if let Some(scroll) = scroll_for_key(code, modifiers, viewport_height) {
+            self.scroll(scroll);
+            return AppAction::None;
+        }
         match (code, modifiers) {
-            // --- Editor shortcut (moved here from main.rs) ---
-            (KeyCode::Char('e'), KeyModifiers::NONE) if !self.backlinks.visible => {
-                let top_line = self.source_line_at_offset();
-                let line = self.source_line_of_focused_item().unwrap_or(top_line);
-                let file_str = self.file_path.display().to_string();
-                let cmd =
-                    crate::build_editor_cmd(&self.tui_config.editor, &file_str, line, top_line);
-                return AppAction::LaunchEditor {
-                    cmd,
-                    action: self.tui_config.editor.action.clone(),
-                };
-            }
-
-            // --- Quit / Esc ---
-            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
-                if self.images.fullscreen_src.is_some() {
-                    self.images.fullscreen_src = None;
-                } else if self.search.is_some() {
-                    // Esc clears active search results
-                    self.search = None;
-                } else {
-                    return AppAction::Quit;
-                }
-            }
+            (KeyCode::Char('e'), KeyModifiers::NONE) => return self.launch_editor(),
+            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => return self.escape_or_quit(),
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => return AppAction::Quit,
-
-            // --- Scrolling ---
-            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => self.scroll_down(1),
-            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.scroll_up(1),
-            (KeyCode::PageDown, _)
-            | (KeyCode::Char(' '), _)
-            | (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
-                self.scroll_down(viewport_height);
-            }
-            (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
-                self.scroll_up(viewport_height);
-            }
-            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                self.scroll_down(viewport_height / 2);
-            }
-            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                self.scroll_up(viewport_height / 2);
-            }
-            (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.scroll_to_top(),
-            (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.scroll_to_bottom(),
-
-            // --- Search ---
             (KeyCode::Char('/'), KeyModifiers::NONE) => {
                 self.search = Some(SearchState::new(SearchDirection::Forward));
             }
@@ -788,73 +713,21 @@ impl App {
                 self.search = Some(SearchState::new(SearchDirection::Backward));
             }
             (KeyCode::Char('n'), KeyModifiers::NONE) => {
-                if let Some(search) = &mut self.search {
-                    search.next_match();
-                }
+                self.edit_search(SearchState::next_match);
                 self.jump_to_current_match();
             }
             (KeyCode::Char('N'), _) => {
-                if let Some(search) = &mut self.search {
-                    search.prev_match();
-                }
+                self.edit_search(SearchState::prev_match);
                 self.jump_to_current_match();
             }
-
-            // --- Backlinks ---
             (KeyCode::Char('b'), _) => {
                 self.backlinks.open();
                 self.backlinks.refresh(repository, &self.file_path).await;
             }
-
-            // --- Tasks ---
-            (KeyCode::Char('T'), _) => {
-                self.open_tasks_panel(repository).await;
-            }
-
-            // --- Image size ---
-            (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
-                self.images.increase_height();
-            }
-            (KeyCode::Char('-'), _) => {
-                self.images.decrease_height();
-            }
-
-            // --- Enter: activate focused item or close fullscreen ---
-            (KeyCode::Enter, _) => {
-                if self.images.fullscreen_src.is_some() {
-                    self.images.fullscreen_src = None;
-                } else if let Some(fi) = self.focused_item().cloned() {
-                    match &fi.action {
-                        LinkAction::ViewImage(src) => {
-                            self.images.fullscreen_src = Some(src.clone());
-                        }
-                        LinkAction::OpenNote { name, anchor } => {
-                            if self.open_note(name, anchor.as_deref()) {
-                                self.backlinks.refresh(repository, &self.file_path).await;
-                            }
-                        }
-                        LinkAction::JumpToAnchor { anchor } => {
-                            // Save current position for back-navigation
-                            self.nav_history.push(NavigationEntry {
-                                file_path: self.file_path.clone(),
-                                scroll_offset: self.scroll_offset,
-                            });
-                            self.scroll_to_anchor(anchor);
-                        }
-                        LinkAction::OpenUrl(url) => {
-                            let target = if url.contains("://") {
-                                url.clone()
-                            } else {
-                                let abs = self.root_dir.join(url.as_str());
-                                format!("file://{}", abs.to_string_lossy())
-                            };
-                            let _ = open::that_detached(&target);
-                        }
-                    }
-                }
-            }
-
-            // --- Back navigation ---
+            (KeyCode::Char('T'), _) => self.open_tasks_panel(repository).await,
+            (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => self.images.increase_height(),
+            (KeyCode::Char('-'), _) => self.images.decrease_height(),
+            (KeyCode::Enter, _) => self.activate_focused_item(repository).await,
             (KeyCode::Backspace, _)
             | (KeyCode::Char('H'), _)
             | (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
@@ -862,26 +735,341 @@ impl App {
                     self.backlinks.refresh(repository, &self.file_path).await;
                 }
             }
-
-            // --- Focus ---
-            (KeyCode::Tab, KeyModifiers::NONE) => {
-                self.focus_next_item();
-            }
-            (KeyCode::BackTab, _) => {
-                self.focus_prev_item();
-            }
-
-            // --- Reload / wrap ---
-            (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                self.images.clear();
-                let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
-                self.re_render(&content);
-            }
-            (KeyCode::Char('w'), _) => {
-                self.wrap = !self.wrap;
-            }
+            (KeyCode::Tab, KeyModifiers::NONE) => self.focus_next_item(),
+            (KeyCode::BackTab, _) => self.focus_prev_item(),
+            (KeyCode::Char('r'), _) | (KeyCode::Char('l'), KeyModifiers::CONTROL) => self.reload(),
+            (KeyCode::Char('w'), _) => self.wrap = !self.wrap,
             _ => {}
         }
         AppAction::None
+    }
+
+    fn launch_editor(&self) -> AppAction {
+        let top_line = self.source_line_at_offset();
+        let line = self.source_line_of_focused_item().unwrap_or(top_line);
+        let file = self.file_path.display().to_string();
+        AppAction::LaunchEditor {
+            cmd: crate::build_editor_cmd(&self.tui_config.editor, &file, line, top_line),
+            action: self.tui_config.editor.action.clone(),
+        }
+    }
+
+    /// Esc closes the fullscreen image first, then clears the search, and
+    /// only then quits.
+    fn escape_or_quit(&mut self) -> AppAction {
+        if self.images.fullscreen_src.is_some() {
+            self.images.fullscreen_src = None;
+        } else if self.search.is_some() {
+            self.search = None;
+        } else {
+            return AppAction::Quit;
+        }
+        AppAction::None
+    }
+
+    async fn activate_focused_item(&mut self, repository: &Repository) {
+        if self.images.fullscreen_src.is_some() {
+            self.images.fullscreen_src = None;
+            return;
+        }
+        let Some(item) = self.focused_item().cloned() else {
+            return;
+        };
+        match item.action {
+            LinkAction::ViewImage(src) => self.images.fullscreen_src = Some(src),
+            LinkAction::OpenNote { name, anchor } => {
+                if self.open_note(&name, anchor.as_deref()) {
+                    self.backlinks.refresh(repository, &self.file_path).await;
+                }
+            }
+            LinkAction::JumpToAnchor { anchor } => {
+                self.push_history();
+                self.scroll_to_anchor(&anchor);
+            }
+            LinkAction::OpenUrl(url) => open_url(&self.root_dir, &url),
+        }
+    }
+
+    fn reload(&mut self) {
+        self.images.clear();
+        let content = std::fs::read_to_string(&self.file_path).unwrap_or_default();
+        self.re_render(&content);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tasks::{TaskEntry, TaskItem};
+    use chrono::TimeDelta;
+    use patto::parser::TaskStatus;
+    use patto::tasks_view::PendingGroup;
+    use tempfile::TempDir;
+    use tower_lsp::lsp_types::Url;
+
+    struct Workspace {
+        dir: TempDir,
+        repository: Repository,
+    }
+
+    impl Workspace {
+        fn with_notes(notes: &[(&str, &str)]) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            for (name, content) in notes {
+                std::fs::write(dir.path().join(name), content).unwrap();
+            }
+            let repository = Repository::new(dir.path().to_path_buf());
+            Self { dir, repository }
+        }
+
+        fn open(&self, name: &str) -> App {
+            let path = self.dir.path().join(name);
+            let content = std::fs::read_to_string(&path).unwrap();
+            let mut app = App::new(path, self.dir.path().to_path_buf(), None);
+            app.viewport_width = 60;
+            app.viewport_height = 10;
+            app.re_render(&content);
+            app
+        }
+
+        async fn press(&self, app: &mut App, code: KeyCode) -> AppAction {
+            self.key(app, code, KeyModifiers::NONE).await
+        }
+
+        async fn key(&self, app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> AppAction {
+            app.handle_key(&self.repository, code, modifiers, app.viewport_height)
+                .await
+        }
+    }
+
+    fn forty_lines() -> String {
+        (0..40).map(|i| format!("line {i}\n")).collect()
+    }
+
+    #[tokio::test]
+    async fn j_and_k_scroll_one_row() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        assert_eq!(app.scroll_offset, 2);
+        ws.press(&mut app, KeyCode::Char('k')).await;
+        assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[tokio::test]
+    async fn page_and_half_page_keys_scroll_by_the_viewport() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        ws.key(&mut app, KeyCode::Char('f'), KeyModifiers::CONTROL)
+            .await;
+        assert_eq!(app.scroll_offset, 10);
+        ws.key(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL)
+            .await;
+        assert_eq!(app.scroll_offset, 5);
+    }
+
+    #[tokio::test]
+    async fn g_and_shift_g_jump_to_the_ends() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('G')).await;
+        assert_eq!(app.scroll_offset, app.total_display_height() - 1);
+        ws.press(&mut app, KeyCode::Char('g')).await;
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[tokio::test]
+    async fn q_quits_and_ctrl_c_quits() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\n")]);
+        let mut app = ws.open("a.pn");
+        assert!(matches!(
+            ws.press(&mut app, KeyCode::Char('q')).await,
+            AppAction::Quit
+        ));
+        assert!(matches!(
+            ws.key(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL)
+                .await,
+            AppAction::Quit
+        ));
+    }
+
+    #[tokio::test]
+    async fn slash_opens_a_search_and_typing_jumps_to_the_first_match() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('/')).await;
+        for c in "line 2".chars() {
+            ws.press(&mut app, KeyCode::Char(c)).await;
+        }
+        let search = app.search.as_ref().unwrap();
+        assert!(search.typing);
+        assert_eq!(search.query, "line 2");
+        assert_eq!(app.scroll_offset, 2);
+    }
+
+    #[tokio::test]
+    async fn enter_confirms_the_search_and_n_steps_through_matches() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('/')).await;
+        for c in "line 2".chars() {
+            ws.press(&mut app, KeyCode::Char(c)).await;
+        }
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert!(!app.search.as_ref().unwrap().typing);
+        ws.press(&mut app, KeyCode::Char('n')).await;
+        assert_eq!(app.scroll_offset, 20);
+        ws.press(&mut app, KeyCode::Char('N')).await;
+        assert_eq!(app.scroll_offset, 2);
+    }
+
+    #[tokio::test]
+    async fn escape_clears_a_finished_search_before_it_quits() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('/')).await;
+        ws.press(&mut app, KeyCode::Char('x')).await;
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert!(matches!(
+            ws.press(&mut app, KeyCode::Esc).await,
+            AppAction::None
+        ));
+        assert!(app.search.is_none());
+        assert!(matches!(
+            ws.press(&mut app, KeyCode::Esc).await,
+            AppAction::Quit
+        ));
+    }
+
+    #[tokio::test]
+    async fn backspace_in_the_prompt_edits_the_query() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('/')).await;
+        ws.press(&mut app, KeyCode::Char('a')).await;
+        ws.press(&mut app, KeyCode::Char('b')).await;
+        ws.press(&mut app, KeyCode::Backspace).await;
+        assert_eq!(app.search.as_ref().unwrap().query, "a");
+    }
+
+    #[tokio::test]
+    async fn w_toggles_wrapping_and_plus_minus_resize_images() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('w')).await;
+        assert!(!app.wrap);
+        let rows = app.images.height_rows;
+        ws.press(&mut app, KeyCode::Char('+')).await;
+        assert_eq!(app.images.height_rows, rows + 5);
+        ws.press(&mut app, KeyCode::Char('-')).await;
+        assert_eq!(app.images.height_rows, rows);
+    }
+
+    #[tokio::test]
+    async fn tab_focuses_a_link_and_enter_opens_the_note() {
+        let ws = Workspace::with_notes(&[("a.pn", "see [b]\n"), ("b.pn", "target\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Tab).await;
+        assert!(matches!(
+            app.focused_item().map(|f| &f.action),
+            Some(LinkAction::OpenNote { name, .. }) if name == "b"
+        ));
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.file_path, ws.dir.path().join("b.pn"));
+        assert_eq!(app.nav_history.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn backspace_returns_to_the_previous_note_and_scroll_position() {
+        let ws = Workspace::with_notes(&[
+            ("a.pn", &format!("{}[b]\n", forty_lines())),
+            ("b.pn", "target\n"),
+        ]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('G')).await;
+        let bottom = app.scroll_offset;
+        ws.press(&mut app, KeyCode::Tab).await;
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.file_path, ws.dir.path().join("b.pn"));
+        ws.press(&mut app, KeyCode::Backspace).await;
+        assert_eq!(app.file_path, ws.dir.path().join("a.pn"));
+        assert_eq!(app.scroll_offset, bottom);
+    }
+
+    #[tokio::test]
+    async fn e_asks_for_the_editor_at_the_top_line() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines())]);
+        let mut app = ws.open("a.pn");
+        app.tui_config.editor.cmd = Some("edit {file}:{line}:{top_line}".to_string());
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        let AppAction::LaunchEditor { cmd, .. } = ws.press(&mut app, KeyCode::Char('e')).await
+        else {
+            panic!("expected an editor launch");
+        };
+        assert_eq!(
+            cmd,
+            format!("edit {}:3:3", ws.dir.path().join("a.pn").display())
+        );
+    }
+
+    fn task_in(ws: &Workspace, name: &str, line: usize) -> TaskEntry {
+        TaskEntry::Item(TaskItem {
+            text: "task".to_string(),
+            file_name: name.to_string(),
+            uri: Url::from_file_path(ws.dir.path().join(name)).unwrap(),
+            line,
+            due_str: String::new(),
+            group: PendingGroup::Later,
+            status: TaskStatus::Todo,
+            base_time_spent: TimeDelta::zero(),
+            started_at_dt: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn the_tasks_panel_previews_the_selected_task_and_escape_restores_the_view() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines()), ("b.pn", "x\ntask here\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Char('T')).await;
+        app.tasks.entries = vec![task_in(&ws, "b.pn", 1)];
+        app.tasks.list_state.select(Some(0));
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        assert_eq!(app.file_path, ws.dir.path().join("b.pn"));
+        ws.press(&mut app, KeyCode::Esc).await;
+        assert_eq!(app.file_path, ws.dir.path().join("a.pn"));
+        assert_eq!(app.scroll_offset, 1);
+        assert!(!app.tasks.visible);
+    }
+
+    #[tokio::test]
+    async fn enter_in_the_tasks_panel_lets_backspace_return_to_the_origin_note() {
+        let ws = Workspace::with_notes(&[("a.pn", &forty_lines()), ("b.pn", "x\ntask here\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Char('T')).await;
+        app.tasks.entries = vec![task_in(&ws, "b.pn", 1)];
+        app.tasks.list_state.select(Some(0));
+        ws.press(&mut app, KeyCode::Char('j')).await;
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert_eq!(app.file_path, ws.dir.path().join("b.pn"));
+        assert!(!app.tasks.visible);
+
+        ws.press(&mut app, KeyCode::Backspace).await;
+        assert_eq!(app.file_path, ws.dir.path().join("a.pn"));
+        assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[tokio::test]
+    async fn a_task_in_the_current_note_adds_no_history() {
+        let ws = Workspace::with_notes(&[("a.pn", "x\ntask here\n")]);
+        let mut app = ws.open("a.pn");
+        ws.press(&mut app, KeyCode::Char('T')).await;
+        app.tasks.entries = vec![task_in(&ws, "a.pn", 1)];
+        app.tasks.list_state.select(Some(0));
+        ws.press(&mut app, KeyCode::Enter).await;
+        assert!(app.nav_history.is_empty());
     }
 }

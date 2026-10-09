@@ -4,6 +4,7 @@ mod config;
 mod image_cache;
 mod math_render;
 mod search;
+mod selection;
 mod syntax_highlight;
 mod tasks;
 mod tui_renderer;
@@ -166,7 +167,6 @@ fn build_app(args: &Args, file_path: &Path, dir: &Path) -> anyhow::Result<App> {
     app.showbreak = args.showbreak.clone();
 
     let tui_config = config::TuiConfig::load();
-    app.syntax_theme = tui_config.syntax_theme.clone();
     app.images.background_color = tui_config.image_background.to_rgb();
     app.tui_config = tui_config;
 
