@@ -1,7 +1,7 @@
 use std::io;
 use std::io::Write;
 
-use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
+use crate::parser::{AstNode, AstNodeKind, Property};
 
 use super::{wiki_target, write_lines, Renderer, WikiTarget};
 
@@ -220,6 +220,8 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
         due,
         scheduled,
         completed_at,
+        started_at,
+        time_spent,
         ..
     }) = properties
         .iter()
@@ -228,13 +230,7 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
         return Ok(());
     };
 
-    let status = match status {
-        TaskStatus::Todo => "todo",
-        TaskStatus::Doing => "doing",
-        TaskStatus::Paused => "paused",
-        TaskStatus::Done => "done",
-    };
-    write!(output, " {{@task status={}", status)?;
+    write!(output, " {{@task status={}", status.keyword())?;
 
     let due = due.to_string();
     if !due.is_empty() {
@@ -245,6 +241,12 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
     }
     if let Some(completed_at) = completed_at {
         write!(output, " completed_at={}", completed_at)?;
+    }
+    if let Some(started_at) = started_at {
+        write!(output, " started_at={}", started_at)?;
+    }
+    if let Some(time_spent) = time_spent {
+        write!(output, " time_spent={}", time_spent)?;
     }
     write!(output, "}}")
 }

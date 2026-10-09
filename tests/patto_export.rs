@@ -136,3 +136,14 @@ fn rendered_output_reparses_without_errors() {
         );
     }
 }
+
+#[test]
+fn task_clock_fields_survive_a_round_trip() {
+    let rendered = render(
+        "{@task status=doing due=2026-06-01 started_at=2026-05-30T09:00 time_spent=1h30m} work\n",
+    );
+    assert_eq!(
+        rendered,
+        " work {@task status=doing due=2026-06-01 started_at=2026-05-30T09:00 time_spent=1h30m}\n"
+    );
+}
