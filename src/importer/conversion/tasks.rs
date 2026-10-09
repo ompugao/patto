@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use regex::Regex;
 
 use super::Conversion;
@@ -33,50 +35,53 @@ impl Conversion<'_> {
 
 /// Due date written as `📅 D`, `(due: D)`, `[due:: D]` or `@D`.
 fn extract_due_date(text: &str) -> Option<String> {
-    first_capture(
-        text,
-        &[
-            r"📅\s*(\d{4}-\d{2}-\d{2})",
-            r"\(due:\s*(\d{4}-\d{2}-\d{2})\)",
-            r"\[due::\s*(\d{4}-\d{2}-\d{2})\]",
-            r"@(\d{4}-\d{2}-\d{2})",
-        ],
-    )
+    first_capture(text, &DUE_PATTERNS)
 }
+
+static DUE_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"📅\s*(\d{4}-\d{2}-\d{2})",
+        r"\(due:\s*(\d{4}-\d{2}-\d{2})\)",
+        r"\[due::\s*(\d{4}-\d{2}-\d{2})\]",
+        r"@(\d{4}-\d{2}-\d{2})",
+    ])
+});
 
 /// Scheduled date written as `⏳ D`, `(scheduled: D)` or `[scheduled:: D]`.
 fn extract_scheduled_date(text: &str) -> Option<String> {
-    first_capture(
-        text,
-        &[
-            r"⏳\s*(\d{4}-\d{2}-\d{2})",
-            r"\(scheduled:\s*(\d{4}-\d{2}-\d{2})\)",
-            r"\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]",
-        ],
-    )
+    first_capture(text, &SCHEDULED_PATTERNS)
 }
+
+static SCHEDULED_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"⏳\s*(\d{4}-\d{2}-\d{2})",
+        r"\(scheduled:\s*(\d{4}-\d{2}-\d{2})\)",
+        r"\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]",
+    ])
+});
 
 /// Completion date written as `✅ D`, `(completed: D)` or `[completed_at:: D]`.
 fn extract_completed_at_date(text: &str) -> Option<String> {
-    first_capture(
-        text,
-        &[
-            r"✅\s*(\d{4}-\d{2}-\d{2})",
-            r"\(completed:\s*(\d{4}-\d{2}-\d{2})\)",
-            r"\[completed_at::\s*(\d{4}-\d{2}-\d{2})\]",
-        ],
-    )
+    first_capture(text, &COMPLETED_AT_PATTERNS)
+}
+
+static COMPLETED_AT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"✅\s*(\d{4}-\d{2}-\d{2})",
+        r"\(completed:\s*(\d{4}-\d{2}-\d{2})\)",
+        r"\[completed_at::\s*(\d{4}-\d{2}-\d{2})\]",
+    ])
+});
+
+fn compile(patterns: &[&str]) -> Vec<Regex> {
+    patterns.iter().map(|p| Regex::new(p).unwrap()).collect()
 }
 
 /// First capture group matched by any of `patterns`, tried in order.
-fn first_capture(text: &str, patterns: &[&str]) -> Option<String> {
-    patterns.iter().find_map(|pattern| {
-        Regex::new(pattern)
-            .unwrap()
-            .captures(text)?
-            .get(1)
-            .map(|m| m.as_str().to_string())
-    })
+fn first_capture(text: &str, patterns: &[Regex]) -> Option<String> {
+    patterns
+        .iter()
+        .find_map(|re| Some(re.captures(text)?.get(1)?.as_str().to_string()))
 }
 
 #[cfg(test)]
