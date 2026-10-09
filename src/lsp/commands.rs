@@ -115,7 +115,7 @@ impl Backend {
             .filter(|(_, connected)| !connected.is_empty())
             .collect::<Vec<_>>();
 
-        two_hop.sort_by_key(|(_, connected)| -(connected.len() as i16));
+        two_hop.sort_by_key(|(_, connected)| std::cmp::Reverse(connected.len()));
         two_hop.dedup();
         Some(json!(two_hop))
     }
