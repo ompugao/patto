@@ -2,33 +2,40 @@ import * as fs from 'fs';
 import * as https from 'https';
 import { execSync } from 'child_process';
 
+const MAX_REDIRECTS = 5;
+
 export function downloadFile(url: string, destination: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const file = fs.createWriteStream(destination);
         const fail = (err: Error) => {
-            fs.unlinkSync(destination);
+            file.close();
+            fs.rmSync(destination, { force: true });
             reject(err);
         };
-        const save = (response: NodeJS.ReadableStream) => {
-            response.pipe(file);
-            file.on('finish', () => {
-                file.close();
-                resolve();
-            });
-        };
 
-        https.get(url, (response) => {
-            if (response.statusCode === 302 || response.statusCode === 301) {
-                if (response.headers.location) {
-                    https.get(response.headers.location, save).on('error', fail);
+        const get = (from: string, redirectsLeft: number) => {
+            https.get(from, (response) => {
+                const { statusCode, headers } = response;
+                if (statusCode === 301 || statusCode === 302) {
+                    response.resume();
+                    if (!headers.location || redirectsLeft === 0) {
+                        fail(new Error(`Failed to download: redirect from ${from} could not be followed`));
+                    } else {
+                        get(headers.location, redirectsLeft - 1);
+                    }
+                } else if (statusCode === 200) {
+                    response.pipe(file);
+                    file.on('finish', () => {
+                        file.close();
+                        resolve();
+                    });
+                } else {
+                    response.resume();
+                    fail(new Error(`Failed to download: ${statusCode}`));
                 }
-            } else if (response.statusCode === 200) {
-                save(response);
-            } else {
-                file.close();
-                fail(new Error(`Failed to download: ${response.statusCode}`));
-            }
-        }).on('error', fail);
+            }).on('error', fail);
+        };
+        get(url, MAX_REDIRECTS);
     });
 }
 
