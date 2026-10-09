@@ -9,27 +9,10 @@ use ratatui::{
 use crate::app::App;
 
 pub(super) fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let file_name = app
-        .file_path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let total = crate::wrap::total_height(
-        &app.rendered_doc.elements,
-        app.wrap_config().as_ref(),
-        app.images.height_rows,
-        Some(&app.images.elem_heights),
-    );
-    let (pos, pct) = if let Some(p) = ((app.scroll_offset + 1) * 100).checked_div(total) {
-        let p = p.min(100);
-        (
-            format!(" {}:{} ", app.scroll_offset + 1, total),
-            format!(" {}% ", p),
-        )
-    } else {
-        (" 0:0 ".to_string(), " 0% ".to_string())
-    };
+    let (position, percent) = scroll_position(app);
+    let right_text = format!("{}│{}", position, percent);
+    let right_len = right_text.chars().count() as u16;
+    let left_len = area.width.saturating_sub(right_len);
 
     let left = Line::from(vec![
         Span::styled(
@@ -44,24 +27,21 @@ pub(super) fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(Color::DarkGray).bg(Color::Black),
         ),
         Span::styled(
-            format!(" {} ", file_name),
+            format!(" {} ", file_name(app)),
             Style::default()
                 .fg(Color::White)
                 .bg(Color::Black)
                 .add_modifier(Modifier::BOLD),
         ),
     ]);
-
-    // Right-side: pos + percentage, right-aligned
-    let right_text = format!("{}│{}", pos, pct);
-    let right_len = right_text.chars().count() as u16;
-    let left_len = area.width.saturating_sub(right_len);
-
     let right = Line::from(vec![
-        Span::styled(pos, Style::default().fg(Color::DarkGray).bg(Color::Black)),
+        Span::styled(
+            position,
+            Style::default().fg(Color::DarkGray).bg(Color::Black),
+        ),
         Span::styled("│", Style::default().fg(Color::DarkGray).bg(Color::Black)),
         Span::styled(
-            pct,
+            percent,
             Style::default()
                 .fg(Color::Cyan)
                 .bg(Color::Black)
@@ -69,7 +49,6 @@ pub(super) fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         ),
     ]);
 
-    // Render left block then right-aligned block via two overlapping areas
     let left_area = Rect {
         x: area.x,
         y: area.y,
@@ -82,7 +61,6 @@ pub(super) fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         width: right_len,
         height: 1,
     };
-
     frame.render_widget(
         Paragraph::new(left).style(Style::default().bg(Color::Black)),
         left_area,
@@ -91,4 +69,58 @@ pub(super) fn draw_title_bar(frame: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(right).style(Style::default().bg(Color::Black)),
         right_area,
     );
+}
+
+fn file_name(app: &App) -> String {
+    app.file_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// `(" row:total ", " pct% ")` for the top of the viewport.
+fn scroll_position(app: &App) -> (String, String) {
+    let total = app.total_display_height();
+    match ((app.scroll_offset + 1) * 100).checked_div(total) {
+        Some(percent) => (
+            format!(" {}:{} ", app.scroll_offset + 1, total),
+            format!(" {}% ", percent.min(100)),
+        ),
+        None => (" 0:0 ".to_string(), " 0% ".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{app_showing, screen};
+
+    #[test]
+    fn the_title_bar_names_the_app_and_the_note() {
+        let mut app = app_showing("one\ntwo\n");
+        let rows = screen(&mut app, 60, 6);
+        assert!(
+            rows[0].starts_with(" ◉ patto   │   note.pn"),
+            "{:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn the_right_side_shows_the_top_row_and_its_percentage() {
+        let content: String = (0..10).map(|i| format!("line {i}\n")).collect();
+        let mut app = app_showing(&content);
+        let rows = screen(&mut app, 60, 6);
+        assert!(rows[0].ends_with(" 1:10 │ 10%"), "{:?}", rows[0]);
+
+        app.scroll_down(4);
+        let rows = screen(&mut app, 60, 6);
+        assert!(rows[0].ends_with(" 5:10 │ 50%"), "{:?}", rows[0]);
+    }
+
+    #[test]
+    fn an_empty_note_reports_zero_rows() {
+        let mut app = app_showing("");
+        let rows = screen(&mut app, 60, 6);
+        assert!(rows[0].ends_with(" 0:0 │ 0%"), "{:?}", rows[0]);
+    }
 }

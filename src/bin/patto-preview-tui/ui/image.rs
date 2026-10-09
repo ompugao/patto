@@ -11,10 +11,8 @@ use std::path::Path;
 use crate::app::App;
 use crate::image_cache::{CachedImage, ImageCache};
 
-///
-/// If `focused` is true, draws a yellow border around the cell and renders the
-/// image (or placeholder) inside the inner area.  Otherwise renders directly
-/// into `area`.
+/// The image, or a text placeholder while it loads or when it failed, inside
+/// a focus border when `focused`.
 pub(super) fn draw_image_cell(
     frame: &mut Frame,
     images: &mut ImageCache,
@@ -40,57 +38,34 @@ pub(super) fn draw_image_cell(
         area
     };
 
-    match images.get_mut(src) {
+    let name = alt.unwrap_or(src);
+    let (label, color) = match images.get_mut(src) {
         Some(CachedImage::Loaded(protocol)) => {
-            let image_widget = StatefulImage::default();
-            frame.render_stateful_widget(image_widget, render_area, protocol);
+            frame.render_stateful_widget(StatefulImage::default(), render_area, protocol);
+            return;
         }
-        Some(CachedImage::Failed(err)) => {
-            let label = format!("[Image: {} — {}]", alt.unwrap_or(src), err);
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![Span::styled(
-                    label,
-                    Style::default().fg(Color::Red),
-                )])),
-                render_area,
-            );
-        }
-        Some(CachedImage::Pending) => {
-            let label = format!("[Image: {} — loading…]", alt.unwrap_or(src));
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![Span::styled(
-                    label,
-                    Style::default().fg(Color::DarkGray),
-                )])),
-                render_area,
-            );
-        }
-        None => {
-            let label = format!("[Image: {}]", alt.unwrap_or(src));
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![Span::styled(
-                    label,
-                    Style::default().fg(Color::DarkGray),
-                )])),
-                render_area,
-            );
-        }
-    }
+        Some(CachedImage::Failed(err)) => (format!("[Image: {} — {}]", name, err), Color::Red),
+        Some(CachedImage::Pending) => (format!("[Image: {} — loading…]", name), Color::DarkGray),
+        None => (format!("[Image: {}]", name), Color::DarkGray),
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            label,
+            Style::default().fg(color),
+        )])),
+        render_area,
+    );
 }
 
 pub(super) fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: &Path, src: &str) {
-    let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(area);
+        .split(frame.area());
 
-    // Load image if needed
     app.images.load(src, root_dir);
-
     draw_image_cell(frame, &mut app.images, src, None, chunks[0], false);
 
-    // Status hint
     let hint = Line::from(vec![
         Span::styled(" Esc", Style::default().fg(Color::Yellow)),
         Span::styled(":close ", Style::default().fg(Color::DarkGray)),
@@ -100,4 +75,40 @@ pub(super) fn draw_fullscreen_image(frame: &mut Frame, app: &mut App, root_dir: 
         Paragraph::new(hint).style(Style::default().bg(Color::DarkGray)),
         chunks[1],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{
+        app_showing, assert_screen_contains, assert_screen_lacks, screen,
+    };
+
+    // The tests have no terminal, so there is no image protocol and every
+    // image is drawn as its placeholder.
+
+    #[test]
+    fn an_image_without_a_protocol_shows_its_placeholder() {
+        let mut app = app_showing("[@img ./cat.png]\n");
+        let rows = screen(&mut app, 60, 16);
+        assert_screen_contains(&rows, "[Image: ./cat.png]");
+    }
+
+    #[test]
+    fn a_focused_image_is_framed_with_the_fullscreen_hint() {
+        let mut app = app_showing("[@img ./cat.png]\n");
+        app.focus_next_item();
+        let rows = screen(&mut app, 60, 16);
+        assert_screen_contains(&rows, "Enter:fullscreen");
+        assert_screen_contains(&rows, "│[Image: ./cat.png]");
+    }
+
+    #[test]
+    fn the_fullscreen_view_replaces_the_frame_and_names_the_image() {
+        let mut app = app_showing("text\n[@img ./cat.png]\n");
+        app.images.fullscreen_src = Some("./cat.png".to_string());
+        let rows = screen(&mut app, 60, 10);
+        assert_eq!(rows[0], "[Image: ./cat.png]");
+        assert_eq!(rows[9], " Esc:close ./cat.png");
+        assert_screen_lacks(&rows, "note.pn");
+    }
 }
