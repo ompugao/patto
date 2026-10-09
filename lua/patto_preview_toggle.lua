@@ -8,8 +8,6 @@
 ---   cmd = '''nvim --server "$NVIM" --remote "{file}" && nvim --server "$NVIM" --remote-expr "v:lua.require('patto_preview_toggle').schedule_restore({top_line}, {line})"'''
 ---   action = "quit"
 
-local launch = require("patto.preview_launch")
-
 local M = {}
 
 local function restore_view(topline, lnum)
@@ -55,13 +53,12 @@ function M.toggle()
     return
   end
 
-  local cmd = launch.command(
-    vim.g.patto_preview_tui_binary or "patto-preview-tui",
-    { file },
-    { "--goto-line", tostring(vim.fn.line("w0")) },
-    vim.g.patto_preview_tui_extra_args
-  )
-  local tui_cmd = table.concat(vim.tbl_map(vim.fn.shellescape, cmd), " ")
+  local binary = vim.g.patto_preview_tui_binary or "patto-preview-tui"
+  local parts = { vim.fn.shellescape(binary), vim.fn.shellescape(file), "--goto-line", tostring(vim.fn.line("w0")) }
+  for _, arg in ipairs(vim.g.patto_preview_tui_extra_args or {}) do
+    parts[#parts + 1] = vim.fn.shellescape(tostring(arg))
+  end
+  local tui_cmd = table.concat(parts, " ")
 
   -- $NVIM lets the TUI's editor command reach this Neovim instance.
   vim.fn.system({
