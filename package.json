@@ -173,7 +173,7 @@
     "watch": "rm -rf dist && tsc -b -w",
     "lint": "eslint ./client --ext ts",
     "pretest": "npm run compile && npm run lint",
-    "test": "node ./dist/test/runTest.js",
+    "test": "mocha \"dist/test/**/*.test.js\"",
     "build": "webpack --config webpack.config.js",
     "package": "npm run build && vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies"
