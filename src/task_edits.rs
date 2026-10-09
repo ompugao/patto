@@ -1,28 +1,15 @@
-/// Generic task-diff and edit-generation pipeline.
-///
-/// # Architecture
-///
-/// ```text
-/// old AST  ──► collect_task_snapshots ──► HashMap<row, TaskSnapshot>
-///                                                     │
-/// new AST  ──► collect_task_snapshots ──► HashMap<row, TaskSnapshot>
-///                                                     │
-///                          detect_task_transitions ◄──┘
-///                                     │
-///                      Vec<TaskTransition>
-///                                     │
-///              generate_edits_for_transition  (per transition)
-///                                     │
-///                          Vec<TextEdit>  ──► apply_edits / workspace/applyEdit
-/// ```
-///
-/// All edit-generation is span-based (using `Property::location.span` from the
-/// parsed AST) and never scans raw text with `rfind` or `contains`.
+//! Task transition detection and the edits that record them.
+//!
+//! The old and the new AST are reduced to row-keyed `TaskSnapshot`s, the
+//! snapshots are diffed into `TaskTransition`s, and each transition becomes a
+//! span-based `TextEdit` over the task token. Raw line text is never scanned.
 use std::collections::HashMap;
+use std::fmt;
 
+use chrono::NaiveDateTime;
 use str_indices::utf16::from_byte_idx as utf16_from_byte_idx;
 
-use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
+use crate::parser::{parse_deadline, AstNode, Deadline, Property, Span, TaskStatus};
 use crate::task::{Duration, TaskSnapshot, TaskTransition};
 
 /// An editor-agnostic replacement of a byte range inside a single line.
@@ -39,10 +26,19 @@ pub struct TextEdit {
     pub new_text: String,
 }
 
-/// Apply edits to the full document text.
-///
-/// Edits never overlap (at most one per task token per row) but are sorted
-/// right-to-left per row anyway so byte offsets stay valid while replacing.
+impl TextEdit {
+    fn replacing(row: usize, line_text: &str, span: &Span, new_text: String) -> Self {
+        Self {
+            row,
+            start_byte: span.0,
+            end_byte: span.1,
+            start_utf16: utf16_from_byte_idx(line_text, span.0),
+            end_utf16: utf16_from_byte_idx(line_text, span.1),
+            new_text,
+        }
+    }
+}
+
 pub fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
     let mut lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
 
@@ -55,7 +51,7 @@ pub fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
         let Some(line) = lines.get_mut(row) else {
             continue;
         };
-        // Apply from the end of the line, so earlier spans keep their offsets.
+        // Right to left, so earlier spans keep their offsets.
         row_edits.sort_by_key(|edit| std::cmp::Reverse(edit.start_byte));
         for edit in row_edits {
             if edit.start_byte > edit.end_byte || edit.end_byte > line.len() {
@@ -68,47 +64,24 @@ pub fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
     lines.join("\n")
 }
 
-/// Rewrite a task token with the given field overrides, without going through
-/// transition detection. Used by clients that set a status directly.
-pub fn rewrite_task_token(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
-    build_edits(snapshot, fields)
-}
-
-// ─── AST walk ────────────────────────────────────────────────────────────────
-
-/// Walk every `(line_node, Property::Task)` pair in the AST tree, calling `f`
-/// for each one found.  Children are visited recursively after the current node.
+/// Visit every node that carries a `Property::Task`, depth first.
 pub fn walk_task_lines(node: &AstNode, f: &mut impl FnMut(&AstNode, &Property)) {
-    let props: Option<&Vec<Property>> = match node.kind() {
-        AstNodeKind::Line { properties } => Some(properties),
-        AstNodeKind::QuoteContent { properties } => Some(properties),
-        _ => None,
-    };
-
-    if let Some(properties) = props {
-        for prop in properties {
-            if matches!(prop, Property::Task { .. }) {
-                f(node, prop);
-                break; // at most one Task property per line
-            }
-        }
+    let task = node
+        .properties()
+        .iter()
+        .find(|prop| matches!(prop, Property::Task { .. }));
+    if let Some(task) = task {
+        f(node, task);
     }
-
     for child in node.children().iter() {
         walk_task_lines(child, f);
     }
 }
 
-// ─── Snapshot collection ─────────────────────────────────────────────────────
-
-/// Convert an entire AST into a row-keyed map of `TaskSnapshot`s.
-///
-/// This is the *only* place that pattern-matches on `Property::Task` fields —
-/// all subsequent logic works on `TaskSnapshot` values.
 pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
     let mut map = HashMap::new();
     walk_task_lines(root, &mut |node, prop| {
-        if let Property::Task {
+        let Property::Task {
             status,
             status_is_canonical,
             due,
@@ -118,353 +91,214 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
             time_spent,
             location,
         } = prop
-        {
-            let line_text = node.extract_str().to_string();
-            // Determine whether the on-disk form is a shorthand token.
-            // Shorthand tokens start with a single ASCII symbol (`-`/`*`/`!`)
-            // followed immediately by a digit, not with `{@`.
-            let prop_text = &line_text[location.span.0..location.span.1.min(line_text.len())];
-            let is_shorthand = !prop_text.starts_with("{@");
-
-            map.insert(
-                node.location().row,
-                TaskSnapshot {
-                    row: node.location().row,
-                    status: status.clone(),
-                    status_is_canonical: *status_is_canonical,
-                    due: due.clone(),
-                    scheduled: scheduled.clone(),
-                    completed_at: completed_at.clone(),
-                    started_at: started_at.clone(),
-                    time_spent: time_spent.clone(),
-                    prop_span: location.span.clone(),
-                    is_shorthand,
-                    line_text,
-                },
-            );
-        }
+        else {
+            return;
+        };
+        let line_text = node.extract_str().to_string();
+        let token = &line_text[location.span.0..location.span.1.min(line_text.len())];
+        let row = node.location().row;
+        map.insert(
+            row,
+            TaskSnapshot {
+                row,
+                status: status.clone(),
+                status_is_canonical: *status_is_canonical,
+                due: due.clone(),
+                scheduled: scheduled.clone(),
+                completed_at: completed_at.clone(),
+                started_at: started_at.clone(),
+                time_spent: time_spent.clone(),
+                prop_span: location.span.clone(),
+                is_shorthand: !token.starts_with("{@"),
+                line_text,
+            },
+        );
     });
     map
 }
 
-// ─── Transition detection ─────────────────────────────────────────────────────
-
-/// Compare old and new snapshot maps and return every detected `TaskTransition`.
-///
-/// Rules:
-/// - `* → Done` without a `completed_at` already set  → `BecameDone`
-/// - `* → Doing` without a `started_at` already set   → `BecameDoing`
-/// - `Doing → Todo`                                    → `BecameTodo`  (clock-out)
-/// - `Doing → Paused`                                  → `BecamePaused` (explicit pause)
-///
-/// Note: only one transition is emitted per row per call. The match arms are
-/// ordered so that the most specific / highest-priority rule wins first.
+/// One transition per row at most; brand-new task lines never transition.
 pub fn detect_task_transitions(
     new_snapshots: &HashMap<usize, TaskSnapshot>,
     old_snapshots: &HashMap<usize, TaskSnapshot>,
 ) -> Vec<TaskTransition> {
-    let mut transitions = Vec::new();
-
-    for (row, new) in new_snapshots {
-        let old = match old_snapshots.get(row) {
-            // Brand-new task line (no previous snapshot): skip auto-edits.
-            None => continue,
-            Some(o) => o,
-        };
-
-        // Skip transitions involving non-canonical status values (e.g. `status=doin`
-        // during a mid-word edit). Both sides must be canonical to avoid spurious
-        // clock-in/out events during keystroke-by-keystroke changes.
-        if !new.status_is_canonical || !old.status_is_canonical {
-            continue;
-        }
-
-        // Guard: skip if old == new status (no actual change).
-        if new.status == old.status {
-            continue;
-        }
-
-        match (&new.status, &old.status) {
-            // ── Any → Done ─────────────────────────────────────────────────
-            (TaskStatus::Done, _) => {
-                // Only inject completed_at if it is not already present.
-                if new.completed_at.is_none() {
-                    transitions.push(TaskTransition::BecameDone {
-                        old: old.clone(),
-                        new: new.clone(),
-                    });
-                }
+    new_snapshots
+        .iter()
+        .filter_map(|(row, new)| {
+            let old = old_snapshots.get(row)?;
+            // A half-typed status word such as `doin` must not clock the task
+            // in or out, so both sides have to be canonical.
+            if !new.status_is_canonical || !old.status_is_canonical || new.status == old.status {
+                return None;
             }
-
-            // ── Any → Doing ────────────────────────────────────────────────
-            (TaskStatus::Doing, _) => {
-                // Only inject started_at if it is not already present.
-                if new.started_at.is_none() {
-                    transitions.push(TaskTransition::BecameDoing {
-                        old: old.clone(),
-                        new: new.clone(),
-                    });
-                }
-            }
-
-            // ── Doing → Paused ─────────────────────────────────────────────
-            (TaskStatus::Paused, TaskStatus::Doing) => {
-                transitions.push(TaskTransition::BecamePaused {
-                    old: old.clone(),
-                    new: new.clone(),
-                });
-            }
-
-            // ── Doing → Todo ───────────────────────────────────────────────
-            (TaskStatus::Todo, TaskStatus::Doing) => {
-                transitions.push(TaskTransition::BecameTodo {
-                    old: old.clone(),
-                    new: new.clone(),
-                });
-            }
-
-            // ── All other transitions (e.g. Paused→Todo, Done→Todo, etc.) ─
-            _ => {}
-        }
-    }
-
-    transitions
+            transition_between(old, new)
+        })
+        .collect()
 }
 
-// ─── Edit generation ─────────────────────────────────────────────────────────
+fn transition_between(old: &TaskSnapshot, new: &TaskSnapshot) -> Option<TaskTransition> {
+    let transition = match (&new.status, &old.status) {
+        (TaskStatus::Done, _) if new.completed_at.is_none() => TaskTransition::BecameDone {
+            old: old.clone(),
+            new: new.clone(),
+        },
+        (TaskStatus::Doing, _) if new.started_at.is_none() => TaskTransition::BecameDoing {
+            old: old.clone(),
+            new: new.clone(),
+        },
+        (TaskStatus::Paused, TaskStatus::Doing) => TaskTransition::BecamePaused {
+            old: old.clone(),
+            new: new.clone(),
+        },
+        (TaskStatus::Todo, TaskStatus::Doing) => TaskTransition::BecameTodo {
+            old: old.clone(),
+            new: new.clone(),
+        },
+        _ => return None,
+    };
+    Some(transition)
+}
 
-/// Generate all `TextEdit`s required to record time-tracking data for one
-/// `TaskTransition`.  The `now` timestamp is passed in so callers can use a
-/// consistent timestamp for a batch of edits.
+/// `now` is passed in so a batch of edits shares one timestamp.
 pub fn generate_edits_for_transition(
     transition: &TaskTransition,
-    now: chrono::NaiveDateTime,
+    now: NaiveDateTime,
 ) -> Vec<TextEdit> {
+    let stamp = now.format("%Y-%m-%dT%H:%M").to_string();
     match transition {
-        // ── BecameDone ────────────────────────────────────────────────────
         TaskTransition::BecameDone { old, new } => {
-            // Fields to set: completed_at=<now>
-            // Also flush started_at → time_spent if the task was clocked in.
-            //
-            // Prefer `new.started_at` over `old.started_at`: the editor will
-            // have sent back a did_change that includes the injected started_at
-            // field, so the new snapshot is more likely to have it.  Fall back
-            // to old in case the applyEdit round-trip hasn't completed yet.
-            let started_at = new.started_at.as_ref().or(old.started_at.as_ref());
-            // Similarly, use the larger of new/old time_spent as the base so
-            // we never lose accumulated time from a previous session.
-            let base_time_spent = match (&new.time_spent, &old.time_spent) {
-                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() {
-                    n.clone()
-                } else {
-                    o.clone()
-                }),
-                (Some(n), None) => Some(n.clone()),
-                (None, Some(o)) => Some(o.clone()),
-                (None, None) => None,
-            };
-
-            let mut fields: Vec<(&str, String)> = Vec::new();
-            let elapsed = elapsed_since(&started_at.cloned(), now);
-
-            if let Some(e) = elapsed {
-                let total = base_time_spent.unwrap_or_default() + e;
-                fields.push(("time_spent", total.to_string()));
-                fields.push(("started_at", String::new())); // delete
-            }
-
-            fields.push(("completed_at", now.format("%Y-%m-%dT%H:%M").to_string()));
-
-            build_edits(new, &fields)
+            let mut fields = clock_out_fields(old, new, now);
+            fields.push(("completed_at", stamp));
+            rewrite_task_token(new, &fields)
         }
-
-        // ── BecameDoing ───────────────────────────────────────────────────
         TaskTransition::BecameDoing { new, .. } => {
-            let fields = vec![("started_at", now.format("%Y-%m-%dT%H:%M").to_string())];
-            build_edits(new, &fields)
+            rewrite_task_token(new, &[("started_at", stamp)])
         }
-
-        // ── BecameTodo (clock-out without Done) ───────────────────────────
         TaskTransition::BecameTodo { old, new } | TaskTransition::BecamePaused { old, new } => {
-            // Prefer started_at from the new snapshot (it may still be present
-            // in the line text if the user only changed the status word).
-            // Fall back to old snapshot in case the user also deleted it.
-            let started_at = new.started_at.as_ref().or(old.started_at.as_ref());
-            let base_time_spent = match (&new.time_spent, &old.time_spent) {
-                (Some(n), Some(o)) => Some(if n.total_minutes() >= o.total_minutes() {
-                    n.clone()
-                } else {
-                    o.clone()
-                }),
-                (Some(n), None) => Some(n.clone()),
-                (None, Some(o)) => Some(o.clone()),
-                (None, None) => None,
-            };
-
-            let elapsed = elapsed_since(&started_at.cloned(), now);
-            if let Some(e) = elapsed {
-                let total = base_time_spent.unwrap_or_default() + e;
-                let fields = vec![
-                    ("time_spent", total.to_string()),
-                    ("started_at", String::new()), // delete
-                ];
-                build_edits(new, &fields)
-            } else {
-                // No started_at recorded anywhere — nothing to do
+            let fields = clock_out_fields(old, new, now);
+            if fields.is_empty() {
                 vec![]
+            } else {
+                rewrite_task_token(new, &fields)
             }
         }
     }
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-/// Compute elapsed time between `started_at` and `now`.
-/// Returns `None` if `started_at` is absent or not a DateTime.
-fn elapsed_since(
-    started_at: &Option<crate::parser::Deadline>,
-    now: chrono::NaiveDateTime,
-) -> Option<Duration> {
-    use crate::parser::Deadline;
-    let start = match started_at.as_ref()? {
-        Deadline::DateTime(dt) => *dt,
-        Deadline::Date(_) => return None,
-        Deadline::Uninterpretable(_) => return None,
+/// Folds the running clock into `time_spent`. The new snapshot is preferred for
+/// `started_at` and the larger `time_spent` wins, because the editor may or may
+/// not have echoed back the previously injected fields yet.
+fn clock_out_fields(
+    old: &TaskSnapshot,
+    new: &TaskSnapshot,
+    now: NaiveDateTime,
+) -> Vec<(&'static str, String)> {
+    let started_at = new.started_at.as_ref().or(old.started_at.as_ref());
+    let Some(elapsed) = elapsed_since(started_at, now) else {
+        return vec![];
     };
-    let secs = (now - start).num_seconds();
-    if secs <= 0 {
+    let carried = [&new.time_spent, &old.time_spent]
+        .into_iter()
+        .flatten()
+        .max_by_key(|spent| spent.total_minutes())
+        .cloned()
+        .unwrap_or_default();
+    vec![
+        ("time_spent", (carried + elapsed).to_string()),
+        ("started_at", String::new()),
+    ]
+}
+
+fn elapsed_since(started_at: Option<&Deadline>, now: NaiveDateTime) -> Option<Duration> {
+    let Deadline::DateTime(start) = started_at? else {
+        return None;
+    };
+    let seconds = (now - *start).num_seconds();
+    if seconds <= 0 {
         return None;
     }
-    Some(Duration::from_minutes((secs / 60) as u32))
+    Some(Duration::from_minutes((seconds / 60) as u32))
 }
 
-/// Build the actual `TextEdit` list that inserts / updates / deletes fields
-/// inside (or replacing) the task property token.
-///
-/// `fields` is a list of `(key, value)` pairs.  An **empty value string**
-/// means "delete this key" (i.e. remove the `key=value` pair from the block).
-///
-/// Two strategies:
-/// - **Long-form** (`{@task …}`): each field is either inserted before `}` or
-///   the existing `key=oldvalue` span is replaced in-place.
-/// - **Shorthand** (`-YYYY-MM-DD`): the entire span is replaced with a full
-///   `{@task …}` block that includes all existing fields plus the new ones.
-fn build_edits(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
-    if snapshot.is_shorthand {
-        build_shorthand_replacement(snapshot, fields)
-    } else {
-        build_longform_full_rewrite(snapshot, fields)
+/// Rewrite the task token with `(key, value)` overrides; an empty value removes
+/// the key. The whole token is replaced, so a shorthand `-YYYY-MM-DD` comes
+/// back in the long `{@task …}` form.
+pub fn rewrite_task_token(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
+    let mut token = TaskToken::from_snapshot(snapshot);
+    for (key, value) in fields {
+        token.set(key, value);
     }
+    vec![TextEdit::replacing(
+        snapshot.row,
+        &snapshot.line_text,
+        &snapshot.prop_span,
+        token.to_string(),
+    )]
 }
 
-/// Rewrite the full `{@task …}` block in one edit, merging new field values.
-fn build_longform_full_rewrite(
-    snapshot: &TaskSnapshot,
-    new_fields: &[(&str, String)],
-) -> Vec<TextEdit> {
-    use crate::parser::Deadline;
+struct TaskToken {
+    status: TaskStatus,
+    due: Deadline,
+    scheduled: Option<Deadline>,
+    completed_at: Option<Deadline>,
+    started_at: Option<Deadline>,
+    time_spent: Option<Duration>,
+}
 
-    // Start from the snapshot's current field values.
-    let mut status = snapshot.status.clone();
-    let due = snapshot.due.clone();
-    let mut scheduled = snapshot.scheduled.clone();
-    let mut completed_at = snapshot.completed_at.clone();
-    let mut started_at = snapshot.started_at.clone();
-    let mut time_spent = snapshot.time_spent.clone();
+impl TaskToken {
+    fn from_snapshot(snapshot: &TaskSnapshot) -> Self {
+        Self {
+            status: snapshot.status.clone(),
+            due: snapshot.due.clone(),
+            scheduled: snapshot.scheduled.clone(),
+            completed_at: snapshot.completed_at.clone(),
+            started_at: snapshot.started_at.clone(),
+            time_spent: snapshot.time_spent.clone(),
+        }
+    }
 
-    // Apply overrides from `new_fields`.
-    for (key, value) in new_fields {
-        match *key {
+    fn set(&mut self, key: &str, value: &str) {
+        match key {
             "status" => {
-                status = match value.as_str() {
-                    "todo" => TaskStatus::Todo,
-                    "doing" => TaskStatus::Doing,
-                    "paused" => TaskStatus::Paused,
-                    "done" => TaskStatus::Done,
-                    _ => status,
-                };
-            }
-            "completed_at" => {
-                if value.is_empty() {
-                    completed_at = None;
-                } else {
-                    completed_at = Some(crate::parser::parse_deadline_pub(value));
+                if let Some(status) = TaskStatus::from_keyword(value) {
+                    self.status = status;
                 }
             }
-            "started_at" => {
-                if value.is_empty() {
-                    started_at = None;
-                } else {
-                    started_at = Some(crate::parser::parse_deadline_pub(value));
-                }
-            }
-            "time_spent" => {
-                if value.is_empty() {
-                    time_spent = None;
-                } else {
-                    time_spent = value.parse().ok();
-                }
-            }
-            "scheduled" => {
-                if value.is_empty() {
-                    scheduled = None;
-                } else {
-                    scheduled = Some(crate::parser::parse_deadline_pub(value));
-                }
-            }
+            "scheduled" => self.scheduled = optional_deadline(value),
+            "completed_at" => self.completed_at = optional_deadline(value),
+            "started_at" => self.started_at = optional_deadline(value),
+            "time_spent" => self.time_spent = value.parse().ok(),
             _ => {}
         }
     }
-
-    let status_str = match status {
-        TaskStatus::Todo => "todo",
-        TaskStatus::Doing => "doing",
-        TaskStatus::Paused => "paused",
-        TaskStatus::Done => "done",
-    };
-
-    let mut parts = vec![format!("status={}", status_str)];
-
-    if !matches!(due, Deadline::Uninterpretable(ref s) if s.is_empty()) {
-        parts.push(format!("due={}", due));
-    }
-    if let Some(s) = &scheduled {
-        parts.push(format!("scheduled={}", s));
-    }
-    if let Some(c) = &completed_at {
-        parts.push(format!("completed_at={}", c));
-    }
-    if let Some(sa) = &started_at {
-        parts.push(format!("started_at={}", sa));
-    }
-    if let Some(ts) = &time_spent {
-        parts.push(format!("time_spent={}", ts));
-    }
-
-    let new_text = format!("{{@task {}}}", parts.join(" "));
-
-    let line_text = &snapshot.line_text;
-    vec![TextEdit {
-        row: snapshot.row,
-        start_byte: snapshot.prop_span.0,
-        end_byte: snapshot.prop_span.1,
-        start_utf16: utf16_from_byte_idx(line_text, snapshot.prop_span.0),
-        end_utf16: utf16_from_byte_idx(line_text, snapshot.prop_span.1),
-        new_text,
-    }]
 }
 
-/// Replace the shorthand token with a full `{@task …}` block.
-fn build_shorthand_replacement(
-    snapshot: &TaskSnapshot,
-    new_fields: &[(&str, String)],
-) -> Vec<TextEdit> {
-    // Delegate to the same full-rewrite logic — shorthand has no existing long
-    // form, so rewriting the span (shorthand token) with `{@task …}` is correct.
-    build_longform_full_rewrite(snapshot, new_fields)
+fn optional_deadline(value: &str) -> Option<Deadline> {
+    (!value.is_empty()).then(|| parse_deadline(value))
 }
 
-// ─── Unit tests ──────────────────────────────────────────────────────────────
+impl fmt::Display for TaskToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{@task status={}", self.status.keyword())?;
+        if !matches!(&self.due, Deadline::Uninterpretable(text) if text.is_empty()) {
+            write!(f, " due={}", self.due)?;
+        }
+        let deadlines = [
+            ("scheduled", &self.scheduled),
+            ("completed_at", &self.completed_at),
+            ("started_at", &self.started_at),
+        ];
+        for (key, deadline) in deadlines {
+            if let Some(deadline) = deadline {
+                write!(f, " {key}={deadline}")?;
+            }
+        }
+        if let Some(time_spent) = &self.time_spent {
+            write!(f, " time_spent={time_spent}")?;
+        }
+        write!(f, "}}")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -562,8 +396,6 @@ mod tests {
         let transitions = detect_task_transitions(&new, &old);
         assert_eq!(transitions.len(), 0);
     }
-
-    // ── Paused status ─────────────────────────────────────────────────────────
 
     #[test]
     fn detect_doing_to_paused() {

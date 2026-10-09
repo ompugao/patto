@@ -24,7 +24,6 @@ impl LineTracker {
     pub fn process_file_content(&mut self, content: &str) -> anyhow::Result<Vec<i64>> {
         let lines: Vec<&str> = content.lines().collect();
 
-        // Fast hash computation using default hasher
         let line_hashes: Vec<u64> = lines
             .iter()
             .map(|line| {
@@ -39,28 +38,17 @@ impl LineTracker {
         let mut used_ids: HashSet<i64> = HashSet::new();
         let mut result_ids = Vec::with_capacity(lines.len());
 
-        // Assign IDs with simple in-memory logic
         for (idx, &hash) in line_hashes.iter().enumerate() {
             let line_num = idx + 1;
-
-            let id = if let Some(&existing_id) = self.position_to_id.get(&line_num) {
-                // Same position exists
-                if let Some(existing_hash) = self.line_hashes.get(idx) {
-                    if *existing_hash == hash {
-                        // Same content at same position - reuse ID
-                        used_ids.insert(existing_id);
-                        existing_id
-                    } else {
-                        // Different content at same position - find reusable ID
-                        self.find_or_create_id(hash, &mut used_ids)
-                    }
-                } else {
-                    // Position exists but no hash (shouldn't happen)
-                    self.find_or_create_id(hash, &mut used_ids)
+            let id = match (
+                self.position_to_id.get(&line_num),
+                self.line_hashes.get(idx),
+            ) {
+                (Some(&existing_id), Some(&existing_hash)) if existing_hash == hash => {
+                    used_ids.insert(existing_id);
+                    existing_id
                 }
-            } else {
-                // New position
-                self.find_or_create_id(hash, &mut used_ids)
+                _ => self.find_or_create_id(hash, &mut used_ids),
             };
 
             new_content_to_id.entry(hash).or_default().push(id);
@@ -68,7 +56,6 @@ impl LineTracker {
             result_ids.push(id);
         }
 
-        // Update internal state
         self.content_to_id = new_content_to_id;
         self.position_to_id = new_position_to_id;
         self.line_ids = result_ids.clone();
@@ -78,7 +65,6 @@ impl LineTracker {
     }
 
     fn find_or_create_id(&mut self, hash: u64, used_ids: &mut HashSet<i64>) -> i64 {
-        // Try to reuse existing ID for this content
         if let Some(existing_ids) = self.content_to_id.get(&hash) {
             for &id in existing_ids {
                 if !used_ids.contains(&id) {
@@ -88,7 +74,6 @@ impl LineTracker {
             }
         }
 
-        // No reusable ID found - create new one
         let new_id = self.next_id;
         self.next_id += 1;
         used_ids.insert(new_id);

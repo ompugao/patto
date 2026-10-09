@@ -1,17 +1,13 @@
-/// Task time tracking types and transition detection helpers.
-///
-/// This module centralises all domain types that describe the *state* of a task
-/// and the *transitions* between states.  Edit-generation lives in
-/// `crate::lsp::task_edits` so that LSP-specific types (TextEdit, Position, …)
-/// are not pulled into the core domain layer.
+//! Task state types shared by the parser, the edit generators and every client.
+//!
+//! Transition detection and edit generation live in `crate::task_edits`; the
+//! LSP wrapper in `crate::lsp::task_edits` only converts the edits.
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
 use crate::parser::{Deadline, TaskStatus};
-
-// ─── Duration ────────────────────────────────────────────────────────────────
 
 /// A human-readable duration stored as whole hours + minutes.
 ///
@@ -117,8 +113,6 @@ impl FromStr for Duration {
     }
 }
 
-// ─── TaskSnapshot ─────────────────────────────────────────────────────────────
-
 /// A complete snapshot of one task line's state, captured from the AST.
 ///
 /// Both the old and new AST are converted to `HashMap<usize, TaskSnapshot>`
@@ -149,8 +143,6 @@ pub struct TaskSnapshot {
     pub line_text: String,
 }
 
-// ─── TaskTransition ───────────────────────────────────────────────────────────
-
 /// A detected state change for a single task line between two AST snapshots.
 #[derive(Debug)]
 pub enum TaskTransition {
@@ -177,36 +169,28 @@ pub enum TaskTransition {
 }
 
 impl TaskTransition {
-    /// Row number of the affected line (from the *new* snapshot).
-    pub fn row(&self) -> usize {
+    fn snapshots(&self) -> (&TaskSnapshot, &TaskSnapshot) {
         match self {
-            TaskTransition::BecameDone { new, .. } => new.row,
-            TaskTransition::BecameDoing { new, .. } => new.row,
-            TaskTransition::BecameTodo { new, .. } => new.row,
-            TaskTransition::BecamePaused { new, .. } => new.row,
+            TaskTransition::BecameDone { old, new }
+            | TaskTransition::BecameDoing { old, new }
+            | TaskTransition::BecameTodo { old, new }
+            | TaskTransition::BecamePaused { old, new } => (old, new),
         }
+    }
+
+    /// Row of the affected line, taken from the new snapshot.
+    pub fn row(&self) -> usize {
+        self.new_snapshot().row
     }
 
     pub fn new_snapshot(&self) -> &TaskSnapshot {
-        match self {
-            TaskTransition::BecameDone { new, .. } => new,
-            TaskTransition::BecameDoing { new, .. } => new,
-            TaskTransition::BecameTodo { new, .. } => new,
-            TaskTransition::BecamePaused { new, .. } => new,
-        }
+        self.snapshots().1
     }
 
     pub fn old_snapshot(&self) -> &TaskSnapshot {
-        match self {
-            TaskTransition::BecameDone { old, .. } => old,
-            TaskTransition::BecameDoing { old, .. } => old,
-            TaskTransition::BecameTodo { old, .. } => old,
-            TaskTransition::BecamePaused { old, .. } => old,
-        }
+        self.snapshots().0
     }
 }
-
-// ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

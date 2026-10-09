@@ -38,22 +38,12 @@ pub fn get_twitter_embed(tweet_url: &str) -> Option<String> {
 
     match parsed_url.host_str()? {
         "twitter.com" | "x.com" => {
-            // Construct the Twitter embed API URL
             let api_url = format!("https://publish.twitter.com/oembed?url={}", tweet_url);
-
-            //Send the request to the API
             let response = reqwest::blocking::get(&api_url).ok()?;
-
-            // Parse the response as JSON
             let json: Value = response.json().ok()?;
-
-            // Check if the JSON contains the 'html' field
-            if let Some(html) = json.get("html") {
-                return html.as_str().map(|s| s.to_string());
-            }
-            None
+            json.get("html")?.as_str().map(|s| s.to_string())
         }
-        _ => None, // Return None if the domain is not twitter.com or x.com
+        _ => None,
     }
 }
 
