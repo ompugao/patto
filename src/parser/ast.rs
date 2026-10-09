@@ -75,21 +75,6 @@ impl From<pest::error::InputLocation> for Span {
 }
 
 impl Location {
-    #[allow(dead_code)]
-    fn merge(&self, other: &Self) -> Self {
-        use std::cmp::{max, min};
-        assert_eq!(self.input, other.input);
-        assert_eq!(self.row, other.row);
-        Self {
-            row: self.row,
-            input: Arc::clone(&self.input),
-            span: Span(
-                min(self.span.0, other.span.0),
-                max(self.span.1, other.span.1),
-            ),
-        }
-    }
-
     fn as_str(&self) -> &str {
         &self.input[self.span.0..self.span.1]
     }
@@ -188,7 +173,6 @@ pub enum Property {
 #[serde(tag = "type")]
 pub enum AstNodeKind {
     Line {
-        //indent: usize,
         properties: Vec<Property>,
     },
     Quote,
@@ -261,22 +245,6 @@ impl AstNode {
         }))
     }
 
-    pub fn with_line_id(
-        _input: &str,
-        location: Location,
-        kind: Option<AstNodeKind>,
-        line_id: Option<i64>,
-    ) -> Self {
-        AstNode(Arc::new(AstNodeImpl {
-            value: AstNodeInternal {
-                contents: Mutex::new(vec![]),
-                children: Mutex::new(vec![]),
-                kind: kind.unwrap_or(AstNodeKind::Dummy),
-                stable_id: Mutex::new(line_id),
-            },
-            location,
-        }))
-    }
     pub fn line(input: &str, row: usize, span: Option<Span>, props: Option<Vec<Property>>) -> Self {
         Self::new(
             input,

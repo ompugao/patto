@@ -54,13 +54,7 @@ impl Ord for Deadline {
     }
 }
 
-/// Helper to parse deadline strings (public re-export for use in edit generation).
-pub fn parse_deadline_pub(value: &str) -> Deadline {
-    parse_deadline(value)
-}
-
-/// Helper to parse deadline strings
-pub(super) fn parse_deadline(value: &str) -> Deadline {
+pub fn parse_deadline(value: &str) -> Deadline {
     if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
         Deadline::DateTime(datetime)
     } else if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
