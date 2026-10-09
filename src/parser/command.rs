@@ -105,9 +105,6 @@ mod tests {
     #[test]
     fn test_parse_code_command() {
         let input = "[@code rust]";
-        // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");
@@ -126,9 +123,6 @@ mod tests {
     #[test]
     fn test_parse_code_emtpy_lang() {
         let input = "[@code   ]";
-        // assert!(parsed.is_ok(), "Failed to parse \"{input}\"");
-        // assert_eq!(pairs.len(), 1, "must contain only one expr_command");
-        // //                          \- the first pair, which is expr_command
         let (astnode, _props) = parse_command_line(input, 0, 0);
         let Some(node) = astnode else {
             panic!("Failed to parse code command");

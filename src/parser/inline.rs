@@ -638,7 +638,6 @@ mod tests {
         let input = "[` inline ![] code 123`] raw text    #anchor";
         let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
         let (nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        //assert_eq!(code.extract_str(), "inline code 123");
         let code = &nodes[0];
         match code.kind() {
             AstNodeKind::Code {
@@ -837,7 +836,6 @@ mod tests {
                         match &link.kind() {
                             AstNodeKind::Link { link, title } => {
                                 assert_eq!(link, g_url);
-                                //assert!(title.is_some());
                                 assert_eq!(*title, g_title);
                             }
                             _ => {
@@ -882,17 +880,14 @@ mod tests {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_local_file_link, input) {
                 Ok(mut parsed) => {
-                    {
-                        let link = transform_link(parsed.next().unwrap(), input, 0, 0);
-                        match &link.kind() {
-                            AstNodeKind::Link { link, title } => {
-                                assert_eq!(link, g_local_file);
-                                //assert!(title.is_some());
-                                assert_eq!(*title, g_title);
-                            }
-                            _ => {
-                                panic! {"link is not correctly parse {:?}", link};
-                            }
+                    let link = transform_link(parsed.next().unwrap(), input, 0, 0);
+                    match &link.kind() {
+                        AstNodeKind::Link { link, title } => {
+                            assert_eq!(link, g_local_file);
+                            assert_eq!(*title, g_title);
+                        }
+                        _ => {
+                            panic! {"link is not correctly parse {:?}", link};
                         }
                     }
                 }
@@ -916,17 +911,14 @@ mod tests {
             println!("parsing {input}");
             match PattoLineParser::parse(Rule::expr_mail_link, input) {
                 Ok(mut parsed) => {
-                    {
-                        let link = transform_link(parsed.next().unwrap(), input, 0, 0);
-                        match &link.kind() {
-                            AstNodeKind::Link { link, title } => {
-                                assert_eq!(link, g_mail);
-                                //assert!(title.is_some());
-                                assert_eq!(*title, g_title);
-                            }
-                            _ => {
-                                panic! {"link is not correctly parse {:?}", link};
-                            }
+                    let link = transform_link(parsed.next().unwrap(), input, 0, 0);
+                    match &link.kind() {
+                        AstNodeKind::Link { link, title } => {
+                            assert_eq!(link, g_mail);
+                            assert_eq!(*title, g_title);
+                        }
+                        _ => {
+                            panic! {"link is not correctly parse {:?}", link};
                         }
                     }
                 }

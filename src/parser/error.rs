@@ -60,10 +60,6 @@ pub enum ParserError {
     InvalidIndentation(Location),
     #[error("Failed to parse:\n{1}")]
     ParseError(Location, PestErrorInfo),
-    // #[error("Invalid command parameter: {0}")]
-    // InvalidCommandParameter(String),
-    // #[error("Unexpected token: {0}")]
-    // UnexpectedToken(String),
 }
 
 impl ParserError {
