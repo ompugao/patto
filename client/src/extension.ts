@@ -18,7 +18,7 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
-import { BinaryManager } from './binaryManager';
+import { BinaryManager } from './binaries/binaryManager';
 
 let client: LanguageClient;
 let previewPort: number | null = null;
