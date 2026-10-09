@@ -44,6 +44,8 @@ export class BinaryManager {
             if (metadata && this.isOutdated(metadata)) {
                 const updated = await this.offerUpdate(binaryName, metadata);
                 if (updated) return updated;
+                // A failed update has already removed the cached binary.
+                if (!fs.existsSync(localPath)) return null;
             }
             return localPath;
         }
