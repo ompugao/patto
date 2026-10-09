@@ -1,57 +1,46 @@
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService};
 use url::Url;
 
-use patto::lsp::{paper::PaperCatalog, Backend, PattoSettings};
+use patto::lsp::task_edits::{
+    collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
+};
+use patto::lsp::{paper::PaperCatalog, Backend};
+use patto::parser::AstNode;
+use patto::task::TaskSnapshot;
 
 use crate::common::TestWorkspace;
 
-/// In-process LSP test client that directly uses Backend
+/// Drives a `Backend` directly, without a transport. Server-to-client traffic
+/// is drained and dropped, so `workspace/applyEdit` and notifications are no-ops.
 pub struct InProcessLspClient {
-    pub backend: Arc<Backend>,
+    service: LspService<Backend>,
 }
 
 impl InProcessLspClient {
-    /// Create a new in-process LSP client
+    /// A client that has already sent `initialize` and `initialized` for the
+    /// workspace and waited for its initial scan.
     pub async fn new(workspace: &TestWorkspace) -> Self {
-        let workspace_root = workspace.root_uri();
-
-        // Create the LspService
         let (service, socket) =
             LspService::build(|client| Backend::new(client, PaperCatalog::default())).finish();
 
-        // Spawn a task to consume and discard all socket messages (client notifications/requests)
         tokio::spawn(async move {
             futures::pin_mut!(socket);
-            while let Some(_msg) = futures::StreamExt::next(&mut socket).await {
-                // Discard all messages from server to client
-            }
+            while futures::StreamExt::next(&mut socket).await.is_some() {}
         });
 
-        // Get a reference to the Backend from the service
-        // We need to extract it before we move service
-        let backend_ptr = service.inner() as *const Backend;
-        let backend = unsafe { Arc::from_raw(backend_ptr) };
-        // Prevent drop by cloning and then forgetting
-        let backend_clone = Arc::clone(&backend);
-        std::mem::forget(backend);
-
-        // Keep the service alive
-        std::mem::forget(service);
-
-        let mut test_client = Self {
-            backend: backend_clone,
-        };
-
-        // Initialize
-        test_client.initialize(workspace_root).await;
+        let mut test_client = Self { service };
+        test_client.initialize(workspace.root_uri()).await;
         test_client.initialized().await;
-
         test_client
     }
 
-    /// Initialize the LSP server
+    fn backend(&self) -> &Backend {
+        self.service.inner()
+    }
+
     async fn initialize(&mut self, workspace_root: Url) {
         let params = InitializeParams {
             process_id: Some(std::process::id()),
@@ -68,18 +57,14 @@ impl InProcessLspClient {
             },
             ..Default::default()
         };
-
-        self.backend.initialize(params).await.unwrap();
+        self.backend().initialize(params).await.unwrap();
     }
 
-    /// Send initialized notification
     async fn initialized(&mut self) {
-        self.backend.initialized(InitializedParams {}).await;
-        // Wait for workspace scanning to complete
+        self.backend().initialized(InitializedParams {}).await;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
-    /// Open a document
     pub async fn did_open(&mut self, uri: Url, content: String) {
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
@@ -89,18 +74,28 @@ impl InProcessLspClient {
                 text: content,
             },
         };
-        self.backend.did_open(params).await;
+        self.backend().did_open(params).await;
     }
 
-    /// Close a document
+    pub async fn did_change(&mut self, uri: Url, version: i32, content: String) {
+        let params = DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier { uri, version },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: content,
+            }],
+        };
+        self.backend().did_change(params).await;
+    }
+
     pub async fn did_close(&mut self, uri: Url) {
         let params = DidCloseTextDocumentParams {
             text_document: TextDocumentIdentifier { uri },
         };
-        self.backend.did_close(params).await;
+        self.backend().did_close(params).await;
     }
 
-    /// Go to definition
     pub async fn definition(
         &mut self,
         uri: Url,
@@ -108,17 +103,13 @@ impl InProcessLspClient {
         character: u32,
     ) -> Option<GotoDefinitionResponse> {
         let params = GotoDefinitionParams {
-            text_document_position_params: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri },
-                position: Position { line, character },
-            },
+            text_document_position_params: position_params(uri, line, character),
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        self.backend.goto_definition(params).await.ok().flatten()
+        self.backend().goto_definition(params).await.ok().flatten()
     }
 
-    /// Find references
     pub async fn references(
         &mut self,
         uri: Url,
@@ -126,20 +117,16 @@ impl InProcessLspClient {
         character: u32,
     ) -> Option<Vec<Location>> {
         let params = ReferenceParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri },
-                position: Position { line, character },
-            },
+            text_document_position: position_params(uri, line, character),
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
             context: ReferenceContext {
                 include_declaration: true,
             },
         };
-        self.backend.references(params).await.ok().flatten()
+        self.backend().references(params).await.ok().flatten()
     }
 
-    /// Request completion
     pub async fn completion(
         &mut self,
         uri: Url,
@@ -147,32 +134,27 @@ impl InProcessLspClient {
         character: u32,
     ) -> Option<CompletionResponse> {
         let params = CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri },
-                position: Position { line, character },
-            },
+            text_document_position: position_params(uri, line, character),
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
             context: None,
         };
-        self.backend.completion(params).await.ok().flatten()
+        self.backend().completion(params).await.ok().flatten()
     }
 
-    /// Prepare rename
     pub async fn prepare_rename(
         &mut self,
         uri: Url,
         line: u32,
         character: u32,
     ) -> Option<PrepareRenameResponse> {
-        let params = TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri },
-            position: Position { line, character },
-        };
-        self.backend.prepare_rename(params).await.ok().flatten()
+        self.backend()
+            .prepare_rename(position_params(uri, line, character))
+            .await
+            .ok()
+            .flatten()
     }
 
-    /// Rename
     pub async fn rename(
         &mut self,
         uri: Url,
@@ -181,17 +163,15 @@ impl InProcessLspClient {
         new_name: &str,
     ) -> Option<WorkspaceEdit> {
         let params = RenameParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri },
-                position: Position { line, character },
-            },
+            text_document_position: position_params(uri, line, character),
             new_name: new_name.to_string(),
             work_done_progress_params: Default::default(),
         };
-        self.backend.rename(params).await.ok().flatten()
+        self.backend().rename(params).await.ok().flatten()
     }
 
-    /// Execute command
+    /// `None` when the request itself failed; `Some(None)` when the command
+    /// returned no value.
     pub async fn execute_command(
         &mut self,
         command: &str,
@@ -202,24 +182,22 @@ impl InProcessLspClient {
             arguments,
             work_done_progress_params: Default::default(),
         };
-        self.backend.execute_command(params).await.ok()
+        self.backend().execute_command(params).await.ok()
     }
 
-    /// Get semantic tokens for full document
     pub async fn semantic_tokens(&mut self, uri: Url) -> Option<SemanticTokensResult> {
         let params = SemanticTokensParams {
             text_document: TextDocumentIdentifier { uri },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        self.backend
+        self.backend()
             .semantic_tokens_full(params)
             .await
             .ok()
             .flatten()
     }
 
-    /// Get semantic tokens for a range
     pub async fn semantic_tokens_range(
         &mut self,
         uri: Url,
@@ -231,30 +209,27 @@ impl InProcessLspClient {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        self.backend
+        self.backend()
             .semantic_tokens_range(params)
             .await
             .ok()
             .flatten()
     }
 
-    /// Get folding ranges for a document
     pub async fn folding_range(&mut self, uri: Url) -> Option<Vec<FoldingRange>> {
         let params = FoldingRangeParams {
             text_document: TextDocumentIdentifier { uri },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        self.backend.folding_range(params).await.ok().flatten()
+        self.backend().folding_range(params).await.ok().flatten()
     }
 
-    /// Aggregate tasks (Patto-specific)
     pub async fn aggregate_tasks(&mut self) -> Option<Option<serde_json::Value>> {
         self.execute_command("experimental/aggregate_tasks", vec![])
             .await
     }
 
-    /// Get two-hop links (Patto-specific)
     pub async fn two_hop_links(&mut self, uri: Url) -> Option<Option<serde_json::Value>> {
         self.execute_command(
             "experimental/retrieve_two_hop_notes",
@@ -263,86 +238,65 @@ impl InProcessLspClient {
         .await
     }
 
-    /// Review completed tasks (Patto-specific)
     pub async fn tasks_review(
         &mut self,
         timeframe: &str,
         from: Option<&str>,
         to: Option<&str>,
     ) -> Option<Option<serde_json::Value>> {
-        let mut args = vec![serde_json::json!(timeframe)];
-        if let Some(f) = from {
-            args.push(serde_json::json!(f));
-        }
-        if let Some(t) = to {
-            args.push(serde_json::json!(t));
-        }
+        let args = [Some(timeframe), from, to]
+            .into_iter()
+            .flatten()
+            .map(|arg| serde_json::json!(arg))
+            .collect();
         self.execute_command("experimental/tasks_review", args)
             .await
     }
 
-    /// Send a did_change notification with full-document content update
-    pub async fn did_change(&mut self, uri: Url, version: i32, content: String) {
-        use tower_lsp::lsp_types::{
-            DidChangeTextDocumentParams, TextDocumentContentChangeEvent,
-            VersionedTextDocumentIdentifier,
-        };
-        let params = DidChangeTextDocumentParams {
-            text_document: VersionedTextDocumentIdentifier { uri, version },
-            content_changes: vec![TextDocumentContentChangeEvent {
-                range: None,
-                range_length: None,
-                text: content,
-            }],
-        };
-        self.backend.did_change(params).await;
+    /// Dispatches the few notifications tests send as raw JSON.
+    pub async fn notify(&mut self, method: &str, params: serde_json::Value) {
+        match method {
+            "textDocument/didChange" => {
+                if let Ok(p) = serde_json::from_value::<DidChangeTextDocumentParams>(params) {
+                    self.backend().did_change(p).await;
+                }
+            }
+            "textDocument/didSave" => {
+                if let Ok(p) = serde_json::from_value::<DidSaveTextDocumentParams>(params) {
+                    self.backend().did_save(p).await;
+                }
+            }
+            _ => {}
+        }
     }
 
-    /// Get the AST for a document from the repository's ast_map
-    pub fn get_ast(&self, uri: &Url) -> Option<patto::parser::AstNode> {
-        self.backend.document_ast(uri)
+    pub fn get_ast(&self, uri: &Url) -> Option<AstNode> {
+        self.backend().document_ast(uri)
     }
 
-    /// Compute the TextEdits that would be applied for newly-completed tasks,
-    /// given an old and new AST. Useful for testing edit generation directly.
-    pub fn completion_edits(
-        &self,
-        old_ast: &patto::parser::AstNode,
-        new_ast: &patto::parser::AstNode,
-    ) -> Vec<tower_lsp::lsp_types::TextEdit> {
-        use patto::lsp::task_edits::{
-            collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
-        };
+    /// The sticky last-valid task snapshots of a file, for testing the
+    /// keystroke-gap bridging.
+    pub fn get_last_valid_task_snapshots(&self, uri: &Url) -> Option<HashMap<usize, TaskSnapshot>> {
+        self.backend().task_snapshots(uri)
+    }
+
+    /// The edits the task pipeline would apply when a document goes from
+    /// `old_ast` to `new_ast`. `workspace/applyEdit` is dropped by this client,
+    /// so tests inspect the edits here instead.
+    pub fn completion_edits(&self, old_ast: &AstNode, new_ast: &AstNode) -> Vec<TextEdit> {
         let now = chrono::Local::now().naive_local();
         let old_snapshots = collect_task_snapshots(old_ast);
         let new_snapshots = collect_task_snapshots(new_ast);
-        let transitions = detect_task_transitions(&new_snapshots, &old_snapshots);
-        transitions
+        detect_task_transitions(&new_snapshots, &old_snapshots)
             .iter()
             .flat_map(|t| generate_edits_for_transition(t, now))
             .collect()
     }
+}
 
-    /// Send a generic notification
-    pub async fn notify(&mut self, method: &str, params: serde_json::Value) {
-        // For specific notifications like didChange, didSave
-        if method == "textDocument/didChange" {
-            if let Ok(p) = serde_json::from_value::<DidChangeTextDocumentParams>(params) {
-                self.backend.did_change(p).await;
-            }
-        } else if method == "textDocument/didSave" {
-            if let Ok(p) = serde_json::from_value::<DidSaveTextDocumentParams>(params) {
-                self.backend.did_save(p).await;
-            }
-        }
-    }
-
-    /// Return the sticky last-valid task snapshots for a file (for testing the
-    /// keystroke-gap-bridging behaviour).
-    pub fn get_last_valid_task_snapshots(
-        &self,
-        uri: &tower_lsp::lsp_types::Url,
-    ) -> Option<std::collections::HashMap<usize, patto::task::TaskSnapshot>> {
-        self.backend.task_snapshots(uri)
+fn position_params(uri: Url, line: u32, character: u32) -> TextDocumentPositionParams {
+    TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri },
+        position: Position { line, character },
     }
 }
