@@ -24,7 +24,6 @@ pub(crate) enum FlatEntry {
 }
 
 impl FlatEntry {
-    /// Returns true if this entry can be jumped to (i.e. is a navigable target).
     pub(crate) fn is_selectable(&self) -> bool {
         matches!(
             self,
@@ -33,10 +32,6 @@ impl FlatEntry {
     }
 }
 
-/// Self-contained backlinks panel state.
-///
-/// Manages backlink/two-hop-link data and cursor navigation
-/// without any knowledge of the wider application.
 pub(crate) struct BacklinksPanel {
     pub(crate) visible: bool,
     pub(crate) back_links: Vec<BackLinkData>,
@@ -58,19 +53,16 @@ impl BacklinksPanel {
         }
     }
 
-    /// Show the panel, resetting selection.
     pub(crate) fn open(&mut self) {
         self.visible = true;
         self.list_state = ListState::default();
     }
 
-    /// Hide the panel, resetting selection.
     pub(crate) fn close(&mut self) {
         self.visible = false;
         self.list_state = ListState::default();
     }
 
-    /// Recompute backlinks and two-hop links for the given file, then rebuild the flat entry list.
     pub(crate) async fn refresh(&mut self, repository: &Repository, file_path: &Path) {
         self.back_links = repository.calculate_back_links(file_path);
         self.two_hop_links = repository.calculate_two_hop_links(file_path).await;
@@ -78,7 +70,6 @@ impl BacklinksPanel {
         self.list_state = ListState::default();
     }
 
-    /// Rebuild the flat `entries` vec from `back_links` + `two_hop_links`.
     fn rebuild_entries(&mut self) {
         let mut entries = Vec::new();
 

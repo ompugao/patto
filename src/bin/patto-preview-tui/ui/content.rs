@@ -71,8 +71,7 @@ impl ContentLayout {
         )
     }
 
-    /// Index of the first element the current scroll position shows, and how
-    /// many of its rows are above the viewport.
+    /// Index of the first element the current scroll position shows.
     fn first_visible(&self, app: &App) -> usize {
         let mut remaining = app.scroll_offset;
         for (i, elem) in app.rendered_doc.elements.iter().enumerate() {

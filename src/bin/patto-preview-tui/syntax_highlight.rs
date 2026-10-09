@@ -24,7 +24,6 @@ fn engine() -> &'static (SyntaxSet, ThemeSet) {
 
 const DEFAULT_THEME: &str = "base16-ocean.dark";
 
-/// Convert a syntect foreground color to a ratatui [`Color`].
 fn to_ratatui_color(c: SyntectColor) -> Color {
     Color::Rgb(c.r, c.g, c.b)
 }
@@ -48,7 +47,6 @@ pub fn highlight_code(lang: &str, lines: &[&str], theme: Option<&str>) -> Vec<Ve
         return plain_fallback(lines);
     };
 
-    // Find syntax by token (e.g. "rust", "python", "js").  Fall back to plain text.
     let syntax = if lang.is_empty() {
         ss.find_syntax_plain_text()
     } else {

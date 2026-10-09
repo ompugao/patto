@@ -1,10 +1,9 @@
-//! Soft-wrap helpers for the patto-preview-tui.
+//! Soft-wrap helpers.
 //!
-//! All wrap logic lives here so that the row-counting used for scroll math
-//! and the row-building used for rendering share a single implementation.
-//! This includes the canonical element-height API — `elem_height` and
-//! `total_height` — which replaces `DocElement::height` / `RenderedDoc::total_height`
-//! so that the data model stays free of rendering parameters.
+//! The row counting used for scroll math and the row building used for
+//! rendering share `WrapConfig::needs_break`, so the two cannot drift apart.
+//! Element heights live here too, so the data model stays free of rendering
+//! parameters.
 
 use crate::tui_renderer::DocElement;
 use ratatui::{
@@ -66,15 +65,7 @@ impl WrapConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Row-counting (for scroll math)
-// ---------------------------------------------------------------------------
-
-/// Return the number of visual rows that `line` occupies with the given wrap config.
-///
-/// This mirrors `wrap_line` exactly — any change to the break logic must be
-/// made in both functions (or only here, since `wrap_line` delegates to this
-/// for counting).
+/// Number of visual rows `line` occupies; mirrors the breaks `wrap_line` makes.
 pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
     if cfg.col_width == 0 {
         return 1;
@@ -99,7 +90,7 @@ pub fn count_wrap_rows(line: &Line<'_>, cfg: &WrapConfig) -> usize {
 /// Height of a single `DocElement` in terminal rows.
 ///
 /// - Pass a `WrapConfig` to get soft-wrap–aware height for `TextLine` elements.
-/// - Pass `None` (or a zero-width config) to get the unwarpped height (always 1
+/// - Pass `None` (or a zero-width config) to get the unwrapped height (always 1
 ///   for `TextLine`).
 /// - `img_h` is the configured default height in terminal rows (fallback).
 /// - `elem_heights` maps cache key → actual row height for each loaded element;
@@ -149,10 +140,6 @@ pub fn total_height(
         .map(|e| elem_height(e, cfg, img_h, elem_heights))
         .sum()
 }
-
-// ---------------------------------------------------------------------------
-// Row-building (for rendering)
-// ---------------------------------------------------------------------------
 
 /// Accumulates spans for a single visual row, then finalises it into a `Line`.
 struct RowBuilder {
