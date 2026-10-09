@@ -13,6 +13,7 @@ import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../conflicts/conflict_state.dart';
 import 'attachments.dart';
+import 'caret_keys.dart';
 import 'device_files.dart';
 import 'indent_guides.dart';
 import 'outline.dart';
@@ -646,39 +647,42 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             : Column(
                 children: [
                   Expanded(
-                    child: CodeEditor(
+                    child: CaretKeys(
                       controller: _controller,
-                      wordWrap: true,
-                      autofocus: false,
-                      focusNode: _focusNode,
-                      // Pairing is for code; in prose it doubles every
-                      // apostrophe.
-                      autocompleteSymbols: false,
-                      padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
-                      chunkAnalyzer: const PattoIndentChunkAnalyzer(),
-                      // Fold markers, and the indent guides beside them.
-                      indicatorBuilder: (context, editing, chunks, notifier) {
-                        _layout = notifier;
-                        return IndentGuideGutter(
-                          width: 20,
-                          chunks: chunks,
-                          notifier: notifier,
-                          lines: () => _lines,
-                          guide: () => _guide,
-                          tabWidth: tabSize,
-                          repaint: _controller,
-                        );
-                      },
-                      toolbarController: MobileSelectionToolbarController(
-                        builder: _buildSelectionMenu,
-                      ),
-                      style: CodeEditorStyle(
-                        fontFamily: 'monospace',
-                        fontSize: fontSize,
-                        fontHeight: 1.45,
-                        textColor: Theme.of(context).colorScheme.onSurface,
-                        cursorLineColor: Theme.of(context).colorScheme.primary
-                            .withValues(alpha: 0.06),
+                      child: CodeEditor(
+                        controller: _controller,
+                        wordWrap: true,
+                        autofocus: false,
+                        focusNode: _focusNode,
+                        // Pairing is for code; in prose it doubles every
+                        // apostrophe.
+                        autocompleteSymbols: false,
+                        padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
+                        chunkAnalyzer: const PattoIndentChunkAnalyzer(),
+                        // Fold markers, and the indent guides beside them.
+                        indicatorBuilder: (context, editing, chunks, notifier) {
+                          _layout = notifier;
+                          return IndentGuideGutter(
+                            width: 20,
+                            chunks: chunks,
+                            notifier: notifier,
+                            lines: () => _lines,
+                            guide: () => _guide,
+                            tabWidth: tabSize,
+                            repaint: _controller,
+                          );
+                        },
+                        toolbarController: MobileSelectionToolbarController(
+                          builder: _buildSelectionMenu,
+                        ),
+                        style: CodeEditorStyle(
+                          fontFamily: 'monospace',
+                          fontSize: fontSize,
+                          fontHeight: 1.45,
+                          textColor: Theme.of(context).colorScheme.onSurface,
+                          cursorLineColor: Theme.of(context).colorScheme.primary
+                              .withValues(alpha: 0.06),
+                        ),
                       ),
                     ),
                   ),
