@@ -4,14 +4,16 @@ use ropey::RopeSlice;
 use str_indices::utf16::{from_byte_idx as utf16_from_byte_idx, to_byte_idx as utf16_to_byte_idx};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, InsertTextFormat,
-    Position, Range, TextEdit, Url,
+    MessageType, Position, Range, TextEdit, Url,
 };
 use urlencoding::decode;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-use crate::lsp::backend::{gather_anchors, Backend};
+use crate::lsp::backend::Backend;
+use crate::lsp::locate::gather_anchors;
+use crate::lsp::paper::{PaperProviderError, PaperReference};
 use crate::repository::Repository;
 
 /// Lines shown in a completion item's documentation popup.
@@ -210,6 +212,40 @@ impl Backend {
             range,
             query: query.to_string(),
         })
+    }
+
+    async fn paper_completion_items(&self, query: &str, range: &Range) -> Vec<CompletionItem> {
+        match self.paper_catalog.search(query).await {
+            Ok(papers) => papers
+                .into_iter()
+                .map(|paper| paper_completion_item(paper, range))
+                .collect(),
+            Err(PaperProviderError::NotConfigured) => Vec::new(),
+            Err(err) => {
+                log::warn!("paper completion failed: {}", err);
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        &format!("paper completion failed: {}", err),
+                    )
+                    .await;
+                Vec::new()
+            }
+        }
+    }
+}
+
+fn paper_completion_item(paper: PaperReference, range: &Range) -> CompletionItem {
+    CompletionItem {
+        label: paper.title.clone(),
+        detail: Some(format!("Zotero · {}", paper.title)),
+        kind: Some(CompletionItemKind::REFERENCE),
+        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+            new_text: format!("{} {}", paper.title, paper.link),
+            range: *range,
+        })),
+        ..Default::default()
     }
 }
 

@@ -4,14 +4,18 @@
 //! the request cannot be served (no workspace, unknown document, bad argument).
 
 use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tower_lsp::lsp_types::{ExecuteCommandParams, MessageType, Url};
+use tower_lsp::lsp_types::{ExecuteCommandParams, Location, MessageType, Url};
 
-use crate::lsp::backend::{task_information, Backend};
+use crate::ast_query::task_label;
+use crate::lsp::backend::Backend;
+use crate::lsp::locate::node_range;
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
-use crate::parser::Deadline;
+use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 use crate::renderer::{MarkdownRenderer, Renderer};
 use crate::repository::Repository;
+use crate::task::Duration;
 use crate::tasks_view::{timeframe_bounds, ReviewTimeframe};
 
 /// Commands this server advertises in its `initialize` response.
@@ -111,7 +115,7 @@ impl Backend {
             .filter(|(_, connected)| !connected.is_empty())
             .collect::<Vec<_>>();
 
-        two_hop.sort_by_key(|(_, connected)| -(connected.len() as i16));
+        two_hop.sort_by_key(|(_, connected)| std::cmp::Reverse(connected.len()));
         two_hop.dedup();
         Some(json!(two_hop))
     }
@@ -183,6 +187,61 @@ impl Backend {
     }
 }
 
+/// One entry of the `experimental/aggregate_tasks` response.
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
+pub struct TaskInformation {
+    pub location: Location,
+    /// Raw line text with the task property token removed.
+    pub text: String,
+    pub message: String,
+    pub due: Deadline,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<Deadline>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<Deadline>,
+    /// Clock-in time of the running session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<Deadline>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_spent: Option<Duration>,
+    pub status: TaskStatus,
+}
+
+fn task_information(uri: &Url, line: &AstNode, due: &Deadline) -> TaskInformation {
+    let mut info = TaskInformation {
+        location: Location::new(uri.clone(), node_range(line)),
+        text: task_label(line),
+        message: String::new(),
+        due: due.clone(),
+        scheduled: None,
+        completed_at: None,
+        started_at: None,
+        time_spent: None,
+        status: TaskStatus::Todo,
+    };
+    if let AstNodeKind::Line { properties } = line.kind() {
+        for prop in properties {
+            if let Property::Task {
+                status,
+                scheduled,
+                completed_at,
+                started_at,
+                time_spent,
+                ..
+            } = prop
+            {
+                info.status = status.clone();
+                info.scheduled = scheduled.clone();
+                info.completed_at = completed_at.clone();
+                info.started_at = started_at.clone();
+                info.time_spent = time_spent.clone();
+                break;
+            }
+        }
+    }
+    info
+}
+
 fn markdown_flavor(name: &str) -> MarkdownFlavor {
     match name.to_lowercase().as_str() {
         "obsidian" => MarkdownFlavor::Obsidian,
@@ -194,4 +253,69 @@ fn markdown_flavor(name: &str) -> MarkdownFlavor {
 fn parse_date(value: Option<&Value>) -> Option<NaiveDate> {
     let text = value?.as_str()?;
     NaiveDate::parse_from_str(text, "%Y-%m-%d").ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn information(line: &str) -> TaskInformation {
+        let ast = crate::parser::parse_text(line).ast;
+        let children = ast.children();
+        let uri = Url::parse("file:///notes/a.pn").unwrap();
+        task_information(
+            &uri,
+            &children[0],
+            &Deadline::Uninterpretable(String::new()),
+        )
+    }
+
+    #[test]
+    fn task_text_conceals_urls_but_keeps_link_titles() {
+        let task = " {@task status=todo due=2026-06-01}";
+        assert_eq!(
+            information(&format!(
+                "buy milk [https://example.com/foo milk title]{task}"
+            ))
+            .text,
+            "buy milk [🔗milk title]"
+        );
+        assert_eq!(
+            information(&format!(
+                "[milk title https://example.com/foo] buy milk{task}"
+            ))
+            .text,
+            "[milk title🔗] buy milk"
+        );
+        assert_eq!(
+            information(&format!("buy milk [https://example.com/foo]{task}")).text,
+            "buy milk [https://example.com/foo]"
+        );
+    }
+
+    #[test]
+    fn task_text_conceals_urls_in_multibyte_lines() {
+        let task = " {@task status=todo due=2026-06-01}";
+        assert_eq!(
+            information(&format!("牛乳を買う [https://example.com/foo 牛乳]{task}")).text,
+            "牛乳を買う [🔗牛乳]"
+        );
+        assert_eq!(
+            information(&format!("[牛乳 https://example.com/foo] 牛乳を買う{task}")).text,
+            "[牛乳🔗] 牛乳を買う"
+        );
+    }
+
+    #[test]
+    fn task_information_copies_every_task_field() {
+        let info = information(
+            "work {@task status=doing due=2026-06-01 scheduled=2026-05-30 started_at=2026-05-30T09:00 time_spent=1h30m}",
+        );
+        assert_eq!(info.status, TaskStatus::Doing);
+        assert!(info.scheduled.is_some());
+        assert!(info.started_at.is_some());
+        assert!(info.time_spent.is_some());
+        assert_eq!(info.completed_at, None);
+        assert_eq!(info.location.range.start.line, 0);
+    }
 }
