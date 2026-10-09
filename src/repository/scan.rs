@@ -53,8 +53,10 @@ impl Repository {
         walk_pn_files(dir, &mut |path| {
             if let Ok(rel_path) = path.strip_prefix(&self.root_dir) {
                 let rel_path_str = rel_path.to_string_lossy().to_string();
-                files.push(rel_path_str.clone());
-                metadata.insert(rel_path_str, self.collect_file_metadata(&path).unwrap());
+                if let Ok(file_metadata) = self.collect_file_metadata(&path) {
+                    files.push(rel_path_str.clone());
+                    metadata.insert(rel_path_str, file_metadata);
+                }
             }
         });
     }
