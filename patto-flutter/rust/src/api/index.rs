@@ -10,13 +10,15 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
+use chrono::NaiveDate;
 use parking_lot::{Mutex, RwLock};
 use patto::ast_query;
-use patto::parser::{self, AstNode, AstNodeKind, Deadline, Property, TaskStatus};
+use patto::parser::{self, AstNode, AstNodeKind, Deadline, Property};
 
 use crate::api::error::{PattoError, PattoResult};
 use crate::api::store::{self, rel_path_to_name};
-use crate::api::types::NoteMeta;
+use crate::api::types::{NoteMeta, TaskInfo};
+use crate::api::{git, render};
 
 /// One wiki link found in a note.
 #[derive(Debug, Clone)]
@@ -33,13 +35,10 @@ pub(crate) struct LinkRef {
 pub(crate) struct TaskRecord {
     pub row: u32,
     pub label: String,
-    pub status: TaskStatus,
     pub due: Deadline,
-    pub scheduled: Option<Deadline>,
-    pub completed_at: Option<chrono::NaiveDate>,
-    pub started_at: Option<Deadline>,
-    pub time_spent_minutes: Option<u32>,
-    pub is_shorthand: bool,
+    /// The day the task was finished, for the review timeframes.
+    pub completed_at: Option<NaiveDate>,
+    pub info: TaskInfo,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -130,12 +129,12 @@ pub(crate) fn with_index<T>(
     f(&guard)
 }
 
-fn record_for(root: &str, meta: &crate::api::types::NoteMeta) -> PattoResult<NoteRecord> {
+fn record_for(root: &str, meta: &NoteMeta) -> PattoResult<NoteRecord> {
     let content = store::read_note(root.to_string(), meta.rel_path.clone())?;
     Ok(record_from_content(meta, &content))
 }
 
-pub(crate) fn record_from_content(meta: &crate::api::types::NoteMeta, content: &str) -> NoteRecord {
+pub(crate) fn record_from_content(meta: &NoteMeta, content: &str) -> NoteRecord {
     let ast = parser::parse_text(content).ast;
 
     let mut raw_links = Vec::new();
@@ -167,42 +166,35 @@ fn collect_tasks(ast: &AstNode) -> Vec<TaskRecord> {
         let AstNodeKind::Line { properties } = line.kind() else {
             return;
         };
-        for prop in properties {
-            let Property::Task {
-                status,
-                due,
-                scheduled,
-                completed_at,
-                started_at,
-                time_spent,
-                location,
-                ..
-            } = prop
-            else {
-                continue;
-            };
-
-            out.push(TaskRecord {
-                row: line.location().row as u32,
-                label: ast_query::task_label(line),
-                status: status.clone(),
-                due: due.clone(),
-                scheduled: scheduled.clone(),
-                completed_at: completed_at.as_ref().and_then(|d| match d {
-                    Deadline::Date(date) => Some(*date),
-                    Deadline::DateTime(dt) => Some(dt.date()),
-                    Deadline::Uninterpretable(_) => None,
-                }),
-                started_at: started_at.clone(),
-                time_spent_minutes: time_spent.as_ref().map(|d| d.hours * 60 + d.minutes),
-                is_shorthand: !crate::api::render::span_text(location)
-                    .trim_start()
-                    .starts_with("{@"),
-            });
-            break;
+        if let Some(task) = properties.iter().find_map(|prop| task_record(line, prop)) {
+            out.push(task);
         }
     });
     out
+}
+
+fn task_record(line: &AstNode, prop: &Property) -> Option<TaskRecord> {
+    let Property::Task {
+        due, completed_at, ..
+    } = prop
+    else {
+        return None;
+    };
+    Some(TaskRecord {
+        row: line.location().row as u32,
+        label: ast_query::task_label(line),
+        due: due.clone(),
+        completed_at: completed_at.as_ref().and_then(date_of),
+        info: render::task_info(prop)?,
+    })
+}
+
+fn date_of(deadline: &Deadline) -> Option<NaiveDate> {
+    match deadline {
+        Deadline::Date(date) => Some(*date),
+        Deadline::DateTime(dt) => Some(dt.date()),
+        Deadline::Uninterpretable(_) => None,
+    }
 }
 
 /// Progress while scanning the notes directory.
@@ -468,12 +460,12 @@ pub fn apply_commit_times(root: &str, notes: &mut [NoteMeta]) -> PattoResult<()>
         if index.read().commit_times.is_none() {
             // Walking the history is the expensive part, so it is done once per
             // index and reused until a sync or a rebuild clears it.
-            let times = crate::api::git::note_commit_times(root)?;
+            let times = git::note_commit_times(root)?;
             index.write().commit_times = Some(times);
         }
     }
 
-    let dirty = crate::api::git::locally_modified_notes(root)?;
+    let dirty = git::locally_modified_notes(root)?;
     let guard = index.read();
     let Some(times) = guard.commit_times.as_ref() else {
         return Ok(());
