@@ -4,7 +4,7 @@
 //! needs no features. Logging pulls in `simplelog` and rides on the `cli` feature.
 
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 
 /// Install the logger. With no `logfile` nothing is logged: the LSP and the
@@ -37,8 +37,26 @@ pub fn read_input(path: Option<&Path>) -> io::Result<String> {
     }
 }
 
+/// A buffered writer on `path`, or on stdout when no path is given.
+/// The caller flushes it.
+pub fn open_output(path: Option<&Path>) -> io::Result<Box<dyn Write>> {
+    Ok(match path {
+        Some(path) => Box::new(BufWriter::new(fs::File::create(path)?)),
+        None => Box::new(BufWriter::new(io::stdout().lock())),
+    })
+}
+
 /// Display name for an input source, for messages addressed to the user.
 pub fn input_name(path: Option<&Path>) -> String {
+    name_or(path, "stdin")
+}
+
+/// Display name for an output destination, for messages addressed to the user.
+pub fn output_name(path: Option<&Path>) -> String {
+    name_or(path, "stdout")
+}
+
+fn name_or(path: Option<&Path>, standard_stream: &str) -> String {
     path.map(|p| p.display().to_string())
-        .unwrap_or_else(|| "stdin".to_string())
+        .unwrap_or_else(|| standard_stream.to_string())
 }

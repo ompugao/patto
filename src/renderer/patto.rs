@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 
-use super::Renderer;
+use super::{wiki_target, write_lines, Renderer, WikiTarget};
 
 /// Renderer that outputs patto format (for round-trip conversion)
 #[derive(Debug, Default)]
@@ -63,10 +63,10 @@ impl PattoRenderer {
             }
             AstNodeKind::TableRow => self.write_table_row(ast, output),
             AstNodeKind::TableColumn => self.write_contents(ast, output),
-            AstNodeKind::WikiLink { link, anchor } => match anchor.as_deref() {
-                Some(anchor) if link.is_empty() => write!(output, "[#{}]", anchor),
-                Some(anchor) => write!(output, "[{}#{}]", link, anchor),
-                None => write!(output, "[{}]", link),
+            AstNodeKind::WikiLink { link, anchor } => match wiki_target(link, anchor.as_deref()) {
+                WikiTarget::SelfAnchor(anchor) => write!(output, "[#{}]", anchor),
+                WikiTarget::NoteAnchor { note, anchor } => write!(output, "[{}#{}]", note, anchor),
+                WikiTarget::Note(note) => write!(output, "[{}]", note),
             },
             AstNodeKind::Link { link, title } => match title {
                 Some(title) => write!(output, "[{} {}]", title, link),
@@ -170,7 +170,7 @@ impl PattoRenderer {
         } else {
             writeln!(output, "[@code {}]", lang)?;
         }
-        write_block_body(ast, output)
+        write_lines(ast, output, "\t")
     }
 
     fn write_math(&self, ast: &AstNode, inline: bool, output: &mut dyn Write) -> io::Result<()> {
@@ -181,7 +181,7 @@ impl PattoRenderer {
         }
 
         writeln!(output, "[@math]")?;
-        write_block_body(ast, output)
+        write_lines(ast, output, "\t")
     }
 
     fn write_table(
@@ -253,14 +253,6 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
 fn write_raw_contents(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
     for content in ast.contents().iter() {
         write!(output, "{}", content.extract_str())?;
-    }
-    Ok(())
-}
-
-/// The indented body of a `[@code]` or `[@math]` block.
-fn write_block_body(ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-    for child in ast.children().iter() {
-        writeln!(output, "\t{}", child.extract_str())?;
     }
     Ok(())
 }
