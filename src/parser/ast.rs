@@ -131,12 +131,35 @@ where
     opt.serialize(serializer)
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub enum TaskStatus {
+    #[default]
     Todo,
     Doing,
     Paused,
     Done,
+}
+
+impl TaskStatus {
+    /// `inprogress` and `wip` are read as aliases of `doing` but never written back.
+    pub fn from_keyword(keyword: &str) -> Option<Self> {
+        match keyword {
+            "todo" => Some(TaskStatus::Todo),
+            "doing" | "inprogress" | "wip" => Some(TaskStatus::Doing),
+            "paused" => Some(TaskStatus::Paused),
+            "done" => Some(TaskStatus::Done),
+            _ => None,
+        }
+    }
+
+    pub fn keyword(&self) -> &'static str {
+        match self {
+            TaskStatus::Todo => "todo",
+            TaskStatus::Doing => "doing",
+            TaskStatus::Paused => "paused",
+            TaskStatus::Done => "done",
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

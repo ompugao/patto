@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use pest::iterators::Pair;
+use pest::iterators::{Pair, Pairs};
 
 use super::deadline::parse_deadline;
 use super::{Deadline, Location, Property, Rule, Span, TaskStatus};
+use crate::task::Duration;
 
 pub(super) fn transform_property(
     pair: Pair<Rule>,
@@ -11,193 +12,137 @@ pub(super) fn transform_property(
     row: usize,
     offset: usize,
 ) -> Option<Property> {
-    let span = Span::from(pair.as_span()) + offset;
     let location = Location {
         row,
         input: Arc::from(input),
-        span: span.clone(),
+        span: Span::from(pair.as_span()) + offset,
     };
-
     match pair.as_rule() {
-        Rule::expr_anchor => {
-            let anchor = Property::Anchor {
-                name: pair.into_inner().next().unwrap().as_str().to_string(),
-                location,
-            };
-            Some(anchor)
-        }
-        Rule::expr_property => {
-            let mut inner = pair.into_inner();
-            let property_name = inner.next().unwrap().as_str();
+        Rule::expr_anchor => Some(short_anchor(pair, location)),
+        Rule::expr_property => named_property(pair, location),
+        Rule::expr_task => Some(shorthand_task(pair, location)),
+        other => panic!("Unhandled token: {:?}", other),
+    }
+}
 
-            match property_name {
-                "anchor" => {
-                    // Long form anchor: {@anchor name}
-                    // Expect one positional argument (the anchor name)
-                    let anchor_name = inner.next().map(|p| p.as_str().to_string());
-                    if let Some(name) = anchor_name {
-                        Some(Property::Anchor { name, location })
-                    } else {
-                        log::warn!("Anchor property missing name");
-                        None
-                    }
-                }
-                "task" => {
-                    // Task property: {@task status=todo due=2024-12-31 scheduled=2024-12-30 completed_at=2024-12-31}
-                    let mut status = TaskStatus::Todo;
-                    let mut status_is_canonical = false;
-                    let mut due = Deadline::Uninterpretable("".to_string());
-                    let mut scheduled: Option<Deadline> = None;
-                    let mut completed_at: Option<Deadline> = None;
-                    let mut started_at: Option<Deadline> = None;
-                    let mut time_spent: Option<crate::task::Duration> = None;
-                    let mut current_key = "";
+fn short_anchor(pair: Pair<Rule>, location: Location) -> Property {
+    Property::Anchor {
+        name: pair.into_inner().next().unwrap().as_str().to_string(),
+        location,
+    }
+}
 
-                    for kv in inner {
-                        match kv.as_rule() {
-                            Rule::property_keyword_pair => {
-                                // Parse key=value pair
-                                let mut pair_inner = kv.into_inner();
-                                let key = pair_inner.next().unwrap().as_str();
-                                let value = pair_inner.next().unwrap().as_str();
-
-                                if key == "status" {
-                                    status = match value {
-                                        "todo" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Todo
-                                        }
-                                        "doing" | "inprogress" | "wip" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Doing
-                                        }
-                                        "paused" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Paused
-                                        }
-                                        "done" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Done
-                                        }
-                                        _ => {
-                                            log::warn!(
-                                                "Unknown task status: '{}', interpreted as 'todo'",
-                                                value
-                                            );
-                                            TaskStatus::Todo
-                                        }
-                                    };
-                                } else if key == "due" {
-                                    due = parse_deadline(value);
-                                } else if key == "scheduled" {
-                                    scheduled = Some(parse_deadline(value));
-                                } else if key == "completed_at" {
-                                    completed_at = Some(parse_deadline(value));
-                                } else if key == "started_at" {
-                                    started_at = Some(parse_deadline(value));
-                                } else if key == "time_spent" {
-                                    time_spent = value.parse().ok();
-                                } else {
-                                    log::warn!("Unknown task property key: {}", key);
-                                }
-                            }
-                            Rule::property_keyword_arg => {
-                                current_key = kv.as_str();
-                            }
-                            Rule::property_keyword_value => {
-                                let value = kv.as_str();
-                                if current_key == "status" {
-                                    status = match value {
-                                        "todo" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Todo
-                                        }
-                                        "doing" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Doing
-                                        }
-                                        "paused" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Paused
-                                        }
-                                        "done" => {
-                                            status_is_canonical = true;
-                                            TaskStatus::Done
-                                        }
-                                        _ => {
-                                            log::warn!(
-                                                "Unknown task status: '{}', interpreted as 'todo'",
-                                                value
-                                            );
-                                            TaskStatus::Todo
-                                        }
-                                    };
-                                } else if current_key == "due" {
-                                    due = parse_deadline(value);
-                                } else if current_key == "scheduled" {
-                                    scheduled = Some(parse_deadline(value));
-                                } else if current_key == "completed_at" {
-                                    completed_at = Some(parse_deadline(value));
-                                } else if current_key == "started_at" {
-                                    started_at = Some(parse_deadline(value));
-                                } else if current_key == "time_spent" {
-                                    time_spent = value.parse().ok();
-                                } else {
-                                    log::warn!("Unknown task property value: {}", value);
-                                }
-                            }
-                            Rule::property_positional_arg => {
-                                log::warn!(
-                                    "Unexpected positional arg in task property: {}",
-                                    kv.as_str()
-                                );
-                            }
-                            _ => {
-                                log::warn!("Unexpected rule in task property: {:?}", kv.as_rule());
-                            }
-                        }
-                    }
-                    Some(Property::Task {
-                        status,
-                        status_is_canonical,
-                        due,
-                        scheduled,
-                        completed_at,
-                        started_at,
-                        time_spent,
-                        location,
-                    })
-                }
-                _ => {
-                    log::warn!("Unknown property: {}", property_name);
-                    None
-                }
-            }
-        }
-        Rule::expr_task => {
-            let mut inner = pair.into_inner();
-            let symbol = inner.by_ref().next().unwrap();
-            let status = match symbol.as_rule() {
-                Rule::symbol_task_done => TaskStatus::Done,
-                Rule::symbol_task_doing => TaskStatus::Doing,
-                Rule::symbol_task_todo => TaskStatus::Todo,
-                _ => unreachable!(),
-            };
-            let due_str = inner.as_str();
-            let due = parse_deadline(due_str);
-            Some(Property::Task {
-                status,
-                status_is_canonical: true,
-                due,
-                scheduled: None,
-                completed_at: None,
-                started_at: None,
-                time_spent: None,
-                location,
-            })
-        }
+fn named_property(pair: Pair<Rule>, location: Location) -> Option<Property> {
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str();
+    match name {
+        "anchor" => long_anchor(inner, location),
+        "task" => Some(task_property(inner, location)),
         _ => {
-            panic!("Unhandled token: {:?}", pair.as_rule());
+            log::warn!("Unknown property: {}", name);
+            None
         }
+    }
+}
+
+fn long_anchor(mut args: Pairs<Rule>, location: Location) -> Option<Property> {
+    let Some(name) = args.next() else {
+        log::warn!("Anchor property missing name");
+        return None;
+    };
+    Some(Property::Anchor {
+        name: name.as_str().to_string(),
+        location,
+    })
+}
+
+fn task_property(args: Pairs<Rule>, location: Location) -> Property {
+    let mut fields = TaskFields::default();
+    for arg in args {
+        match arg.as_rule() {
+            Rule::property_keyword_pair => {
+                let mut key_value = arg.into_inner();
+                let key = key_value.next().unwrap().as_str();
+                let value = key_value.next().unwrap().as_str();
+                fields.set(key, value);
+            }
+            Rule::property_positional_arg => {
+                log::warn!(
+                    "Unexpected positional arg in task property: {}",
+                    arg.as_str()
+                );
+            }
+            other => log::warn!("Unexpected rule in task property: {:?}", other),
+        }
+    }
+    fields.into_property(location)
+}
+
+#[derive(Default)]
+struct TaskFields {
+    status: TaskStatus,
+    status_is_canonical: bool,
+    due: Option<Deadline>,
+    scheduled: Option<Deadline>,
+    completed_at: Option<Deadline>,
+    started_at: Option<Deadline>,
+    time_spent: Option<Duration>,
+}
+
+impl TaskFields {
+    fn set(&mut self, key: &str, value: &str) {
+        match key {
+            "status" => match TaskStatus::from_keyword(value) {
+                Some(status) => {
+                    self.status = status;
+                    self.status_is_canonical = true;
+                }
+                None => {
+                    log::warn!("Unknown task status: '{}', interpreted as 'todo'", value);
+                    self.status = TaskStatus::Todo;
+                }
+            },
+            "due" => self.due = Some(parse_deadline(value)),
+            "scheduled" => self.scheduled = Some(parse_deadline(value)),
+            "completed_at" => self.completed_at = Some(parse_deadline(value)),
+            "started_at" => self.started_at = Some(parse_deadline(value)),
+            "time_spent" => self.time_spent = value.parse().ok(),
+            _ => log::warn!("Unknown task property key: {}", key),
+        }
+    }
+
+    fn into_property(self, location: Location) -> Property {
+        Property::Task {
+            status: self.status,
+            status_is_canonical: self.status_is_canonical,
+            due: self
+                .due
+                .unwrap_or_else(|| Deadline::Uninterpretable(String::new())),
+            scheduled: self.scheduled,
+            completed_at: self.completed_at,
+            started_at: self.started_at,
+            time_spent: self.time_spent,
+            location,
+        }
+    }
+}
+
+fn shorthand_task(pair: Pair<Rule>, location: Location) -> Property {
+    let mut inner = pair.into_inner();
+    let status = match inner.next().unwrap().as_rule() {
+        Rule::symbol_task_done => TaskStatus::Done,
+        Rule::symbol_task_doing => TaskStatus::Doing,
+        Rule::symbol_task_todo => TaskStatus::Todo,
+        other => unreachable!("expr_task starts with a task symbol, got {:?}", other),
+    };
+    Property::Task {
+        status,
+        status_is_canonical: true,
+        due: parse_deadline(inner.as_str()),
+        scheduled: None,
+        completed_at: None,
+        started_at: None,
+        time_spent: None,
+        location,
     }
 }
