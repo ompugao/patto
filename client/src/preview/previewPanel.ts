@@ -25,17 +25,18 @@ export class PreviewPanel {
 		);
 		this.panel = panel;
 		panel.webview.html = previewHtml(port);
-		panel.onDidDispose(() => {
-			this.panel = null;
-		});
 
-		vscode.window.onDidChangeActiveTextEditor((editor) => {
-			if (editor && editor.document.languageId === 'patto' && this.panel) {
-				this.panel.webview.postMessage({
+		const followEditor = vscode.window.onDidChangeActiveTextEditor((editor) => {
+			if (editor && editor.document.languageId === 'patto') {
+				panel.webview.postMessage({
 					type: 'navigateTo',
 					note: vscode.workspace.asRelativePath(editor.document.uri)
 				});
 			}
+		});
+		panel.onDidDispose(() => {
+			followEditor.dispose();
+			this.panel = null;
 		});
 	}
 
