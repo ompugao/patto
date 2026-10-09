@@ -14,13 +14,21 @@ mod runtime;
 mod status;
 mod sync;
 
+use git2::{Commit, Oid, Remote, Repository};
+
+use crate::api::error::{GitErrorKind, PattoError, PattoResult};
+
 pub use remote::git_clone;
 pub use runtime::git_init_runtime;
 pub use status::{git_status, locally_modified_notes, note_commit_times};
 pub use sync::git_sync;
 
-pub(crate) use commit::{changed_between, commit_notes, current_branch, normalize_attachments_dir};
-pub(crate) use integrate::{commit_merge, conflict_paths, settle_file_conflicts};
+pub(crate) use commit::{
+    changed_between, commit_notes, current_branch, diff_paths, normalize_attachments_dir,
+};
+pub(crate) use integrate::{
+    commit_merge, index_conflicts, resolved, settle_file_conflicts, IndexConflict,
+};
 pub(crate) use pause::{clear_conflict, conflict_remote, side_branch};
 pub(crate) use remote::{fetch_branch, push};
 
@@ -50,6 +58,19 @@ pub struct GitProgress {
     pub total: u32,
     pub bytes: u64,
 }
+
+impl GitProgress {
+    pub(crate) fn at(phase: GitPhase) -> Self {
+        GitProgress {
+            phase,
+            current: 0,
+            total: 0,
+            bytes: 0,
+        }
+    }
+}
+
+pub(crate) type OnProgress<'a> = dyn Fn(GitProgress) + Send + Sync + 'a;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeOutcome {
@@ -89,4 +110,20 @@ pub struct GitStatus {
     pub has_remote: bool,
     /// The last sync stopped at a conflict that has not been merged yet.
     pub conflict_pending: bool,
+}
+
+pub(crate) fn head_commit(repo: &Repository) -> PattoResult<Commit<'_>> {
+    Ok(repo.head()?.peel_to_commit()?)
+}
+
+/// `None` on an unborn branch.
+pub(crate) fn head_oid(repo: &Repository) -> Option<Oid> {
+    head_commit(repo).ok().map(|c| c.id())
+}
+
+pub(crate) fn origin(repo: &Repository) -> PattoResult<Remote<'_>> {
+    repo.find_remote("origin").map_err(|_| PattoError::Git {
+        kind: GitErrorKind::NoRemote,
+        message: "no 'origin' remote configured".to_string(),
+    })
 }

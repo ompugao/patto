@@ -1,8 +1,9 @@
 //! What the phone commits, and how to find out what changed.
 
-use git2::{Repository, Signature};
+use git2::{Diff, Oid, Repository, Signature};
 
 use crate::api::error::PattoResult;
+use crate::api::git::head_commit;
 
 pub(crate) fn current_branch(repo: &Repository) -> PattoResult<String> {
     let head = repo.head()?;
@@ -47,7 +48,7 @@ pub(crate) fn commit_notes(
     repo: &Repository,
     sig: &Signature,
     attachments_dir: &str,
-) -> PattoResult<Option<git2::Oid>> {
+) -> PattoResult<Option<Oid>> {
     let mut index = repo.index()?;
     let mut pathspecs = vec!["*.pn"];
     if !attachments_dir.is_empty() {
@@ -60,11 +61,9 @@ pub(crate) fn commit_notes(
     let tree_id = index.write_tree()?;
     let tree = repo.find_tree(tree_id)?;
 
-    let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-    if let Some(parent) = &parent {
-        if parent.tree_id() == tree_id {
-            return Ok(None);
-        }
+    let parent = head_commit(repo).ok();
+    if parent.as_ref().is_some_and(|p| p.tree_id() == tree_id) {
+        return Ok(None);
     }
 
     let parents: Vec<&git2::Commit> = parent.iter().collect();
@@ -79,13 +78,10 @@ pub(crate) fn commit_notes(
     Ok(Some(oid))
 }
 
-pub(crate) fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> Vec<String> {
-    let Some(before) = before else {
+/// Paths whose content differs between `before` and HEAD.
+pub(crate) fn changed_between(repo: &Repository, before: Option<Oid>) -> Vec<String> {
+    let (Some(before), Ok(after)) = (before, head_commit(repo)) else {
         return Vec::new();
-    };
-    let after = match repo.head().and_then(|h| h.peel_to_commit()) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
     };
     if after.id() == before {
         return Vec::new();
@@ -93,26 +89,23 @@ pub(crate) fn changed_between(repo: &Repository, before: Option<git2::Oid>) -> V
 
     let old_tree = repo.find_commit(before).and_then(|c| c.tree()).ok();
     let new_tree = after.tree().ok();
-    let Ok(diff) = repo.diff_tree_to_tree(old_tree.as_ref(), new_tree.as_ref(), None) else {
-        return Vec::new();
-    };
+    repo.diff_tree_to_tree(old_tree.as_ref(), new_tree.as_ref(), None)
+        .map(|diff| diff_paths(&diff))
+        .unwrap_or_default()
+}
 
-    let mut paths = Vec::new();
-    diff.foreach(
-        &mut |delta, _| {
-            for file in [delta.new_file(), delta.old_file()] {
-                if let Some(p) = file.path().and_then(|p| p.to_str()) {
-                    if !paths.contains(&p.to_string()) {
-                        paths.push(p.to_string());
-                    }
+/// Every path a diff touches, once each, counting both the old and the new
+/// name of a rename.
+pub(crate) fn diff_paths(diff: &Diff) -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    for delta in diff.deltas() {
+        for file in [delta.new_file(), delta.old_file()] {
+            if let Some(path) = file.path().and_then(|p| p.to_str()) {
+                if !paths.iter().any(|q| q == path) {
+                    paths.push(path.to_string());
                 }
             }
-            true
-        },
-        None,
-        None,
-        None,
-    )
-    .ok();
+        }
+    }
     paths
 }

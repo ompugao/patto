@@ -6,11 +6,11 @@ use git2::{Oid, Remote, Repository};
 
 use crate::api::error::PattoResult;
 use crate::api::git::remote::push;
-use crate::api::git::{GitCreds, GitProgress};
+use crate::api::git::{GitCreds, OnProgress};
 
 /// Holds the remote commit a paused sync could not merge. Its presence is what
 /// "a merge is pending" means.
-pub(crate) const CONFLICT_REF: &str = "refs/patto/conflict-remote";
+const CONFLICT_REF: &str = "refs/patto/conflict-remote";
 
 /// Repository config key naming the branch this device pushes to while a merge
 /// is pending.
@@ -46,13 +46,36 @@ pub(crate) fn side_branch(repo: &Repository) -> PattoResult<String> {
     Ok(name)
 }
 
+/// Keep the fetched commit for a later merge and park this device's commits on
+/// the side branch, so they are safe on the remote while the merge waits.
+/// Returns the side branch.
+pub(super) fn pause_sync(
+    repo: &Repository,
+    remote: &mut Remote,
+    branch: &str,
+    fetched: Oid,
+    creds: &GitCreds,
+    on_progress: &OnProgress<'_>,
+) -> PattoResult<String> {
+    repo.reference(CONFLICT_REF, fetched, true, "patto: sync paused")?;
+    let side = side_branch(repo)?;
+    // The side branch belongs to this device, so overwriting it is safe.
+    push(
+        remote,
+        &format!("+refs/heads/{branch}:refs/heads/{side}"),
+        creds,
+        on_progress,
+    )?;
+    Ok(side)
+}
+
 /// The merge is done: forget the paused sync and delete the side branch on the
 /// remote. Returns whether there was anything to clear.
 pub(crate) fn clear_conflict(
     repo: &Repository,
     remote: &mut Remote,
     creds: &GitCreds,
-    on_progress: &(dyn Fn(GitProgress) + Send + Sync),
+    on_progress: &OnProgress<'_>,
 ) -> PattoResult<bool> {
     let Ok(mut reference) = repo.find_reference(CONFLICT_REF) else {
         return Ok(false);
