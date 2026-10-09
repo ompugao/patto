@@ -460,7 +460,7 @@ fn render_inline(ast: &AstNode, target: &mut InlineTarget, base_style: Style) ->
             return inline_link(target, base_style, link, title.as_deref());
         }
         AstNodeKind::Embed { link, title } => {
-            inline_embed(target, base_style, link, title.as_deref())
+            return inline_embed(target, base_style, link, title.as_deref());
         }
         AstNodeKind::Code { inline: true, .. } => inline_contents(
             ast,
@@ -533,18 +533,15 @@ fn inline_link(
             .add_modifier(Modifier::UNDERLINED),
         LinkAction::OpenUrl(link.to_string()),
     );
-    // Shared Google Photos have no inline player; show the thumbnail
-    // below the link (the image cache resolves the share page to it).
-    if is_google_photos_url(link) {
-        return InlineResult::ImageBlock {
-            src: link.to_string(),
-            alt: title.map(str::to_string),
-        };
-    }
     InlineResult::Inline
 }
 
-fn inline_embed(target: &mut InlineTarget, base_style: Style, link: &str, title: Option<&str>) {
+fn inline_embed(
+    target: &mut InlineTarget,
+    base_style: Style,
+    link: &str,
+    title: Option<&str>,
+) -> InlineResult {
     let display = title.unwrap_or(link);
     let (text, color) = if link.to_lowercase().ends_with(".pdf") {
         (format!("[PDF: {}]", display), Color::Cyan)
@@ -556,6 +553,15 @@ fn inline_embed(target: &mut InlineTarget, base_style: Style, link: &str, title:
         base_style.fg(color).add_modifier(Modifier::UNDERLINED),
         LinkAction::OpenUrl(link.to_string()),
     );
+    // Shared Google Photos have no inline player; show the thumbnail
+    // below the link (the image cache resolves the share page to it).
+    if is_google_photos_url(link) {
+        return InlineResult::ImageBlock {
+            src: link.to_string(),
+            alt: title.map(str::to_string),
+        };
+    }
+    InlineResult::Inline
 }
 
 /// The node's contents as plain text in one style.
