@@ -108,7 +108,7 @@ end
 
 function M.classify_completed(date_str, now)
   local ts = M.date_to_time(date_str)
-  if not ts then return "  Older", 1 end
+  if not ts then return "Older", 1 end
 
   local t = local_date(now or os.time())
   local today = day_start(t)

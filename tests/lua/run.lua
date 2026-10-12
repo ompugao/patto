@@ -67,7 +67,7 @@ check("classify_completed this week", { fmt.classify_completed("2026-10-05", now
 check("classify_completed last week", { fmt.classify_completed("2026-09-28", now) }, { "Last Week", 3 })
 check("classify_completed this month (seen from Monday the 19th)", { fmt.classify_completed("2026-10-01", now + 10 * 86400) }, { "This Month", 2 })
 check("classify_completed older", { fmt.classify_completed("2025-01-01", now) }, { "Older", 1 })
-check("classify_completed missing", { fmt.classify_completed(nil, now) }, { "  Older", 1 })
+check("classify_completed missing", { fmt.classify_completed(nil, now) }, { "Older", 1 })
 
 local function loc(path, line)
   return { uri = vim.uri_from_fname(path), range = { start = { line = line, character = 2 } } }
