@@ -45,7 +45,10 @@ void main() {
     });
 
     test('names itself after the repository', () {
-      expect(Workspace.nameFromUrl('https://github.com/you/notes.git'), 'notes');
+      expect(
+        Workspace.nameFromUrl('https://github.com/you/notes.git'),
+        'notes',
+      );
       expect(Workspace.nameFromUrl('https://github.com/you/notes/'), 'notes');
       expect(Workspace.nameFromUrl(''), 'Notes');
     });
@@ -60,6 +63,14 @@ void main() {
       for (final bad in ['/Inbox', '.inbox', 'a//b', r'a\b', 'a /b', '../x']) {
         expect(Settings.isValidInboxNoteName(bad), isFalse, reason: bad);
       }
+    });
+
+    test('an empty author falls back to an identity git accepts', () {
+      expect(const Settings().commitAuthorName, 'Patto');
+      expect(const Settings().commitAuthorEmail, 'patto@localhost');
+      const named = Settings(authorName: 'Me', authorEmail: 'me@example.com');
+      expect(named.commitAuthorName, 'Me');
+      expect(named.commitAuthorEmail, 'me@example.com');
     });
 
     test('the active workspace falls back to the first one', () {
@@ -78,9 +89,9 @@ void main() {
       const first = Workspace(id: 'a', name: 'A', dirName: 'a');
       const renamed = Workspace(id: 'a', name: 'Renamed', dirName: 'a');
 
-      final settings = const Settings().withWorkspace(first).withWorkspace(
-        renamed,
-      );
+      final settings = const Settings()
+          .withWorkspace(first)
+          .withWorkspace(renamed);
 
       expect(settings.workspaces.length, 1);
       expect(settings.workspaces.single.name, 'Renamed');

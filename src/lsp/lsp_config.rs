@@ -18,30 +18,27 @@ pub struct PattoLspConfig {
 }
 
 impl PattoLspConfig {
+    /// A `[zotero]` table field wins over the flat top-level key of the same
+    /// name; either form may supply each field independently.
     pub fn zotero_credentials(&self) -> Option<ZoteroCredentials> {
-        if let Some(section) = &self.zotero {
-            let user_id = normalize_field(section.user_id.as_deref())
-                .or_else(|| normalize_field(self.zotero_user_id.as_deref()));
-            let api_key = normalize_field(section.api_key.as_deref())
-                .or_else(|| normalize_field(self.zotero_api_key.as_deref()));
-            if let (Some(user_id), Some(api_key)) = (user_id, api_key) {
-                let endpoint = normalize_field(section.endpoint.as_deref())
-                    .or_else(|| normalize_field(self.zotero_endpoint.as_deref()));
-                return Some(ZoteroCredentials {
-                    user_id,
-                    api_key,
-                    endpoint,
-                });
-            }
-        }
-
-        let user_id = normalize_field(self.zotero_user_id.as_deref())?;
-        let api_key = normalize_field(self.zotero_api_key.as_deref())?;
-        let endpoint = normalize_field(self.zotero_endpoint.as_deref());
+        let section = self.zotero.as_ref();
+        let field = |from_section: Option<&String>, flat: Option<&String>| {
+            normalize_field(from_section.map(String::as_str))
+                .or_else(|| normalize_field(flat.map(String::as_str)))
+        };
         Some(ZoteroCredentials {
-            user_id,
-            api_key,
-            endpoint,
+            user_id: field(
+                section.and_then(|s| s.user_id.as_ref()),
+                self.zotero_user_id.as_ref(),
+            )?,
+            api_key: field(
+                section.and_then(|s| s.api_key.as_ref()),
+                self.zotero_api_key.as_ref(),
+            )?,
+            endpoint: field(
+                section.and_then(|s| s.endpoint.as_ref()),
+                self.zotero_endpoint.as_ref(),
+            ),
         })
     }
 }
@@ -175,4 +172,53 @@ fn cache_home_dir() -> io::Result<PathBuf> {
         io::ErrorKind::NotFound,
         "unable to determine cache directory",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn credentials(toml_text: &str) -> Option<ZoteroCredentials> {
+        let config: PattoLspConfig = toml::from_str(toml_text).expect("valid toml");
+        config.zotero_credentials()
+    }
+
+    #[test]
+    fn zotero_table_form_is_read() {
+        let creds =
+            credentials("[zotero]\nuser_id = \"u1\"\napi_key = \"k1\"\nendpoint = \"http://z\"\n")
+                .unwrap();
+        assert_eq!(
+            (creds.user_id.as_str(), creds.api_key.as_str()),
+            ("u1", "k1")
+        );
+        assert_eq!(creds.endpoint.as_deref(), Some("http://z"));
+    }
+
+    #[test]
+    fn flat_upper_case_keys_are_read() {
+        let creds = credentials("ZOTERO_USER_ID = \"u1\"\nZOTERO_API_KEY = \"k1\"\n").unwrap();
+        assert_eq!(
+            (creds.user_id.as_str(), creds.api_key.as_str()),
+            ("u1", "k1")
+        );
+        assert_eq!(creds.endpoint, None);
+    }
+
+    #[test]
+    fn table_field_wins_over_flat_field_and_each_field_falls_back_alone() {
+        let creds = credentials(
+            "zotero_user_id = \"flat\"\nzotero_api_key = \"k-flat\"\n[zotero]\nuserId = \"table\"\n",
+        )
+        .unwrap();
+        assert_eq!(creds.user_id, "table");
+        assert_eq!(creds.api_key, "k-flat");
+    }
+
+    #[test]
+    fn blank_values_count_as_missing() {
+        assert!(credentials("[zotero]\nuser_id = \"  \"\napi_key = \"k1\"\n").is_none());
+        assert!(credentials("zotero_user_id = \"u1\"\n").is_none());
+        assert!(credentials("").is_none());
+    }
 }

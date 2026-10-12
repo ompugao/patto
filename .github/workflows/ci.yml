@@ -163,4 +163,4 @@ jobs:
           sudo apt-get install -y libchafa-dev libglib2.0-dev libsysprof-capture-4-dev pkg-config
 
       - name: Run clippy
-        run: cargo clippy --all-targets --features zotero,preview-tui-chafa-static
+        run: cargo clippy --all-targets --features zotero,preview-tui-chafa-static -- -D warnings

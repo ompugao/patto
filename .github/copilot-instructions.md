@@ -59,31 +59,52 @@ npm run dev               # Dev server (standalone, not embedded)
 ```
 src/
   patto.pest          # PEG grammar (pest) — the source of truth for syntax
-  parser.rs           # Parses .pn lines into AstNode trees using pest
-  repository.rs       # Watches a directory of .pn files; builds a backlink/2-hop graph (gdsl)
+  parser/             # pest pairs → AstNode trees
+    ast.rs            #   AstNode, AstNodeKind, Property, TaskStatus
+    document.rs       #   parse_text driver (DocumentBuilder over lines/blocks)
+    command.rs        #   [@code|math|quote|table] block commands
+    inline.rs         #   statements → inline nodes (links, decorations, code)
+    property.rs       #   anchors and {@task ...} properties
+    deadline.rs, error.rs
+  task.rs, task_edits.rs, tasks_view.rs, ast_query.rs   # task model, status edits, grouping, AST queries
+  repository/         # Watches a directory of .pn files; builds a backlink/2-hop graph (gdsl)
+    scan.rs, link_graph.rs, watcher.rs, messages.rs, config.rs, tasks.rs
   lsp/
-    backend.rs        # tower-lsp Backend; implements LanguageServer trait
-    lsp_config.rs     # LSP server initialization config
+    backend.rs        # tower-lsp Backend; LanguageServer impl that delegates to:
+    capabilities.rs, documents.rs, diagnostics.rs, navigation.rs, folding.rs,
+    locate.rs, completion.rs, rename.rs, commands.rs, workspace.rs
+    semantic_token.rs # LSP semantic token provider
+    diagnostic_translator.rs  # Translates pest errors to friendly LSP diagnostics
+    lsp_config.rs     # patto-lsp.toml loading
     paper.rs          # Zotero paper catalog integration
-  renderer.rs         # Renders AstNode trees to HTML (used by preview server)
-  markdown/           # Markdown export (MarkdownRenderer) with flavor support
+  renderer/           # AstNode → HTML (html.rs), Markdown (markdown.rs), Patto (patto.rs)
+  markdown/           # Markdown export options and flavors
   importer/           # Markdown → Patto importer
-  diagnostic_translator.rs  # Translates pest errors to LSP diagnostics
-  semantic_token.rs   # LSP semantic token provider
+    converter.rs      #   MarkdownImporter entry point
+    conversion/       #   one module per node kind (blocks, inline, links, lists, tables, tasks)
+  preview/            # axum preview server: server.rs, session.rs (WebSocket), static_files.rs,
+                      # embeds.rs, user_files.rs, lsp_bridge.rs
+  cli.rs              # logging and input/output plumbing shared by the binaries
   line_tracker.rs     # Maps line numbers to rope positions (ropey)
   bin/
     patto-lsp.rs      # LSP server binary (stdin/stdout or TCP)
-    patto-preview.rs  # Preview HTTP server (axum) + WebSocket + embedded Vite UI
+    patto-preview.rs  # Argument parsing + wiring for the preview server
+    patto-preview-tui/  # Terminal preview: app.rs (state + keys), ui/ (one module per screen element),
+                        # tui_renderer.rs, tasks.rs, search.rs, backlinks.rs, image_cache.rs
     patto-markdown-renderer.rs
     patto-markdown-importer.rs
     patto-html-renderer.rs
+    patto-syntax-checker.rs
 
 tests/
   common/
-    in_process_client.rs  # Directly instantiates Backend; avoids spawning a process
+    in_process_client.rs  # Owns the LspService; avoids spawning a process
     workspace.rs          # Creates temp dirs with .pn files for tests
   lsp_*.rs              # Integration tests for each LSP feature
-  markdown_*.rs         # Markdown export/import tests
+  parser_*.rs, task_edits.rs, ast_query.rs   # Core behaviour specs
+  markdown_*.rs, html_export.rs, patto_export.rs   # Renderer and importer output specs
+  repository_*.rs, preview_server.rs         # Repository graph/watcher and HTTP routes
+  lua/run.lua           # Headless Neovim checks for the plugin (`nvim -l tests/lua/run.lua`)
 ```
 
 ### Key data flows
@@ -94,7 +115,7 @@ tests/
 
 ### Repository & graph
 
-`Repository` in `src/repository.rs` maintains:
+`Repository` in `src/repository/` maintains:
 - A `DashMap` of file URL → parsed AST + metadata
 - A `gdsl` directed graph of wiki-link edges between documents (used for backlinks and 2-hop links)
 - A `notify` file watcher that re-parses files on change and sends updates via a broadcast channel
@@ -107,8 +128,7 @@ tests/
 - **`zotero` feature**: Enabled by default (`features = ["zotero"]` in Cargo.toml). Build without it via `cargo build --no-default-features`.
 - **Test pattern**: Integration tests in `tests/` use `InProcessLspClient` (no subprocess), which wraps `Backend` directly. Use `TestWorkspace` to create temp directories with fixture `.pn` files.
 - **Serde tags**: WebSocket messages use `#[serde(tag = "type", content = "data")]` — the frontend expects `{ type: "...", data: { ... } }`.
-- **VS Code extension entry**: `client/src/extension.ts` — spawns `patto-lsp` and `patto-preview` as child processes.
-- **`patto-preview-next/`**: A legacy Next.js preview (superseded by the Vite UI in `patto-preview-ui/`). Not embedded in the binary.
+- **VS Code extension entry**: `client/src/extension.ts` (activate/deactivate only); LSP client in `languageClient.ts`, commands under `commands/`, preview under `preview/`, task view under `tasks/`, binary download under `binaries/`.
 - **`patto-preview-tui`**: Terminal UI preview binary with three feature tiers: `preview-tui` (no chafa), `preview-tui-chafa-dyn` (chafa via dynamic linking, requires libchafa on system), `preview-tui-chafa-static` (chafa statically bundled, Linux only — used for release builds). The `chafa-dyn`/`chafa-static` features of `ratatui-image` are mutually exclusive; both are opted out by default via `default-features = false`. `preview-tui-chafa-static` activates static chafa via `patto-chafa-bridge`, a code-free crate that exists purely for Cargo feature unification.
 - **LSP custom commands**: Backend exposes `experimental/aggregate_tasks`, `experimental/retrieve_two_hop_notes`, and `experimental/scan_workspace` via `workspace/executeCommand`. Editors call these to show task lists and 2-hop note graphs.
 - **Markdown flavors**: `MarkdownFlavor` has three variants — `Standard`, `Obsidian`, and `GitHub`. Configured per-client via LSP `workspace/configuration` (`patto.markdown.defaultFlavor`). Implemented in `src/markdown/flavor.rs`.
@@ -119,34 +139,34 @@ tests/
 
 ### Adding syntax features
 1. Add grammar rules to `src/patto.pest`
-2. Update `AstNode` variants in `src/parser.rs` to match new rules
-3. Update renderer in `src/renderer.rs` (for HTML output)
+2. Update `AstNodeKind` in `src/parser/ast.rs` and the transform in the matching `src/parser/*.rs` module
+3. Update renderers in `src/renderer/` (HTML, Markdown, Patto output)
 4. Update markdown exporters in `src/markdown/` (for each flavor)
-5. Add LSP support: semantic tokens in `src/semantic_token.rs`, completions in `src/lsp/backend.rs`
+5. Add LSP support: semantic tokens in `src/lsp/semantic_token.rs`, completions in `src/lsp/completion.rs`
 6. Add tests in `tests/` (use `TestWorkspace` + `InProcessLspClient`)
 
 ### Modifying LSP behavior
-- Edit `src/lsp/backend.rs` (implements `LanguageServer` trait)
+- Edit the feature module under `src/lsp/` (`backend.rs` only dispatches the `LanguageServer` trait)
 - Edit `src/lsp/lsp_config.rs` for server initialization config (capabilities, options)
 - Test with integration tests in `tests/lsp_*.rs`
 
 ### Adding editor integrations
-- **VS Code**: Modify `client/src/extension.ts` (extension lifecycle, command handlers)
-- **Vim/Neovim**: Modify `lua/patto/init.lua` (startup, config)
+- **VS Code**: Modify the module under `client/src/` that owns the concern (`commands/`, `preview/`, `tasks/`)
+- **Vim/Neovim**: `lua/patto.lua` (config table), `lua/patto/*.lua` (commands, tasks, previews), Trouble sources in `lua/trouble/sources/`
 - **Vim plugin files**: `plugin/patto.vim`, `ftdetect/patto.vim`, `after/ftplugin/patto.vim`
 
 ### Frontend/Preview changes
-- React/Vite code: `patto-preview-ui/src/`
+- React/Vite code: `patto-preview-ui/src/` (`hooks/` for state, `components/nodes/` for AST rendering, `embeds.ts` + `components/*Block.tsx` for embeds)
 - Changes automatically picked up by `cargo build` (via `build.rs`)
 - Tip: Use `cd patto-preview-ui && npm run dev` for standalone dev server to iterate quickly, then `cargo build` to verify embedded version works
 
 ### TUI Preview changes
-- Edit `src/bin/patto-preview-tui.rs`
+- Edit `src/bin/patto-preview-tui/` (`ui/` draws, `app.rs` handles keys)
 - Test with `cargo build --features preview-tui && cargo run --bin patto-preview-tui -- <.pn file>`
 - For chafa (image support): `cargo build --features preview-tui-chafa-static` on Linux
 
 ### Repository graph changes
-- Core logic in `src/repository.rs` (parsing, file watching, graph building)
+- Core logic in `src/repository/` (`scan.rs`, `watcher.rs`, `link_graph.rs`)
 - Graph data structure uses `gdsl` crate for directed graph operations
 - File watching via `notify` crate (auto-detects `.pn` file changes)
 

@@ -12,9 +12,9 @@ use patto::task_edits;
 use patto::tasks_view::{self, ReviewTimeframe};
 
 use crate::api::error::{PattoError, PattoResult};
-use crate::api::index::{self, TaskRecord};
+use crate::api::index::{self, NoteRecord, TaskRecord};
 use crate::api::store;
-use crate::api::types::{TaskDate, TaskInfo, TaskStatus};
+use crate::api::types::{DateKind, TaskDate, TaskInfo, TaskStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingGroup {
@@ -50,17 +50,31 @@ pub struct TaskItem {
 }
 
 fn info_of(record: &TaskRecord) -> TaskInfo {
+    // The review screens show the day a task was finished even when the note
+    // recorded the time as well.
     TaskInfo {
-        status: (&record.status).into(),
-        due: TaskDate::from_deadline(&record.due),
-        scheduled: record.scheduled.as_ref().and_then(TaskDate::from_deadline),
         completed_at: record.completed_at.map(|d| TaskDate {
             text: d.format("%Y-%m-%d").to_string(),
-            kind: crate::api::types::DateKind::Date,
+            kind: DateKind::Date,
         }),
-        started_at: record.started_at.as_ref().and_then(TaskDate::from_deadline),
-        time_spent_minutes: record.time_spent_minutes,
-        is_shorthand: record.is_shorthand,
+        ..record.info.clone()
+    }
+}
+
+fn item_of(
+    note: &NoteRecord,
+    task: &TaskRecord,
+    group: PendingGroup,
+    completed_on: Option<String>,
+) -> TaskItem {
+    TaskItem {
+        rel_path: note.rel_path.clone(),
+        note_name: note.name.clone(),
+        row: task.row,
+        text: task.label.clone(),
+        info: info_of(task),
+        group,
+        completed_on,
     }
 }
 
@@ -72,18 +86,15 @@ pub fn pending_tasks(root: String, today: Option<String>) -> PattoResult<Vec<Tas
         let mut out: Vec<TaskItem> = Vec::new();
         for note in idx.notes.values() {
             for task in &note.tasks {
-                if matches!(task.status, CoreTaskStatus::Done) {
+                if task.info.status == TaskStatus::Done {
                     continue;
                 }
-                out.push(TaskItem {
-                    rel_path: note.rel_path.clone(),
-                    note_name: note.name.clone(),
-                    row: task.row,
-                    text: task.label.clone(),
-                    info: info_of(task),
-                    group: pending_group_of(&task.due, today),
-                    completed_on: None,
-                });
+                out.push(item_of(
+                    note,
+                    task,
+                    pending_group_of(&task.due, today),
+                    None,
+                ));
             }
         }
 
@@ -121,25 +132,17 @@ pub fn completed_tasks(
         let mut out: Vec<TaskItem> = Vec::new();
         for note in idx.notes.values() {
             for task in &note.tasks {
-                if !matches!(task.status, CoreTaskStatus::Done) {
+                if task.info.status != TaskStatus::Done {
                     continue;
                 }
                 let Some(date) = task.completed_at else {
                     continue;
                 };
-                if from.map(|f| date < f).unwrap_or(false) || to.map(|t| date > t).unwrap_or(false)
-                {
+                if from.is_some_and(|f| date < f) || to.is_some_and(|t| date > t) {
                     continue;
                 }
-                out.push(TaskItem {
-                    rel_path: note.rel_path.clone(),
-                    note_name: note.name.clone(),
-                    row: task.row,
-                    text: task.label.clone(),
-                    info: info_of(task),
-                    group: PendingGroup::NoDue,
-                    completed_on: Some(date.format("%Y-%m-%d").to_string()),
-                });
+                let completed_on = date.format("%Y-%m-%d").to_string();
+                out.push(item_of(note, task, PendingGroup::NoDue, Some(completed_on)));
             }
         }
 

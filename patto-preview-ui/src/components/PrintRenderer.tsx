@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { RenderNode, flattenAst, type AstNode } from './VirtualRenderer';
+import { flattenAst, type AstNode } from '../ast';
+import RenderNode, { type WikiLinkHandler } from './RenderNode';
 
 interface PrintRendererProps {
     ast: AstNode | null;
-    onWikiLinkClick: (link: string, anchor?: string) => void;
+    onWikiLinkClick: WikiLinkHandler;
 }
 
 /**
@@ -12,10 +13,7 @@ interface PrintRendererProps {
  * so we need this to get the complete document in the print output.
  */
 export default function PrintRenderer({ ast, onWikiLinkClick }: PrintRendererProps) {
-    const blocks = useMemo(() => {
-        if (!ast) return [];
-        return flattenAst(ast);
-    }, [ast]);
+    const blocks = useMemo(() => (ast ? flattenAst(ast) : []), [ast]);
 
     if (!ast || blocks.length === 0) return null;
 

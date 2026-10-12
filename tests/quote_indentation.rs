@@ -60,7 +60,7 @@ fn count_quote_contents(ast: &patto::parser::AstNode) -> (usize, usize) {
         nested: &mut usize,
         is_direct: bool,
     ) {
-        for child in node.value().children.lock().unwrap().iter() {
+        for child in node.children().iter() {
             if matches!(child.kind(), AstNodeKind::QuoteContent { .. }) {
                 if is_direct {
                     *direct += 1;
@@ -75,12 +75,12 @@ fn count_quote_contents(ast: &patto::parser::AstNode) -> (usize, usize) {
 
     // Find the Quote node first
     fn find_quote(node: &patto::parser::AstNode) -> Option<patto::parser::AstNode> {
-        for child in node.value().children.lock().unwrap().iter() {
+        for child in node.children().iter() {
             if matches!(child.kind(), AstNodeKind::Quote) {
                 return Some(child.clone());
             }
             // Check contents too
-            for content in child.value().contents.lock().unwrap().iter() {
+            for content in child.contents().iter() {
                 if matches!(content.kind(), AstNodeKind::Quote) {
                     return Some(content.clone());
                 }

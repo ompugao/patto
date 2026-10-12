@@ -29,11 +29,11 @@ final conflictedPathsProvider = Provider<Set<String>>((ref) {
 
 final conflictDetailProvider = FutureProvider.autoDispose
     .family<ConflictDetail, String>((ref, relPath) async {
-  final workspace = await ref.watch(workspaceProvider.future);
-  ref.watch(notesRevisionProvider);
-  if (workspace == null) throw StateError('no workspace is active');
-  return rust.conflictDetail(root: workspace.root, relPath: relPath);
-});
+      final workspace = await ref.watch(workspaceProvider.future);
+      ref.watch(notesRevisionProvider);
+      if (workspace == null) throw StateError('no workspace is active');
+      return rust.conflictDetail(root: workspace.root, relPath: relPath);
+    });
 
 /// What the user picked for one conflict.
 enum Pick { ours, theirs, suggested, both, custom }
@@ -96,9 +96,7 @@ class NoteDraft {
   Map<String, Object?> toJson() => {
     'oursId': oursId,
     'theirsId': theirsId,
-    'choices': {
-      for (final e in choices.entries) '${e.key}': e.value.toJson(),
-    },
+    'choices': {for (final e in choices.entries) '${e.key}': e.value.toJson()},
     'undone': undone.toList(),
     'done': done,
   };
@@ -153,6 +151,27 @@ List<int> conflictIndices(ConflictDetail detail) {
 int unresolvedCount(ConflictDetail detail, NoteDraft draft) =>
     conflictIndices(detail).where((i) => !draft.choices.containsKey(i)).length;
 
+/// Where to go from [cursor], a position in [indices], when stepping by
+/// [step]: the nearest conflict in that direction still without a choice, or
+/// simply the next one when every conflict has one. Wraps around the ends.
+int nextConflictCursor(
+  List<int> indices,
+  Map<int, Choice> choices,
+  int cursor,
+  int step,
+) {
+  int wrap(int n) => n % indices.length;
+  var next = wrap(cursor + step);
+  for (var n = 1; n <= indices.length; n++) {
+    final candidate = wrap(cursor + step * n);
+    if (!choices.containsKey(indices[candidate])) {
+      next = candidate;
+      break;
+    }
+  }
+  return next;
+}
+
 /// The lines a conflict stands for under [choice].
 List<String> linesFor(MergeRegion_Conflict region, Choice choice) =>
     switch (choice.pick) {
@@ -171,8 +190,10 @@ List<String>? regionResult(ConflictDetail detail, NoteDraft draft, int i) {
     MergeRegion_Unchanged(:final lines) => lines,
     MergeRegion_Ours(:final base, :final lines) ||
     MergeRegion_Theirs(:final base, :final lines) ||
-    MergeRegion_Same(:final base, :final lines) =>
-      draft.undone.contains(i) ? base : lines,
+    MergeRegion_Same(
+      :final base,
+      :final lines,
+    ) => draft.undone.contains(i) ? base : lines,
     MergeRegion_Conflict() => switch (draft.choices[i]) {
       null => null,
       final choice => linesFor(region, choice),

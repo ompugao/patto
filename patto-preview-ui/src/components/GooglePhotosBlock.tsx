@@ -1,86 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Play, Image as ImageIcon } from 'lucide-react';
+import { loadGooglePhotosMedia } from '../embeds';
+import { useEmbedData } from '../hooks/useEmbedData';
+import { useNearViewport } from '../hooks/useNearViewport';
 
 interface GooglePhotosBlockProps {
     url: string;
     title: string | null;
 }
 
-interface GooglePhotosMedia {
-    thumbnail_url: string;
-    video_url: string | null;
-    title: string | null;
-}
-
-// Lookups cost the server a round trip to Google, so share them across every
-// mount (virtual scrolling, the hidden print copy, AST updates).
-const mediaCache = new Map<string, Promise<GooglePhotosMedia>>();
-
-function fetchMedia(url: string): Promise<GooglePhotosMedia> {
-    let pending = mediaCache.get(url);
-    if (!pending) {
-        pending = fetch(`/api/google-photos-embed?url=${encodeURIComponent(url)}`).then(async (response) => {
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to fetch Google Photos preview');
-            }
-            return data as GooglePhotosMedia;
-        });
-        // Let a failed lookup be retried the next time the block mounts.
-        pending.catch(() => mediaCache.delete(url));
-        mediaCache.set(url, pending);
-    }
-    return pending;
-}
-
 export default function GooglePhotosBlock({ url, title }: GooglePhotosBlockProps) {
-    const [media, setMedia] = useState<GooglePhotosMedia | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [nearViewport, setNearViewport] = useState(false);
-    const [thumbnailFailed, setThumbnailFailed] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-
     // Only look up embeds about to scroll into view: a long note can hold dozens,
     // and the browser's six connections per host would queue everything else
     // (images, other embeds) behind them. The hidden print copy never intersects.
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el || nearViewport) return;
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries.some((entry) => entry.isIntersecting)) {
-                    setNearViewport(true);
-                }
-            },
-            { rootMargin: '800px 0px' },
-        );
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, [nearViewport]);
-
-    useEffect(() => {
-        // Google Photos refuses to be framed, so ask our server to scrape the
-        // share page for a thumbnail; clicking opens the share page itself.
-        if (!url || !nearViewport) return;
-        let cancelled = false;
-        setLoading(true);
-        setError(null);
-        fetchMedia(url)
-            .then((data) => {
-                if (!cancelled) setMedia(data);
-            })
-            .catch((err: any) => {
-                console.error('Google Photos embed error:', err);
-                if (!cancelled) setError(err.message);
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [url, nearViewport]);
+    const [containerRef, nearViewport] = useNearViewport<HTMLDivElement>();
+    // Google Photos refuses to be framed, so ask our server to scrape the
+    // share page for a thumbnail; clicking opens the share page itself.
+    const { loading, data: media, error } = useEmbedData(url, loadGooglePhotosMedia, nearViewport);
+    const [thumbnailFailed, setThumbnailFailed] = useState(false);
 
     if (loading) {
         return (
@@ -110,7 +47,6 @@ export default function GooglePhotosBlock({ url, title }: GooglePhotosBlockProps
     }
 
     const label = title || media.title || 'Google Photos';
-
     const isVideo = media.video_url !== null;
     return (
         <div

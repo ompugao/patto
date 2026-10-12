@@ -2,6 +2,8 @@ use patto::repository::{BackLinkData, Repository};
 use std::path::Path;
 use tui_widget_list::ListState;
 
+use crate::selection::{step_list, Step};
+
 /// A single entry in the flat list shown in the backlinks panel.
 #[derive(Clone)]
 pub(crate) enum FlatEntry {
@@ -22,7 +24,6 @@ pub(crate) enum FlatEntry {
 }
 
 impl FlatEntry {
-    /// Returns true if this entry can be jumped to (i.e. is a navigable target).
     pub(crate) fn is_selectable(&self) -> bool {
         matches!(
             self,
@@ -31,10 +32,6 @@ impl FlatEntry {
     }
 }
 
-/// Self-contained backlinks panel state.
-///
-/// Manages backlink/two-hop-link data and cursor navigation
-/// without any knowledge of the wider application.
 pub(crate) struct BacklinksPanel {
     pub(crate) visible: bool,
     pub(crate) back_links: Vec<BackLinkData>,
@@ -56,19 +53,16 @@ impl BacklinksPanel {
         }
     }
 
-    /// Show the panel, resetting selection.
     pub(crate) fn open(&mut self) {
         self.visible = true;
         self.list_state = ListState::default();
     }
 
-    /// Hide the panel, resetting selection.
     pub(crate) fn close(&mut self) {
         self.visible = false;
         self.list_state = ListState::default();
     }
 
-    /// Recompute backlinks and two-hop links for the given file, then rebuild the flat entry list.
     pub(crate) async fn refresh(&mut self, repository: &Repository, file_path: &Path) {
         self.back_links = repository.calculate_back_links(file_path);
         self.two_hop_links = repository.calculate_two_hop_links(file_path).await;
@@ -76,7 +70,6 @@ impl BacklinksPanel {
         self.list_state = ListState::default();
     }
 
-    /// Rebuild the flat `entries` vec from `back_links` + `two_hop_links`.
     fn rebuild_entries(&mut self) {
         let mut entries = Vec::new();
 
@@ -112,43 +105,22 @@ impl BacklinksPanel {
         self.entries = entries;
     }
 
-    /// Move selection down, skipping non-selectable entries.
     pub(crate) fn navigate_down(&mut self) {
-        let len = self.entries.len();
-        if len == 0 {
-            return;
-        }
-        let start = self.list_state.selected.unwrap_or(0);
-        let mut next = (start + 1) % len;
-        // Skip non-selectable entries; give up after a full pass.
-        for _ in 0..len {
-            if self.entries[next].is_selectable() {
-                break;
-            }
-            next = (next + 1) % len;
-        }
-        if self.entries[next].is_selectable() {
-            self.list_state.select(Some(next));
-        }
+        step_list(
+            &mut self.list_state,
+            &self.entries,
+            FlatEntry::is_selectable,
+            Step::Next,
+        );
     }
 
-    /// Move selection up, skipping non-selectable entries.
     pub(crate) fn navigate_up(&mut self) {
-        let len = self.entries.len();
-        if len == 0 {
-            return;
-        }
-        let start = self.list_state.selected.unwrap_or(0);
-        let mut prev = if start == 0 { len - 1 } else { start - 1 };
-        for _ in 0..len {
-            if self.entries[prev].is_selectable() {
-                break;
-            }
-            prev = if prev == 0 { len - 1 } else { prev - 1 };
-        }
-        if self.entries[prev].is_selectable() {
-            self.list_state.select(Some(prev));
-        }
+        step_list(
+            &mut self.list_state,
+            &self.entries,
+            FlatEntry::is_selectable,
+            Step::Prev,
+        );
     }
 
     /// Resolve the current selection to a navigation target (file_name, line).

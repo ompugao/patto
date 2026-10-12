@@ -5,6 +5,9 @@ import '../../core/providers.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
 import '../../src/rust/frb_api.dart' as rust;
+import 'inbox_note_name.dart';
+import 'widgets/font_size_setting.dart';
+import 'widgets/settings_widgets.dart';
 import 'workspace_editor.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -41,6 +44,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _inboxNoteName.text = settings.inboxNoteName;
   }
 
+  /// An empty inbox field means the default; an invalid one keeps what was
+  /// stored, so toggling another setting never silently replaces it.
   Settings _collect(Settings base) => base.copyWith(
     authorName: _authorName.text.trim(),
     authorEmail: _authorEmail.text.trim(),
@@ -49,22 +54,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         : base.inboxNoteName,
   );
 
-  /// An empty field means the default; an invalid one keeps what was stored,
-  /// so toggling another setting never silently replaces it.
   static String _orDefault(String value, String fallback) =>
       value.trim().isEmpty ? fallback : value.trim();
 
-  String? get _inboxNameError {
-    final name = _inboxNoteName.text.trim();
-    if (name.isEmpty) return null;
-    if (name.contains('#')) return 'A note name cannot contain #';
-    if (!Settings.isValidInboxNoteName(name)) return 'Not a valid note name';
+  String? get _inboxNameError =>
+      inboxNoteNameError(_inboxNoteName.text, coreAccepts: _coreAcceptsName);
+
+  static bool _coreAcceptsName(String name) {
     try {
       rust.noteNameToRelPath(name: name);
+      return true;
     } on Exception {
-      return 'Not a valid note name';
+      return false;
     }
-    return null;
   }
 
   Future<void> _saveFields(Settings base) async {
@@ -86,26 +88,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _delete(Workspace workspace) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove "${workspace.name}"?'),
-        content: const Text(
-          'The notes are deleted from this device. Anything not pushed will be '
-          'lost.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await _confirmRemove(context, workspace);
     if (confirmed != true) return;
 
     final baseDir = await ref.read(workspaceBaseDirProvider.future);
@@ -133,9 +116,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _Section('Workspaces'),
+              const SettingsSection('Workspaces'),
               for (final workspace in data.workspaces)
-                _WorkspaceTile(
+                WorkspaceTile(
                   workspace: workspace,
                   isActive: workspace.id == active?.id,
                   onSwitch: () => _switchTo(workspace),
@@ -152,30 +135,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              _Section('Commits'),
-              Text(
-                'Used for every workspace.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              TextField(
-                controller: _authorName,
-                decoration: const InputDecoration(labelText: 'Author name'),
-              ),
-              TextField(
-                controller: _authorEmail,
-                decoration: const InputDecoration(labelText: 'Author email'),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton(
-                  onPressed: () => _saveFields(data),
-                  child: const Text('Save'),
-                ),
+              _CommitIdentityFields(
+                authorName: _authorName,
+                authorEmail: _authorEmail,
+                onSave: () => _saveFields(data),
               ),
               const SizedBox(height: 24),
-              _Section('Appearance'),
+              const SettingsSection('Appearance'),
               SegmentedButton<ThemeMode>(
                 showSelectedIcon: false,
                 segments: const [
@@ -189,37 +155,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     .save(_collect(data).copyWith(themeMode: s.first)),
               ),
               const SizedBox(height: 16),
-              _FontSizeSetting(
+              FontSizeSetting(
                 scale: data.fontScale,
                 onChanged: (scale) => ref
                     .read(settingsProvider.notifier)
                     .save(_collect(data).copyWith(fontScale: scale)),
               ),
               const SizedBox(height: 24),
-              _Section('Inbox'),
-              Text(
-                'The note that quick posts from the Inbox button, the launcher '
-                'shortcut and text shared from other apps are appended to. It '
-                'is hidden from the notes list; open it from the Inbox sheet.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              TextField(
+              _InboxNoteField(
                 controller: _inboxNoteName,
-                decoration: InputDecoration(
-                  labelText: 'Inbox note',
-                  hintText: Settings.defaultInboxNoteName,
-                  errorText: _inboxNameError,
-                ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _saveFields(data),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton(
-                  onPressed: () => _saveFields(data),
-                  child: const Text('Save'),
-                ),
+                errorText: _inboxNameError,
+                onChanged: () => setState(() {}),
+                onSave: () => _saveFields(data),
               ),
               const SizedBox(height: 24),
             ],
@@ -230,140 +177,112 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _WorkspaceTile extends StatelessWidget {
-  const _WorkspaceTile({
-    required this.workspace,
-    required this.isActive,
-    required this.onSwitch,
-    required this.onEdit,
-    required this.onDelete,
+Future<bool?> _confirmRemove(BuildContext context, Workspace workspace) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Remove "${workspace.name}"?'),
+      content: const Text(
+        'The notes are deleted from this device. Anything not pushed will be '
+        'lost.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Remove'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The commit author, shared by every workspace.
+class _CommitIdentityFields extends StatelessWidget {
+  const _CommitIdentityFields({
+    required this.authorName,
+    required this.authorEmail,
+    required this.onSave,
   });
 
-  final Workspace workspace;
-  final bool isActive;
-  final VoidCallback onSwitch;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final TextEditingController authorName;
+  final TextEditingController authorEmail;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        isActive ? Icons.folder : Icons.folder_outlined,
-        color: isActive ? theme.colorScheme.primary : null,
-      ),
-      title: Text(workspace.name),
-      subtitle: Text(
-        workspace.hasRemote ? workspace.repoUrl : 'No repository',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      onTap: isActive ? null : onSwitch,
-      trailing: PopupMenuButton<String>(
-        onSelected: (choice) => switch (choice) {
-          'edit' => onEdit(),
-          'delete' => onDelete(),
-          _ => null,
-        },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'edit', child: Text('Edit')),
-          PopupMenuItem(value: 'delete', child: Text('Remove')),
-        ],
-      ),
-    );
-  }
-}
-
-/// Note text size, with a sample so the effect is visible before leaving the
-/// screen. The slider is debounced: dragging it writes on release, not on every
-/// frame.
-class _FontSizeSetting extends StatefulWidget {
-  const _FontSizeSetting({required this.scale, required this.onChanged});
-
-  final double scale;
-  final void Function(double) onChanged;
-
-  @override
-  State<_FontSizeSetting> createState() => _FontSizeSettingState();
-}
-
-class _FontSizeSettingState extends State<_FontSizeSetting> {
-  double? _dragging;
-
-  double get _value => _dragging ?? widget.scale;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final body = theme.textTheme.bodyLarge!;
-    final sample = body.copyWith(fontSize: (body.fontSize ?? 16) * _value);
-
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Text('Note text size', style: theme.textTheme.bodyMedium),
-            const Spacer(),
-            Text(
-              '${(_value * 100).round()}%',
-              style: theme.textTheme.labelMedium,
-            ),
-          ],
+        const SettingsSection('Commits'),
+        Text(
+          'Used for every workspace.',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
-        Row(
-          children: [
-            const Icon(Icons.text_fields, size: 16),
-            Expanded(
-              child: Slider(
-                value: _value,
-                min: Settings.minFontScale,
-                max: Settings.maxFontScale,
-                // 10% steps: fine enough to tune, coarse enough to land on.
-                divisions:
-                    ((Settings.maxFontScale - Settings.minFontScale) * 10)
-                        .round(),
-                label: '${(_value * 100).round()}%',
-                onChanged: (v) => setState(() => _dragging = v),
-                onChangeEnd: (v) {
-                  setState(() => _dragging = null);
-                  widget.onChanged(v);
-                },
-              ),
-            ),
-            const Icon(Icons.text_fields, size: 24),
-          ],
+        TextField(
+          controller: authorName,
+          decoration: const InputDecoration(labelText: 'Author name'),
         ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            'A nested note line with [a link] and a task.',
-            style: sample,
-          ),
+        TextField(
+          controller: authorEmail,
+          decoration: const InputDecoration(labelText: 'Author email'),
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(onPressed: onSave, child: const Text('Save')),
         ),
       ],
     );
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section(this.title);
+/// The note that quick posts go to.
+class _InboxNoteField extends StatelessWidget {
+  const _InboxNoteField({
+    required this.controller,
+    required this.errorText,
+    required this.onChanged,
+    required this.onSave,
+  });
 
-  final String title;
+  final TextEditingController controller;
+  final String? errorText;
+  final VoidCallback onChanged;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SettingsSection('Inbox'),
+        Text(
+          'The note that quick posts from the Inbox button, the launcher '
+          'shortcut and text shared from other apps are appended to. It '
+          'is hidden from the notes list; open it from the Inbox sheet.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: 'Inbox note',
+            hintText: Settings.defaultInboxNoteName,
+            errorText: errorText,
+          ),
+          onChanged: (_) => onChanged(),
+          onSubmitted: (_) => onSave(),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(onPressed: onSave, child: const Text('Save')),
+        ),
+      ],
     );
   }
 }

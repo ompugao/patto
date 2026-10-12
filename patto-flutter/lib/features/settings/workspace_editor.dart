@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,9 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/workspace.dart';
 import '../../src/rust/api/events.dart';
-import '../../src/rust/api/git.dart';
 import '../../src/rust/frb_api.dart' as rust;
-import '../editor/attachments.dart';
+import '../sync/git_identity.dart';
+import 'widgets/workspace_form.dart';
 
 /// Add or edit one workspace, and clone it.
 ///
@@ -41,12 +40,7 @@ class WorkspaceEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
-  final _name = TextEditingController();
-  final _repoUrl = TextEditingController();
-  final _branch = TextEditingController();
-  final _username = TextEditingController();
-  final _token = TextEditingController();
-  final _attachmentsDir = TextEditingController();
+  late final _fields = WorkspaceFormFields(widget.existing);
 
   bool _cloning = false;
   String? _phase;
@@ -55,31 +49,8 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
   Workspace? get _existing => widget.existing;
 
   @override
-  void initState() {
-    super.initState();
-    final existing = _existing;
-    if (existing != null) {
-      _name.text = existing.name;
-      _repoUrl.text = existing.repoUrl;
-      _branch.text = existing.branch;
-      _username.text = existing.username;
-      _token.text = existing.token;
-      _attachmentsDir.text = existing.attachmentsDir;
-    }
-  }
-
-  @override
   void dispose() {
-    for (final c in [
-      _name,
-      _repoUrl,
-      _branch,
-      _username,
-      _token,
-      _attachmentsDir,
-    ]) {
-      c.dispose();
-    }
+    _fields.dispose();
     super.dispose();
   }
 
@@ -89,44 +60,19 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
   /// cloning does not create two of them.
   String get _id => _existing?.id ?? (_newId ??= Workspace.newId());
 
-  /// The workspace as the form currently describes it, keeping the identity and
-  /// folder of the one being edited.
-  Workspace _collect() {
-    final repoUrl = _repoUrl.text.trim();
-    final name = _name.text.trim().isEmpty
-        ? Workspace.nameFromUrl(repoUrl)
-        : _name.text.trim();
-
-    return Workspace(
-      id: _id,
-      // A new workspace's folder is its id; an existing one keeps the folder it
-      // was cloned into.
-      dirName: _existing?.dirName ?? _id,
-      name: name,
-      repoUrl: repoUrl,
-      branch: _branch.text.trim(),
-      username: _username.text.trim(),
-      token: _token.text.trim(),
-      attachmentsDir:
-          normalizeAttachmentsDir(_attachmentsDir.text) ??
-          defaultAttachmentsDir,
-    );
-  }
+  /// The workspace as the form currently describes it. A new workspace's
+  /// folder is its id; an existing one keeps the folder it was cloned into.
+  Workspace _collect() =>
+      _fields.toWorkspace(id: _id, dirName: _existing?.dirName ?? _id);
 
   /// Rejects a form whose attachment folder could not be spelled in a note.
   bool _validate() {
-    if (normalizeAttachmentsDir(_attachmentsDir.text) == null) {
-      setState(
-        () => _error =
-            'The attachment folder may only use letters, digits, CJK, '
-            '"-", "_" and "/".',
-      );
-      return false;
-    }
-    return true;
+    final error = _fields.attachmentsDirError;
+    if (error != null) setState(() => _error = error);
+    return error == null;
   }
 
-  Future<String?> _rootFor(Workspace workspace) async {
+  Future<String> _rootFor(Workspace workspace) async {
     final baseDir = await ref.read(workspaceBaseDirProvider.future);
     return WorkspaceStorage.rootFor(baseDir, workspace);
   }
@@ -139,9 +85,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
     // Create the folder so a workspace with no remote is usable straight away
     // as a local-only set of notes.
     final root = await _rootFor(workspace);
-    if (root != null) {
-      await Directory(root).create(recursive: true);
-    }
+    await Directory(root).create(recursive: true);
 
     ref.invalidate(workspaceProvider);
     if (!mounted) return;
@@ -158,7 +102,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
 
     await ref.read(settingsProvider.notifier).saveWorkspace(workspace);
     final root = await _rootFor(workspace);
-    if (root == null || !mounted) return;
+    if (!mounted) return;
 
     final existingClone = await _confirmReplace(root);
     if (existingClone == false || !mounted) return;
@@ -170,32 +114,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
     });
 
     try {
-      final stream = rust.gitClone(
-        url: workspace.repoUrl,
-        root: root,
-        branch: workspace.branch.isEmpty ? null : workspace.branch,
-        creds: GitCreds(username: workspace.username, token: workspace.token),
-      );
-
-      var cloned = false;
-      await for (final event in stream) {
-        if (!mounted) return;
-        switch (event) {
-          case CloneEvent_Progress(:final progress):
-            setState(
-              () => _phase = 'Receiving ${progress.current}/${progress.total}',
-            );
-          case CloneEvent_Done():
-            cloned = true;
-          case CloneEvent_Failed(:final failure):
-            setState(() {
-              _cloning = false;
-              _error = failure.message;
-            });
-            return;
-        }
-      }
-
+      final cloned = await _runClone(workspace, root);
       if (!mounted) return;
       setState(() => _cloning = false);
       if (!cloned) return;
@@ -221,31 +140,44 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
     }
   }
 
+  /// Clones [workspace] into [root], showing progress as it goes. False when
+  /// the clone failed and the error is already on screen, or the screen went
+  /// away.
+  Future<bool> _runClone(Workspace workspace, String root) async {
+    final stream = rust.gitClone(
+      url: workspace.repoUrl,
+      root: root,
+      branch: workspace.branch.isEmpty ? null : workspace.branch,
+      creds: gitCredsFor(workspace),
+    );
+
+    var cloned = false;
+    await for (final event in stream) {
+      if (!mounted) return false;
+      switch (event) {
+        case CloneEvent_Progress(:final progress):
+          setState(
+            () => _phase = 'Receiving ${progress.current}/${progress.total}',
+          );
+        case CloneEvent_Done():
+          cloned = true;
+        case CloneEvent_Failed(:final failure):
+          setState(() {
+            _cloning = false;
+            _error = failure.message;
+          });
+          return false;
+      }
+    }
+    return cloned;
+  }
+
   /// Returns false when the user declines to replace an existing clone.
   Future<bool> _confirmReplace(String root) async {
     final workspace = ActiveWorkspace(config: _collect(), root: root);
     if (!workspace.exists) return true;
 
-    final replace = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Replace these notes?'),
-        content: const Text(
-          'Cloning deletes the notes already in this workspace. '
-          'Anything not pushed will be lost.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Replace'),
-          ),
-        ],
-      ),
-    );
+    final replace = await _confirmReplaceClone(context);
     if (replace != true) return false;
 
     await workspace.clear();
@@ -266,60 +198,7 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (widget.onboarding)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: Text(
-                'Patto Notes keeps your notes in a git repository. Enter the '
-                'repository to clone it onto this device. You can add more '
-                'workspaces later.',
-              ),
-            ),
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              helperText: 'Defaults to the repository name',
-            ),
-          ),
-          TextField(
-            controller: _repoUrl,
-            decoration: const InputDecoration(
-              labelText: 'HTTPS URL',
-              hintText: 'https://github.com/you/notes.git',
-            ),
-            keyboardType: TextInputType.url,
-          ),
-          TextField(
-            controller: _branch,
-            decoration: const InputDecoration(
-              labelText: 'Branch',
-              hintText: 'default branch',
-            ),
-          ),
-          TextField(
-            controller: _username,
-            decoration: const InputDecoration(labelText: 'Username'),
-          ),
-          TextField(
-            controller: _token,
-            decoration: const InputDecoration(
-              labelText: 'Access token',
-              helperText: 'Stored in the device keystore',
-            ),
-            obscureText: true,
-          ),
-          TextField(
-            controller: _attachmentsDir,
-            decoration: const InputDecoration(
-              labelText: 'Attachment folder',
-              hintText: defaultAttachmentsDir,
-              helperText:
-                  'Folder in the repository for pictures and files inserted '
-                  'from the editor. Changing it leaves earlier files where '
-                  'they are, outside the sync.',
-            ),
-          ),
+          WorkspaceForm(fields: _fields, onboarding: widget.onboarding),
           const SizedBox(height: 24),
           if (_cloning) ...[
             const LinearProgressIndicator(),
@@ -361,4 +240,27 @@ class _WorkspaceEditorScreenState extends ConsumerState<WorkspaceEditorScreen> {
       ),
     );
   }
+}
+
+Future<bool?> _confirmReplaceClone(BuildContext context) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Replace these notes?'),
+      content: const Text(
+        'Cloning deletes the notes already in this workspace. '
+        'Anything not pushed will be lost.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Replace'),
+        ),
+      ],
+    ),
+  );
 }

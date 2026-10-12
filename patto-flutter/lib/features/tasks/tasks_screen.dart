@@ -7,6 +7,7 @@ import '../../src/rust/api/types.dart';
 import '../../src/rust/frb_api.dart' as rust;
 import '../notes/note_view_screen.dart';
 import '../notes/widgets/task_marker.dart';
+import 'task_providers.dart';
 import 'task_status_sheet.dart';
 
 class TasksScreen extends ConsumerWidget {
@@ -20,12 +21,13 @@ class TasksScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('Tasks'),
           bottom: const TabBar(
-            tabs: [Tab(text: 'Pending'), Tab(text: 'Completed')],
+            tabs: [
+              Tab(text: 'Pending'),
+              Tab(text: 'Completed'),
+            ],
           ),
         ),
-        body: const TabBarView(
-          children: [_PendingTab(), _CompletedTab()],
-        ),
+        body: const TabBarView(children: [_PendingTab(), _CompletedTab()]),
       ),
     );
   }
@@ -115,7 +117,8 @@ class _CompletedTab extends ConsumerWidget {
                     label: Text(entry.value),
                     selected: timeframe == entry.key,
                     onSelected: (_) {
-                      ref.read(reviewTimeframeProvider.notifier).value = entry.key;
+                      ref.read(reviewTimeframeProvider.notifier).value =
+                          entry.key;
                       ref.read(reviewRangeProvider.notifier).value = null;
                     },
                   ),
@@ -227,9 +230,9 @@ class _TaskTile extends ConsumerWidget {
       ref.read(notesRevisionProvider.notifier).value++;
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not update the task: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not update the task: $e')));
     }
   }
 }

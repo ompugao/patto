@@ -92,6 +92,35 @@ async fn test_semantic_tokens_range() {
 }
 
 #[tokio::test]
+async fn test_semantic_tokens_are_utf16_deltas_per_node_kind() {
+    let content = "牛乳 [wikilink] #anchor\n{@task status=todo due=2024-12-31}\n";
+    let mut workspace = TestWorkspace::new();
+    workspace.create_file("test.pn", content);
+
+    let mut client = InProcessLspClient::new(&workspace).await;
+    let uri = workspace.get_uri("test.pn");
+    client.did_open(uri.clone(), content.to_string()).await;
+
+    let SemanticTokensResult::Tokens(tokens) = client.semantic_tokens(uri).await.unwrap() else {
+        panic!("Unexpected partial result");
+    };
+    let data: Vec<_> = tokens
+        .data
+        .iter()
+        .map(|t| (t.delta_line, t.delta_start, t.length, t.token_type))
+        .collect();
+    let (operator, keyword, comment) = (5, 4, 3);
+    assert_eq!(
+        data,
+        [
+            (0, 3, 10, operator),
+            (0, 11, 7, keyword),
+            (1, 0, 34, comment),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn test_semantic_tokens_empty_file() {
     let mut workspace = TestWorkspace::new();
     workspace.create_file("empty.pn", "");

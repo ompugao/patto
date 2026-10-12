@@ -1,71 +1,63 @@
+//! Predicates over JSON-encoded LSP responses. They return `bool` so a test
+//! can wrap them in `assert!` with its own message.
+
+use std::borrow::Cow;
+
 use serde_json::Value;
 
-/// Assert that documentChanges contains a text edit with expected content
+fn decoded(uri: &str) -> Cow<'_, str> {
+    urlencoding::decode(uri).unwrap_or(Cow::Borrowed(uri))
+}
+
+fn str_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
+}
+
+/// `documentChanges` holds a text edit on `file_name` inserting `expected_text`.
 pub fn assert_has_text_edit(changes: &Value, file_name: &str, expected_text: &str) -> bool {
-    if let Some(array) = changes.as_array() {
-        for change in array {
-            if let Some(text_doc) = change.get("textDocument") {
-                if let Some(uri) = text_doc.get("uri").and_then(|v| v.as_str()) {
-                    let decoded_uri =
-                        urlencoding::decode(uri).unwrap_or(std::borrow::Cow::Borrowed(uri));
-                    if decoded_uri.contains(file_name) {
-                        if let Some(edits) = change.get("edits").and_then(|v| v.as_array()) {
-                            for edit in edits {
-                                if let Some(new_text) = edit.get("newText").and_then(|v| v.as_str())
-                                {
-                                    if new_text == expected_text {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
+    let Some(changes) = changes.as_array() else {
+        return false;
+    };
+    changes
+        .iter()
+        .filter(|change| {
+            change
+                .get("textDocument")
+                .and_then(|doc| str_at(doc, "uri"))
+                .is_some_and(|uri| decoded(uri).contains(file_name))
+        })
+        .filter_map(|change| change.get("edits")?.as_array())
+        .flatten()
+        .any(|edit| str_at(edit, "newText") == Some(expected_text))
 }
 
-/// Assert that documentChanges contains a file rename operation
+/// `documentChanges` holds a file rename from `old_name` to `new_name`.
 pub fn assert_has_file_rename(changes: &Value, old_name: &str, new_name: &str) -> bool {
-    if let Some(array) = changes.as_array() {
-        for change in array {
-            if change.get("kind").and_then(|v| v.as_str()) == Some("rename") {
-                let old_uri_raw = change.get("oldUri").and_then(|v| v.as_str()).unwrap_or("");
-                let new_uri_raw = change.get("newUri").and_then(|v| v.as_str()).unwrap_or("");
-
-                let old_uri = urlencoding::decode(old_uri_raw)
-                    .unwrap_or(std::borrow::Cow::Borrowed(old_uri_raw));
-                let new_uri = urlencoding::decode(new_uri_raw)
-                    .unwrap_or(std::borrow::Cow::Borrowed(new_uri_raw));
-
-                if old_uri.contains(old_name) && new_uri.contains(new_name) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+    let Some(changes) = changes.as_array() else {
+        return false;
+    };
+    changes
+        .iter()
+        .filter(|change| str_at(change, "kind") == Some("rename"))
+        .any(|change| {
+            let old_uri = decoded(str_at(change, "oldUri").unwrap_or(""));
+            let new_uri = decoded(str_at(change, "newUri").unwrap_or(""));
+            old_uri.contains(old_name) && new_uri.contains(new_name)
+        })
 }
 
-/// Assert that an edit preserves an anchor
 pub fn assert_anchor_preserved(edit_text: &str, anchor: &str) -> bool {
-    let expected = format!("#{}", anchor);
-    edit_text.contains(&expected)
+    edit_text.contains(&format!("#{}", anchor))
 }
 
-/// Assert that response has error with specific message pattern
 pub fn assert_error_contains(response: &Value, pattern: &str) -> bool {
-    if let Some(error) = response.get("error") {
-        if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
-            return message.contains(pattern);
-        }
-    }
-    false
+    response
+        .get("error")
+        .and_then(|error| str_at(error, "message"))
+        .is_some_and(|message| message.contains(pattern))
 }
 
-/// Assert that capabilities include specific capability
+/// `result.capabilities` has a non-null value at `capability_path`.
 pub fn assert_has_capability(init_response: &Value, capability_path: &[&str]) -> bool {
     let mut current = &init_response["result"]["capabilities"];
     for key in capability_path {
@@ -77,23 +69,11 @@ pub fn assert_has_capability(init_response: &Value, capability_path: &[&str]) ->
     true
 }
 
-/// Assert location points to specific file and position
+/// `location` is in `file_name` and starts at `(line, character)`.
 pub fn assert_location(location: &Value, file_name: &str, line: u32, character: u32) -> bool {
-    if let Some(uri) = location.get("uri").and_then(|v| v.as_str()) {
-        if !uri.contains(file_name) {
-            return false;
-        }
-    } else {
-        return false;
-    }
-
-    if let Some(range) = location.get("range") {
-        let start = &range["start"];
-        if start["line"].as_u64() == Some(line as u64)
-            && start["character"].as_u64() == Some(character as u64)
-        {
-            return true;
-        }
-    }
-    false
+    let in_file = str_at(location, "uri").is_some_and(|uri| uri.contains(file_name));
+    let start = &location["range"]["start"];
+    in_file
+        && start["line"].as_u64() == Some(line as u64)
+        && start["character"].as_u64() == Some(character as u64)
 }

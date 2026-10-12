@@ -154,7 +154,7 @@ fn edits_to_different_notes_merge() {
     write(b.path(), "from-b.pn", "b\n");
     let report = sync(b.path());
 
-    assert!(matches!(report.merge, MergeOutcome::Merged { .. }));
+    assert!(matches!(report.merge, MergeOutcome::Merged));
     assert!(report.pushed);
     assert_eq!(read(b.path(), "from-a.pn"), "a\n");
     assert_eq!(read(b.path(), "from-b.pn"), "b\n");

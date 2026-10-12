@@ -2,10 +2,13 @@
 //!
 //! ```text
 //! 2026-10-07
-//! 	09:12 bought coffee beans
-//! 	11:40 idea for the parser
-//! 		continuation line
+//!     09:12 bought coffee beans
+//!     11:40 idea for the parser
+//!         continuation line
 //! ```
+//!
+//! Posts are nested under the heading with tabs, as in any note; the example
+//! shows spaces only because tabs are not allowed in doc comments.
 //!
 //! Lines that do not fit (hand-edited content) are left alone when appending
 //! and skipped when listing. Appending keeps the note's bytes as they are,

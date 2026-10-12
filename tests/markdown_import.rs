@@ -57,7 +57,7 @@ def hello():
 
     // Check headings
     assert!(
-        patto.contains("My Document\n---"),
+        patto.contains("My Document\n-----"),
         "H1 should become text + horizontal line"
     );
     assert!(
@@ -266,8 +266,15 @@ fn test_image_conversion() {
 #[test]
 fn test_horizontal_rule() {
     let patto = import_lossy("Above\n\n---\n\nBelow");
-    let dash_lines = patto.lines().filter(|l| l.trim() == "---").count();
-    assert!(dash_lines >= 1, "Horizontal rule should be preserved");
+    // The grammar needs five or more dashes for a horizontal line.
+    let rule_lines = patto
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            line.len() >= 5 && line.chars().all(|c| c == '-')
+        })
+        .count();
+    assert!(rule_lines >= 1, "Horizontal rule should be preserved");
 }
 
 #[test]
@@ -634,4 +641,37 @@ fn test_table_inline_code_in_cells() {
         "inline code text 'foo' must appear in output: {}",
         patto
     );
+}
+
+#[test]
+fn a_task_item_keeps_its_task_when_it_has_nested_items() {
+    let output = import_lossy("- [ ] parent 📅 2024-12-31\n  - child\n- [x] done\n");
+    assert_eq!(
+        output,
+        "\n\tparent 📅 2024-12-31 {@task status=todo due=2024-12-31}\n\t\tchild\n\tdone {@task status=done}\n"
+    );
+}
+
+#[test]
+fn an_item_with_nested_items_leaves_no_empty_line_behind() {
+    let output = import_lossy("- parent\n  - child one\n    - grandchild\n  - child two\n- next\n");
+    assert_eq!(
+        output,
+        "\n\tparent\n\t\tchild one\n\t\t\tgrandchild\n\t\tchild two\n\tnext\n"
+    );
+}
+
+#[test]
+fn loose_list_items_stay_in_the_list() {
+    let output = import_lossy("- loose a\n\n- loose b\n\n- [ ] loose task\n\ntext after\n");
+    assert_eq!(
+        output,
+        "\n\tloose a\n\tloose b\n\tloose task {@task status=todo}\ntext after\n"
+    );
+}
+
+#[test]
+fn a_second_paragraph_in_an_item_becomes_a_child_line() {
+    let output = import_lossy("- first paragraph\n\n  second paragraph\n");
+    assert_eq!(output, "\n\tfirst paragraph\n\t\tsecond paragraph\n");
 }

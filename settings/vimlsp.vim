@@ -29,21 +29,17 @@ function! s:setup_server() abort
     endif
 endfunction
 
-" Check whether a TCP port is open by attempting a connection with nc/curl.
 function! s:is_port_open(host, port) abort
-    " Try nc (netcat) first, then fall back to /dev/tcp
     if executable('nc')
-        let l:ret = system('nc -z -w1 ' . shellescape(a:host) . ' ' . a:port . ' 2>/dev/null')
+        call system('nc -z -w1 ' . shellescape(a:host) . ' ' . a:port . ' 2>/dev/null')
         return v:shell_error == 0
     endif
-    " bash /dev/tcp fallback
-    let l:ret = system('bash -c "echo > /dev/tcp/' . a:host . '/' . a:port . '" 2>/dev/null')
+    call system('bash -c "echo > /dev/tcp/' . a:host . '/' . a:port . '" 2>/dev/null')
     return v:shell_error == 0
 endfunction
 
 function! s:on_lsp_buffer_enabled() abort
-    " LSP-based folding (requires vim-lsp)
-    " To enable: let g:patto_lsp_folding = 1
+    " LSP-based folding; enable with: let g:patto_lsp_folding = 1
     if get(g:, 'patto_lsp_folding', 0)
         setlocal foldmethod=expr
         setlocal foldexpr=lsp#ui#vim#folding#foldexpr()
@@ -67,75 +63,87 @@ function! s:on_lsp_buffer_enabled() abort
                 \ :<c-u>call <SID>patto_two_hop_links()<cr>
 endfunction
 
-" ---------------------------------------------------------------------------
-" :LspPattoTasks — aggregate pending tasks into the location list
-" ---------------------------------------------------------------------------
-function! s:patto_tasks() abort
+function! s:execute_command(command, arguments, next) abort
     call lsp#callbag#pipe(
         \ lsp#request('patto-lsp', {
         \   'method': 'workspace/executeCommand',
         \   'params': {
-        \       'command': 'experimental/aggregate_tasks',
-        \       'arguments': [],
+        \       'command': a:command,
+        \       'arguments': a:arguments,
         \   }
         \ }),
         \ lsp#callbag#subscribe({
-        \   'next':  {x -> s:show_task(x['response']['result'])},
+        \   'next':  a:next,
         \   'error': {e -> lsp#utils#error(string(e))},
         \ })
         \ )
 endfunction
 
+function! s:time_spent_chip(ts) abort
+    if type(a:ts) != v:t_dict
+        return ''
+    endif
+    let l:h = get(a:ts, 'hours', 0)
+    let l:m = get(a:ts, 'minutes', 0)
+    if l:h > 0 && l:m > 0
+        return '[' . l:h . 'h' . l:m . 'm]'
+    elseif l:h > 0
+        return '[' . l:h . 'h]'
+    elseif l:m > 0
+        return '[' . l:m . 'm]'
+    endif
+    return ''
+endfunction
+
+function! s:loclist_entry(task, parts) abort
+    let l:path = lsp#utils#uri_to_path(a:task['location']['uri'])
+    let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, a:task['location']['range']['start'])
+    return {
+                \ 'filename': l:path,
+                \ 'lnum':     l:line,
+                \ 'col':      l:col,
+                \ 'text':     join(a:parts, ' '),
+                \ }
+endfunction
+
+" :LspPattoTasks
+function! s:patto_tasks() abort
+    call s:execute_command('experimental/aggregate_tasks', [],
+                \ {x -> s:show_task(x['response']['result'])})
+endfunction
+
+function! s:task_parts(item) abort
+    let l:parts = []
+
+    let l:due = get(a:item, 'due', v:null)
+    if type(l:due) == v:t_dict
+        let l:due_str = get(l:due, 'Date', get(l:due, 'DateTime', ''))
+        if l:due_str !=# ''
+            let l:due_str = substitute(l:due_str, 'T.*$', '', '')
+            call add(l:parts, '[due:' . l:due_str . ']')
+        endif
+    endif
+
+    call add(l:parts, a:item['text'])
+
+    let l:status = get(a:item, 'status', '')
+    if l:status ==# 'Doing'
+        call add(l:parts, '[doing]')
+    elseif l:status ==# 'Paused'
+        call add(l:parts, '[paused]')
+    endif
+
+    let l:chip = s:time_spent_chip(get(a:item, 'time_spent', v:null))
+    if l:chip !=# ''
+        call add(l:parts, l:chip)
+    endif
+    return l:parts
+endfunction
+
 function! s:show_task(res) abort
     let l:list = []
     for l:item in a:res
-        let l:path = lsp#utils#uri_to_path(l:item['location']['uri'])
-        let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:item['location']['range']['start'])
-
-        " Build a rich display string: due date + label + chips
-        let l:parts = []
-
-        " due date chip first
-        let l:due = get(l:item, 'due', v:null)
-        if type(l:due) == v:t_dict
-            let l:due_str = get(l:due, 'Date', get(l:due, 'DateTime', ''))
-            if l:due_str !=# ''
-                " Trim datetime to date portion
-                let l:due_str = substitute(l:due_str, 'T.*$', '', '')
-                call add(l:parts, '[due:' . l:due_str . ']')
-            endif
-        endif
-
-        call add(l:parts, l:item['text'])
-
-        " status chip (only show non-todo)
-        let l:status = get(l:item, 'status', '')
-        if l:status ==# 'Doing'
-            call add(l:parts, '[doing]')
-        elseif l:status ==# 'Paused'
-            call add(l:parts, '[paused]')
-        endif
-
-        " time_spent chip
-        let l:ts = get(l:item, 'time_spent', v:null)
-        if type(l:ts) == v:t_dict
-            let l:h = get(l:ts, 'hours', 0)
-            let l:m = get(l:ts, 'minutes', 0)
-            if l:h > 0 && l:m > 0
-                call add(l:parts, '[' . l:h . 'h' . l:m . 'm]')
-            elseif l:h > 0
-                call add(l:parts, '[' . l:h . 'h]')
-            elseif l:m > 0
-                call add(l:parts, '[' . l:m . 'm]')
-            endif
-        endif
-
-        call add(l:list, {
-                    \ 'filename': l:path,
-                    \ 'lnum':     l:line,
-                    \ 'col':      l:col,
-                    \ 'text':     join(l:parts, ' '),
-                    \ })
+        call add(l:list, s:loclist_entry(l:item, s:task_parts(l:item)))
     endfor
 
     if empty(l:list)
@@ -148,62 +156,23 @@ function! s:show_task(res) abort
     setlocal nowrap
 endfunction
 
-" ---------------------------------------------------------------------------
 " :LspPattoScanWorkspace
-" ---------------------------------------------------------------------------
 function! s:patto_scan_workspace() abort
-    call lsp#callbag#pipe(
-        \ lsp#request('patto-lsp', {
-        \   'method': 'workspace/executeCommand',
-        \   'params': {
-        \       'command': 'experimental/scan_workspace',
-        \       'arguments': [],
-        \   }
-        \ }),
-        \ lsp#callbag#subscribe({
-        \   'next':  {x -> execute('echomsg "patto: workspace scanned"', '')},
-        \   'error': {e -> lsp#utils#error(string(e))},
-        \ })
-        \ )
+    call s:execute_command('experimental/scan_workspace', [],
+                \ {x -> execute('echomsg "patto: workspace scanned"', '')})
 endfunction
 
-" ---------------------------------------------------------------------------
 " :LspPattoSnapshotPapers
-" ---------------------------------------------------------------------------
 function! s:patto_snapshot_papers() abort
-    call lsp#callbag#pipe(
-        \ lsp#request('patto-lsp', {
-        \   'method': 'workspace/executeCommand',
-        \   'params': {
-        \       'command': 'patto/snapshotPapers',
-        \       'arguments': [],
-        \   }
-        \ }),
-        \ lsp#callbag#subscribe({
-        \   'next':  {x -> execute('echomsg "patto: papers snapshotted"', '')},
-        \   'error': {e -> lsp#utils#error(string(e))},
-        \ })
-        \ )
+    call s:execute_command('patto/snapshotPapers', [],
+                \ {x -> execute('echomsg "patto: papers snapshotted"', '')})
 endfunction
 
-" ---------------------------------------------------------------------------
-" :LspPattoTwoHopLinks — show 2-hop links in a scratch buffer
-" ---------------------------------------------------------------------------
+" :LspPattoTwoHopLinks
 function! s:patto_two_hop_links() abort
     let l:uri = lsp#utils#path_to_uri(expand('%:p'))
-    call lsp#callbag#pipe(
-        \ lsp#request('patto-lsp', {
-        \   'method': 'workspace/executeCommand',
-        \   'params': {
-        \       'command': 'experimental/retrieve_two_hop_notes',
-        \       'arguments': [l:uri],
-        \   }
-        \ }),
-        \ lsp#callbag#subscribe({
-        \   'next':  {x -> s:show_two_hop_links(x['response']['result'])},
-        \   'error': {e -> lsp#utils#error(string(e))},
-        \ })
-        \ )
+    call s:execute_command('experimental/retrieve_two_hop_notes', [l:uri],
+                \ {x -> s:show_two_hop_links(x['response']['result'])})
 endfunction
 
 function! s:show_two_hop_links(result) abort
@@ -212,9 +181,8 @@ function! s:show_two_hop_links(result) abort
         return
     endif
 
-    " Build display lines and a parallel list of file paths
     let l:lines = []
-    let l:paths = []   " parallel list: path for each line (or '' for headers)
+    let l:paths = []
     for l:group in a:result
         let l:nearest_uri  = l:group[0]
         let l:two_hop_uris = l:group[1]
@@ -230,7 +198,6 @@ function! s:show_two_hop_links(result) abort
         endfor
     endfor
 
-    " Open / reuse a scratch buffer
     let l:bufname = 'patto://[2hop links]'
     let l:bufnr = bufnr(l:bufname)
     if l:bufnr == -1
@@ -253,10 +220,7 @@ function! s:show_two_hop_links(result) abort
     call setline(1, l:lines)
     setlocal nomodifiable nomodified
 
-    " Store the path list as a buffer-local variable for <CR> mapping
     let b:patto_two_hop_paths = l:paths
-
-    " <CR>: open the file whose path is embedded in the current line
     nnoremap <buffer> <silent> <CR> :<C-u>call <SID>two_hop_open_under_cursor()<CR>
 endfunction
 
@@ -274,9 +238,7 @@ function! s:two_hop_open_under_cursor() abort
     endif
 endfunction
 
-" ---------------------------------------------------------------------------
 " :LspPattoTasksReview [today|yesterday|this_week|last_week|this_month|FROM:TO]
-" ---------------------------------------------------------------------------
 function! s:tasks_review_complete(arglead, cmdline, cursorpos) abort
     return filter(['today','yesterday','this_week','last_week','this_month'],
                 \ 'v:val =~ "^" . a:arglead')
@@ -285,35 +247,35 @@ endfunction
 function! s:patto_tasks_review(arg) abort
     let l:arg = a:arg !=# '' ? a:arg : 'today'
     let l:named = ['today', 'yesterday', 'this_week', 'last_week', 'this_month']
-    let l:arguments = []
 
     if index(l:named, l:arg) >= 0
         let l:arguments = [l:arg]
     else
-        " Try YYYY-MM-DD:YYYY-MM-DD
         let l:m = matchlist(l:arg, '^\(\d\{4}-\d\{2}-\d\{2}\):\(\d\{4}-\d\{2}-\d\{2}\)$')
-        if !empty(l:m)
-            let l:arguments = ['custom', l:m[1], l:m[2]]
-        else
+        if empty(l:m)
             call lsp#utils#error('LspPattoTasksReview: invalid argument "' . l:arg
                         \ . '". Use today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD')
             return
         endif
+        let l:arguments = ['custom', l:m[1], l:m[2]]
     endif
 
-    call lsp#callbag#pipe(
-        \ lsp#request('patto-lsp', {
-        \   'method': 'workspace/executeCommand',
-        \   'params': {
-        \       'command': 'experimental/tasks_review',
-        \       'arguments': l:arguments,
-        \   }
-        \ }),
-        \ lsp#callbag#subscribe({
-        \   'next':  {x -> s:show_tasks_review(x['response']['result'], l:arg)},
-        \   'error': {e -> lsp#utils#error(string(e))},
-        \ })
-        \ )
+    call s:execute_command('experimental/tasks_review', l:arguments,
+                \ {x -> s:show_tasks_review(x['response']['result'], l:arg)})
+endfunction
+
+function! s:review_parts(task) abort
+    let l:parts = []
+    let l:cat = get(a:task, 'completed_at', '')
+    if type(l:cat) == v:t_string && l:cat !=# ''
+        call add(l:parts, '[' . l:cat . ']')
+    endif
+    call add(l:parts, a:task['text'])
+    let l:chip = s:time_spent_chip(get(a:task, 'time_spent', v:null))
+    if l:chip !=# ''
+        call add(l:parts, l:chip)
+    endif
+    return l:parts
 endfunction
 
 function! s:show_tasks_review(res, label) abort
@@ -324,35 +286,7 @@ function! s:show_tasks_review(res, label) abort
 
     let l:list = []
     for l:task in a:res
-        let l:path = lsp#utils#uri_to_path(l:task['location']['uri'])
-        let [l:line, l:col] = lsp#utils#position#lsp_to_vim(l:path, l:task['location']['range']['start'])
-
-        " Build display: [completed_at] label [time_spent]
-        let l:parts = []
-        let l:cat = get(l:task, 'completed_at', '')
-        if type(l:cat) == v:t_string && l:cat !=# ''
-            call add(l:parts, '[' . l:cat . ']')
-        endif
-        call add(l:parts, l:task['text'])
-        let l:ts = get(l:task, 'time_spent', v:null)
-        if type(l:ts) == v:t_dict
-            let l:h = get(l:ts, 'hours', 0)
-            let l:m = get(l:ts, 'minutes', 0)
-            if l:h > 0 && l:m > 0
-                call add(l:parts, '[' . l:h . 'h' . l:m . 'm]')
-            elseif l:h > 0
-                call add(l:parts, '[' . l:h . 'h]')
-            elseif l:m > 0
-                call add(l:parts, '[' . l:m . 'm]')
-            endif
-        endif
-
-        call add(l:list, {
-                    \ 'filename': l:path,
-                    \ 'lnum':     l:line,
-                    \ 'col':      l:col,
-                    \ 'text':     join(l:parts, ' '),
-                    \ })
+        call add(l:list, s:loclist_entry(l:task, s:review_parts(l:task)))
     endfor
 
     call setloclist(0, l:list)
@@ -361,9 +295,7 @@ function! s:show_tasks_review(res, label) abort
     setlocal nowrap
 endfunction
 
-" ---------------------------------------------------------------------------
 " :LspPattoCopyAsMarkdown [flavor]   (works with ranges / visual selection)
-" ---------------------------------------------------------------------------
 function! s:markdown_flavor_complete(arglead, cmdline, cursorpos) abort
     return filter(['standard','obsidian','github'],
                 \ 'v:val =~ "^" . a:arglead')
@@ -374,25 +306,14 @@ function! s:patto_copy_as_markdown(flavor_arg, range, line1, line2) abort
     let l:flavor = a:flavor_arg !=# '' ? a:flavor_arg : v:null
 
     if a:range == 2
-        " Convert Vim 1-indexed lines to 0-indexed for LSP
+        " LSP lines are 0-indexed
         let l:args = [l:uri, a:line1 - 1, a:line2 - 1, l:flavor]
     else
         let l:args = [l:uri, v:null, v:null, l:flavor]
     endif
 
-    call lsp#callbag#pipe(
-        \ lsp#request('patto-lsp', {
-        \   'method': 'workspace/executeCommand',
-        \   'params': {
-        \       'command': 'patto/renderAsMarkdown',
-        \       'arguments': l:args,
-        \   }
-        \ }),
-        \ lsp#callbag#subscribe({
-        \   'next':  {x -> s:yank_markdown(x['response']['result'], a:flavor_arg)},
-        \   'error': {e -> lsp#utils#error(string(e))},
-        \ })
-        \ )
+    call s:execute_command('patto/renderAsMarkdown', l:args,
+                \ {x -> s:yank_markdown(x['response']['result'], a:flavor_arg)})
 endfunction
 
 function! s:yank_markdown(result, flavor_arg) abort

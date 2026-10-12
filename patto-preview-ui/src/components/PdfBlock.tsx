@@ -1,5 +1,5 @@
 interface PdfBlockProps {
-    src: string; // fully resolved URL (e.g. /api/files/path/to/file.pdf or https://...)
+    src: string;
     title: string | null;
 }
 

@@ -4,7 +4,7 @@ use common::*;
 use patto::lsp::task_edits::{
     collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
 };
-use patto::parser::{parse_text, TaskStatus};
+use patto::parser::parse_text;
 use patto::task::TaskTransition;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -305,7 +305,6 @@ async fn test_shorthand_done_replaced_with_longform() {
 /// our own sticky map — mirroring exactly what `on_change` does internally.
 #[test]
 fn test_doing_to_todo_via_keystroke_simulation() {
-    use patto::task::Duration;
     use std::collections::HashMap;
 
     let now = fixed_now();
