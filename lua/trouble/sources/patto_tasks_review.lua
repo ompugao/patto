@@ -20,7 +20,7 @@ local M = tasks_source.new({
 M.config = {
   formatters = {
     completed_date_group = function(ctx)
-      return { text = ctx.item.completed_date_group or "  Older" }
+      return { text = ctx.item.completed_date_group or "Older" }
     end,
     task_completed_at = function(ctx)
       local s = (ctx.item.item or {}).completed_at or ""
