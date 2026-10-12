@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::ModifyKind;
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
@@ -48,7 +49,9 @@ impl Repository {
                 continue;
             }
 
-            if event.kind.is_create() {
+            if is_rename(&event.kind) {
+                self.handle_file_renamed(&path);
+            } else if event.kind.is_create() {
                 self.handle_file_created(&path);
             } else if event.kind.is_remove() {
                 self.handle_file_removed(&path);
@@ -73,6 +76,16 @@ impl Repository {
         let _ = self
             .tx
             .send(RepositoryMessage::FileAdded(path.to_path_buf(), metadata));
+    }
+
+    /// A rename arrives as one event per path, or one event with both paths,
+    /// and never says which side a path is on; whether it still exists does.
+    fn handle_file_renamed(&self, path: &Path) {
+        if path.exists() {
+            self.handle_file_created(path);
+        } else {
+            self.handle_file_removed(path);
+        }
     }
 
     fn handle_file_removed(&self, path: &Path) {
@@ -144,6 +157,10 @@ impl Repository {
             .tx
             .send(RepositoryMessage::TwoHopLinksChanged(path, two_hop_links));
     }
+}
+
+fn is_rename(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::Modify(ModifyKind::Name(_)))
 }
 
 /// Register a recursive watch on `dir`, forwarding its events to `tx`.

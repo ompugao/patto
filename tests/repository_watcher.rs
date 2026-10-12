@@ -95,6 +95,26 @@ async fn watcher_reports_create_modify_and_remove() {
 }
 
 #[tokio::test]
+async fn watcher_reports_a_rename_as_remove_plus_add() {
+    let (_dir, dir) = notes_dir();
+    let old = dir.join("old.pn");
+    std::fs::write(&old, "a note\n").unwrap();
+
+    let repository = Repository::new(dir.clone());
+    let mut rx = repository.subscribe();
+    repository.start_watcher().await.unwrap();
+
+    std::fs::rename(&old, dir.join("new.pn")).unwrap();
+
+    wait_for(
+        &mut rx,
+        |m| matches!(m, RepositoryMessage::FileRemoved(path) if is_named(path, "old.pn")),
+    )
+    .await;
+    wait_for(&mut rx, |m| announces(m, "new.pn")).await;
+}
+
+#[tokio::test]
 async fn watcher_ignores_non_patto_files() {
     let (_dir, dir) = notes_dir();
     let repository = Repository::new(dir.clone());
