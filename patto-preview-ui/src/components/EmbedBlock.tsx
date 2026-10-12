@@ -1,4 +1,4 @@
-import { isGooglePhotosLink, pdfSrc, SLIDE_SHARE, SPEAKER_DECK } from '../embeds';
+import { isGooglePhotosLink, isTwitterLink, pdfSrc, SLIDE_SHARE, SPEAKER_DECK } from '../embeds';
 import OEmbedBlock from './OEmbedBlock';
 import TwitterBlock from './TwitterBlock';
 import PdfBlock from './PdfBlock';
@@ -20,7 +20,7 @@ export default function EmbedBlock({ link, title }: EmbedBlockProps) {
     if (link.includes('slideshare.net')) {
         return <OEmbedBlock url={link} service={SLIDE_SHARE} />;
     }
-    if (link.includes('twitter.com') || link.includes('x.com')) {
+    if (isTwitterLink(link)) {
         return <TwitterBlock url={link} title={title} />;
     }
     if (isGooglePhotosLink(link)) {

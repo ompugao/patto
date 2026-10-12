@@ -207,6 +207,13 @@ fn tweet_embed_is_a_placeholder_with_a_link() {
 }
 
 #[test]
+fn a_host_merely_ending_in_x_com_is_not_a_tweet() {
+    let html = render("[@embed https://www.dropbox.com/s/abc/file]\n");
+    assert!(!html.contains("twitter-placeholder"), "{html}");
+    assert_contains(&html, "href=\"https://www.dropbox.com/s/abc/file\"");
+}
+
+#[test]
 fn speakerdeck_embed_is_a_placeholder() {
     let html = render("[@embed https://speakerdeck.com/user/talk]\n");
     assert_contains(&html, "<div class=\"speakerdeck-placeholder\"");
