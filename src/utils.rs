@@ -30,21 +30,29 @@ pub fn get_youtube_id(value: &str) -> Option<String> {
     }
 }
 
+/// Matched on the host rather than as a substring: `x.com` is the tail of
+/// `dropbox.com`, `wix.com` and many others.
+pub fn is_twitter_url(url: &str) -> bool {
+    let Ok(parsed_url) = Url::parse(url) else {
+        return false;
+    };
+    matches!(
+        parsed_url.host_str(),
+        Some("twitter.com" | "www.twitter.com" | "mobile.twitter.com" | "x.com" | "www.x.com")
+    )
+}
+
 #[cfg(feature = "oembed")]
 pub fn get_twitter_embed(tweet_url: &str) -> Option<String> {
     use serde_json::Value;
 
-    let parsed_url = Url::parse(tweet_url).ok()?;
-
-    match parsed_url.host_str()? {
-        "twitter.com" | "x.com" => {
-            let api_url = format!("https://publish.twitter.com/oembed?url={}", tweet_url);
-            let response = reqwest::blocking::get(&api_url).ok()?;
-            let json: Value = response.json().ok()?;
-            json.get("html")?.as_str().map(|s| s.to_string())
-        }
-        _ => None,
+    if !is_twitter_url(tweet_url) {
+        return None;
     }
+    let api_url = format!("https://publish.twitter.com/oembed?url={}", tweet_url);
+    let response = reqwest::blocking::get(&api_url).ok()?;
+    let json: Value = response.json().ok()?;
+    json.get("html")?.as_str().map(|s| s.to_string())
 }
 
 /// Without the `oembed` feature there is no network stack, so the renderer falls
@@ -251,6 +259,18 @@ mod tests {
         assert!(!is_google_photos_url("https://goo.gl/maps/abc"));
         assert!(!is_google_photos_url("https://www.youtube.com/watch?v=x"));
         assert!(!is_google_photos_url("./local.pdf"));
+    }
+
+    #[test]
+    fn twitter_urls_are_recognised_by_host_only() {
+        assert!(is_twitter_url("https://twitter.com/user/status/1"));
+        assert!(is_twitter_url("https://mobile.twitter.com/user/status/1"));
+        assert!(is_twitter_url("https://x.com/user/status/1"));
+        assert!(is_twitter_url("https://www.x.com/user/status/1"));
+        assert!(!is_twitter_url("https://www.dropbox.com/s/abc/file"));
+        assert!(!is_twitter_url("https://example.com/x.com"));
+        assert!(!is_twitter_url("https://notx.com/post"));
+        assert!(!is_twitter_url("x.com/user/status/1"));
     }
 
     #[test]

@@ -66,6 +66,18 @@ export function isGooglePhotosLink(link: string): boolean {
     return link.includes('photos.app.goo.gl') || link.includes('photos.google.com') || link.includes('goo.gl/photos');
 }
 
+const TWITTER_HOSTS = new Set(['twitter.com', 'www.twitter.com', 'mobile.twitter.com', 'x.com', 'www.x.com']);
+
+// Matched on the host rather than as a substring: 'x.com' is the tail of
+// 'dropbox.com', 'wix.com' and many others.
+export function isTwitterLink(link: string): boolean {
+    try {
+        return TWITTER_HOSTS.has(new URL(link).hostname);
+    } catch {
+        return false;
+    }
+}
+
 export function isYoutubeLink(link: string): boolean {
     return link.includes('youtube.com') || link.includes('youtu.be');
 }

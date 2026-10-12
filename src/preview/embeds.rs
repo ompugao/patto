@@ -20,7 +20,7 @@ struct OEmbedProvider {
 
 const TWITTER: OEmbedProvider = OEmbedProvider {
     name: "Twitter",
-    accepts: |url| url.contains("twitter.com") || url.contains("x.com"),
+    accepts: utils::is_twitter_url,
     endpoint: |url| {
         format!(
             "https://publish.twitter.com/oembed?url={}",

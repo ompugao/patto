@@ -4,7 +4,7 @@ use std::io::Write;
 use crate::parser::{AstNode, AstNodeKind, Property, TaskStatus};
 
 use super::{wiki_target, Renderer, WikiTarget};
-use crate::utils::{get_gyazo_img_src, get_youtube_id};
+use crate::utils::{get_gyazo_img_src, get_youtube_id, is_twitter_url};
 use html_escape::encode_text;
 
 #[derive(Debug, Default)]
@@ -374,7 +374,7 @@ impl HtmlRenderer {
                 "<div class=\"patto-embed-youtube\"><iframe src=\"http://www.youtube.com/embed/{youtube_id}?modestbranding=1&autoplay=0&controls=1&fs=1&loop=0&rel=0&showinfo=0&disablekb=0\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen\" allowfullscreen></iframe></div>");
         }
 
-        let placeholder = if link.contains("twitter.com") || link.contains("x.com") {
+        let placeholder = if is_twitter_url(link) {
             Some("twitter-placeholder")
         } else if link.contains("speakerdeck.com") {
             Some("speakerdeck-placeholder")
