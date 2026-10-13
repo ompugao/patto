@@ -134,6 +134,12 @@ jobs:
           fi
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
+      # The runner images lag behind the current stable release, and the
+      # bundled 1.98.0 crashes in LLVM's x86 register coalescer when it
+      # compiles patto-preview-tui for x86_64-apple-darwin. The CI workflow
+      # already builds with current stable, so the release does the same.
+      - name: Update the Rust toolchain
+        run: rustup update stable --no-self-update && rustup default stable
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@v4
