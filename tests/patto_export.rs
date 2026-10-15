@@ -69,21 +69,22 @@ fn external_links_are_rewritten_title_first() {
 }
 
 #[test]
-fn blocks_round_trip_apart_from_a_trailing_blank_line() {
-    // Block bodies are terminated with a blank line, which the parser ignores.
-    assert_eq!(
-        render("[@code python]\n\tprint(1)\n"),
-        "[@code python]\n\tprint(1)\n\n"
-    );
-    assert_eq!(render("[@quote]\n\tquoted\n"), "[@quote]\n\tquoted\n\n");
-    assert_eq!(render("[@math]\n\tx = 1\n"), "[@math]\n\tx = 1\n\n");
+fn blocks_round_trip() {
+    assert_round_trips("[@code python]\n\tprint(1)\n");
+    assert_round_trips("[@quote]\n\tquoted\n");
+    assert_round_trips("[@math]\n\tx = 1\n");
+}
+
+#[test]
+fn nested_blocks_indent_their_body_under_the_line() {
+    assert_round_trips("item\n\t[@code]\n\t\tx\n\t[@math]\n\t\ty = 1\nafter\n");
 }
 
 #[test]
 fn table_caption_is_written_in_its_long_form() {
     assert_eq!(
         render("[@table cap]\n\ta\tb\n"),
-        "[@table caption=\"cap\"]\n\ta\tb\n\n"
+        "[@table caption=\"cap\"]\n\ta\tb\n"
     );
 }
 

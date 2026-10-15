@@ -49,8 +49,10 @@ impl PattoRenderer {
                 underline,
                 deleted,
             } => self.write_decoration(ast, *fontsize, *italic, *underline, *deleted, output),
-            AstNodeKind::Code { lang, inline } => self.write_code(ast, lang, *inline, output),
-            AstNodeKind::Math { inline } => self.write_math(ast, *inline, output),
+            AstNodeKind::Code { lang, inline } => {
+                self.write_code(ast, lang, *inline, output, depth)
+            }
+            AstNodeKind::Math { inline } => self.write_math(ast, *inline, output, depth),
             AstNodeKind::Quote => {
                 writeln!(output, "[@quote]")?;
                 for child in ast.children().iter() {
@@ -61,7 +63,7 @@ impl PattoRenderer {
             AstNodeKind::Table { caption } => {
                 self.write_table(ast, caption.as_deref(), output, depth)
             }
-            AstNodeKind::TableRow => self.write_table_row(ast, output),
+            AstNodeKind::TableRow => self.write_table_row(ast, output, depth),
             AstNodeKind::TableColumn => self.write_contents(ast, output),
             AstNodeKind::WikiLink { link, anchor } => match wiki_target(link, anchor.as_deref()) {
                 WikiTarget::SelfAnchor(anchor) => write!(output, "[#{}]", anchor),
@@ -111,9 +113,18 @@ impl PattoRenderer {
         depth: usize,
     ) -> io::Result<()> {
         self.write_indent(output, depth)?;
-        self.write_contents(ast, output)?;
+        // A block in the line (code, math, quote, table) indents its body
+        // one level deeper than the line itself.
+        let contents = ast.contents();
+        for content in contents.iter() {
+            self.write_node(content, output, depth)?;
+        }
         write_task_property(properties, output)?;
-        writeln!(output)?;
+        // A block already ended its own last line.
+        if !contents.last().is_some_and(is_block) {
+            writeln!(output)?;
+        }
+        drop(contents);
 
         for child in ast.children().iter() {
             self.write_node(child, output, depth + 1)?;
@@ -158,6 +169,7 @@ impl PattoRenderer {
         lang: &str,
         inline: bool,
         output: &mut dyn Write,
+        depth: usize,
     ) -> io::Result<()> {
         if inline {
             write!(output, "[` ")?;
@@ -170,10 +182,16 @@ impl PattoRenderer {
         } else {
             writeln!(output, "[@code {}]", lang)?;
         }
-        write_lines(ast, output, "\t")
+        write_lines(ast, output, &"\t".repeat(depth + 1))
     }
 
-    fn write_math(&self, ast: &AstNode, inline: bool, output: &mut dyn Write) -> io::Result<()> {
+    fn write_math(
+        &self,
+        ast: &AstNode,
+        inline: bool,
+        output: &mut dyn Write,
+        depth: usize,
+    ) -> io::Result<()> {
         if inline {
             write!(output, "[$ ")?;
             write_raw_contents(ast, output)?;
@@ -181,7 +199,7 @@ impl PattoRenderer {
         }
 
         writeln!(output, "[@math]")?;
-        write_lines(ast, output, "\t")
+        write_lines(ast, output, &"\t".repeat(depth + 1))
     }
 
     fn write_table(
@@ -201,8 +219,13 @@ impl PattoRenderer {
         Ok(())
     }
 
-    fn write_table_row(&self, ast: &AstNode, output: &mut dyn Write) -> io::Result<()> {
-        write!(output, "\t")?;
+    fn write_table_row(
+        &self,
+        ast: &AstNode,
+        output: &mut dyn Write,
+        depth: usize,
+    ) -> io::Result<()> {
+        self.write_indent(output, depth + 1)?;
         for (i, cell) in ast.contents().iter().enumerate() {
             if i > 0 {
                 write!(output, "\t")?;
@@ -210,6 +233,15 @@ impl PattoRenderer {
             self.write_contents(cell, output)?;
         }
         writeln!(output)
+    }
+}
+
+/// Nodes written as a header line plus an indented body.
+fn is_block(node: &AstNode) -> bool {
+    match node.kind() {
+        AstNodeKind::Code { inline, .. } | AstNodeKind::Math { inline } => !inline,
+        AstNodeKind::Quote | AstNodeKind::Table { .. } => true,
+        _ => false,
     }
 }
 
