@@ -69,6 +69,11 @@ impl Conversion<'_> {
         !self.lists.items.is_empty()
     }
 
+    /// The innermost item's line, once written.
+    pub(super) fn current_item_line(&self) -> Option<AstNode> {
+        self.lists.items.last().and_then(|item| item.line.clone())
+    }
+
     /// Write the pending inline content as the innermost item's line, or as
     /// a child of that line when it has already been written.
     pub(super) fn write_item_line(&mut self) {

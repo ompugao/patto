@@ -83,6 +83,10 @@ impl Conversion<'_> {
         let Some(line_node) = self.line_node.take() else {
             return;
         };
+        // Nothing followed a display math block that split the paragraph.
+        if self.pending.is_empty() {
+            return;
+        }
         self.flush_pending_into(&line_node);
         self.root.add_child(line_node);
     }
