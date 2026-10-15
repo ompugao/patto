@@ -52,6 +52,54 @@ fn test_inline_code_conversion() {
 }
 
 #[test]
+fn test_code_block_has_no_trailing_blank_line() {
+    let result = import_lossy("```\nx\n```\n\nafter");
+    assert_eq!(result.patto_content, "[@code]\n\tx\nafter\n");
+}
+
+#[test]
+fn test_inline_math_keeps_latex() {
+    let result = import_lossy(r"Error $e_t = (a_t,\; b_t)$ and $\{x_i\}$ and $\|v\|$");
+    assert_eq!(
+        result.patto_content.trim(),
+        r"Error [$ e_t = (a_t,\; b_t) $] and [$ \{x_i\} $] and [$ \|v\| $]"
+    );
+}
+
+#[test]
+fn test_inline_math_inside_bold() {
+    let result = import_lossy("**force $F_t$ is not an input**");
+    assert_eq!(
+        result.patto_content.trim(),
+        "[* force [$ F_t $] is not an input]"
+    );
+}
+
+#[test]
+fn test_display_math_splits_paragraph() {
+    let result = import_lossy("before:$$\\hat q_{t+k|t}$$after");
+    assert_eq!(
+        result.patto_content,
+        "before:\n[@math]\n\t\\hat q_{t+k|t}\nafter\n"
+    );
+}
+
+#[test]
+fn test_display_math_alone() {
+    let result = import_lossy("$$\na_1\n= b_2\n$$\n\nnext");
+    assert_eq!(result.patto_content, "[@math]\n\ta_1\n\t= b_2\nnext\n");
+}
+
+#[test]
+fn test_display_math_in_list_item() {
+    let result = import_lossy("- item: $$x_1$$\n- next");
+    assert_eq!(
+        result.patto_content,
+        "\n\titem: \n\t\t[@math]\n\t\t\tx_1\n\tnext\n"
+    );
+}
+
+#[test]
 fn test_heading_conversion_h1() {
     let result = import_lossy("# Title");
     assert!(result.patto_content.contains("Title"));

@@ -86,6 +86,8 @@ impl<'a> Conversion<'a> {
             Event::End(tag) => self.end(tag),
             Event::Text(text) => self.text(&text),
             Event::Code(code) => self.inline_code(&code),
+            Event::InlineMath(math) => self.inline_math(&math),
+            Event::DisplayMath(math) => self.display_math(&math),
             Event::Html(html) => self.html(&html)?,
             Event::SoftBreak | Event::HardBreak => self.line += 1,
             Event::Rule => self.rule(),
@@ -193,6 +195,17 @@ impl<'a> Conversion<'a> {
             heading.contents.push(node);
         } else {
             self.pending.push(node);
+        }
+    }
+
+    /// The inline node `push_inline` would place the next node after.
+    fn last_inline(&self) -> Option<AstNode> {
+        if let Some(table) = self.table.as_ref() {
+            table.cell.as_ref()?.contents().last().cloned()
+        } else if let Some(heading) = self.heading.as_ref() {
+            heading.contents.last().cloned()
+        } else {
+            self.pending.last().cloned()
         }
     }
 

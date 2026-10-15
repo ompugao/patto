@@ -116,6 +116,7 @@ impl MarkdownImporter {
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_FOOTNOTES);
+        options.insert(Options::ENABLE_MATH);
 
         let mut conversion = Conversion::new(&self.options, report);
         for event in Parser::new_ext(markdown, options) {

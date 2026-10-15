@@ -110,10 +110,9 @@ mod patto_roundtrip {
     fn test_simple_quote_roundtrip() {
         let input = "[@quote]\n\tLine 1\n\tLine 2\n";
         let output = render_patto(input);
-        // Note: PattoRenderer adds trailing newline - this is existing behavior
         assert_eq!(
-            output, "[@quote]\n\tLine 1\n\tLine 2\n\n",
-            "Simple quote round-trip (with trailing newline)"
+            output, "[@quote]\n\tLine 1\n\tLine 2\n",
+            "Simple quote round-trip"
         );
     }
 
@@ -122,10 +121,9 @@ mod patto_roundtrip {
         let input = "[@quote]\n\tLine 1\n\t\tNested line\n\tLine 2\n";
         let output = render_patto(input);
         // Expected: same structure with nested indentation preserved
-        // Note: trailing newline is existing behavior
         assert_eq!(
-            output, "[@quote]\n\tLine 1\n\t\tNested line\n\tLine 2\n\n",
-            "Quote with nested indentation should round-trip (with trailing newline)"
+            output, "[@quote]\n\tLine 1\n\t\tNested line\n\tLine 2\n",
+            "Quote with nested indentation should round-trip"
         );
     }
 
@@ -134,9 +132,8 @@ mod patto_roundtrip {
         let input = "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n";
         let output = render_patto(input);
         assert_eq!(
-            output,
-            "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n\n",
-            "Deeply nested quote should round-trip (with trailing newline)"
+            output, "[@quote]\n\tLevel 1\n\t\tLevel 2\n\t\t\tLevel 3\n\t\tBack to 2\n\tBack to 1\n",
+            "Deeply nested quote should round-trip"
         );
     }
 
@@ -145,8 +142,8 @@ mod patto_roundtrip {
         let input = "[@quote]\n\t[* bold text]\n\t\t[/ italic nested]\n";
         let output = render_patto(input);
         assert_eq!(
-            output, "[@quote]\n\t[* bold text]\n\t\t[/ italic nested]\n\n",
-            "Quote with formatting should round-trip (with trailing newline)"
+            output, "[@quote]\n\t[* bold text]\n\t\t[/ italic nested]\n",
+            "Quote with formatting should round-trip"
         );
     }
 }
@@ -404,13 +401,9 @@ mod edge_cases {
     fn test_quote_inside_list() {
         let input = "Parent\n\t[@quote]\n\t\tQuoted under parent\n";
         let output = render_patto(input);
-        // BUG: Currently loses one level of indentation
-        // Expected: "Parent\n\t[@quote]\n\t\tQuoted under parent\n\n"
-        // Actual: "Parent\n\t[@quote]\n\tQuoted under parent\n\n"
-        // This test documents current (broken) behavior
         assert_eq!(
-            output, "Parent\n\t[@quote]\n\tQuoted under parent\n\n",
-            "Quote inside list - CURRENT BEHAVIOR (loses indent)"
+            output, "Parent\n\t[@quote]\n\t\tQuoted under parent\n",
+            "Quote inside list keeps its body indented under the quote"
         );
     }
 
@@ -420,9 +413,8 @@ mod edge_cases {
         let output = render_patto(input);
         // Note: code inline adds trailing space - existing behavior
         assert_eq!(
-            output,
-            "[@quote]\n\tPlain text\n\t\t[* bold nested]\n\t\t\t[` code deeply nested `]\n\n",
-            "Mixed content at different levels (with trailing newline and code space)"
+            output, "[@quote]\n\tPlain text\n\t\t[* bold nested]\n\t\t\t[` code deeply nested `]\n",
+            "Mixed content at different levels (with code space)"
         );
     }
 }
