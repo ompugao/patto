@@ -110,7 +110,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     ref.read(indexProvider.notifier).forget(root);
     await ref.read(settingsProvider.notifier).removeWorkspace(workspace.id);
-    await QuickNoteIntents.disableWorkspaceShortcut(workspace.id);
     ref.read(notesRevisionProvider.notifier).value++;
   }
 

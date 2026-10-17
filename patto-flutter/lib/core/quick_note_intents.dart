@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'workspace.dart';
@@ -92,10 +93,10 @@ class QuickNoteIntents {
   /// [workspace]. False when the launcher cannot pin shortcuts.
   static Future<bool> pinWorkspaceShortcut(Workspace workspace) async {
     try {
-      final pinned = await _channel.invokeMethod<bool>(
-        'pinWorkspaceShortcut',
-        {'id': workspace.id, 'name': workspace.name},
-      );
+      final pinned = await _channel.invokeMethod<bool>('pinWorkspaceShortcut', {
+        'id': workspace.id,
+        'name': workspace.name,
+      });
       return pinned ?? false;
     } on MissingPluginException {
       return false;
@@ -104,16 +105,24 @@ class QuickNoteIntents {
     }
   }
 
-  /// Greys out the home-screen icon of a removed workspace.
-  static Future<void> disableWorkspaceShortcut(String workspaceId) async {
+  static List<(String, String)>? _published;
+
+  /// Offers one quick-note entry per workspace in the launcher's long-press
+  /// menu. Only sent when an id or a name changed.
+  static Future<void> setWorkspaceShortcuts(List<Workspace> workspaces) async {
+    final next = [for (final w in workspaces) (w.id, w.name)];
+    if (listEquals(next, _published)) return;
+    _published = next;
     try {
-      await _channel.invokeMethod<void>('disableWorkspaceShortcut', {
-        'id': workspaceId,
+      await _channel.invokeMethod<void>('setWorkspaceShortcuts', {
+        'workspaces': [
+          for (final (id, name) in next) {'id': id, 'name': name},
+        ],
       });
     } on MissingPluginException {
       // Not running inside MainActivity.
     } on PlatformException {
-      // Nothing to grey out.
+      _published = null;
     }
   }
 

@@ -51,6 +51,17 @@ class _BootstrapState extends ConsumerState<_Bootstrap> {
   String? _indexedRoot;
 
   @override
+  void initState() {
+    super.initState();
+    // The launcher's long-press menu follows the workspace list. The empty
+    // list seen while settings load would grey out every pinned icon.
+    ref.listenManual(workspacesProvider, (_, workspaces) {
+      if (!ref.read(settingsProvider).hasValue) return;
+      QuickNoteIntents.setWorkspaceShortcuts(workspaces);
+    }, fireImmediately: true);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final workspace = ref.watch(workspaceProvider);
 
