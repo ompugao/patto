@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:patto_flutter/core/settings.dart';
 import 'package:patto_flutter/features/inbox/widgets/inbox_composer.dart';
 import 'package:patto_flutter/features/inbox/widgets/inbox_posts.dart';
 import 'package:patto_flutter/src/rust/api/types.dart';
@@ -59,6 +60,35 @@ void main() {
       );
 
       expect(find.textContaining('Nothing here yet'), findsOneWidget);
+    });
+  });
+
+  group('InboxHeader', () {
+    testWidgets('names the workspace and a non-default note', (tester) async {
+      await tester.pumpWidget(
+        _host(
+          InboxHeader(
+            name: 'Scratch',
+            workspaceName: 'Work',
+            onOpenNote: () {},
+          ),
+        ),
+      );
+
+      expect(find.text('Work · Scratch'), findsOneWidget);
+    });
+
+    testWidgets('shows no subtitle with one workspace and the default note', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          InboxHeader(name: Settings.defaultInboxNoteName, onOpenNote: () {}),
+        ),
+      );
+
+      expect(find.byType(Text), findsOneWidget);
+      expect(find.text('Inbox'), findsOneWidget);
     });
   });
 
