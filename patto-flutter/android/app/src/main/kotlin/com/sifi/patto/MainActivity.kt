@@ -86,7 +86,13 @@ class MainActivity : FlutterActivity() {
     private fun quickNoteFrom(intent: Intent?): Map<String, String?>? {
         if (intent == null) return null
         return when (intent.action) {
-            ACTION_QUICK_NOTE -> mapOf("text" to "", "subject" to null)
+            // A home-screen shortcut names its workspace; the launcher one
+            // posts to whichever is active.
+            ACTION_QUICK_NOTE -> mapOf(
+                "text" to "",
+                "subject" to null,
+                "workspaceId" to intent.getStringExtra(EXTRA_WORKSPACE_ID),
+            )
             Intent.ACTION_SEND -> {
                 if (intent.type?.startsWith("text/") != true) return null
                 mapOf(
@@ -207,6 +213,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         const val CHANNEL = "com.sifi.patto/quick_note"
         const val ACTION_QUICK_NOTE = "com.sifi.patto.action.QUICK_NOTE"
+        const val EXTRA_WORKSPACE_ID = "com.sifi.patto.extra.WORKSPACE_ID"
         const val DEVICE_FILES_CHANNEL = "com.sifi.patto/device_files"
         const val PICK_FILE = 0x5041
         // Three copies of the image exist while it crosses the channel.

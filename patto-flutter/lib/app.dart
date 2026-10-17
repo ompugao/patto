@@ -152,6 +152,7 @@ class _RootShellState extends ConsumerState<RootShell> {
     final intents = ref.read(quickNoteIntentsProvider);
     _quickNotes = intents.requests.listen((request) {
       if (!mounted) return;
+      if (_switchFor(request)) return;
       ref.read(rootTabProvider.notifier).value = 0;
       InboxSheet.show(
         context,
@@ -159,6 +160,31 @@ class _RootShellState extends ConsumerState<RootShell> {
       );
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => intents.start());
+  }
+
+  /// Switches to the workspace a home-screen shortcut names, if it is not the
+  /// active one, and holds the request for the shell that comes up for it.
+  /// A shortcut to a workspace since removed posts to the active one; the
+  /// inbox header says which.
+  bool _switchFor(QuickNoteRequest request) {
+    final id = request.workspaceId;
+    if (id == null) return false;
+    final active = ref.read(workspaceProvider).value?.config.id;
+    final known = ref.read(workspacesProvider).any((w) => w.id == id);
+    if (id == active || !known) return false;
+
+    final container = ProviderScope.containerOf(context, listen: false);
+    final intents = container.read(quickNoteIntentsProvider);
+    intents.hold(request.withoutWorkspace());
+    () async {
+      await container.read(settingsProvider.notifier).setActiveWorkspace(id);
+      await container.read(workspaceProvider.future);
+      await WidgetsBinding.instance.endOfFrame;
+      // Normally the new shell took it on subscribing; if this one stayed
+      // mounted through the switch, it is still the one to show it.
+      intents.release();
+    }();
+    return true;
   }
 
   @override

@@ -2,19 +2,27 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-/// Text another app shared with us, or an empty request from the launcher
-/// shortcut.
+/// Text another app shared with us, or an empty request from a launcher or
+/// home-screen shortcut.
 class QuickNoteRequest {
-  const QuickNoteRequest({required this.text, this.subject});
+  const QuickNoteRequest({required this.text, this.subject, this.workspaceId});
 
   final String text;
   final String? subject;
+
+  /// The workspace a home-screen shortcut was made for; null means the
+  /// active one.
+  final String? workspaceId;
+
+  QuickNoteRequest withoutWorkspace() =>
+      QuickNoteRequest(text: text, subject: subject);
 
   static QuickNoteRequest? fromMap(Object? raw) {
     if (raw is! Map) return null;
     return QuickNoteRequest(
       text: raw['text'] as String? ?? '',
       subject: raw['subject'] as String?,
+      workspaceId: raw['workspaceId'] as String?,
     );
   }
 }
@@ -54,6 +62,19 @@ class QuickNoteIntents {
     } on MissingPluginException {
       // Not running inside MainActivity (tests, other platforms).
     }
+  }
+
+  /// Keeps [request] for the next listener rather than the current one, which
+  /// is about to go away, e.g. across a workspace switch.
+  void hold(QuickNoteRequest request) => _undelivered = request;
+
+  /// Hands a held request to the current listener, for when the one expected
+  /// to replace it never came.
+  void release() {
+    final held = _undelivered;
+    if (held == null || !_requests.hasListener) return;
+    _undelivered = null;
+    _requests.add(held);
   }
 
   void _add(QuickNoteRequest? request) {
