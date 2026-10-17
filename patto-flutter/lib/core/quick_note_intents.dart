@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import 'workspace.dart';
+
 /// Text another app shared with us, or an empty request from a launcher or
 /// home-screen shortcut.
 class QuickNoteRequest {
@@ -83,6 +85,35 @@ class QuickNoteIntents {
       _requests.add(request);
     } else {
       _undelivered = request;
+    }
+  }
+
+  /// Asks the launcher for a home-screen icon that opens the inbox of
+  /// [workspace]. False when the launcher cannot pin shortcuts.
+  static Future<bool> pinWorkspaceShortcut(Workspace workspace) async {
+    try {
+      final pinned = await _channel.invokeMethod<bool>(
+        'pinWorkspaceShortcut',
+        {'id': workspace.id, 'name': workspace.name},
+      );
+      return pinned ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Greys out the home-screen icon of a removed workspace.
+  static Future<void> disableWorkspaceShortcut(String workspaceId) async {
+    try {
+      await _channel.invokeMethod<void>('disableWorkspaceShortcut', {
+        'id': workspaceId,
+      });
+    } on MissingPluginException {
+      // Not running inside MainActivity.
+    } on PlatformException {
+      // Nothing to grey out.
     }
   }
 

@@ -4,7 +4,11 @@ import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -40,6 +44,16 @@ class MainActivity : FlutterActivity() {
                     "consume" -> {
                         result.success(pending)
                         pending = null
+                    }
+                    "pinWorkspaceShortcut" -> result.success(
+                        pinWorkspaceShortcut(
+                            call.argument<String>("id") ?: "",
+                            call.argument<String>("name") ?: "",
+                        ),
+                    )
+                    "disableWorkspaceShortcut" -> {
+                        disableWorkspaceShortcut(call.argument<String>("id") ?: "")
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -103,6 +117,39 @@ class MainActivity : FlutterActivity() {
             else -> null
         }
     }
+
+    // Asks the launcher to put a quick-note icon for one workspace on the home
+    // screen. False when the launcher cannot pin shortcuts.
+    private fun pinWorkspaceShortcut(id: String, name: String): Boolean {
+        if (id.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = getSystemService(ShortcutManager::class.java) ?: return false
+        if (!manager.isRequestPinShortcutSupported) return false
+        val intent = Intent(ACTION_QUICK_NOTE)
+            .setClass(this, MainActivity::class.java)
+            .putExtra(EXTRA_WORKSPACE_ID, id)
+        val label = name.ifEmpty { "Quick note" }
+        val shortcut = ShortcutInfo.Builder(this, workspaceShortcutId(id))
+            .setShortLabel(label)
+            .setLongLabel("Quick note in $label")
+            .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+            .setIntent(intent)
+            .build()
+        return try {
+            manager.requestPinShortcut(shortcut, null)
+        } catch (e: IllegalStateException) {
+            false
+        }
+    }
+
+    // A pinned icon cannot be removed from the home screen by the app, only
+    // greyed out.
+    private fun disableWorkspaceShortcut(id: String) {
+        if (id.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
+        val manager = getSystemService(ShortcutManager::class.java) ?: return
+        manager.disableShortcuts(listOf(workspaceShortcutId(id)), "Workspace removed")
+    }
+
+    private fun workspaceShortcutId(id: String) = "quick_note_$id"
 
     // Content providers may be slow or throw, and neither should stall or
     // kill the app; every failure, OutOfMemoryError included, answers null.
