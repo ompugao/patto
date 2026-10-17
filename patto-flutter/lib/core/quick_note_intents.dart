@@ -1,20 +1,31 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// Text another app shared with us, or an empty request from the launcher
-/// shortcut.
+import 'workspace.dart';
+
+/// Text another app shared with us, or an empty request from a launcher or
+/// home-screen shortcut.
 class QuickNoteRequest {
-  const QuickNoteRequest({required this.text, this.subject});
+  const QuickNoteRequest({required this.text, this.subject, this.workspaceId});
 
   final String text;
   final String? subject;
+
+  /// The workspace a home-screen shortcut was made for; null means the
+  /// active one.
+  final String? workspaceId;
+
+  QuickNoteRequest withoutWorkspace() =>
+      QuickNoteRequest(text: text, subject: subject);
 
   static QuickNoteRequest? fromMap(Object? raw) {
     if (raw is! Map) return null;
     return QuickNoteRequest(
       text: raw['text'] as String? ?? '',
       subject: raw['subject'] as String?,
+      workspaceId: raw['workspaceId'] as String?,
     );
   }
 }
@@ -56,12 +67,62 @@ class QuickNoteIntents {
     }
   }
 
+  /// Keeps [request] for the next listener rather than the current one, which
+  /// is about to go away, e.g. across a workspace switch.
+  void hold(QuickNoteRequest request) => _undelivered = request;
+
+  /// Hands a held request to the current listener, for when the one expected
+  /// to replace it never came.
+  void release() {
+    final held = _undelivered;
+    if (held == null || !_requests.hasListener) return;
+    _undelivered = null;
+    _requests.add(held);
+  }
+
   void _add(QuickNoteRequest? request) {
     if (request == null) return;
     if (_requests.hasListener) {
       _requests.add(request);
     } else {
       _undelivered = request;
+    }
+  }
+
+  /// Asks the launcher for a home-screen icon that opens the inbox of
+  /// [workspace]. False when the launcher cannot pin shortcuts.
+  static Future<bool> pinWorkspaceShortcut(Workspace workspace) async {
+    try {
+      final pinned = await _channel.invokeMethod<bool>('pinWorkspaceShortcut', {
+        'id': workspace.id,
+        'name': workspace.name,
+      });
+      return pinned ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static List<(String, String)>? _published;
+
+  /// Offers one quick-note entry per workspace in the launcher's long-press
+  /// menu. Only sent when an id or a name changed.
+  static Future<void> setWorkspaceShortcuts(List<Workspace> workspaces) async {
+    final next = [for (final w in workspaces) (w.id, w.name)];
+    if (listEquals(next, _published)) return;
+    _published = next;
+    try {
+      await _channel.invokeMethod<void>('setWorkspaceShortcuts', {
+        'workspaces': [
+          for (final (id, name) in next) {'id': id, 'name': name},
+        ],
+      });
+    } on MissingPluginException {
+      // Not running inside MainActivity.
+    } on PlatformException {
+      _published = null;
     }
   }
 

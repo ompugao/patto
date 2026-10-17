@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import '../../core/quick_note_intents.dart';
 import '../../core/settings.dart';
 import '../../core/workspace.dart';
 import '../../src/rust/frb_api.dart' as rust;
@@ -87,6 +90,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(settingsProvider.notifier).setActiveWorkspace(workspace.id);
   }
 
+  Future<void> _pinShortcut(Workspace workspace) async {
+    final asked = await QuickNoteIntents.pinWorkspaceShortcut(workspace);
+    if (!mounted || asked) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('This launcher cannot add shortcuts to the home screen'),
+      ),
+    );
+  }
+
   Future<void> _delete(Workspace workspace) async {
     final confirmed = await _confirmRemove(context, workspace);
     if (confirmed != true) return;
@@ -125,6 +138,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onEdit: () =>
                       WorkspaceEditorScreen.open(context, existing: workspace),
                   onDelete: () => _delete(workspace),
+                  onPinShortcut: Platform.isAndroid
+                      ? () => _pinShortcut(workspace)
+                      : null,
                 ),
               Align(
                 alignment: Alignment.centerLeft,

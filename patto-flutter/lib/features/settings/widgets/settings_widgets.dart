@@ -24,6 +24,7 @@ class WorkspaceTile extends StatelessWidget {
     required this.onSwitch,
     required this.onEdit,
     required this.onDelete,
+    this.onPinShortcut,
   });
 
   final Workspace workspace;
@@ -31,6 +32,10 @@ class WorkspaceTile extends StatelessWidget {
   final VoidCallback onSwitch;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+
+  /// Puts a quick-note icon for this workspace on the home screen; null where
+  /// that is not offered.
+  final VoidCallback? onPinShortcut;
 
   @override
   Widget build(BuildContext context) {
@@ -53,11 +58,17 @@ class WorkspaceTile extends StatelessWidget {
         onSelected: (choice) => switch (choice) {
           'edit' => onEdit(),
           'delete' => onDelete(),
+          'pin' => onPinShortcut?.call(),
           _ => null,
         },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'edit', child: Text('Edit')),
-          PopupMenuItem(value: 'delete', child: Text('Remove')),
+        itemBuilder: (context) => [
+          const PopupMenuItem(value: 'edit', child: Text('Edit')),
+          if (onPinShortcut != null)
+            const PopupMenuItem(
+              value: 'pin',
+              child: Text('Add quick note to home screen'),
+            ),
+          const PopupMenuItem(value: 'delete', child: Text('Remove')),
         ],
       ),
     );

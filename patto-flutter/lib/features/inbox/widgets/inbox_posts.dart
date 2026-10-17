@@ -5,14 +5,23 @@ import '../../../src/rust/api/types.dart';
 import '../inbox_entry.dart';
 
 class InboxHeader extends StatelessWidget {
-  const InboxHeader({super.key, required this.name, required this.onOpenNote});
+  const InboxHeader({
+    super.key,
+    required this.name,
+    required this.onOpenNote,
+    this.workspaceName,
+  });
 
   final String name;
   final VoidCallback onOpenNote;
 
+  /// Where posts go; null when there is only one workspace to go to.
+  final String? workspaceName;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final workspace = workspaceName;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
       child: Row(
@@ -21,7 +30,25 @@ class InboxHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Inbox', style: theme.textTheme.titleMedium),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text('Inbox', style: theme.textTheme.titleMedium),
+                    if (workspace != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          workspace,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: theme.colorScheme.primary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
                 if (name != Settings.defaultInboxNoteName)
                   Text(
                     name,

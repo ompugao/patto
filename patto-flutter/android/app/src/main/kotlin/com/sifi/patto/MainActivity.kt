@@ -4,7 +4,11 @@ import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -40,6 +44,19 @@ class MainActivity : FlutterActivity() {
                     "consume" -> {
                         result.success(pending)
                         pending = null
+                    }
+                    "pinWorkspaceShortcut" -> result.success(
+                        pinWorkspaceShortcut(
+                            call.argument<String>("id") ?: "",
+                            call.argument<String>("name") ?: "",
+                        ),
+                    )
+                    "setWorkspaceShortcuts" -> {
+                        setWorkspaceShortcuts(
+                            call.argument<List<Map<String, String>>>("workspaces")
+                                ?: emptyList(),
+                        )
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -86,7 +103,13 @@ class MainActivity : FlutterActivity() {
     private fun quickNoteFrom(intent: Intent?): Map<String, String?>? {
         if (intent == null) return null
         return when (intent.action) {
-            ACTION_QUICK_NOTE -> mapOf("text" to "", "subject" to null)
+            // Shortcuts name their workspace; without one the post goes to
+            // whichever is active.
+            ACTION_QUICK_NOTE -> mapOf(
+                "text" to "",
+                "subject" to null,
+                "workspaceId" to intent.getStringExtra(EXTRA_WORKSPACE_ID),
+            )
             Intent.ACTION_SEND -> {
                 if (intent.type?.startsWith("text/") != true) return null
                 mapOf(
@@ -97,6 +120,62 @@ class MainActivity : FlutterActivity() {
             else -> null
         }
     }
+
+    // One long-press entry per workspace, in the order Settings lists them,
+    // as many as the launcher takes. An entry dragged to the home screen, or
+    // one pinned from Settings, shares the id and so follows renames; one for
+    // a workspace no longer listed is greyed out.
+    private fun setWorkspaceShortcuts(workspaces: List<Map<String, String>>) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
+        val manager = getSystemService(ShortcutManager::class.java) ?: return
+        val shortcuts = workspaces
+            .filter { !it["id"].isNullOrEmpty() }
+            .take(manager.maxShortcutCountPerActivity)
+            .mapIndexed { rank, ws ->
+                workspaceShortcut(ws.getValue("id"), ws["name"] ?: "", rank)
+            }
+        val listed = workspaces.mapNotNull { it["id"] }.map(::workspaceShortcutId).toSet()
+        try {
+            manager.setDynamicShortcuts(shortcuts)
+            val stale = manager.pinnedShortcuts
+                .map { it.id }
+                .filter { it.startsWith(SHORTCUT_PREFIX) && it !in listed }
+            if (stale.isNotEmpty()) manager.disableShortcuts(stale, "Workspace removed")
+        } catch (e: IllegalStateException) {
+            // Rate-limited or the user is locked; the next change retries.
+        } catch (e: IllegalArgumentException) {
+            // Over the launcher's limit after all.
+        }
+    }
+
+    // Asks the launcher to put a quick-note icon for one workspace on the home
+    // screen. False when the launcher cannot pin shortcuts.
+    private fun pinWorkspaceShortcut(id: String, name: String): Boolean {
+        if (id.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = getSystemService(ShortcutManager::class.java) ?: return false
+        if (!manager.isRequestPinShortcutSupported) return false
+        return try {
+            manager.requestPinShortcut(workspaceShortcut(id, name, 0), null)
+        } catch (e: IllegalStateException) {
+            false
+        }
+    }
+
+    private fun workspaceShortcut(id: String, name: String, rank: Int): ShortcutInfo {
+        val intent = Intent(ACTION_QUICK_NOTE)
+            .setClass(this, MainActivity::class.java)
+            .putExtra(EXTRA_WORKSPACE_ID, id)
+        val label = name.ifEmpty { "Quick note" }
+        return ShortcutInfo.Builder(this, workspaceShortcutId(id))
+            .setShortLabel(label)
+            .setLongLabel("Quick note in $label")
+            .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+            .setIntent(intent)
+            .setRank(rank)
+            .build()
+    }
+
+    private fun workspaceShortcutId(id: String) = SHORTCUT_PREFIX + id
 
     // Content providers may be slow or throw, and neither should stall or
     // kill the app; every failure, OutOfMemoryError included, answers null.
@@ -207,6 +286,8 @@ class MainActivity : FlutterActivity() {
     companion object {
         const val CHANNEL = "com.sifi.patto/quick_note"
         const val ACTION_QUICK_NOTE = "com.sifi.patto.action.QUICK_NOTE"
+        const val EXTRA_WORKSPACE_ID = "com.sifi.patto.extra.WORKSPACE_ID"
+        const val SHORTCUT_PREFIX = "quick_note_"
         const val DEVICE_FILES_CHANNEL = "com.sifi.patto/device_files"
         const val PICK_FILE = 0x5041
         // Three copies of the image exist while it crosses the channel.

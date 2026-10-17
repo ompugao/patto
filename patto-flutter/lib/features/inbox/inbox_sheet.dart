@@ -185,6 +185,9 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
   Widget build(BuildContext context) {
     final posts = ref.watch(inboxPostsProvider);
     final name = ref.watch(inboxNoteNameProvider);
+    final workspaceName = ref.watch(workspacesProvider).length > 1
+        ? ref.watch(workspaceProvider).value?.config.name
+        : null;
     final canSend = !_sending && _composer.text.trim().isNotEmpty;
     final media = MediaQuery.of(context);
     // The modal sheet only insets the top; below it is either the keyboard
@@ -204,7 +207,11 @@ class _InboxSheetState extends ConsumerState<InboxSheet> {
             height: height,
             child: Column(
               children: [
-                InboxHeader(name: name, onOpenNote: _openNote),
+                InboxHeader(
+                  name: name,
+                  workspaceName: workspaceName,
+                  onOpenNote: _openNote,
+                ),
                 Expanded(
                   child: posts.when(
                     // Keep the list on screen while a post or an edit
