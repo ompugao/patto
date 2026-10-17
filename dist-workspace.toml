@@ -20,5 +20,5 @@ allow-dirty = ["ci"]
 
 [dist.github-custom-runners]
 runner = "ubuntu-22.04"
-x86_64-apple-darwin = "macos-14"
-aarch64-apple-darwin = "macos-14"
+x86_64-apple-darwin = "macos-15-intel"
+aarch64-apple-darwin = "macos-15"
