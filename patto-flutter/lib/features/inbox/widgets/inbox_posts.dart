@@ -21,10 +21,7 @@ class InboxHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtitle = [
-      ?workspaceName,
-      if (name != Settings.defaultInboxNoteName) name,
-    ].join(' · ');
+    final workspace = workspaceName;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
       child: Row(
@@ -33,10 +30,28 @@ class InboxHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Inbox', style: theme.textTheme.titleMedium),
-                if (subtitle.isNotEmpty)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text('Inbox', style: theme.textTheme.titleMedium),
+                    if (workspace != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          workspace,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: theme.colorScheme.primary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (name != Settings.defaultInboxNoteName)
                   Text(
-                    subtitle,
+                    name,
                     style: theme.textTheme.bodySmall,
                     overflow: TextOverflow.ellipsis,
                   ),

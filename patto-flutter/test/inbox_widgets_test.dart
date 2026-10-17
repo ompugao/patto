@@ -75,7 +75,8 @@ void main() {
         ),
       );
 
-      expect(find.text('Work · Scratch'), findsOneWidget);
+      expect(find.text('Work'), findsOneWidget);
+      expect(find.text('Scratch'), findsOneWidget);
     });
 
     testWidgets('shows no subtitle with one workspace and the default note', (
