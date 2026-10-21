@@ -302,7 +302,9 @@ Options (`vim.g.*`):
 | `patto_image_max_width` | snacks `image.doc.max_width` | Maximum width in cells |
 | `patto_image_max_height` | snacks `image.doc.max_height` | Maximum height in cells |
 | `patto_image_conceal` | `false` | Hide the `[@img ...]` text except on the cursor line |
+| `patto_image_max_bytes` | `262144` | Over SSH, largest file sent as is (see below) |
 
+Over SSH (snacks detects `SSH_CONNECTION`, also inside tmux) the terminal cannot read files on the server, so snacks streams every image through the terminal on Neovim's main thread. Multi-megabyte screenshots then freeze the UI for seconds. Local files above `patto_image_max_bytes` are therefore shrunk to the display size and a 256-colour palette with ImageMagick (`magick` or `convert`) in the background and cached under `stdpath("cache")/patto/images`. Without ImageMagick such files are skipped. New images are placed one per tick, so a screen full of images fills in over a few hundred milliseconds instead of blocking once.
 
 Commands: `:PattoImagesToggle` turns the preview off and on for the current buffer (also re-attaches if snacks was loaded after the note was opened). `:PattoImagesRefresh` re-scans the visible lines.
 

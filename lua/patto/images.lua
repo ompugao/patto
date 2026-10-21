@@ -92,7 +92,64 @@ local function options()
   }
 end
 
-local function resolve(buf, src)
+local pending, failed = {}, {}
+
+local function magick()
+  for _, cmd in ipairs({ "magick", "convert" }) do
+    if vim.fn.executable(cmd) == 1 then
+      return cmd
+    end
+  end
+end
+
+local function max_bytes()
+  return vim.g.patto_image_max_bytes or 256 * 1024
+end
+
+local function scaled_path(src, stat, o)
+  local size = Snacks.image.terminal.size()
+  local w = math.floor(o.max_width * size.cell_width)
+  local h = math.floor(o.max_height * size.cell_height)
+  local key = vim.fn.sha256(table.concat({ src, stat.mtime.sec, stat.size, w, h }, ":"))
+  return vim.fn.stdpath("cache") .. "/patto/images/" .. key .. ".png", w, h
+end
+
+-- Over ssh snacks streams the whole file through the terminal on the main
+-- thread, so a multi-megabyte screenshot freezes the UI for seconds. Shrink
+-- such files first; without ImageMagick they are skipped instead.
+local function transferable(src, o, on_ready)
+  local uv = vim.uv or vim.loop
+  if is_url(src) or not Snacks.image.terminal.env().remote then
+    return src
+  end
+  local stat = uv.fs_stat(src)
+  if not stat or stat.size <= max_bytes() then
+    return src
+  end
+  local cmd = magick()
+  if not cmd then
+    return
+  end
+  local out, w, h = scaled_path(src, stat, o)
+  if uv.fs_stat(out) then
+    return out
+  end
+  if pending[out] or failed[out] then
+    return
+  end
+  pending[out] = true
+  vim.fn.mkdir(vim.fs.dirname(out), "p")
+  local args = { cmd, src .. "[0]", "-strip", "-resize", w .. "x" .. h .. ">", "-colors", "256", out }
+  vim.system(args, {}, function(result)
+    pending[out] = nil
+    if result.code ~= 0 then
+      failed[out] = true
+    end
+    vim.schedule(on_ready)
+  end)
+end
+
+local function resolve(buf, src, o, on_ready)
   local resolved = Snacks.image.doc.resolve(buf, src)
   if not Snacks.image.supports_file(resolved) then
     return
@@ -100,7 +157,7 @@ local function resolve(buf, src)
   if not is_url(resolved) and not (vim.uv or vim.loop).fs_stat(resolved) then
     return
   end
-  return resolved
+  return transferable(resolved, o, on_ready)
 end
 
 local function augroup_name(buf)
@@ -194,6 +251,11 @@ end
 
 function Inline:found()
   local found = {}
+  local function retry()
+    if not self.closed then
+      self:update()
+    end
+  end
   for _, win in ipairs(vim.fn.win_findbuf(self.buf)) do
     local info = vim.fn.getwininfo(win)[1]
     local from, to = math.max(info.topline - 1, 1), info.botline
@@ -201,7 +263,7 @@ function Inline:found()
     for _, m in ipairs(M.find(lines, from)) do
       local key = m.row .. ":" .. m.col
       if not found[key] then
-        m.src = resolve(self.buf, m.src)
+        m.src = resolve(self.buf, m.src, self.opts, retry)
         if m.src then
           found[key] = m
         end
@@ -259,11 +321,14 @@ function Inline:place(m)
   self.imgs[img.id] = img
 end
 
+-- Sending an image over ssh blocks Neovim, so only one new image is placed per
+-- tick and the rest follow after a redraw.
 function Inline:update()
   if not vim.api.nvim_buf_is_valid(self.buf) then
     return
   end
   local visible = self:visible()
+  local new = {}
   for _, m in pairs(self:found()) do
     local img = self:take(visible, m)
     if img then
@@ -271,12 +336,25 @@ function Inline:update()
       img.opts.range = { m.row, m.col, m.row, m.end_col }
       img:update()
     else
-      self:place(m)
+      new[#new + 1] = m
     end
   end
   for _, img in pairs(visible) do
     img:close()
     self.imgs[img.id] = nil
+  end
+  table.sort(new, function(a, b)
+    return a.row < b.row or (a.row == b.row and a.col < b.col)
+  end)
+  if new[1] then
+    self:place(new[1])
+  end
+  if new[2] then
+    vim.defer_fn(function()
+      if not self.closed then
+        self:update()
+      end
+    end, 30)
   end
 end
 
@@ -302,7 +380,9 @@ local function at_cursor(buf)
   local line = vim.api.nvim_buf_get_lines(buf, cursor[1] - 1, cursor[1], false)[1] or ""
   for _, m in ipairs(M.parse_line(line)) do
     if cursor[2] >= m.col and cursor[2] < m.end_col then
-      return resolve(buf, m.src)
+      return resolve(buf, m.src, options(), function()
+        M.hover(buf)
+      end)
     end
   end
 end
