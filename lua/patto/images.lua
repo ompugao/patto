@@ -97,8 +97,10 @@ end
 
 local pending, failed = {}, {}
 
+-- `convert` is skipped on Windows, where it is the system's filesystem tool.
 local function magick()
-  for _, cmd in ipairs({ "magick", "convert" }) do
+  local candidates = vim.fn.has("win32") == 1 and { "magick" } or { "magick", "convert" }
+  for _, cmd in ipairs(candidates) do
     if vim.fn.executable(cmd) == 1 then
       return cmd
     end
