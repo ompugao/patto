@@ -309,9 +309,17 @@ end
 -- snacks gives every placement its own block of virtual lines, so images that
 -- share a text line stack vertically. Members of a group keep their kitty
 -- placement but their virtual lines are stripped and merged into one block.
-function Inline:new_group(row, count)
+function Inline:indent(row)
   local line = vim.api.nvim_buf_get_lines(self.buf, row - 1, row, false)[1] or ""
-  local indent = vim.fn.strdisplaywidth(line:match("^%s*"))
+  return vim.fn.strdisplaywidth(line:match("^%s*"))
+end
+
+function Inline:single_width(row)
+  return math.max(1, math.min(self.opts.max_width, self:text_width() - self:indent(row)))
+end
+
+function Inline:new_group(row, count)
+  local indent = self:indent(row)
   local per = math.floor((self:text_width() - indent - (count - 1)) / count)
   return {
     members = {},
@@ -393,7 +401,6 @@ function Inline:leave(img)
   group.grids[img.id] = nil
   img.patto_group = nil
   img.opts.conceal = self.opts.conceal
-  img.opts.max_width = self.opts.max_width
   img._state = nil
 end
 
@@ -417,14 +424,22 @@ function Inline:place(m)
       end,
     })
   )
+  -- snacks pads virtual lines by the byte offset of the image, which puts a
+  -- tab-indented image one column in; use the indentation's display width.
   img._render = function(p, extmarks)
     local group = p.patto_group
-    if group then
-      for _, e in ipairs(extmarks) do
-        if e.virt_lines then
-          group.grids[p.id] = { lines = e.virt_lines, hidden = p.hidden }
-          e.virt_lines = nil
-        end
+    local indent = self:indent(p.opts.pos[1])
+    for _, e in ipairs(extmarks) do
+      if e.virt_text_win_col then
+        e.virt_text_win_col = indent
+      end
+      if e.virt_lines and group then
+        group.grids[p.id] = { lines = e.virt_lines, hidden = p.hidden }
+        e.virt_lines = nil
+      elseif e.virt_lines then
+        e.virt_lines = vim.tbl_map(function(l)
+          return { { string.rep(" ", indent) }, l[#l] }
+        end, e.virt_lines)
       end
     end
     base_render(p, extmarks)
@@ -465,6 +480,7 @@ function Inline:update()
         self:join(groups[m.row], img)
       else
         self:leave(img)
+        img.opts.max_width = self:single_width(m.row)
       end
       img:update()
     end
@@ -492,6 +508,8 @@ function Inline:update()
     if per_row[new[1].row] > 1 then
       groups[new[1].row] = groups[new[1].row] or self:new_group(new[1].row, per_row[new[1].row])
       self:join(groups[new[1].row], img)
+    else
+      img.opts.max_width = self:single_width(new[1].row)
     end
   end
   if new[2] then
