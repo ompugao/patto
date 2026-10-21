@@ -612,6 +612,34 @@ function M.detach(buf)
   vim.b[buf].patto_images_attached = nil
 end
 
+-- snacks keeps one kitty image per file, so a fullscreen placement of the
+-- same file disturbs the thumbnail's cells; the viewer gets its own copy.
+local function viewer_copy(src)
+  if is_url(src) then
+    return src
+  end
+  local uv = vim.uv or vim.loop
+  local dir = vim.fn.stdpath("cache") .. "/patto/images"
+  local link = dir .. "/view-" .. vim.fn.sha256(src) .. "." .. vim.fn.fnamemodify(src, ":e")
+  if not uv.fs_lstat(link) then
+    vim.fn.mkdir(dir, "p")
+    if not uv.fs_symlink(src, link) then
+      uv.fs_copyfile(src, link)
+    end
+  end
+  return link
+end
+
+local function refresh_placements(buf)
+  local manager = managers[buf]
+  if manager and not manager.closed then
+    for _, p in pairs(manager.imgs) do
+      p._state = nil
+      p:update()
+    end
+  end
+end
+
 -- Like Enter in patto-preview-tui: the image under the cursor fills the
 -- screen in a float until q, <Esc> or <CR> closes it.
 function M.view(buf)
@@ -643,8 +671,13 @@ function M.view(buf)
     backdrop = false,
     keys = { q = "close", ["<esc>"] = "close", ["<cr>"] = "close" },
     bo = { buftype = "nofile", bufhidden = "wipe" },
+    on_close = function()
+      vim.schedule(function()
+        refresh_placements(buf)
+      end)
+    end,
   })
-  Snacks.image.buf.attach(win.buf, { src = src })
+  Snacks.image.buf.attach(win.buf, { src = viewer_copy(src) })
   return true
 end
 
