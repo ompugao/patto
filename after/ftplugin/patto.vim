@@ -8,3 +8,6 @@ setlocal noexpandtab
 setlocal nowrap
 setlocal commentstring=[-\ %s]
 
+if has('nvim')
+  lua require("patto.images").attach(0)
+endif

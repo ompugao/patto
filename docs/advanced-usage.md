@@ -278,6 +278,39 @@ cargo build --release --features preview-tui-chafa-dyn
 cargo build --release --features preview-tui-chafa-static
 ```
 
+### Inline images in Neovim (snacks.nvim)
+
+With [snacks.nvim](https://github.com/folke/snacks.nvim) installed and its image module enabled, `[@img ...]` lines are rendered inside the Neovim buffer, below the line, using the kitty graphics protocol.
+
+```lua
+require("snacks").setup({ image = { enabled = true } })
+```
+
+Requirements:
+- A terminal with unicode placeholder support for inline rendering: kitty or ghostty, also inside tmux with `set -g allow-passthrough on`. Run `:checkhealth snacks` to see what was detected.
+- ImageMagick (`magick`) for formats other than PNG, and `curl` for `http(s)://` images.
+
+Terminals without placeholders (for example WezTerm) fall back to a floating preview when the cursor is on an `[@img ...]`.
+
+Images are indented like the line they belong to. Several images on one line are shown side by side, each limited to an equal share of the window width.
+
+Local paths are resolved relative to the note file (`./` and `../`), then through snacks' own `image.resolve` hook and `img_dirs`. Missing files are skipped silently. Known limitation: a local path containing spaces is not rendered inline.
+
+Options (`vim.g.*`):
+
+| Option | Default | Meaning |
+|---|---|---|
+| `patto_image_enabled` | `true` | Attach automatically to patto buffers |
+| `patto_image_max_width` | snacks `image.doc.max_width` | Maximum width in cells |
+| `patto_image_max_height` | `8` | Maximum height in rows; the default keeps inline images thumbnail-sized |
+| `patto_image_keymap` | `"<CR>"` | Normal-mode key that opens the image under the cursor full screen; `false` disables it |
+| `patto_image_conceal` | `false` | Hide the `[@img ...]` text except on the cursor line |
+| `patto_image_max_bytes` | `262144` | Over SSH, largest file sent as is (see below) |
+
+Over SSH (snacks detects `SSH_CONNECTION`, also inside tmux) the terminal cannot read files on the server, so snacks streams every image through the terminal on Neovim's main thread. Multi-megabyte screenshots then freeze the UI for seconds. Local files above `patto_image_max_bytes` are therefore shrunk to the display size and a 256-colour palette with ImageMagick (`magick` or `convert`) in the background and cached under `stdpath("cache")/patto/images`. Without ImageMagick such files are skipped. New images are placed one per tick, so a screen full of images fills in over a few hundred milliseconds instead of blocking once.
+
+Commands: `:PattoImagesToggle` turns the preview off and on for the current buffer (also re-attaches if snacks was loaded after the note was opened). `:PattoImagesRefresh` re-scans the visible lines. `:PattoImageView` (or `<CR>` on the line, see `patto_image_keymap`) shows the image under the cursor full screen, like Enter in `patto-preview-tui`; `q`, `<Esc>` or `<CR>` closes it. On lines without an image the key behaves as usual.
+
 ### Google Calendar Sync
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.
