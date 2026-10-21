@@ -84,11 +84,13 @@ local function snacks_image()
   end
 end
 
+local THUMBNAIL_ROWS = 8
+
 local function options()
   local doc = Snacks.image.config.doc
   return {
     max_width = vim.g.patto_image_max_width or doc.max_width,
-    max_height = vim.g.patto_image_max_height or doc.max_height,
+    max_height = vim.g.patto_image_max_height or THUMBNAIL_ROWS,
     conceal = vim.g.patto_image_conceal == true,
   }
 end
@@ -129,14 +131,17 @@ local function transferable(src, o, on_ready)
   end
   local cmd = magick()
   if not cmd then
-    return
+    return nil, "skipped"
   end
   local out, w, h = scaled_path(src, stat, o)
   if uv.fs_stat(out) then
     return out
   end
-  if pending[out] or failed[out] then
-    return
+  if failed[out] then
+    return nil, "skipped"
+  end
+  if pending[out] then
+    return nil, "pending"
   end
   pending[out] = true
   vim.fn.mkdir(vim.fs.dirname(out), "p")
@@ -148,9 +153,10 @@ local function transferable(src, o, on_ready)
     end
     vim.schedule(on_ready)
   end)
+  return nil, "pending"
 end
 
-local function resolve(buf, src, o, on_ready)
+local function locate(buf, src)
   local resolved = Snacks.image.doc.resolve(buf, src)
   if not Snacks.image.supports_file(resolved) then
     return
@@ -158,7 +164,12 @@ local function resolve(buf, src, o, on_ready)
   if not is_url(resolved) and not (vim.uv or vim.loop).fs_stat(resolved) then
     return
   end
-  return transferable(resolved, o, on_ready)
+  return resolved
+end
+
+local function resolve(buf, src, o, on_ready)
+  local resolved = locate(buf, src)
+  return resolved and transferable(resolved, o, on_ready)
 end
 
 local function augroup_name(buf)
@@ -239,11 +250,18 @@ function Inline:get(from, to)
   return ret
 end
 
+-- `botline` leaves out a last line that is only partially displayed, which is
+-- often the line a tall image hangs from, so one more line is scanned.
+function Inline:shown_range(win)
+  local info = vim.fn.getwininfo(win)[1]
+  local last = vim.api.nvim_buf_line_count(self.buf)
+  return math.max(info.topline - 1, 1), math.min(info.botline + 1, last)
+end
+
 function Inline:visible()
   local ret = {}
   for _, win in ipairs(vim.fn.win_findbuf(self.buf)) do
-    local info = vim.fn.getwininfo(win)[1]
-    for k, v in pairs(self:get(math.max(info.topline - 1, 1), info.botline)) do
+    for k, v in pairs(self:get(self:shown_range(win))) do
       ret[k] = v
     end
   end
@@ -258,8 +276,7 @@ function Inline:found()
     end
   end
   for _, win in ipairs(vim.fn.win_findbuf(self.buf)) do
-    local info = vim.fn.getwininfo(win)[1]
-    local from, to = math.max(info.topline - 1, 1), info.botline
+    local from, to = self:shown_range(win)
     local lines = vim.api.nvim_buf_get_lines(self.buf, from - 1, to, false)
     for _, m in ipairs(M.find(lines, from)) do
       local key = m.row .. ":" .. m.col
@@ -541,60 +558,27 @@ local function hover_close()
   end
 end
 
-local function at_cursor(buf)
+local function image_at_cursor(buf, strict)
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line = vim.api.nvim_buf_get_lines(buf, cursor[1] - 1, cursor[1], false)[1] or ""
-  for _, m in ipairs(M.parse_line(line)) do
+  local matches = M.parse_line(line)
+  for _, m in ipairs(matches) do
     if cursor[2] >= m.col and cursor[2] < m.end_col then
-      return resolve(buf, m.src, options(), function()
-        M.hover(buf)
-      end)
+      return m, cursor[1]
     end
+  end
+  if not strict then
+    return matches[1], cursor[1]
   end
 end
 
-function M.hover(buf)
-  if hover and (hover.buf ~= vim.api.nvim_get_current_buf() or vim.fn.mode() ~= "n") then
-    return hover_close()
+local function at_cursor(buf)
+  local m = image_at_cursor(buf, true)
+  if m then
+    return resolve(buf, m.src, options(), function()
+      M.hover(buf)
+    end)
   end
-  if hover and not hover.win:valid() then
-    hover_close()
-  end
-  if vim.api.nvim_get_current_buf() ~= buf then
-    return
-  end
-  local src = at_cursor(buf)
-  if not src then
-    return hover_close()
-  end
-  if hover and hover.img.img.src == src then
-    return
-  end
-  hover_close()
-
-  local o = options()
-  local win = Snacks.win(Snacks.win.resolve(Snacks.image.config.doc, "snacks_image", { show = false, enter = false }))
-  win:open_buf()
-  local shown = false
-  local placement = Snacks.image.placement.new(
-    win.buf,
-    src,
-    Snacks.config.merge({}, Snacks.image.config.doc, {
-      inline = false,
-      max_width = o.max_width,
-      max_height = o.max_height,
-      on_update_pre = function(p)
-        if shown or not hover or hover.img ~= p then
-          return
-        end
-        shown = true
-        local loc = p:state().loc
-        win.opts.width, win.opts.height = loc.width, loc.height
-        win:show()
-      end,
-    })
-  )
-  hover = { buf = buf, win = win, img = placement }
 end
 
 local function attach_hover(buf)
@@ -628,6 +612,42 @@ function M.detach(buf)
   vim.b[buf].patto_images_attached = nil
 end
 
+-- Like Enter in patto-preview-tui: the image under the cursor fills the
+-- screen in a float until q, <Esc> or <CR> closes it.
+function M.view(buf)
+  buf = normalize(buf)
+  if not snacks_image() then
+    return false
+  end
+  local m, row = image_at_cursor(buf, false)
+  if not m then
+    return false
+  end
+  local screen = { max_width = vim.o.columns, max_height = vim.o.lines }
+  local src, state = resolve(buf, m.src, screen, function()
+    if vim.api.nvim_get_current_buf() == buf and vim.api.nvim_win_get_cursor(0)[1] == row then
+      M.view(buf)
+    end
+  end)
+  if not src then
+    if state == "pending" then
+      vim.notify("patto: preparing image...", vim.log.levels.INFO)
+    end
+    return state == "pending"
+  end
+  local win = Snacks.win({
+    position = "float",
+    width = 0,
+    height = 0,
+    border = "none",
+    backdrop = false,
+    keys = { q = "close", ["<esc>"] = "close", ["<cr>"] = "close" },
+    bo = { buftype = "nofile", bufhidden = "wipe" },
+  })
+  Snacks.image.buf.attach(win.buf, { src = src })
+  return true
+end
+
 function M.toggle(buf)
   buf = normalize(buf)
   if vim.b[buf].patto_images_attached then
@@ -659,6 +679,21 @@ local function ensure_commands(buf)
   vim.api.nvim_buf_create_user_command(buf, "PattoImagesRefresh", function()
     M.refresh(buf)
   end, { desc = "Re-scan the visible lines for images" })
+  vim.api.nvim_buf_create_user_command(buf, "PattoImageView", function()
+    if not M.view(buf) then
+      vim.notify("patto: no image to view on this line", vim.log.levels.INFO)
+    end
+  end, { desc = "Show the image under the cursor full screen" })
+  local key = vim.g.patto_image_keymap
+  if key ~= false then
+    key = key or "<CR>"
+    vim.keymap.set("n", key, function()
+      if image_at_cursor(buf, false) then
+        return "<Cmd>PattoImageView<CR>"
+      end
+      return key
+    end, { buffer = buf, expr = true, silent = true, desc = "View image under the cursor full screen" })
+  end
 end
 
 function M.attach(buf)
