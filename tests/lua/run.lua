@@ -112,9 +112,34 @@ check("launch.command", launch.command("bin", { "/root" }, { "--port", "3000" },
 check("launch.command ignores non-table extras", launch.command("bin", {}, {}, "nope"), { "bin" })
 check("launch.browser_command ends with the url", launch.browser_command("http://localhost:1")[#launch.browser_command("http://localhost:1")], "http://localhost:1")
 
+local images = require("patto.images")
+local function srcs(line)
+  return vim.tbl_map(function(m) return m.src end, images.parse_line(line))
+end
+check("images.parse_line local path", images.parse_line("[@img ./a.png]"), { { col = 0, end_col = 14, src = "./a.png" } })
+check("images.parse_line path then quoted alt", srcs('[@img ./a.png "alt text"]'), { "./a.png" })
+check("images.parse_line quoted alt then path", srcs('[@img "alt" ./a.png]'), { "./a.png" })
+check("images.parse_line unquoted alt then path", srcs("[@img My Caption ./path/to/image.png]"), { "./path/to/image.png" })
+check("images.parse_line parent dir path", srcs("[@img ../v1.0/img.jpg]"), { "../v1.0/img.jpg" })
+check("images.parse_line url then alt", srcs("[@img https://x/y.png alt]"), { "https://x/y.png" })
+check("images.parse_line alt then url", srcs("[@img alt https://x/y.png]"), { "https://x/y.png" })
+check("images.parse_line quoted alt then url", srcs('[@img "alt" https://x/y.png]'), { "https://x/y.png" })
+check("images.parse_line bracket inside quoted alt", srcs('[@img "a ] b" ./a.png]'), { "./a.png" })
+check("images.parse_line two images", images.parse_line('x [@img ./a.png] y [@img ./b.jpg "B"] z'), {
+  { col = 2, end_col = 16, src = "./a.png" },
+  { col = 19, end_col = 37, src = "./b.jpg" },
+})
+check("images.parse_line nested in decoration", images.parse_line("[* see [@img ./a.png]]"), { { col = 7, end_col = 21, src = "./a.png" } })
+check("images.parse_line ignores @image", srcs("[@image ./a.png]"), {})
+check("images.parse_line ignores empty", srcs("[@img]"), {})
+check("images.parse_line ignores bare path", srcs("[@img a.png]"), {})
+check("images.parse_line ignores plain text", srcs("plain text"), {})
+check("images.find adds rows", images.find({ "", "[@img ./a.png]" }, 10), { { row = 11, col = 0, end_col = 14, src = "./a.png" } })
+
 for _, name in ipairs({
   "patto", "patto.commands", "patto.folding", "patto.two_hop_links", "patto.lsp", "patto.tasks", "patto.task_format",
   "patto.review_timeframe", "patto.tasks_source", "patto.current_task", "patto.foldtext", "patto.preview_launch",
+  "patto.images",
   "patto_preview", "patto_preview_toggle", "patto_preview_tui", "patto_tasks.trouble",
   "trouble.sources.patto_tasks", "trouble.sources.patto_tasks_review",
 }) do

@@ -278,6 +278,34 @@ cargo build --release --features preview-tui-chafa-dyn
 cargo build --release --features preview-tui-chafa-static
 ```
 
+### Inline images in Neovim (snacks.nvim)
+
+With [snacks.nvim](https://github.com/folke/snacks.nvim) installed and its image module enabled, `[@img ...]` lines are rendered inside the Neovim buffer, below the line, using the kitty graphics protocol.
+
+```lua
+require("snacks").setup({ image = { enabled = true } })
+```
+
+Requirements:
+- A terminal with unicode placeholder support for inline rendering: kitty or ghostty, also inside tmux with `set -g allow-passthrough on`. Run `:checkhealth snacks` to see what was detected.
+- ImageMagick (`magick`) for formats other than PNG, and `curl` for `http(s)://` images.
+
+Terminals without placeholders (for example WezTerm) fall back to a floating preview when the cursor is on an `[@img ...]`.
+
+Local paths are resolved relative to the note file (`./` and `../`), then through snacks' own `image.resolve` hook and `img_dirs`. Missing files are skipped silently. Known limitation: a local path containing spaces is not rendered inline.
+
+Options (`vim.g.*`):
+
+| Option | Default | Meaning |
+|---|---|---|
+| `patto_image_enabled` | `true` | Attach automatically to patto buffers |
+| `patto_image_max_width` | snacks `image.doc.max_width` | Maximum width in cells |
+| `patto_image_max_height` | snacks `image.doc.max_height` | Maximum height in cells |
+| `patto_image_conceal` | `false` | Hide the `[@img ...]` text except on the cursor line |
+
+
+Commands: `:PattoImagesToggle` turns the preview off and on for the current buffer (also re-attaches if snacks was loaded after the note was opened). `:PattoImagesRefresh` re-scans the visible lines.
+
 ### Google Calendar Sync
 
 Sync task deadlines to Google Calendar with **[patto-gcal-sync](https://github.com/ompugao/patto-gcal-sync)** - a separate tool that keeps your Patto tasks in sync with Google Calendar events.

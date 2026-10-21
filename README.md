@@ -106,6 +106,8 @@ lua << EOF
   vim.lsp.enable({'patto_lsp', 'patto_preview', 'patto_preview_tui'})
 EOF
 ```
+
+Inline image preview: install [snacks.nvim](https://github.com/folke/snacks.nvim) with `image = { enabled = true }` and `[@img ...]` lines render in the buffer. See [docs/advanced-usage.md](./docs/advanced-usage.md#inline-images-in-neovim-snacksnvim).
 </details>
 
 <details>
@@ -136,6 +138,7 @@ See **[docs/advanced-usage.md](./docs/advanced-usage.md)** for detailed document
 - Markdown import / export
 - Zotero integration
 - Terminal preview (`patto-preview-tui`) — keybindings, editor integration, image protocols
+- Inline images in Neovim (snacks.nvim)
 - Google Calendar sync
 
 ## Recent Updates
