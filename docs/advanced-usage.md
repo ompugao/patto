@@ -292,6 +292,8 @@ Requirements:
 
 Terminals without placeholders (for example WezTerm) fall back to a floating preview when the cursor is on an `[@img ...]`.
 
+Several images on one line are shown side by side, each limited to an equal share of the window width.
+
 Local paths are resolved relative to the note file (`./` and `../`), then through snacks' own `image.resolve` hook and `img_dirs`. Missing files are skipped silently. Known limitation: a local path containing spaces is not rendered inline.
 
 Options (`vim.g.*`):

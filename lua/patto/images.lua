@@ -7,6 +7,7 @@ local M = {}
 
 local managers = {}
 local hover
+local composite_ns = vim.api.nvim_create_namespace("patto.images")
 M._managers = managers
 
 local function is_url(src)
@@ -296,7 +297,108 @@ function Inline:take(visible, m)
   end
 end
 
+function Inline:text_width()
+  local width = vim.o.columns
+  for _, win in ipairs(vim.fn.win_findbuf(self.buf)) do
+    local info = vim.fn.getwininfo(win)[1]
+    width = math.min(width, info.width - info.textoff)
+  end
+  return width
+end
+
+-- snacks gives every placement its own block of virtual lines, so images that
+-- share a text line stack vertically. Members of a group keep their kitty
+-- placement but their virtual lines are stripped and merged into one block.
+function Inline:new_group(row, count)
+  local line = vim.api.nvim_buf_get_lines(self.buf, row - 1, row, false)[1] or ""
+  local indent = vim.fn.strdisplaywidth(line:match("^%s*"))
+  local per = math.floor((self:text_width() - indent - (count - 1)) / count)
+  return {
+    members = {},
+    grids = {},
+    indent = string.rep(" ", indent),
+    max_width = math.max(1, math.min(self.opts.max_width, per)),
+  }
+end
+
+function Inline:compose(group)
+  local members = {}
+  for id, p in pairs(group.members) do
+    if self.imgs[id] and group.grids[id] then
+      members[#members + 1] = p
+    end
+  end
+  if #members == 0 then
+    return
+  end
+  table.sort(members, function(a, b)
+    return a.opts.pos[2] < b.opts.pos[2]
+  end)
+  local height = 0
+  for _, p in ipairs(members) do
+    height = math.max(height, #group.grids[p.id].lines)
+  end
+  local lines = {}
+  for i = 1, height do
+    local chunks = { { group.indent } }
+    for j, p in ipairs(members) do
+      local grid = group.grids[p.id]
+      local chunk = grid.lines[i] and grid.lines[i][#grid.lines[i]]
+      if chunk and not grid.hidden and chunk[1] ~= "" then
+        chunks[#chunks + 1] = chunk
+      else
+        chunks[#chunks + 1] = { string.rep(" ", p._state and p._state.loc.width or 0) }
+      end
+      if j < #members then
+        chunks[#chunks + 1] = { " " }
+      end
+    end
+    lines[i] = chunks
+  end
+  local row = self:row_of(members[1])
+  if not row then
+    return
+  end
+  group.eid = vim.api.nvim_buf_set_extmark(self.buf, composite_ns, row - 1, 0, {
+    id = group.eid,
+    virt_lines = lines,
+    undo_restore = false,
+    strict = false,
+  })
+end
+
+function Inline:join(group, img)
+  local old = img.patto_group
+  group.members[img.id] = img
+  if old and old ~= group then
+    group.eid = group.eid or old.eid
+    old.eid = nil
+    group.grids[img.id] = old.grids[img.id]
+    old.members[img.id] = nil
+  end
+  img.patto_group = group
+  img.opts.conceal = false
+  img.opts.max_width = group.max_width
+  if not group.grids[img.id] then
+    img._state = nil
+  end
+end
+
+function Inline:leave(img)
+  local group = img.patto_group
+  if not group then
+    return
+  end
+  group.members[img.id] = nil
+  group.grids[img.id] = nil
+  img.patto_group = nil
+  img.opts.conceal = self.opts.conceal
+  img.opts.max_width = self.opts.max_width
+  img._state = nil
+end
+
 function Inline:place(m)
+  local base_render = Snacks.image.placement._render
   local img = Snacks.image.placement.new(
     self.buf,
     m.src,
@@ -315,10 +417,26 @@ function Inline:place(m)
       end,
     })
   )
+  img._render = function(p, extmarks)
+    local group = p.patto_group
+    if group then
+      for _, e in ipairs(extmarks) do
+        if e.virt_lines then
+          group.grids[p.id] = { lines = e.virt_lines, hidden = p.hidden }
+          e.virt_lines = nil
+        end
+      end
+    end
+    base_render(p, extmarks)
+    if group then
+      self:compose(group)
+    end
+  end
   for _, eid in ipairs(img.eids) do
     self.idx[eid] = img
   end
   self.imgs[img.id] = img
+  return img
 end
 
 -- Sending an image over ssh blocks Neovim, so only one new image is placed per
@@ -327,27 +445,54 @@ function Inline:update()
   if not vim.api.nvim_buf_is_valid(self.buf) then
     return
   end
+  local found = self:found()
+  local per_row = {}
+  for _, m in pairs(found) do
+    per_row[m.row] = (per_row[m.row] or 0) + 1
+  end
+  local groups = {}
   local visible = self:visible()
   local new = {}
-  for _, m in pairs(self:found()) do
+  for _, m in pairs(found) do
     local img = self:take(visible, m)
-    if img then
+    if not img then
+      new[#new + 1] = m
+    else
       img.opts.pos = { m.row, m.col }
       img.opts.range = { m.row, m.col, m.row, m.end_col }
+      if per_row[m.row] > 1 then
+        groups[m.row] = groups[m.row] or self:new_group(m.row, per_row[m.row])
+        self:join(groups[m.row], img)
+      else
+        self:leave(img)
+      end
       img:update()
-    else
-      new[#new + 1] = m
     end
   end
   for _, img in pairs(visible) do
+    self:leave(img)
     img:close()
     self.imgs[img.id] = nil
+  end
+  for _, group in pairs(self.groups or {}) do
+    if group.eid and not next(group.members) then
+      vim.api.nvim_buf_del_extmark(self.buf, composite_ns, group.eid)
+      group.eid = nil
+    end
+  end
+  self.groups = groups
+  for _, group in pairs(groups) do
+    self:compose(group)
   end
   table.sort(new, function(a, b)
     return a.row < b.row or (a.row == b.row and a.col < b.col)
   end)
   if new[1] then
-    self:place(new[1])
+    local img = self:place(new[1])
+    if per_row[new[1].row] > 1 then
+      groups[new[1].row] = groups[new[1].row] or self:new_group(new[1].row, per_row[new[1].row])
+      self:join(groups[new[1].row], img)
+    end
   end
   if new[2] then
     vim.defer_fn(function()
@@ -364,7 +509,10 @@ function Inline:close()
   for _, img in pairs(self.imgs) do
     img:close()
   end
-  self.imgs, self.idx = {}, {}
+  if vim.api.nvim_buf_is_valid(self.buf) then
+    vim.api.nvim_buf_clear_namespace(self.buf, composite_ns, 0, -1)
+  end
+  self.imgs, self.idx, self.groups = {}, {}, {}
 end
 
 local function hover_close()
