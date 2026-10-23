@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const BINARY_VERSION = '0.7.0'; // Should match Cargo.toml version
+export const BINARY_VERSION = '0.7.1'; // Should match Cargo.toml version
 export const VERSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export interface VersionMetadata {
