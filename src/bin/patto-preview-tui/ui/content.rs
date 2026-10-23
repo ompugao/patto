@@ -187,13 +187,15 @@ pub(super) fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_di
                 let focused_range = is_focused.then_some(highlights.focused_range).flatten();
                 draw_text_line(frame, &layout, y, elem, line, &ranges, focused_range)
             }
-            DocElement::Image { src, alt, indent } => {
+            DocElement::Image {
+                src, alt, indent, ..
+            } => {
                 let rows = layout.media_height_at(elem, y);
                 let cell = layout.indented_area(y, *indent, rows);
                 draw_image_cell(frame, images, src, alt.as_deref(), cell, is_focused);
                 rows as usize
             }
-            DocElement::ImageRow(row, indent) => {
+            DocElement::ImageRow(row, indent, _) => {
                 let rows = layout.media_height_at(elem, y);
                 let focused_src = is_focused
                     .then_some(highlights.focused_image.as_deref())
@@ -201,7 +203,9 @@ pub(super) fn draw_content(frame: &mut Frame, area: Rect, app: &mut App, root_di
                 draw_image_row(frame, images, &layout, y, row, *indent, rows, focused_src);
                 rows as usize
             }
-            DocElement::Math { content, indent } => {
+            DocElement::Math {
+                content, indent, ..
+            } => {
                 let rows = layout.media_height_at(elem, y);
                 let cell = layout.indented_area(y, *indent, rows);
                 draw_math(frame, images, content, cell, rows);

@@ -47,12 +47,29 @@ pub enum DocElement {
         src: String,
         alt: Option<String>,
         indent: usize,
+        row: usize,
     },
     /// Multiple images on the same line, rendered side by side.
-    /// The second field is the indentation level.
-    ImageRow(Vec<(String, Option<String>)>, usize),
+    /// The fields are the images, the indentation level and the source row.
+    ImageRow(Vec<(String, Option<String>)>, usize, usize),
     /// A math block to render as an image (LaTeX source).
-    Math { content: String, indent: usize },
+    Math {
+        content: String,
+        indent: usize,
+        row: usize,
+    },
+}
+
+impl DocElement {
+    /// The 0-indexed source row the element was rendered from.
+    pub fn source_row(&self) -> usize {
+        match self {
+            DocElement::TextLine(_, row)
+            | DocElement::Image { row, .. }
+            | DocElement::ImageRow(_, _, row)
+            | DocElement::Math { row, .. } => *row,
+        }
+    }
 }
 
 /// A fully rendered document ready for display.
@@ -118,24 +135,34 @@ impl<'a> DocBuilder<'a> {
     }
 
     /// Images are focusable, so that Enter can open them fullscreen.
-    fn push_image(&mut self, src: String, alt: Option<String>, indent: usize) {
+    fn push_image(&mut self, src: String, alt: Option<String>, indent: usize, row: usize) {
         self.focusables.push(FocusableItem {
             elem_idx: self.elements.len(),
             char_start: 0,
             char_end: 0,
             action: LinkAction::ViewImage(src.clone()),
         });
-        self.elements.push(DocElement::Image { src, alt, indent });
+        self.elements.push(DocElement::Image {
+            src,
+            alt,
+            indent,
+            row,
+        });
     }
 
     /// Flush `buf` as a single `Image` (len == 1) or `ImageRow` (len > 1).
-    fn flush_image_row(&mut self, buf: &mut Vec<(String, Option<String>)>, indent: usize) {
+    fn flush_image_row(
+        &mut self,
+        buf: &mut Vec<(String, Option<String>)>,
+        indent: usize,
+        row: usize,
+    ) {
         if buf.is_empty() {
             return;
         }
         if buf.len() == 1 {
             let (src, alt) = buf.remove(0);
-            self.push_image(src, alt, indent);
+            self.push_image(src, alt, indent, row);
         } else {
             for (src, _alt) in buf.iter() {
                 self.focusables.push(FocusableItem {
@@ -146,7 +173,7 @@ impl<'a> DocBuilder<'a> {
                 });
             }
             self.elements
-                .push(DocElement::ImageRow(std::mem::take(buf), indent));
+                .push(DocElement::ImageRow(std::mem::take(buf), indent, row));
         }
         buf.clear();
     }
@@ -169,7 +196,7 @@ impl<'a> DocBuilder<'a> {
             } => self.code_block(ast, lang, indent),
             AstNodeKind::Image { src, alt } => {
                 let src = get_gyazo_img_src(src).unwrap_or_else(|| src.clone());
-                self.push_image(src, alt.clone(), indent);
+                self.push_image(src, alt.clone(), indent, ast.location().row);
                 if let Some(alt) = alt {
                     self.push_text(
                         vec![Span::styled(
@@ -224,6 +251,7 @@ impl<'a> DocBuilder<'a> {
             Style::default()
         };
 
+        let row = ast.location().row;
         // Images that follow each other with no text between them share a row.
         let mut image_row: Vec<(String, Option<String>)> = Vec::new();
         for content in ast.contents().iter() {
@@ -235,19 +263,18 @@ impl<'a> DocBuilder<'a> {
             match render_inline(content, &mut target, base_style) {
                 InlineResult::ImageBlock { src, alt } => {
                     if spans_have_content(&spans) {
-                        let row = ast.location().row;
                         self.push_text(std::mem::take(&mut spans), row);
                         // Text between images breaks the group.
-                        self.flush_image_row(&mut image_row, indent);
+                        self.flush_image_row(&mut image_row, indent, row);
                     } else {
                         spans = vec![Span::raw("  ".repeat(indent + 1))];
                     }
                     image_row.push((src, alt));
                 }
-                InlineResult::Inline => self.flush_image_row(&mut image_row, indent),
+                InlineResult::Inline => self.flush_image_row(&mut image_row, indent, row),
             }
         }
-        self.flush_image_row(&mut image_row, indent);
+        self.flush_image_row(&mut image_row, indent, row);
 
         for property in properties {
             if let Property::Task { status, due, .. } = property {
@@ -261,7 +288,7 @@ impl<'a> DocBuilder<'a> {
         }
 
         // Always emitted, so that blank lines keep their height.
-        self.push_text(spans, ast.location().row);
+        self.push_text(spans, row);
         self.children(ast, indent + 1);
     }
 
@@ -302,7 +329,11 @@ impl<'a> DocBuilder<'a> {
             .map(|child| child.extract_str().to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        self.elements.push(DocElement::Math { content, indent });
+        self.elements.push(DocElement::Math {
+            content,
+            indent,
+            row: ast.location().row,
+        });
     }
 
     fn code_block(&mut self, ast: &AstNode, lang: &str, indent: usize) {
@@ -329,16 +360,16 @@ impl<'a> DocBuilder<'a> {
             );
         }
 
-        let raw_lines: Vec<String> = ast
-            .children()
+        let children = ast.children();
+        let raw_lines: Vec<String> = children
             .iter()
             .map(|child| child.extract_str().replace('\t', "    "))
             .collect();
         let raw_refs: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
 
-        for line_spans in
-            crate::syntax_highlight::highlight_code(lang, &raw_refs, self.syntax_theme)
-        {
+        let highlighted =
+            crate::syntax_highlight::highlight_code(lang, &raw_refs, self.syntax_theme);
+        for (line_spans, child) in highlighted.into_iter().zip(children.iter()) {
             let mut spans = vec![Span::raw(prefix.clone())];
             if line_spans.is_empty() {
                 // Keep the row's height on an empty line.
@@ -346,7 +377,7 @@ impl<'a> DocBuilder<'a> {
             } else {
                 spans.extend(line_spans);
             }
-            self.push_text(spans, row);
+            self.push_text(spans, child.location().row);
         }
     }
 
@@ -644,6 +675,13 @@ mod tests {
     }
 
     #[test]
+    fn code_block_lines_keep_their_own_source_rows() {
+        let doc = render("[@code rust]\n\tfn main() {\n\t}\n");
+        let rows: Vec<usize> = doc.elements.iter().map(DocElement::source_row).collect();
+        assert_eq!(rows, vec![0, 1, 2]);
+    }
+
+    #[test]
     fn plain_lines_keep_their_source_rows() {
         let doc = render("first\nsecond\n");
         let rows: Vec<usize> = doc
@@ -784,7 +822,7 @@ mod tests {
             .elements
             .iter()
             .filter_map(|element| match element {
-                DocElement::ImageRow(images, _) => Some(images.len()),
+                DocElement::ImageRow(images, ..) => Some(images.len()),
                 _ => None,
             })
             .collect();
