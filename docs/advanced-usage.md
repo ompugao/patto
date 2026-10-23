@@ -280,7 +280,7 @@ cargo build --release --features preview-tui-chafa-static
 
 ### Inline images in Neovim (snacks.nvim)
 
-With [snacks.nvim](https://github.com/folke/snacks.nvim) installed and its image module enabled, `[@img ...]` lines are rendered inside the Neovim buffer, below the line, using the kitty graphics protocol.
+With [snacks.nvim](https://github.com/folke/snacks.nvim) installed and its image module enabled, `[@img ...]` and `[@embed ...]` lines are rendered inside the Neovim buffer, below the line, using the kitty graphics protocol.
 
 ```lua
 require("snacks").setup({ image = { enabled = true } })
@@ -294,6 +294,18 @@ Terminals without placeholders (for example WezTerm) fall back to a floating pre
 
 Images are indented like the line they belong to. Several images on one line are shown side by side, each limited to an equal share of the window width.
 
+`[@embed ...]` lines get a thumbnail the same way:
+
+| Embed | Thumbnail |
+|---|---|
+| YouTube | `i.ytimg.com` video thumbnail (no lookup) |
+| Speaker Deck, SlideShare, other sites | the page's `og:image` (or `twitter:image`) |
+| Google Photos | the share page's `og:image` |
+| Twitter/X | first photo or video thumbnail from the third-party [FxTwitter](https://github.com/FxEmbed/FxEmbed) API (`api.fxtwitter.com`); text-only tweets have none |
+| PDF (local or URL) | the first page, converted by snacks with ImageMagick |
+
+Lookups run with `curl` in the background, so opening a note sends a request to each embedded site. Thumbnails are cached under `stdpath("cache")/patto/embeds`, and pages without a thumbnail are remembered there too, so a site is asked only once. Delete that directory to look them up again. Set `patto_image_embeds` to `false` to turn embed thumbnails (and all these requests) off. `<CR>` stays image-only on embed lines; `:PattoImageView` shows an embed's thumbnail full screen.
+
 Local paths are resolved relative to the note file (`./` and `../`), then through snacks' own `image.resolve` hook and `img_dirs`. Missing files are skipped silently. Known limitation: a local path containing spaces is not rendered inline.
 
 Options (`vim.g.*`):
@@ -306,6 +318,7 @@ Options (`vim.g.*`):
 | `patto_image_keymap` | `"<CR>"` | Normal-mode key that opens the image under the cursor full screen; `false` disables it |
 | `patto_image_conceal` | `false` | Hide the `[@img ...]` text except on the cursor line |
 | `patto_image_max_bytes` | `262144` | Over SSH, largest file sent as is (see below) |
+| `patto_image_embeds` | `true` | Show thumbnails for `[@embed ...]` lines (needs network access) |
 
 Over SSH (snacks detects `SSH_CONNECTION`, also inside tmux) the terminal cannot read files on the server, so snacks streams every image through the terminal on Neovim's main thread. Multi-megabyte screenshots then freeze the UI for seconds. Local files above `patto_image_max_bytes` are therefore shrunk to the display size and a 256-colour palette with ImageMagick (`magick` or `convert`) in the background and cached under `stdpath("cache")/patto/images`. Without ImageMagick such files are skipped. New images are placed one per tick, so a screen full of images fills in over a few hundred milliseconds instead of blocking once.
 
