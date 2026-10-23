@@ -424,11 +424,9 @@ impl App {
         let target_row = line.saturating_sub(1);
         let mut display_row = 0usize;
         for elem in &self.rendered_doc.elements {
-            if let DocElement::TextLine(_, source_row) = elem {
-                if *source_row >= target_row {
-                    self.scroll_offset = display_row;
-                    return;
-                }
+            if elem.source_row() >= target_row {
+                self.scroll_offset = display_row;
+                return;
             }
             display_row += self.elem_display_height(elem);
         }
@@ -444,9 +442,7 @@ impl App {
             if display_row > self.scroll_offset {
                 break;
             }
-            if let DocElement::TextLine(_, source_row) = elem {
-                last_source_row = *source_row;
-            }
+            last_source_row = elem.source_row();
             display_row += self.elem_display_height(elem);
         }
         last_source_row + 1
@@ -456,10 +452,10 @@ impl App {
     /// editor commands.
     pub(crate) fn source_line_of_focused_item(&self) -> Option<usize> {
         let fi = self.focused_item()?;
-        match self.rendered_doc.elements.get(fi.elem_idx) {
-            Some(DocElement::TextLine(_, source_row)) => Some(source_row + 1),
-            _ => None,
-        }
+        self.rendered_doc
+            .elements
+            .get(fi.elem_idx)
+            .map(|elem| elem.source_row() + 1)
     }
 
     /// `result[i]` = display row at which element `i` starts.
@@ -1012,6 +1008,31 @@ mod tests {
             cmd,
             format!("edit {}:3:3", ws.dir.path().join("a.pn").display())
         );
+    }
+
+    #[tokio::test]
+    async fn a_goto_line_inside_a_code_block_comes_back_as_the_top_line() {
+        let note = "intro\n[@code python]\n\tone\n\ttwo\n\tthree\nafter\n";
+        let ws = Workspace::with_notes(&[("a.pn", note)]);
+        let mut app = ws.open("a.pn");
+        app.scroll_to_source_line(4);
+        assert_eq!(app.source_line_at_offset(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_goto_line_on_an_image_shows_the_image_at_the_top() {
+        let note = "intro\n[@img ./cat.png]\nafter\n";
+        let ws = Workspace::with_notes(&[("a.pn", note)]);
+        let mut app = ws.open("a.pn");
+        let image = app
+            .rendered_doc
+            .elements
+            .iter()
+            .position(|elem| matches!(elem, DocElement::Image { .. }))
+            .unwrap();
+        app.scroll_to_source_line(2);
+        assert_eq!(app.scroll_offset, app.elem_display_offsets()[image]);
+        assert_eq!(app.source_line_at_offset(), 2);
     }
 
     fn task_in(ws: &Workspace, name: &str, line: usize) -> TaskEntry {
