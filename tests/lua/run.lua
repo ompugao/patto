@@ -116,7 +116,7 @@ local images = require("patto.images")
 local function srcs(line)
   return vim.tbl_map(function(m) return m.src end, images.parse_line(line))
 end
-check("images.parse_line local path", images.parse_line("[@img ./a.png]"), { { col = 0, end_col = 14, src = "./a.png" } })
+check("images.parse_line local path", images.parse_line("[@img ./a.png]"), { { col = 0, end_col = 14, src = "./a.png", kind = "img" } })
 check("images.parse_line path then quoted alt", srcs('[@img ./a.png "alt text"]'), { "./a.png" })
 check("images.parse_line quoted alt then path", srcs('[@img "alt" ./a.png]'), { "./a.png" })
 check("images.parse_line unquoted alt then path", srcs("[@img My Caption ./path/to/image.png]"), { "./path/to/image.png" })
@@ -126,20 +126,59 @@ check("images.parse_line alt then url", srcs("[@img alt https://x/y.png]"), { "h
 check("images.parse_line quoted alt then url", srcs('[@img "alt" https://x/y.png]'), { "https://x/y.png" })
 check("images.parse_line bracket inside quoted alt", srcs('[@img "a ] b" ./a.png]'), { "./a.png" })
 check("images.parse_line two images", images.parse_line('x [@img ./a.png] y [@img ./b.jpg "B"] z'), {
-  { col = 2, end_col = 16, src = "./a.png" },
-  { col = 19, end_col = 37, src = "./b.jpg" },
+  { col = 2, end_col = 16, src = "./a.png", kind = "img" },
+  { col = 19, end_col = 37, src = "./b.jpg", kind = "img" },
 })
-check("images.parse_line nested in decoration", images.parse_line("[* see [@img ./a.png]]"), { { col = 7, end_col = 21, src = "./a.png" } })
+check("images.parse_line nested in decoration", images.parse_line("[* see [@img ./a.png]]"), { { col = 7, end_col = 21, src = "./a.png", kind = "img" } })
 check("images.parse_line ignores @image", srcs("[@image ./a.png]"), {})
 check("images.parse_line ignores empty", srcs("[@img]"), {})
 check("images.parse_line ignores bare path", srcs("[@img a.png]"), {})
 check("images.parse_line ignores plain text", srcs("plain text"), {})
-check("images.find adds rows", images.find({ "", "[@img ./a.png]" }, 10), { { row = 11, col = 0, end_col = 14, src = "./a.png" } })
+check("images.parse_line embed url then title", images.parse_line("[@embed https://youtu.be/abc a talk]"), {
+  { col = 0, end_col = 36, src = "https://youtu.be/abc", kind = "embed" },
+})
+check("images.parse_line embed title then url", srcs("[@embed a talk https://youtu.be/abc]"), { "https://youtu.be/abc" })
+check("images.parse_line embed url then url", srcs("[@embed https://a.com/x https://b.com/y]"), { "https://a.com/x" })
+check("images.parse_line embed local pdf", srcs("[@embed ./doc.pdf slides]"), { "./doc.pdf" })
+check("images.parse_line embed and image on one line", vim.tbl_map(function(m) return m.kind end,
+  images.parse_line("[@embed https://x.com/a/status/1] [@img ./a.png]")), { "embed", "img" })
+check("images.parse_line ignores other commands", srcs("[@quote https://a.com/x] [@img ./a.png]"), { "./a.png" })
+check("images.find adds rows", images.find({ "", "[@img ./a.png]" }, 10), { { row = 11, col = 0, end_col = 14, src = "./a.png", kind = "img" } })
+
+local embeds = require("patto.embeds")
+check("embeds.kind youtube", embeds.kind("https://www.youtube.com/watch?v=abc&t=1"), "youtube")
+check("embeds.kind pdf with query", embeds.kind("https://a.com/x.PDF?dl=1"), "pdf")
+check("embeds.kind local pdf", embeds.kind("./doc.pdf"), "pdf")
+check("embeds.kind google photos", embeds.kind("https://photos.app.goo.gl/xyz"), "google_photos")
+check("embeds.kind goo.gl outside photos", embeds.kind("https://goo.gl/maps/xyz"), "other")
+check("embeds.kind twitter", embeds.kind("https://x.com/u/status/1"), "twitter")
+check("embeds.kind dropbox is not twitter", embeds.kind("https://dropbox.com/s/1"), "other")
+check("embeds.kind speakerdeck", embeds.kind("https://speakerdeck.com/u/deck"), "speakerdeck")
+check("embeds.kind slideshare", embeds.kind("https://www.slideshare.net/u/deck"), "slideshare")
+check("embeds.kind local non-pdf", embeds.kind("./a.txt"), nil)
+check("embeds.youtube_id watch", embeds.youtube_id("https://youtube.com/watch?t=3&v=abc"), "abc")
+check("embeds.youtube_id short", embeds.youtube_id("https://youtu.be/abc?si=x"), "abc")
+check("embeds.youtube_id embed", embeds.youtube_id("https://www.youtube.com/embed/abc"), "abc")
+check("embeds.youtube_id channel", embeds.youtube_id("https://www.youtube.com/@someone"), nil)
+check("embeds.og_meta property first", embeds.og_meta('<meta property="og:image" content="https://a/b.png">', "og:image"), "https://a/b.png")
+check("embeds.og_meta content first", embeds.og_meta("<meta content='https://a/b.png' property='og:image' />", "og:image"), "https://a/b.png")
+check("embeds.og_meta name and entities", embeds.og_meta('<meta name="twitter:image" content="https://a/b?x=1&amp;y=&#39;2&#x27;">', "twitter:image"), "https://a/b?x=1&y='2'")
+check("embeds.og_meta skips other tags", embeds.og_meta('<meta property="og:image:width" content="1"><meta property="og:image" content="https://a/c.png">', "og:image"), "https://a/c.png")
+check("embeds.og_meta missing", embeds.og_meta("<html></html>", "og:image"), nil)
+check("embeds.absolute protocol relative", embeds.absolute("//cdn/x.png", "https://a.com/p/q"), "https://cdn/x.png")
+check("embeds.absolute root relative", embeds.absolute("/x.png", "https://a.com/p/q"), "https://a.com/x.png")
+check("embeds.absolute path relative", embeds.absolute("x.png", "https://a.com/p/q"), "https://a.com/p/x.png")
+check("embeds.absolute absolute", embeds.absolute("http://b/x.png", "https://a.com/"), "http://b/x.png")
+check("embeds.google_photos_thumb", embeds.google_photos_thumb("https://lh3.googleusercontent.com/pw/AB=w600-h315-p-k"), "https://lh3.googleusercontent.com/pw/AB=w1280-h720-no")
+check("embeds.tweet_thumb photo", embeds.tweet_thumb({ tweet = { media = { photos = { { url = "https://p/1.jpg" } } } } }), "https://p/1.jpg")
+check("embeds.tweet_thumb video", embeds.tweet_thumb({ tweet = { media = { videos = { { thumbnail_url = "https://p/v.jpg" } } } } }), "https://p/v.jpg")
+check("embeds.tweet_thumb text only", embeds.tweet_thumb({ tweet = { text = "hi" } }), nil)
+check("embeds.tweet_thumb error", embeds.tweet_thumb(nil), nil)
 
 for _, name in ipairs({
   "patto", "patto.commands", "patto.folding", "patto.two_hop_links", "patto.lsp", "patto.tasks", "patto.task_format",
   "patto.review_timeframe", "patto.tasks_source", "patto.current_task", "patto.foldtext", "patto.preview_launch",
-  "patto.images",
+  "patto.images", "patto.embeds",
   "patto_preview", "patto_preview_toggle", "patto_preview_tui", "patto_tasks.trouble",
   "trouble.sources.patto_tasks", "trouble.sources.patto_tasks_review",
 }) do

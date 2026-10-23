@@ -1,8 +1,11 @@
--- Inline image preview for `[@img ...]` lines, rendered through snacks.nvim.
+-- Inline image preview for `[@img ...]` and `[@embed ...]` lines, rendered
+-- through snacks.nvim. Embeds show a thumbnail looked up by patto.embeds.
 -- snacks' own document mode needs a tree-sitter parser, which patto does not
 -- have, so this module locates images itself and drives snacks' placement API.
 -- The locator is a loose heuristic (the path token inside the brackets), not a
 -- mirror of the patto grammar.
+local embeds = require("patto.embeds")
+
 local M = {}
 
 local managers = {}
@@ -45,17 +48,18 @@ end
 function M.parse_line(line)
   local found, init = {}, 1
   while true do
-    local s, e = line:find("%[@img[ \t]+", init)
+    local s, e, kind = line:find("%[@(%a+)[ \t]+", init)
     if not s then
       break
     end
-    local close = closing_bracket(line, e + 1)
-    if not close then
+    local known = kind == "img" or kind == "embed"
+    local close = known and closing_bracket(line, e + 1)
+    if known and not close then
       break
     end
-    local src = path_token(line:sub(e + 1, close - 1))
+    local src = close and path_token(line:sub(e + 1, close - 1))
     if src then
-      found[#found + 1] = { col = s - 1, end_col = close, src = src }
+      found[#found + 1] = { col = s - 1, end_col = close, src = src, kind = kind }
       init = close + 1
     else
       init = e + 1
@@ -169,8 +173,31 @@ local function locate(buf, src)
   return resolved
 end
 
-local function resolve(buf, src, o, on_ready)
-  local resolved = locate(buf, src)
+local function embed_thumbnail(m, on_ready)
+  if vim.g.patto_image_embeds == false then
+    return nil, "skipped"
+  end
+  if embeds.is_pdf(m.src) then
+    return m.src
+  end
+  if not is_url(m.src) then
+    return nil, "skipped"
+  end
+  local thumb, state = embeds.thumbnail(m.src, on_ready)
+  return thumb, state, thumb ~= nil
+end
+
+local function resolve(buf, m, o, on_ready)
+  local src, state, cached = m.src, nil, false
+  if m.kind == "embed" then
+    src, state, cached = embed_thumbnail(m, on_ready)
+    if not src then
+      return nil, state
+    end
+  end
+  -- A cached thumbnail is already an absolute path; snacks' resolve hook is
+  -- meant for paths written in the note.
+  local resolved = cached and src or locate(buf, src)
   return resolved and transferable(resolved, o, on_ready)
 end
 
@@ -283,7 +310,7 @@ function Inline:found()
     for _, m in ipairs(M.find(lines, from)) do
       local key = m.row .. ":" .. m.col
       if not found[key] then
-        m.src = resolve(self.buf, m.src, self.opts, retry)
+        m.src = resolve(self.buf, m, self.opts, retry)
         if m.src then
           found[key] = m
         end
@@ -574,10 +601,22 @@ local function image_at_cursor(buf, strict)
   end
 end
 
+-- Enter on an embed keeps its usual meaning (following the link); only
+-- `:PattoImageView` shows an embed's thumbnail full screen.
+local function has_image()
+  local line = vim.api.nvim_get_current_line()
+  for _, m in ipairs(M.parse_line(line)) do
+    if m.kind == "img" then
+      return true
+    end
+  end
+  return false
+end
+
 local function at_cursor(buf)
   local m = image_at_cursor(buf, true)
   if m then
-    return resolve(buf, m.src, options(), function()
+    return resolve(buf, m, options(), function()
       M.hover(buf)
     end)
   end
@@ -654,7 +693,7 @@ function M.view(buf)
     return false
   end
   local screen = { max_width = vim.o.columns, max_height = vim.o.lines }
-  local src, state = resolve(buf, m.src, screen, function()
+  local src, state = resolve(buf, m, screen, function()
     if vim.api.nvim_get_current_buf() == buf and vim.api.nvim_win_get_cursor(0)[1] == row then
       M.view(buf)
     end
@@ -723,7 +762,7 @@ local function ensure_commands(buf)
   if key ~= false then
     key = key or "<CR>"
     vim.keymap.set("n", key, function()
-      if image_at_cursor(buf, false) then
+      if has_image() then
         return "<Cmd>PattoImageView<CR>"
       end
       return key

@@ -107,7 +107,7 @@ lua << EOF
 EOF
 ```
 
-Inline image preview: install [snacks.nvim](https://github.com/folke/snacks.nvim) with `image = { enabled = true }` and `[@img ...]` lines render in the buffer. See [docs/advanced-usage.md](./docs/advanced-usage.md#inline-images-in-neovim-snacksnvim).
+Inline image preview: install [snacks.nvim](https://github.com/folke/snacks.nvim) with `image = { enabled = true }` and `[@img ...]` lines render in the buffer, with thumbnails for `[@embed ...]` links. See [docs/advanced-usage.md](./docs/advanced-usage.md#inline-images-in-neovim-snacksnvim).
 </details>
 
 <details>
