@@ -158,7 +158,7 @@ importers:
         specifier: ^8.7.0
         version: 8.72.0(eslint@10.13.0(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
       vite:
-        specifier: ^8.0.16
+        specifier: ^8.3.5
         version: 8.3.5(@types/node@25.9.9)(jiti@2.7.0)(terser@5.46.2)
 
 packages:
@@ -3789,8 +3789,8 @@ packages:
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
 
-  undici@7.25.0:
-    resolution: {integrity: sha512-xXnp4kTyor2Zq+J1FfPI6Eq3ew5h6Vl0F/8d9XU5zZQf1tX9s2Su1/3PiMmUANFULpmksxkClamIZcaUqryHsQ==}
+  undici@7.30.1:
+    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
     engines: {node: '>=20.18.1'}
 
   unicorn-magic@0.1.0:
@@ -5534,7 +5534,7 @@ snapshots:
       parse5: 7.3.0
       parse5-htmlparser2-tree-adapter: 7.1.0
       parse5-parser-stream: 7.1.2
-      undici: 7.25.0
+      undici: 7.30.1
       whatwg-mimetype: 4.0.0
 
   chokidar@4.0.3:
@@ -7955,7 +7955,7 @@ snapshots:
 
   undici-types@7.24.6: {}
 
-  undici@7.25.0: {}
+  undici@7.30.1: {}
 
   unicorn-magic@0.1.0: {}
 
