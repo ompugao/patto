@@ -145,6 +145,10 @@ pub fn render_note(content: String) -> RenderedNote {
     render::render_note(content)
 }
 
+pub fn block_markdown(source: String) -> String {
+    render::block_markdown(source)
+}
+
 /// Thumbnail and video stream from a Google Photos share page's HTML, which
 /// Dart fetches with [`browser_user_agent`]. Asynchronous because a share
 /// page runs to hundreds of kilobytes.

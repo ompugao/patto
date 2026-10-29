@@ -375,3 +375,37 @@ fn a_large_note_renders_in_reasonable_time() {
         "rendering 10k lines took {elapsed:?}"
     );
 }
+
+mod block_markdown_tests {
+    use crate::api::render::block_markdown;
+
+    fn md(src: &str) -> String {
+        block_markdown(src.to_string())
+    }
+
+    #[test]
+    fn indented_line_renders_as_top_level_markdown() {
+        assert_eq!(
+            md("\t\tsee [other note] and [https://example.com example]"),
+            "see [other note](other note.md) and [example](https://example.com)"
+        );
+    }
+
+    #[test]
+    fn decoration_becomes_markdown_emphasis() {
+        assert_eq!(md("[* bold] text"), "**bold** text");
+    }
+
+    #[test]
+    fn code_block_keeps_its_lines_without_the_block_indent() {
+        assert_eq!(
+            md("\t[@code rust]\n\t\tfn main() {}\n\t\t\tlet x = 1;"),
+            "```rust\nfn main() {}\n\tlet x = 1;\n```"
+        );
+    }
+
+    #[test]
+    fn quote_block_becomes_a_blockquote() {
+        assert_eq!(md("\t[@quote]\n\t\tquoted line"), "> quoted line");
+    }
+}

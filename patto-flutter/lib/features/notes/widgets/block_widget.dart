@@ -7,6 +7,12 @@ import 'line_block.dart';
 import 'spans_text.dart';
 import 'table_block.dart';
 
+/// Whether [block] shows text that a long-press selects.
+bool blockHasText(Block block) => switch (block.kind) {
+  BlockKind_Line() || BlockKind_Code() || BlockKind_Table() => true,
+  _ => false,
+};
+
 /// One element of a note. Kept free of providers: the list rebuilds these
 /// constantly while scrolling.
 class BlockWidget extends StatelessWidget {
@@ -39,6 +45,9 @@ class BlockWidget extends StatelessWidget {
   final bool matched;
   final String? searchTerm;
   final void Function(Block block)? onTaskTap;
+
+  /// Long-press on a block without selectable text; on text, long-press
+  /// belongs to the selection.
   final void Function(Block block)? onLongPress;
 
   @override
@@ -110,7 +119,8 @@ class BlockWidget extends StatelessWidget {
       child: content,
     );
 
-    if (onLongPress == null) return body;
-    return InkWell(onLongPress: () => onLongPress!(block), child: body);
+    return onLongPress == null || blockHasText(block)
+        ? body
+        : InkWell(onLongPress: () => onLongPress!(block), child: body);
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../../../src/rust/api/types.dart';
+import 'joined_selection.dart';
 import 'spans_text.dart';
 
 /// A `[@math]` block in display style; the source when it does not parse.
@@ -71,38 +72,39 @@ class TableBlock extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(caption!, style: theme.textTheme.labelMedium),
           ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Table(
-            defaultColumnWidth: const IntrinsicColumnWidth(),
-            border: TableBorder.all(color: theme.colorScheme.outlineVariant),
-            children: [
-              for (final row in rows)
-                TableRow(
-                  children: [
-                    for (var i = 0; i < columns; i++)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+        SelectableHorizontalScroll(
+          child: JoinedSelection(
+            child: Table(
+              defaultColumnWidth: const IntrinsicColumnWidth(),
+              border: TableBorder.all(color: theme.colorScheme.outlineVariant),
+              children: [
+                for (final row in rows)
+                  TableRow(
+                    children: [
+                      for (var i = 0; i < columns; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          child: i < row.cells.length
+                              ? SpansText(
+                                  spans: row.cells[i].spans,
+                                  actions: actions,
+                                  noteRoot: root,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontSize:
+                                        (theme.textTheme.bodyMedium?.fontSize ??
+                                            14) *
+                                        textScale,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
                         ),
-                        child: i < row.cells.length
-                            ? SpansText(
-                                spans: row.cells[i].spans,
-                                actions: actions,
-                                noteRoot: root,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontSize:
-                                      (theme.textTheme.bodyMedium?.fontSize ??
-                                          14) *
-                                      textScale,
-                                ),
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-                  ],
-                ),
-            ],
+                    ],
+                  ),
+              ],
+            ),
           ),
         ),
       ],

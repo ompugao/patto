@@ -101,6 +101,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _load();
   }
 
+  double _keyboardInset = 0;
+
+  /// The keyboard opens after the caret has been scrolled into view, and the
+  /// editor does not follow a shrinking viewport by itself.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    if (inset > _keyboardInset && !_loading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _controller.makeCursorCenterIfInvisible();
+      });
+    }
+    _keyboardInset = inset;
+  }
+
   @override
   void dispose() {
     _completionDebounce?.cancel();
@@ -130,13 +146,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       _controller.addListener(_onChanged);
       setState(() => _loading = false);
 
-      final row = widget.initialRow;
-      if (row != null && row < _controller.codeLines.length) {
-        _edits.jumpTo(row);
-      }
-      // Opening the editor is asking to type; don't make it take another tap.
+      // The editor scrolls through its render object, which only exists once
+      // the first frame has built it; jumping any earlier moves the caret but
+      // leaves the view at the top.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focusNode.requestFocus();
+        if (!mounted) return;
+        final row = widget.initialRow;
+        if (row != null && row < _controller.codeLines.length) {
+          _edits.jumpTo(row);
+        }
+        // Opening the editor is asking to type; don't make it take another tap.
+        _focusNode.requestFocus();
       });
     } catch (e) {
       if (mounted) setState(() => (_loading = false, _error = e.toString()));

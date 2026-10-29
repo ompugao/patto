@@ -44,7 +44,9 @@ class LineBlock extends StatelessWidget {
       trailing: task?.due != null && !done
           ? WidgetSpan(
               alignment: PlaceholderAlignment.middle,
-              child: DueChip(due: task!.due!, textScale: textScale),
+              child: SelectionContainer.disabled(
+                child: DueChip(due: task!.due!, textScale: textScale),
+              ),
             )
           : null,
     );

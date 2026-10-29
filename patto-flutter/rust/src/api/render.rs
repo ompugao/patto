@@ -1,6 +1,8 @@
 //! Flatten a parsed note into the block list the Flutter note view scrolls.
 
+use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use patto::parser::{self, AstNode, AstNodeKind, Location, Property};
+use patto::renderer::{MarkdownRenderer, Renderer};
 use patto::utils::{get_gyazo_img_src, get_youtube_id, is_google_photos_url};
 use url::Url;
 
@@ -36,6 +38,28 @@ pub fn render_note(content: String) -> RenderedNote {
         anchors: out.anchors,
         errors,
     }
+}
+
+/// Convert the source lines of one block to Markdown. The block's own indent
+/// is removed first so it renders as a top-level line, and only the given
+/// lines are parsed, so child lines stay out.
+pub fn block_markdown(source: String) -> String {
+    let indent = source.chars().take_while(|c| *c == '\t').count();
+    let dedented: Vec<&str> = source
+        .lines()
+        .map(|line| {
+            let tabs = line.chars().take(indent).take_while(|c| *c == '\t').count();
+            &line[tabs..]
+        })
+        .collect();
+    let ast = parser::parse_text(&dedented.join("\n")).ast;
+
+    let renderer = MarkdownRenderer::new(MarkdownRendererOptions::new(MarkdownFlavor::Standard));
+    let mut out = Vec::new();
+    if renderer.format(&ast, &mut out).is_err() {
+        return source;
+    }
+    String::from_utf8_lossy(&out).trim_end().to_string()
 }
 
 #[derive(Default)]
