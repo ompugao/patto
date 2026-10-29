@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +12,7 @@ import '../../src/rust/frb_api.dart' as rust;
 import '../editor/editor_screen.dart';
 import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
+import 'block_source.dart';
 import 'note_find.dart';
 import 'note_providers.dart';
 import 'open_embed.dart';
@@ -66,6 +68,10 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   NoteFind _find = NoteFind();
   List<String> _sourceLines = const [];
   RenderedNote? _sourceFor;
+
+  /// The block the last touch landed on: where a text selection started, and
+  /// what the selection toolbar's Edit and copy buttons act on.
+  int? _pressedIndex;
 
   String get _title => rust.relPathToNoteName(relPath: widget.relPath);
 
@@ -144,26 +150,31 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       return;
     }
 
-    if (!identical(_sourceFor, note)) {
-      final workspace = await ref.read(workspaceProvider.future);
-      if (workspace == null) return;
-      try {
-        final content = await rust.readNote(
-          root: workspace.root,
-          relPath: widget.relPath,
-        );
-        _sourceLines = content.split('\n');
-        _sourceFor = note;
-      } catch (e) {
-        _toast('Could not search this note: $e');
-        return;
-      }
-    }
+    if (!await _ensureSource(note, 'Could not search this note')) return;
     if (!mounted || term != _find.term || note.blocks.isEmpty) return;
 
     final hits = findHitBlocks(_sourceLines, _rowsOf(note), term);
     setState(() => _find = _find.withHits(hits, jump: jump));
     if (jump && hits.isNotEmpty) _jumpTo(hits.first);
+  }
+
+  /// Loads the source lines [note] was rendered from, unless already loaded.
+  Future<bool> _ensureSource(RenderedNote note, String failure) async {
+    if (identical(_sourceFor, note)) return true;
+    final workspace = await ref.read(workspaceProvider.future);
+    if (workspace == null) return false;
+    try {
+      final content = await rust.readNote(
+        root: workspace.root,
+        relPath: widget.relPath,
+      );
+      _sourceLines = content.split('\n');
+      _sourceFor = note;
+      return true;
+    } catch (e) {
+      _toast('$failure: $e');
+      return false;
+    }
   }
 
   void _stepFind(int delta) {
@@ -238,6 +249,62 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
         ? blocks[first].row
         : null;
     EditorScreen.open(context, widget.relPath, row: row);
+  }
+
+  Future<void> _copyPressedBlock({required bool markdown}) async {
+    final note = ref.read(renderedNoteProvider(widget.relPath)).value;
+    final index = _pressedIndex;
+    if (note == null || index == null || index >= note.blocks.length) return;
+    if (!await _ensureSource(note, 'Could not copy')) return;
+
+    final source = blockSource(_sourceLines, _rowsOf(note), index);
+    final text = markdown ? await rust.blockMarkdown(source: source) : source;
+    await Clipboard.setData(ClipboardData(text: text));
+    _toast(markdown ? 'Copied as Markdown' : 'Copied source');
+  }
+
+  void _editPressedBlock() {
+    final blocks = ref.read(renderedNoteProvider(widget.relPath)).value?.blocks;
+    final index = _pressedIndex;
+    if (blocks == null || index == null || index >= blocks.length) return;
+    EditorScreen.open(context, widget.relPath, row: blocks[index].row);
+  }
+
+  Widget _selectionMenu(BuildContext context, SelectableRegionState region) {
+    void run(VoidCallback action) {
+      region.hideToolbar();
+      region.clearSelection();
+      action();
+    }
+
+    final system = region.contextMenuButtonItems;
+    final copyAt = system.indexWhere(
+      (item) => item.type == ContextMenuButtonType.copy,
+    );
+    // Right after Copy: the system's Share, Select all and process-text
+    // items would otherwise push these into the overflow menu.
+    final lead = system.take(copyAt + 1);
+    final rest = system.skip(copyAt + 1);
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: region.contextMenuAnchors,
+      buttonItems: [
+        ...lead,
+        ContextMenuButtonItem(
+          label: 'Edit here',
+          onPressed: () => run(_editPressedBlock),
+        ),
+        ContextMenuButtonItem(
+          label: 'Copy as Markdown',
+          onPressed: () => run(() => _copyPressedBlock(markdown: true)),
+        ),
+        ContextMenuButtonItem(
+          label: 'Copy source',
+          onPressed: () => run(() => _copyPressedBlock(markdown: false)),
+        ),
+        ...rest,
+      ],
+    );
   }
 
   Future<void> _changeTaskStatus(Block block) async {
@@ -331,32 +398,38 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       onEmbed: (embed) => openEmbed(context, embed, root, openUrl: _openUrl),
     );
 
-    return SuperListView.builder(
-      listController: _listController,
-      controller: _scrollController,
-      extentEstimation: (_, _) => 30 * textScale,
-      padding: const EdgeInsets.only(top: 8, bottom: 32),
-      itemCount: data.blocks.length + 1,
-      itemBuilder: (context, i) {
-        if (i == data.blocks.length) {
-          return NoteFooter(relPath: widget.relPath, errors: data.errors);
-        }
-        return RepaintBoundary(
-          child: BlockWidget(
-            key: ValueKey(i),
-            block: data.blocks[i],
-            actions: actions,
-            root: root,
-            textScale: textScale,
-            highlighted: i == _flashed,
-            matched: _find.hitSet.contains(i),
-            searchTerm: _finding ? _find.term : null,
-            onTaskTap: _changeTaskStatus,
-            onLongPress: (block) =>
-                EditorScreen.open(context, widget.relPath, row: block.row),
-          ),
-        );
-      },
+    // The list only builds the blocks on screen, so a selection cannot reach
+    // past them; a selectable list would need every block laid out at once.
+    return SelectionArea(
+      contextMenuBuilder: _selectionMenu,
+      child: SuperListView.builder(
+        listController: _listController,
+        controller: _scrollController,
+        extentEstimation: (_, _) => 30 * textScale,
+        padding: const EdgeInsets.only(top: 8, bottom: 32),
+        itemCount: data.blocks.length + 1,
+        itemBuilder: (context, i) {
+          if (i == data.blocks.length) {
+            return NoteFooter(relPath: widget.relPath, errors: data.errors);
+          }
+          return RepaintBoundary(
+            child: BlockWidget(
+              key: ValueKey(i),
+              block: data.blocks[i],
+              actions: actions,
+              root: root,
+              textScale: textScale,
+              highlighted: i == _flashed,
+              matched: _find.hitSet.contains(i),
+              searchTerm: _finding ? _find.term : null,
+              onTaskTap: _changeTaskStatus,
+              onPressed: (_) => _pressedIndex = i,
+              onLongPress: (block) =>
+                  EditorScreen.open(context, widget.relPath, row: block.row),
+            ),
+          );
+        },
+      ),
     );
   }
 }

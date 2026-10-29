@@ -106,6 +106,9 @@ Future<NoteMeta> inboxAppend({
 Future<RenderedNote> renderNote({required String content}) =>
     RustLib.instance.api.crateFrbApiRenderNote(content: content);
 
+Future<String> blockMarkdown({required String source}) =>
+    RustLib.instance.api.crateFrbApiBlockMarkdown(source: source);
+
 /// Thumbnail and video stream from a Google Photos share page's HTML, which
 /// Dart fetches with [`browser_user_agent`]. Asynchronous because a share
 /// page runs to hundreds of kilobytes.

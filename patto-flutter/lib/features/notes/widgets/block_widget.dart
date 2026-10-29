@@ -20,6 +20,7 @@ class BlockWidget extends StatelessWidget {
     this.matched = false,
     this.searchTerm,
     this.onTaskTap,
+    this.onPressed,
     this.onLongPress,
   });
 
@@ -39,7 +40,19 @@ class BlockWidget extends StatelessWidget {
   final bool matched;
   final String? searchTerm;
   final void Function(Block block)? onTaskTap;
+
+  /// Every pointer down on the block, so the screen knows which block a
+  /// text selection started in.
+  final void Function(Block block)? onPressed;
+
+  /// Long-press on a block without selectable text; on text, long-press
+  /// belongs to the selection.
   final void Function(Block block)? onLongPress;
+
+  bool get hasText => switch (block.kind) {
+    BlockKind_Line() || BlockKind_Code() || BlockKind_Table() => true,
+    _ => false,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +123,10 @@ class BlockWidget extends StatelessWidget {
       child: content,
     );
 
-    if (onLongPress == null) return body;
-    return InkWell(onLongPress: () => onLongPress!(block), child: body);
+    final pressable = onLongPress == null || hasText
+        ? body
+        : InkWell(onLongPress: () => onLongPress!(block), child: body);
+    if (onPressed == null) return pressable;
+    return Listener(onPointerDown: (_) => onPressed!(block), child: pressable);
   }
 }
