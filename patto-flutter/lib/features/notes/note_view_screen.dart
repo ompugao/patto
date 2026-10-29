@@ -14,6 +14,7 @@ import '../sync/sync_sheet.dart';
 import '../tasks/task_status_sheet.dart';
 import 'block_source.dart';
 import 'note_find.dart';
+import 'note_plain_text.dart';
 import 'note_providers.dart';
 import 'open_embed.dart';
 import 'selection_range.dart';
@@ -76,6 +77,10 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   final _selectedText = <int, String>{};
   int? _latestSelected;
   RenderedNote? _selectionFor;
+
+  /// Set by the toolbar's Select all. Flutter selects only the blocks the
+  /// list has built, so the screen remembers that the whole note was meant.
+  bool _allSelected = false;
   bool _selecting = false;
 
   String get _title => rust.relPathToNoteName(relPath: widget.relPath);
@@ -257,6 +262,9 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   }
 
   void _onBlockSelection(int index, String? text) {
+    // A block re-selected after scrolling back reports the same text; any
+    // other change means a handle moved or the selection was cleared.
+    if (_allSelected && _selectedText[index] != text) _allSelected = false;
     if (text == null) {
       _selectedText.remove(index);
     } else {
@@ -265,23 +273,32 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     }
   }
 
-  (int, int)? _selectedRange(RenderedNote note) => selectedRange(
-    _selectedText,
-    _latestSelected,
-    note.blocks.length,
-    (i) => blockHasText(note.blocks[i]),
-  );
+  void _onBlockMounted(int index) {
+    if (!_allSelected) _selectedText.remove(index);
+  }
 
+  (int, int)? _selectedRange(RenderedNote note) => _allSelected
+      ? (0, note.blocks.length - 1)
+      : selectedRange(
+          _selectedText,
+          _latestSelected,
+          note.blocks.length,
+          (i) => blockHasText(note.blocks[i]),
+        );
+
+  /// [texts] is null when the whole note is selected.
   Future<void> _copySelection(
     RenderedNote note,
-    Map<int, String> texts,
+    Map<int, String>? texts,
     (int, int) range,
   ) async {
     final (first, last) = range;
-    final text = [
-      for (var i = first; i <= last; i++)
-        ?texts[i] ?? (note.blocks[i].kind is BlockKind_Blank ? '' : null),
-    ].join('\n');
+    final text = texts == null
+        ? notePlainText(note.blocks)
+        : [
+            for (var i = first; i <= last; i++)
+              ?texts[i] ?? (note.blocks[i].kind is BlockKind_Blank ? '' : null),
+          ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
   }
 
@@ -333,9 +350,9 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 
     // Read the selection before clearing it: clearing empties
     // [_selectedText] for every block still in the list.
-    void run(void Function(Map<int, String> texts, (int, int) range) action) {
-      final range = _selectedRange(note);
-      final texts = Map.of(_selectedText);
+    void run(void Function(Map<int, String>? texts, (int, int) range) action) {
+      final range = note.blocks.isEmpty ? null : _selectedRange(note);
+      final texts = _allSelected ? null : Map.of(_selectedText);
       region.hideToolbar();
       region.clearSelection();
       if (range != null) action(texts, range);
@@ -349,7 +366,19 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     final lead = copyAt < 0
         ? const <ContextMenuButtonItem>[]
         : system.take(copyAt);
-    final rest = system.skip(copyAt + 1);
+    final rest = [
+      for (final item in system.skip(copyAt + 1))
+        item.type == ContextMenuButtonType.selectAll
+            ? item.copyWith(
+                onPressed: () {
+                  region.selectAll(SelectionChangedCause.toolbar);
+                  // After the call: it clears the selection first, which
+                  // would reset the flag.
+                  _allSelected = true;
+                },
+              )
+            : item,
+    ];
 
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: _menuAnchors(region),
@@ -467,6 +496,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       _selectionFor = data;
       _selectedText.clear();
       _latestSelected = null;
+      _allSelected = false;
     }
     if (_finding && _find.term.isNotEmpty && !identical(_sourceFor, data)) {
       // The note was edited or synced; the old matches point at stale
@@ -511,6 +541,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
               key: ValueKey(i),
               child: JoinedSelection(
                 onChanged: (text) => _onBlockSelection(i, text),
+                onMounted: () => _onBlockMounted(i),
                 child: BlockWidget(
                   block: data.blocks[i],
                   actions: actions,
