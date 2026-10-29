@@ -29,7 +29,6 @@ void main() {
               block: block,
               actions: actions ?? _actions(),
               root: null,
-              onPressed: (b) => events.add('pressed ${b.row}'),
               onLongPress: (b) => events.add('long-press ${b.row}'),
             ),
           ],
@@ -56,7 +55,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(events, ['pressed 3']);
+    expect(events, isEmpty);
     expect(find.text('Copy'), findsOneWidget);
   });
 
@@ -71,7 +70,7 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('other'));
     await tester.pumpAndSettle();
 
-    expect(events, ['pressed 3', 'link other']);
+    expect(events, ['link other']);
   });
 
   testWidgets('long-press on a block without text opens the editor', (
@@ -82,6 +81,6 @@ void main() {
     await tester.longPress(find.byType(Divider));
     await tester.pumpAndSettle();
 
-    expect(events, ['pressed 3', 'long-press 3']);
+    expect(events, ['long-press 3']);
   });
 }

@@ -16,8 +16,10 @@ import 'block_source.dart';
 import 'note_find.dart';
 import 'note_providers.dart';
 import 'open_embed.dart';
+import 'selection_range.dart';
 import 'widgets/block_widget.dart';
 import 'widgets/find_bar.dart';
+import 'widgets/joined_selection.dart';
 import 'widgets/note_footer.dart';
 import 'widgets/spans_text.dart';
 
@@ -69,9 +71,12 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   List<String> _sourceLines = const [];
   RenderedNote? _sourceFor;
 
-  /// The block the last touch landed on: where a text selection started, and
-  /// what the selection toolbar's Edit and copy buttons act on.
-  int? _pressedIndex;
+  /// Selected text per block, kept for blocks that scroll out of the list
+  /// so a copy still includes them. See [selectedRange].
+  final _selectedText = <int, String>{};
+  int? _latestSelected;
+  RenderedNote? _selectionFor;
+  bool _selecting = false;
 
   String get _title => rust.relPathToNoteName(relPath: widget.relPath);
 
@@ -251,56 +256,131 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     EditorScreen.open(context, widget.relPath, row: row);
   }
 
-  Future<void> _copyPressedBlock({required bool markdown}) async {
-    final note = ref.read(renderedNoteProvider(widget.relPath)).value;
-    final index = _pressedIndex;
-    if (note == null || index == null || index >= note.blocks.length) return;
-    if (!await _ensureSource(note, 'Could not copy')) return;
+  void _onBlockSelection(int index, String? text) {
+    if (text == null) {
+      _selectedText.remove(index);
+    } else {
+      _selectedText[index] = text;
+      _latestSelected = index;
+    }
+  }
 
-    final source = blockSource(_sourceLines, _rowsOf(note), index);
+  (int, int)? _selectedRange(RenderedNote note) => selectedRange(
+    _selectedText,
+    _latestSelected,
+    note.blocks.length,
+    (i) => blockHasText(note.blocks[i]),
+  );
+
+  Future<void> _copySelection(
+    RenderedNote note,
+    Map<int, String> texts,
+    (int, int) range,
+  ) async {
+    final (first, last) = range;
+    final text = [
+      for (var i = first; i <= last; i++)
+        ?texts[i] ?? (note.blocks[i].kind is BlockKind_Blank ? '' : null),
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+  }
+
+  Future<void> _copySource(
+    RenderedNote note,
+    (int, int) range, {
+    required bool markdown,
+  }) async {
+    if (!await _ensureSource(note, 'Could not copy')) return;
+    final (first, last) = range;
+    final source = blockSource(_sourceLines, _rowsOf(note), first, last);
     final text = markdown ? await rust.blockMarkdown(source: source) : source;
     await Clipboard.setData(ClipboardData(text: text));
     _toast(markdown ? 'Copied as Markdown' : 'Copied source');
   }
 
-  void _editPressedBlock() {
-    final blocks = ref.read(renderedNoteProvider(widget.relPath)).value?.blocks;
-    final index = _pressedIndex;
-    if (blocks == null || index == null || index >= blocks.length) return;
-    EditorScreen.open(context, widget.relPath, row: blocks[index].row);
+  TextSelectionToolbarAnchors _menuAnchors(SelectableRegionState region) {
+    try {
+      return region.contextMenuAnchors;
+    } on TypeError {
+      // contextMenuAnchors null-checks both ends of the selection, but an end
+      // that scrolled out of the list has no point; anchor on the other one.
+      final box = region.context.findRenderObject()! as RenderBox;
+      final lineHeight = 24.0 * ref.read(fontScaleProvider);
+      try {
+        return TextSelectionToolbarAnchors.fromSelection(
+          renderBox: box,
+          startGlyphHeight: lineHeight,
+          endGlyphHeight: lineHeight,
+          selectionEndpoints: region.selectionEndpoints,
+        );
+      } on TypeError {
+        return TextSelectionToolbarAnchors(
+          primaryAnchor: box.localToGlobal(box.size.topCenter(Offset.zero)),
+        );
+      }
+    }
   }
 
   Widget _selectionMenu(BuildContext context, SelectableRegionState region) {
-    void run(VoidCallback action) {
-      region.hideToolbar();
-      region.clearSelection();
-      action();
+    final note = ref.read(renderedNoteProvider(widget.relPath)).value;
+    final system = region.contextMenuButtonItems;
+    if (note == null) {
+      return AdaptiveTextSelectionToolbar.buttonItems(
+        anchors: _menuAnchors(region),
+        buttonItems: system,
+      );
     }
 
-    final system = region.contextMenuButtonItems;
+    // Read the selection before clearing it: clearing empties
+    // [_selectedText] for every block still in the list.
+    void run(void Function(Map<int, String> texts, (int, int) range) action) {
+      final range = _selectedRange(note);
+      final texts = Map.of(_selectedText);
+      region.hideToolbar();
+      region.clearSelection();
+      if (range != null) action(texts, range);
+    }
+
     final copyAt = system.indexWhere(
       (item) => item.type == ContextMenuButtonType.copy,
     );
     // Right after Copy: the system's Share, Select all and process-text
     // items would otherwise push these into the overflow menu.
-    final lead = system.take(copyAt + 1);
+    final lead = copyAt < 0
+        ? const <ContextMenuButtonItem>[]
+        : system.take(copyAt);
     final rest = system.skip(copyAt + 1);
 
     return AdaptiveTextSelectionToolbar.buttonItems(
-      anchors: region.contextMenuAnchors,
+      anchors: _menuAnchors(region),
       buttonItems: [
         ...lead,
+        // Replaces the system Copy, which joins the blocks with nothing in
+        // between and only sees the blocks still in the list.
+        ContextMenuButtonItem(
+          type: ContextMenuButtonType.copy,
+          onPressed: () =>
+              run((texts, range) => _copySelection(note, texts, range)),
+        ),
         ContextMenuButtonItem(
           label: 'Edit here',
-          onPressed: () => run(_editPressedBlock),
+          onPressed: () => run(
+            (_, range) => EditorScreen.open(
+              context,
+              widget.relPath,
+              row: note.blocks[range.$1].row,
+            ),
+          ),
         ),
         ContextMenuButtonItem(
           label: 'Copy as Markdown',
-          onPressed: () => run(() => _copyPressedBlock(markdown: true)),
+          onPressed: () =>
+              run((_, range) => _copySource(note, range, markdown: true)),
         ),
         ContextMenuButtonItem(
           label: 'Copy source',
-          onPressed: () => run(() => _copyPressedBlock(markdown: false)),
+          onPressed: () =>
+              run((_, range) => _copySource(note, range, markdown: false)),
         ),
         ...rest,
       ],
@@ -383,6 +463,11 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
 
   Widget _blockList(RenderedNote data, String? root, double textScale) {
     _applyInitialJump(data);
+    if (!identical(_selectionFor, data)) {
+      _selectionFor = data;
+      _selectedText.clear();
+      _latestSelected = null;
+    }
     if (_finding && _find.term.isNotEmpty && !identical(_sourceFor, data)) {
       // The note was edited or synced; the old matches point at stale
       // blocks.
@@ -398,37 +483,53 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       onEmbed: (embed) => openEmbed(context, embed, root, openUrl: _openUrl),
     );
 
-    // The list only builds the blocks on screen, so a selection cannot reach
-    // past them; a selectable list would need every block laid out at once.
     return SelectionArea(
       contextMenuBuilder: _selectionMenu,
-      child: SuperListView.builder(
-        listController: _listController,
-        controller: _scrollController,
-        extentEstimation: (_, _) => 30 * textScale,
-        padding: const EdgeInsets.only(top: 8, bottom: 32),
-        itemCount: data.blocks.length + 1,
-        itemBuilder: (context, i) {
-          if (i == data.blocks.length) {
-            return NoteFooter(relPath: widget.relPath, errors: data.errors);
-          }
-          return RepaintBoundary(
-            child: BlockWidget(
+      onSelectionChanged: (content) {
+        if ((content != null) != _selecting) {
+          setState(() => _selecting = content != null);
+        }
+      },
+      // Flutter scrolls a selection only once the dragged handle's text point
+      // leaves the list, and that point sits well above the finger. With the
+      // list reaching the screen bottom it never leaves, so a selection gets
+      // a strip below the list to drag into.
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 150),
+        padding: EdgeInsets.only(bottom: _selecting ? 64 : 0),
+        child: SuperListView.builder(
+          listController: _listController,
+          controller: _scrollController,
+          extentEstimation: (_, _) => 30 * textScale,
+          padding: const EdgeInsets.only(top: 8, bottom: 32),
+          itemCount: data.blocks.length + 1,
+          itemBuilder: (context, i) {
+            if (i == data.blocks.length) {
+              return NoteFooter(relPath: widget.relPath, errors: data.errors);
+            }
+            return RepaintBoundary(
               key: ValueKey(i),
-              block: data.blocks[i],
-              actions: actions,
-              root: root,
-              textScale: textScale,
-              highlighted: i == _flashed,
-              matched: _find.hitSet.contains(i),
-              searchTerm: _finding ? _find.term : null,
-              onTaskTap: _changeTaskStatus,
-              onPressed: (_) => _pressedIndex = i,
-              onLongPress: (block) =>
-                  EditorScreen.open(context, widget.relPath, row: block.row),
-            ),
-          );
-        },
+              child: JoinedSelection(
+                onChanged: (text) => _onBlockSelection(i, text),
+                child: BlockWidget(
+                  block: data.blocks[i],
+                  actions: actions,
+                  root: root,
+                  textScale: textScale,
+                  highlighted: i == _flashed,
+                  matched: _find.hitSet.contains(i),
+                  searchTerm: _finding ? _find.term : null,
+                  onTaskTap: _changeTaskStatus,
+                  onLongPress: (block) => EditorScreen.open(
+                    context,
+                    widget.relPath,
+                    row: block.row,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

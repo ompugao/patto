@@ -79,10 +79,12 @@ class _CodeBlockState extends State<CodeBlock> {
             padding: const EdgeInsets.fromLTRB(10, 6, 4, 0),
             child: Row(
               children: [
-                Text(
-                  widget.lang.isEmpty ? 'code' : widget.lang,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.outline,
+                SelectionContainer.disabled(
+                  child: Text(
+                    widget.lang.isEmpty ? 'code' : widget.lang,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
                   ),
                 ),
                 const Spacer(),
