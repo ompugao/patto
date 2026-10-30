@@ -1,12 +1,8 @@
-# Patto Note 🪽
+# <picture>  <source media="(prefers-color-scheme: dark)" srcset="assets/patto_icon_dark.png">  <source media="(prefers-color-scheme: light)" srcset="assets/patto_icon_light.png">  <img width="50" height="50" alt="patto_logo" src="assets/patto_icon_dark.png" /></picture> Patto Note
 
 A simple plain-text format for note-taking, outlining, and task management. Inspired by [Cosense/Scrapbox](https://scrapbox.io), powered by LSP.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/patto_icon_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/patto_icon_light.png">
-  <img width="200" height="200" alt="patto_logo" src="assets/patto_icon_dark.png" />
-</picture>
+
 
 ![demo.gif](https://github.com/user-attachments/assets/8e1772dc-e4a7-4b22-bf83-c434e73726fb)
 
