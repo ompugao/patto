@@ -34,7 +34,13 @@ class JoiningSelectionDelegate extends StaticSelectionContainerDelegate {
 
   @override
   void notifyListeners() {
+    // Report before the enclosing region hears of the change, so that its
+    // listeners already see this block's new text.
+    _report();
     super.notifyListeners();
+  }
+
+  void _report() {
     if (onChanged == null) return;
     var text = value.hasSelection ? getSelectedContent()?.plainText : null;
     if (text != null && text.isEmpty) text = null;
