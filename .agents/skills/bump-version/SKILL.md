@@ -73,7 +73,13 @@ then "Changes since vA.B.C" as bullets with PR numbers, then
 - master CI: `gh run list --branch master --limit 5`, then `gh run watch <id>`.
   `android.yml` also runs on master when `Cargo.toml`/`Cargo.lock` change.
 - Release: `gh run list --workflow release.yml --limit 3`, then
-  `gh release view vX.Y.Z` and compare the asset count with the previous release
-  (v0.7.1 had 22 assets).
+  `gh release view vX.Y.Z` and compare the asset names with the previous release
+  (v0.7.1 and v0.7.2 had 22 assets).
+- The two APKs (`patto-notes-X.Y.Z-arm64-v8a.apk`, `patto-notes-X.Y.Z-x86_64.apk`)
+  are not built by the Release workflow. `android.yml` starts as a `workflow_run`
+  after Release succeeds and attaches them, about 15 minutes later. Until then the
+  release shows 20 assets; that is not a failure. Wait for that run
+  (`gh run list --workflow android.yml --limit 3`) before checking the assets.
+  If it fails, rerun it, or run `android.yml` by hand with the `tag` input.
 - If the Release workflow fails because of a fix that lands later, move the tag
   to the commit with the fix (this happened for v0.7.0 with PR #168).
