@@ -8,8 +8,10 @@ class JoiningSelectionDelegate extends StaticSelectionContainerDelegate {
   JoiningSelectionDelegate({this.onChanged});
 
   /// Called with the selected text whenever the selection here changes; null
-  /// once nothing is selected.
+  /// once it is deselected. Never null before the first selection, so a null
+  /// always means the user deselected.
   final void Function(String? text)? onChanged;
+  String? _reported;
 
   @override
   SelectedContent? getSelectedContent() {
@@ -34,18 +36,28 @@ class JoiningSelectionDelegate extends StaticSelectionContainerDelegate {
   void notifyListeners() {
     super.notifyListeners();
     if (onChanged == null) return;
-    final text = value.hasSelection ? getSelectedContent()?.plainText : null;
-    onChanged!(text == null || text.isEmpty ? null : text);
+    var text = value.hasSelection ? getSelectedContent()?.plainText : null;
+    if (text != null && text.isEmpty) text = null;
+    if (text == _reported) return;
+    _reported = text;
+    onChanged!(text);
   }
 }
 
 /// Puts [child]'s selectable text under a [JoiningSelectionDelegate].
 class JoinedSelection extends StatefulWidget {
-  const JoinedSelection({super.key, this.onChanged, required this.child});
+  const JoinedSelection({
+    super.key,
+    this.onChanged,
+    this.onMounted,
+    required this.child,
+  });
 
-  /// Also called with null when this widget is first built: a rebuilt block
-  /// starts unselected, and a kept selection is re-applied by a later call.
   final void Function(String? text)? onChanged;
+
+  /// Called when this widget is first built. A rebuilt block starts
+  /// unselected; a selection kept for it is re-applied through [onChanged].
+  final VoidCallback? onMounted;
   final Widget child;
 
   @override
@@ -60,7 +72,7 @@ class _JoinedSelectionState extends State<JoinedSelection> {
   @override
   void initState() {
     super.initState();
-    widget.onChanged?.call(null);
+    widget.onMounted?.call();
   }
 
   @override

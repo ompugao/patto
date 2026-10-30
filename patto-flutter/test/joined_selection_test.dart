@@ -36,17 +36,35 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('reports nothing selected when first built', (tester) async {
+  testWidgets('reports mounting, and no selection until there is one', (
+    tester,
+  ) async {
+    var mounted = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: SelectionArea(
-          child: JoinedSelection(onChanged: reports.add, child: Text('a')),
+          child: JoinedSelection(
+            onChanged: reports.add,
+            onMounted: () => mounted++,
+            child: const Text('a'),
+          ),
         ),
       ),
     );
+    await tester.pump();
 
-    expect(reports, isNotEmpty);
-    expect(reports, everyElement(isNull));
+    expect(mounted, 1);
+    expect(reports, isEmpty);
+  });
+
+  testWidgets('reports null once a selection is cleared', (tester) async {
+    await selectAll(tester, const Text('a'));
+    tester
+        .state<SelectableRegionState>(find.byType(SelectableRegion))
+        .clearSelection();
+    await tester.pump();
+
+    expect(reports, ['a', null]);
   });
 
   testWidgets('parts on separate rows are joined with a newline', (
