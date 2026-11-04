@@ -6,16 +6,7 @@
 
 #### Task syntax
 
-Patto supports two syntaxes for tasks:
-
-**Shorthand** — quick inline marker with an optional date:
-```txt
-!2024-12-31    Todo with deadline
-*2024-12-31    In progress
--2024-12-31    Done
-```
-
-**Block form** — rich metadata via `{@task}` property:
+A task is a line with a `{@task}` property:
 ```txt
 buy milk {@task status=todo}
 write report {@task status=doing due=2024-12-31 scheduled=2024-12-28}

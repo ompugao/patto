@@ -316,23 +316,6 @@ mod tasks {
     }
 
     #[test]
-    fn test_task_abbreviated_todo() {
-        let input = "Abbreviated task !2024-12-31";
-        let output = render_markdown(input, MarkdownFlavor::Standard);
-
-        assert!(output.contains("[ ] Abbreviated task"));
-        assert!(output.contains("(due: 2024-12-31)"));
-    }
-
-    #[test]
-    fn test_task_abbreviated_done() {
-        let input = "Done abbreviated -2024-12-31";
-        let output = render_markdown(input, MarkdownFlavor::Standard);
-
-        assert!(output.contains("[x] Done abbreviated"));
-    }
-
-    #[test]
     fn test_task_obsidian_emoji_format() {
         let input = "Task {@task status=todo due=2024-12-31}";
         let output = render_markdown(input, MarkdownFlavor::Obsidian);

@@ -61,7 +61,7 @@ void main() {
       expect(inserted, [
         ('[]', 1),
         ('{@task status=todo}', 0),
-        ('!2026-10-09', 0),
+        ('{@task status=todo due=2026-10-09}', 0),
         ('[@code ]', 1),
         ('[@quote]', 0),
       ]);

@@ -1,7 +1,7 @@
 //! Flatten a parsed note into the block list the Flutter note view scrolls.
 
 use patto::markdown::{MarkdownFlavor, MarkdownRendererOptions};
-use patto::parser::{self, AstNode, AstNodeKind, Location, Property};
+use patto::parser::{self, AstNode, AstNodeKind, Property};
 use patto::renderer::{MarkdownRenderer, Renderer};
 use patto::utils::{get_gyazo_img_src, get_youtube_id, is_google_photos_url};
 use url::Url;
@@ -192,19 +192,6 @@ fn line_block(contents: &[AstNode]) -> BlockKind {
     }
 }
 
-/// The source text a location covers. `Location::as_str` is private to the core
-/// crate, but the line text and byte span it holds are public.
-fn span_text(location: &Location) -> &str {
-    let end = location.span.1.min(location.input.len());
-    let start = location.span.0.min(end);
-    &location.input[start..end]
-}
-
-/// `!2026-12-31` rather than `{@task ...}`.
-fn is_shorthand(location: &Location) -> bool {
-    !span_text(location).trim_start().starts_with("{@")
-}
-
 fn is_blank_text(node: &AstNode) -> bool {
     matches!(node.kind(), AstNodeKind::Text) && node.extract_str().trim().is_empty()
 }
@@ -337,7 +324,6 @@ pub(crate) fn task_info(prop: &Property) -> Option<TaskInfo> {
         completed_at,
         started_at,
         time_spent,
-        location,
         ..
     } = prop
     else {
@@ -351,6 +337,5 @@ pub(crate) fn task_info(prop: &Property) -> Option<TaskInfo> {
         completed_at: completed_at.as_ref().and_then(TaskDate::from_deadline),
         started_at: started_at.as_ref().and_then(TaskDate::from_deadline),
         time_spent_minutes: time_spent.as_ref().map(|d| d.hours * 60 + d.minutes),
-        is_shorthand: is_shorthand(location),
     })
 }

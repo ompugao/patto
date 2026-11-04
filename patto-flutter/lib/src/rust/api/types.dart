@@ -444,9 +444,6 @@ class TaskInfo {
   final TaskDate? startedAt;
   final int? timeSpentMinutes;
 
-  /// `true` for `!2026-12-31`, `false` for `{@task ...}`.
-  final bool isShorthand;
-
   const TaskInfo({
     required this.status,
     this.due,
@@ -454,7 +451,6 @@ class TaskInfo {
     this.completedAt,
     this.startedAt,
     this.timeSpentMinutes,
-    required this.isShorthand,
   });
 
   @override
@@ -464,8 +460,7 @@ class TaskInfo {
       scheduled.hashCode ^
       completedAt.hashCode ^
       startedAt.hashCode ^
-      timeSpentMinutes.hashCode ^
-      isShorthand.hashCode;
+      timeSpentMinutes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -477,8 +472,7 @@ class TaskInfo {
           scheduled == other.scheduled &&
           completedAt == other.completedAt &&
           startedAt == other.startedAt &&
-          timeSpentMinutes == other.timeSpentMinutes &&
-          isShorthand == other.isShorthand;
+          timeSpentMinutes == other.timeSpentMinutes;
 }
 
 enum TaskStatus { todo, doing, paused, done, archived }

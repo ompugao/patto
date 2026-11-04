@@ -330,20 +330,6 @@ fn multibyte_text_is_sliced_on_character_boundaries() {
 }
 
 #[test]
-fn shorthand_and_block_tasks_are_both_recognised() {
-    let blocks = blocks("buy milk !2026-12-31\nwrite up {@task status=doing due=2026-01-05}\n");
-
-    let shorthand = blocks[0].task.as_ref().unwrap();
-    assert_eq!(shorthand.status, TaskStatus::Todo);
-    assert_eq!(shorthand.due.as_ref().unwrap().text, "2026-12-31");
-    assert!(shorthand.is_shorthand);
-
-    let longform = blocks[1].task.as_ref().unwrap();
-    assert_eq!(longform.status, TaskStatus::Doing);
-    assert!(!longform.is_shorthand);
-}
-
-#[test]
 fn a_task_without_a_deadline_has_no_due_date() {
     let blocks = blocks("something {@task status=todo}\n");
     assert!(blocks[0].task.as_ref().unwrap().due.is_none());
@@ -351,7 +337,7 @@ fn a_task_without_a_deadline_has_no_due_date() {
 
 #[test]
 fn parse_errors_are_reported_and_the_line_still_renders() {
-    let rendered = render_note("!2026-01-02 leading shorthand\n".to_string());
+    let rendered = render_note("broken {@task status=todo\n".to_string());
     assert_eq!(rendered.errors.len(), 1);
     assert_eq!(rendered.errors[0].row, 0);
     assert_eq!(rendered.blocks.len(), 1);

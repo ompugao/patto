@@ -2408,8 +2408,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskInfo dco_decode_task_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return TaskInfo(
       status: dco_decode_task_status(arr[0]),
       due: dco_decode_opt_box_autoadd_task_date(arr[1]),
@@ -2417,7 +2417,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       completedAt: dco_decode_opt_box_autoadd_task_date(arr[3]),
       startedAt: dco_decode_opt_box_autoadd_task_date(arr[4]),
       timeSpentMinutes: dco_decode_opt_box_autoadd_u_32(arr[5]),
-      isShorthand: dco_decode_bool(arr[6]),
     );
   }
 
@@ -3708,7 +3707,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_completedAt = sse_decode_opt_box_autoadd_task_date(deserializer);
     var var_startedAt = sse_decode_opt_box_autoadd_task_date(deserializer);
     var var_timeSpentMinutes = sse_decode_opt_box_autoadd_u_32(deserializer);
-    var var_isShorthand = sse_decode_bool(deserializer);
     return TaskInfo(
       status: var_status,
       due: var_due,
@@ -3716,7 +3714,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       completedAt: var_completedAt,
       startedAt: var_startedAt,
       timeSpentMinutes: var_timeSpentMinutes,
-      isShorthand: var_isShorthand,
     );
   }
 
@@ -4892,7 +4889,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_task_date(self.completedAt, serializer);
     sse_encode_opt_box_autoadd_task_date(self.startedAt, serializer);
     sse_encode_opt_box_autoadd_u_32(self.timeSpentMinutes, serializer);
-    sse_encode_bool(self.isShorthand, serializer);
   }
 
   @protected

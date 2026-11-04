@@ -39,11 +39,7 @@ Plain text
 [note#anchor]                    Link to the anchored line in note
 [https://example.com Title]     External link
 
-!2024-12-31    Todo with deadline (shorthand)
-*2024-12-31    In progress
--2024-12-31    Done
-
-{@task status=todo due=2024-12-31}                       Block form, todo
+{@task status=todo due=2024-12-31}                       Todo with deadline
 {@task status=doing due=2024-12-31 scheduled=2024-12-30} Include scheduled date
 {@task status=done completed_at=2024-03-15}              Done — completed_at auto-inserted
 {@task status=archived archived_at=2024-03-20}           Dropped — hidden from task lists

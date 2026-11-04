@@ -23,16 +23,7 @@ double tabWidth(TextStyle style) {
   return width;
 }
 
-enum PattoToken {
-  command,
-  code,
-  math,
-  decoration,
-  link,
-  property,
-  task,
-  anchor,
-}
+enum PattoToken { command, code, math, decoration, link, property, anchor }
 
 final _tokenPattern = RegExp(
   r'(?<code>\[`.*?`\])'
@@ -41,7 +32,6 @@ final _tokenPattern = RegExp(
   r'|(?<decoration>\[[*/_\-]+\s[^\[\]]*\])'
   r'|(?<link>\[[^\[\]]+\])'
   r'|(?<property>\{@[^{}]*\})'
-  r'|(?<task>(?<=^|\s)[!*\-]\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?(?=\s|$))'
   r'|(?<anchor>(?<=^|\s)#[^\s\]}]+)',
 );
 
@@ -85,13 +75,6 @@ class PattoSpanStyles {
     PattoToken.decoration => _decoration(text),
     PattoToken.link => TextStyle(color: _scheme.primary),
     PattoToken.property => TextStyle(color: _scheme.onSurfaceVariant),
-    PattoToken.task => TextStyle(
-      color: switch (text[0]) {
-        '!' => _scheme.error,
-        '*' => _scheme.primary,
-        _ => _scheme.outline,
-      },
-    ),
     PattoToken.anchor => TextStyle(color: _scheme.secondary),
   };
 

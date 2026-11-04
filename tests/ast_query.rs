@@ -37,7 +37,10 @@ fn task_label_strips_the_task_token_wherever_it_sits() {
         task_label(&first_line("buy {@task status=todo} milk")),
         "buy milk"
     );
-    assert_eq!(task_label(&nested_line("-2026-06-01")), "");
+    assert_eq!(
+        task_label(&nested_line("{@task status=done due=2026-06-01}")),
+        ""
+    );
 }
 
 #[test]
@@ -87,7 +90,7 @@ fn walk_lines_reports_each_line_with_its_nesting_depth() {
 #[test]
 fn gather_tasks_skips_done_and_archived_tasks_and_keeps_the_due_date() {
     let root = parse(
-        "open {@task status=todo due=2026-06-01}\n\tclosed -2026-05-01\n\tactive *2026-05-02\n\tdropped {@task status=archived due=2026-05-03}\n",
+        "open {@task status=todo due=2026-06-01}\n\tclosed {@task status=done due=2026-05-01}\n\tactive {@task status=doing due=2026-05-02}\n\tdropped {@task status=archived due=2026-05-03}\n",
     );
     let mut tasks = Vec::new();
     gather_tasks(&root, &mut tasks);

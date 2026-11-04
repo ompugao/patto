@@ -197,17 +197,6 @@ const PROPERTY: Guide = Guide {
     severity: DiagnosticSeverity::ERROR,
 };
 
-const TASK: Guide = Guide {
-    code: "invalid-task",
-    primary: "Invalid task syntax",
-    help: "Tasks use {@task status=<todo|doing|done> due=<YYYY-MM-DD or YYYY-MM-DDThh:mm>}. Provide both status and due date.",
-    examples: &[
-        "{@task status=todo due=2024-12-31}",
-        "{@task status=doing due=2024-12-31T14:00}",
-    ],
-    severity: DiagnosticSeverity::ERROR,
-};
-
 const ANCHOR: Guide = Guide {
     code: "invalid-anchor",
     primary: "Invalid anchor",
@@ -247,7 +236,6 @@ enum RuleFamily {
     Link,
     Command,
     Property,
-    Task,
     Anchor,
     InlineCode,
     InlineMath,
@@ -265,7 +253,6 @@ const RULE_FAMILIES: &[(RuleFamily, RuleMatcher)] = &[
     (RuleFamily::Link, is_link_rule),
     (RuleFamily::Command, is_command_rule),
     (RuleFamily::Property, is_property_rule),
-    (RuleFamily::Task, is_task_rule),
     (RuleFamily::Anchor, is_anchor_rule),
     (RuleFamily::InlineCode, is_inline_code_rule),
     (RuleFamily::InlineMath, is_inline_math_rule),
@@ -289,7 +276,6 @@ impl RuleFamily {
             RuleFamily::Link => &LINK,
             RuleFamily::Command => &COMMAND,
             RuleFamily::Property => &PROPERTY,
-            RuleFamily::Task => &TASK,
             RuleFamily::Anchor => &ANCHOR,
             RuleFamily::InlineCode => &INLINE_CODE,
             RuleFamily::InlineMath => &INLINE_MATH,
@@ -366,17 +352,6 @@ fn is_property_rule(rule: Rule) -> bool {
     )
 }
 
-fn is_task_rule(rule: Rule) -> bool {
-    matches!(
-        rule,
-        Rule::expr_task
-            | Rule::symbol_task_done
-            | Rule::symbol_task_doing
-            | Rule::symbol_task_todo
-            | Rule::task_due
-    )
-}
-
 fn is_anchor_rule(rule: Rule) -> bool {
     matches!(rule, Rule::expr_anchor | Rule::anchor)
 }
@@ -446,7 +421,6 @@ fn rule_display_name(rule: Rule) -> Cow<'static, str> {
         Rule::expr_math_inline => Cow::Borrowed("inline math"),
         Rule::expr_property => Cow::Borrowed("property"),
         Rule::expr_anchor => Cow::Borrowed("anchor"),
-        Rule::expr_task => Cow::Borrowed("task"),
         Rule::expr_builtin_symbols => Cow::Borrowed("text decoration"),
         Rule::symbol_bold => Cow::Borrowed("bold marker (*)"),
         Rule::symbol_italic => Cow::Borrowed("italic marker (/)"),
@@ -545,8 +519,8 @@ mod tests {
     #[test]
     fn most_specific_rule_family_wins() {
         assert!(matches!(
-            RuleFamily::of(&[Rule::statement, Rule::expr_task, Rule::task_due]),
-            Some(RuleFamily::Task)
+            RuleFamily::of(&[Rule::statement, Rule::expr_anchor, Rule::anchor]),
+            Some(RuleFamily::Anchor)
         ));
         assert!(matches!(
             RuleFamily::of(&[Rule::statement]),
@@ -558,9 +532,9 @@ mod tests {
     #[test]
     fn expectations_are_sorted_and_deduplicated() {
         assert_eq!(
-            describe_expectations(&[Rule::expr_task, Rule::expr_anchor, Rule::expr_task])
+            describe_expectations(&[Rule::expr_property, Rule::expr_anchor, Rule::expr_property])
                 .as_deref(),
-            Some("one of anchor, task")
+            Some("one of anchor, property")
         );
         assert_eq!(describe_expectations(&[]), None);
     }

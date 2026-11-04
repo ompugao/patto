@@ -109,7 +109,8 @@ class EditorToolbar extends StatelessWidget {
                         child: const Text('task'),
                       ),
                       TextButton(
-                        onPressed: () => onInsert('!${today()}'),
+                        onPressed: () =>
+                            onInsert('{@task status=todo due=${today()}}'),
                         child: const Text('due'),
                       ),
                       TextButton(

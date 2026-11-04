@@ -95,17 +95,10 @@ check("review recent_range month start wins", { review_timeframe.recent_range(no
 check("increment longform todo", tasks.increment_task_string("\tx {@task status=todo due=2026-10-10}"), "\tx {@task status=doing due=2026-10-10}")
 check("increment longform keeps case-insensitive match", tasks.increment_task_string("\tx {@task status=Doing}"), "\tx {@task status=done}")
 check("increment longform unknown status", tasks.increment_task_string("\tx {@task status=weird}"), "\tx {@task status=doing}")
-check("increment longform without status falls to shorthand", tasks.increment_task_string("\tx {@task due=2026-10-10} !2026-10-10"), "\tx {@task due=2026-10-10} *2026-10-10")
-check("increment shorthand cycle", {
-  tasks.increment_task_string("a !2026-10-10"), tasks.increment_task_string("a *2026-10-10"), tasks.increment_task_string("a -2026-10-10"),
-}, { "a *2026-10-10", "a -2026-10-10", "a !2026-10-10" })
 check("decrement longform", {
   tasks.decrement_task_string("{@task status=done}"), tasks.decrement_task_string("{@task status=doing}"),
   tasks.decrement_task_string("{@task status=paused}"), tasks.decrement_task_string("{@task status=todo}"),
 }, { "{@task status=doing}", "{@task status=paused}", "{@task status=todo}", "{@task status=done}" })
-check("decrement shorthand cycle", {
-  tasks.decrement_task_string("a -2026-10-10"), tasks.decrement_task_string("a *2026-10-10"), tasks.decrement_task_string("a !2026-10-10"),
-}, { "a *2026-10-10", "a !2026-10-10", "a -2026-10-10" })
 check("no task on line", tasks.increment_task_string("plain"), nil)
 
 check("launch.command", launch.command("bin", { "/root" }, { "--port", "3000" }, { "--x", 1 }), { "bin", "/root", "--port", "3000", "--x", "1" })

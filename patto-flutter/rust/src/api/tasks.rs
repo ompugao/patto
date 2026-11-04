@@ -215,23 +215,11 @@ pub(crate) fn set_task_status_at(
 
     let transitions = task_edits::detect_task_transitions(&new_map, &old_map);
 
-    let edits = if let Some(transition) = transitions.first() {
-        // A timestamp is being recorded, so the token is rewritten in long form.
-        task_edits::generate_edits_for_transition(transition, now)
-    } else if old.is_shorthand && shorthand_symbol(&core_status).is_some() {
-        // Status-only change on a shorthand token: swap the leading symbol and
-        // keep the compact form the user wrote.
-        let symbol = shorthand_symbol(&core_status).unwrap();
-        vec![task_edits::TextEdit {
-            row: row as usize,
-            start_byte: old.prop_span.0,
-            end_byte: old.prop_span.0 + 1,
-            start_utf16: 0,
-            end_utf16: 0,
-            new_text: symbol.to_string(),
-        }]
-    } else {
-        task_edits::rewrite_task_token(&new, &[("status", status_word(&core_status).to_string())])
+    let edits = match transitions.first() {
+        Some(transition) => task_edits::generate_edits_for_transition(transition, now),
+        None => {
+            task_edits::rewrite_task_token(&new, &[("status", core_status.keyword().to_string())])
+        }
     };
 
     if edits.is_empty() {
@@ -252,24 +240,4 @@ pub(crate) fn set_task_status_at(
         .to_string();
 
     Ok(TaskEditResult { row, new_line })
-}
-
-/// `paused` and `archived` have no shorthand spelling, so they always convert to long form.
-fn shorthand_symbol(status: &CoreTaskStatus) -> Option<char> {
-    match status {
-        CoreTaskStatus::Todo => Some('!'),
-        CoreTaskStatus::Doing => Some('*'),
-        CoreTaskStatus::Done => Some('-'),
-        CoreTaskStatus::Paused | CoreTaskStatus::Archived => None,
-    }
-}
-
-fn status_word(status: &CoreTaskStatus) -> &'static str {
-    match status {
-        CoreTaskStatus::Todo => "todo",
-        CoreTaskStatus::Doing => "doing",
-        CoreTaskStatus::Paused => "paused",
-        CoreTaskStatus::Done => "done",
-        CoreTaskStatus::Archived => "archived",
-    }
 }

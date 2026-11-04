@@ -65,17 +65,6 @@ fn apply_edits_ignores_edits_that_fall_outside_the_line() {
 }
 
 #[test]
-fn rewrite_task_token_turns_shorthand_into_the_long_form() {
-    let text = "buy milk -2026-01-31";
-    let snapshot = only_snapshot(text);
-    let edits = rewrite_task_token(&snapshot, &[("status", "todo".to_string())]);
-    assert_eq!(
-        rewritten(text, &edits),
-        "buy milk {@task status=todo due=2026-01-31}"
-    );
-}
-
-#[test]
 fn rewrite_task_token_keeps_fields_that_were_not_overridden() {
     let text = "{@task status=doing due=2026-01-31 scheduled=2026-01-20 started_at=2026-01-30T09:00 time_spent=1h}";
     let snapshot = only_snapshot(text);

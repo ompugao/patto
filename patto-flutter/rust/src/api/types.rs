@@ -83,8 +83,6 @@ pub struct TaskInfo {
     pub completed_at: Option<TaskDate>,
     pub started_at: Option<TaskDate>,
     pub time_spent_minutes: Option<u32>,
-    /// `true` for `!2026-12-31`, `false` for `{@task ...}`.
-    pub is_shorthand: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

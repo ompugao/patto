@@ -56,7 +56,6 @@ fn task_property_fields_are_parsed() {
     assert_eq!(task.completed_at, Some(datetime("2026-01-30T18:00")));
     assert_eq!(task.started_at, Some(datetime("2026-01-30T16:30")));
     assert_eq!(task.time_spent, Some(Duration::new(1, 30)));
-    assert!(!task.is_shorthand);
 }
 
 #[test]
@@ -126,27 +125,6 @@ fn unparsable_time_spent_is_dropped() {
 fn unparsable_deadline_is_kept_as_text() {
     let task = parse_task("{@task status=todo due=next-week}");
     assert_eq!(task.due, Deadline::Uninterpretable("next-week".to_string()));
-}
-
-#[test]
-fn shorthand_task_symbols_map_to_a_status() {
-    for (text, status) in [
-        ("!2026-01-31", TaskStatus::Todo),
-        ("*2026-01-31", TaskStatus::Doing),
-        ("-2026-01-31", TaskStatus::Done),
-    ] {
-        let task = parse_task(&format!("buy milk {text}"));
-        assert_eq!(task.status, status, "{text}");
-        assert!(task.status_is_canonical, "{text}");
-        assert!(task.is_shorthand, "{text}");
-        assert_eq!(task.due, date("2026-01-31"), "{text}");
-    }
-}
-
-#[test]
-fn shorthand_task_accepts_a_time_of_day() {
-    let task = parse_task("-2026-01-31T20:00");
-    assert_eq!(task.due, datetime("2026-01-31T20:00"));
 }
 
 #[test]
