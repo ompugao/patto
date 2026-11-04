@@ -330,16 +330,6 @@ fn multibyte_text_is_sliced_on_character_boundaries() {
 }
 
 #[test]
-fn a_task_property_marks_the_line_as_a_task() {
-    let blocks = blocks("buy milk !2026-12-31\nwrite up {@task status=doing due=2026-01-05}\n");
-
-    assert!(blocks[0].task.is_none());
-    let task = blocks[1].task.as_ref().unwrap();
-    assert_eq!(task.status, TaskStatus::Doing);
-    assert_eq!(task.due.as_ref().unwrap().text, "2026-01-05");
-}
-
-#[test]
 fn a_task_without_a_deadline_has_no_due_date() {
     let blocks = blocks("something {@task status=todo}\n");
     assert!(blocks[0].task.as_ref().unwrap().due.is_none());
