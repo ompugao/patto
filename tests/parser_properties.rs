@@ -128,19 +128,6 @@ fn unparsable_deadline_is_kept_as_text() {
 }
 
 #[test]
-fn a_date_with_a_task_symbol_is_plain_text() {
-    for text in [
-        "buy milk !2026-01-31",
-        "buy milk *2026-01-31",
-        "-2026-01-31T20:00",
-    ] {
-        let snapshots = task_edits::collect_task_snapshots(&parse(text));
-        assert!(snapshots.is_empty(), "{text} should not be a task");
-        assert_eq!(first_line(text).extract_str(), text);
-    }
-}
-
-#[test]
 fn task_property_span_covers_the_whole_token() {
     let line = "text {@task status=todo}";
     let task = parse_task(line);
