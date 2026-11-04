@@ -272,6 +272,17 @@ fn doing_task_shows_the_doing_icon() {
 }
 
 #[test]
+fn archived_task_is_struck_through_and_hides_the_deadline() {
+    let html = render("{@task status=archived due=2024-12-31} dropped\n");
+    assert_contains(&html, "patto-task-icon-archived");
+    assert_contains(&html, "patto-task-done-text");
+    assert!(
+        !html.contains("patto-deadline"),
+        "an archived task should not show a deadline:\n{html}"
+    );
+}
+
+#[test]
 fn done_task_is_struck_through_and_hides_the_deadline() {
     let html = render("{@task status=done due=2024-12-31} shipped\n");
     assert_contains(&html, "patto-task-icon-done");

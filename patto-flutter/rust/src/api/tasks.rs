@@ -78,7 +78,7 @@ fn item_of(
     }
 }
 
-/// Every task that is not done, earliest deadline first.
+/// Every task that is neither done nor archived, earliest deadline first.
 pub fn pending_tasks(root: String, today: Option<String>) -> PattoResult<Vec<TaskItem>> {
     let today = parse_today(today);
 
@@ -86,7 +86,7 @@ pub fn pending_tasks(root: String, today: Option<String>) -> PattoResult<Vec<Tas
         let mut out: Vec<TaskItem> = Vec::new();
         for note in idx.notes.values() {
             for task in &note.tasks {
-                if task.info.status == TaskStatus::Done {
+                if matches!(task.info.status, TaskStatus::Done | TaskStatus::Archived) {
                     continue;
                 }
                 out.push(item_of(
@@ -254,13 +254,13 @@ pub(crate) fn set_task_status_at(
     Ok(TaskEditResult { row, new_line })
 }
 
-/// `paused` has no shorthand spelling, so pausing always converts to long form.
+/// `paused` and `archived` have no shorthand spelling, so they always convert to long form.
 fn shorthand_symbol(status: &CoreTaskStatus) -> Option<char> {
     match status {
         CoreTaskStatus::Todo => Some('!'),
         CoreTaskStatus::Doing => Some('*'),
         CoreTaskStatus::Done => Some('-'),
-        CoreTaskStatus::Paused => None,
+        CoreTaskStatus::Paused | CoreTaskStatus::Archived => None,
     }
 }
 
@@ -270,5 +270,6 @@ fn status_word(status: &CoreTaskStatus) -> &'static str {
         CoreTaskStatus::Doing => "doing",
         CoreTaskStatus::Paused => "paused",
         CoreTaskStatus::Done => "done",
+        CoreTaskStatus::Archived => "archived",
     }
 }

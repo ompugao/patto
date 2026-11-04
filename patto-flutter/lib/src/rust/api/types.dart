@@ -481,7 +481,7 @@ class TaskInfo {
           isShorthand == other.isShorthand;
 }
 
-enum TaskStatus { todo, doing, paused, done }
+enum TaskStatus { todo, doing, paused, done, archived }
 
 /// One line of a note that contains the searched text.
 class TextMatch {

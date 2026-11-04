@@ -236,7 +236,7 @@ impl<'a> DocBuilder<'a> {
             Property::Task { status, .. } => Some(status),
             _ => None,
         });
-        let is_done = matches!(task_status, Some(TaskStatus::Done));
+        let is_done = matches!(task_status, Some(TaskStatus::Done | TaskStatus::Archived));
 
         let mut spans = self.line_prefix(ast, task_status, is_quote, indent);
         let base_style = if is_done {
@@ -277,8 +277,8 @@ impl<'a> DocBuilder<'a> {
         self.flush_image_row(&mut image_row, indent, row);
 
         for property in properties {
-            if let Property::Task { status, due, .. } = property {
-                if !matches!(status, TaskStatus::Done) {
+            if let Property::Task { due, .. } = property {
+                if !is_done {
                     spans.push(Span::styled(
                         format!(" [{}]", due),
                         Style::default().fg(Color::Red),
@@ -313,6 +313,7 @@ impl<'a> DocBuilder<'a> {
                 TaskStatus::Done => ("✓ ", Color::Green),
                 TaskStatus::Doing => ("◑ ", Color::Yellow),
                 TaskStatus::Paused => ("⏸ ", Color::Cyan),
+                TaskStatus::Archived => ("⊘ ", Color::DarkGray),
                 _ => ("○ ", Color::White),
             };
             spans.push(Span::styled(icon.to_string(), Style::default().fg(color)));
@@ -715,6 +716,7 @@ mod tests {
             ("doing", "◑ "),
             ("paused", "⏸ "),
             ("done", "✓ "),
+            ("archived", "⊘ "),
         ] {
             let doc = render(&format!("{{@task status={status} due=2024-12-31}} item\n"));
             assert_any_line_contains(&doc, icon);

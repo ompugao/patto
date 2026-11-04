@@ -26,6 +26,7 @@ impl Conversion<'_> {
             due: date(extract_due_date(&text)).unwrap_or(Deadline::Uninterpretable(String::new())),
             scheduled: date(extract_scheduled_date(&text)),
             completed_at: date(extract_completed_at_date(&text)),
+            archived_at: None,
             started_at: None,
             time_spent: None,
             location: Location::default(),

@@ -21,10 +21,11 @@ describe('taskLabel', () => {
 		assert.strictEqual(taskLabel(task({ due: { Uninterpretable: 'someday' } })), 'write report');
 	});
 
-	it('marks doing and paused tasks, but not todo or done', () => {
+	it('marks doing and paused tasks, but not todo, done or archived', () => {
 		assert.strictEqual(taskLabel(task({ status: 'Doing' })), 'write report [doing]');
 		assert.strictEqual(taskLabel(task({ status: 'Paused' })), 'write report [paused]');
 		assert.strictEqual(taskLabel(task({ status: 'Done' })), 'write report');
+		assert.strictEqual(taskLabel(task({ status: 'Archived' })), 'write report');
 	});
 
 	it('appends the time spent after the status', () => {

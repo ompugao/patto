@@ -25,6 +25,7 @@ class TaskMarker extends StatelessWidget {
       TaskStatus.doing => (Icons.play_circle_outline, colors.primary),
       TaskStatus.paused => (Icons.pause_circle_outline, colors.tertiary),
       TaskStatus.done => (Icons.check_circle, Colors.green.shade600),
+      TaskStatus.archived => (Icons.archive_outlined, colors.outline),
     };
 
     final marker = Icon(icon, size: 18 * textScale, color: color);

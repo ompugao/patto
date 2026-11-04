@@ -148,3 +148,11 @@ fn task_clock_fields_survive_a_round_trip() {
         " work {@task status=doing due=2026-06-01 started_at=2026-05-30T09:00 time_spent=1h30m}\n"
     );
 }
+
+#[test]
+fn archived_at_survives_a_round_trip() {
+    assert_eq!(
+        render("{@task status=archived archived_at=2026-05-30T09:00 time_spent=1h} drop\n"),
+        " drop {@task status=archived archived_at=2026-05-30T09:00 time_spent=1h}\n"
+    );
+}

@@ -21,12 +21,12 @@ pub fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<St
     }
 }
 
-/// Recursively collect non-Done task lines from an AST node.
+/// Recursively collect task lines that are neither done nor archived from an AST node.
 pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
         for prop in properties {
             if let Property::Task { status, due, .. } = prop {
-                if !matches!(status, TaskStatus::Done) {
+                if !matches!(status, TaskStatus::Done | TaskStatus::Archived) {
                     tasklines.push((parent.clone(), due.clone()));
                     break;
                 }

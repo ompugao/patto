@@ -32,7 +32,7 @@ Tasks can be defined using symbols or properties at the start or end of a line.
 - **Doing**: `Task description *2024-12-31`
 - **Done**: `Task description -2024-12-31`
 - **Property-based**: `Task description {@task status=todo due=2024-12-31}`
-    - Status values: `todo`, `doing` (or `inprogress`, `wip`), `done`.
+    - Status values: `todo`, `doing` (or `inprogress`, `wip`), `paused`, `done`, `archived`.
     - Due format: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
 
 ## 5. Blocks

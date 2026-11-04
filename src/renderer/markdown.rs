@@ -191,7 +191,12 @@ impl MarkdownRenderer {
             write!(output, "- ")?;
         }
         if let Some(task) = &task {
-            write!(output, "{}", if task.is_done { "[x] " } else { "[ ] " })?;
+            let checkbox = match task.status {
+                TaskStatus::Done => "[x] ",
+                TaskStatus::Archived => "[-] ",
+                _ => "[ ] ",
+            };
+            write!(output, "{}", checkbox)?;
         }
 
         for content in ast.contents().iter() {
@@ -199,9 +204,9 @@ impl MarkdownRenderer {
         }
 
         if let Some(task) = &task {
-            if task.is_done {
+            if matches!(task.status, TaskStatus::Done) {
                 self.write_task_date(&COMPLETED, task.completed_at, output)?;
-            } else {
+            } else if !matches!(task.status, TaskStatus::Archived) {
                 self.write_task_date(&DUE, Some(task.due), output)?;
                 self.write_task_date(&SCHEDULED, task.scheduled, output)?;
             }
@@ -543,7 +548,7 @@ const COMPLETED: TaskDateFormat = TaskDateFormat {
 
 /// The task recorded on a line, if it has one.
 struct LineTask<'a> {
-    is_done: bool,
+    status: &'a TaskStatus,
     due: &'a Deadline,
     scheduled: Option<&'a Deadline>,
     completed_at: Option<&'a Deadline>,
@@ -558,7 +563,7 @@ fn line_task(properties: &[Property]) -> Option<LineTask<'_>> {
             completed_at,
             ..
         } => Some(LineTask {
-            is_done: matches!(status, TaskStatus::Done),
+            status,
             due,
             scheduled: scheduled.as_ref(),
             completed_at: completed_at.as_ref(),

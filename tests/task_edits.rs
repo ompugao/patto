@@ -152,6 +152,44 @@ fn pausing_moves_the_elapsed_time_into_time_spent() {
 }
 
 #[test]
+fn archiving_a_doing_task_clocks_out_and_records_archived_at() {
+    let old = "{@task status=doing started_at=2026-01-30T09:00}";
+    let new = "{@task status=archived started_at=2026-01-30T09:00}";
+    let found = transitions(old, new);
+    let [transition @ TaskTransition::BecameArchived { .. }] = found.as_slice() else {
+        panic!("expected BecameArchived, got {found:?}");
+    };
+    let edits = generate_edits_for_transition(transition, at("2026-01-30T09:45"));
+    assert_eq!(
+        rewritten(new, &edits),
+        "{@task status=archived archived_at=2026-01-30T09:45 time_spent=45m}"
+    );
+}
+
+#[test]
+fn archiving_a_todo_task_only_records_archived_at() {
+    let new = "{@task status=archived due=2026-02-01}";
+    let found = transitions("{@task status=todo due=2026-02-01}", new);
+    let [transition @ TaskTransition::BecameArchived { .. }] = found.as_slice() else {
+        panic!("expected BecameArchived, got {found:?}");
+    };
+    let edits = generate_edits_for_transition(transition, at("2026-01-30T09:45"));
+    assert_eq!(
+        rewritten(new, &edits),
+        "{@task status=archived due=2026-02-01 archived_at=2026-01-30T09:45}"
+    );
+}
+
+#[test]
+fn archived_with_archived_at_already_present_is_not_a_transition() {
+    assert!(transitions(
+        "{@task status=todo}",
+        "{@task status=archived archived_at=2026-01-30T10:30}"
+    )
+    .is_empty());
+}
+
+#[test]
 fn clocking_out_without_a_start_time_produces_no_edits() {
     let found = transitions("{@task status=doing}", "{@task status=todo}");
     let [transition @ TaskTransition::BecameTodo { .. }] = found.as_slice() else {

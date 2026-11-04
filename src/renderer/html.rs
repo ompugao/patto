@@ -103,13 +103,14 @@ impl HtmlRenderer {
             Property::Task { status, .. } => Some(status),
             _ => None,
         });
-        let is_done = matches!(task_status, Some(TaskStatus::Done));
+        let is_done = matches!(task_status, Some(TaskStatus::Done | TaskStatus::Archived));
 
         write!(output, "<div class=\"patto-task-row\">")?;
         if let Some(status) = task_status {
             let (icon, class) = match status {
                 TaskStatus::Done => ("✓", "patto-task-icon-done"),
                 TaskStatus::Doing => ("◑", "patto-task-icon-doing"),
+                TaskStatus::Archived => ("⊘", "patto-task-icon-archived"),
                 _ => ("○", "patto-task-icon-todo"),
             };
             write!(
@@ -140,8 +141,8 @@ impl HtmlRenderer {
                         name, name
                     )?;
                 }
-                // A done task's deadline is no longer interesting.
-                Property::Task { status, due, .. } if !matches!(status, TaskStatus::Done) => {
+                // A done or archived task's deadline is no longer interesting.
+                Property::Task { due, .. } if !is_done => {
                     write!(
                         output,
                         "<span class=\"patto-deadline patto-deadline-default\">{}</span>",

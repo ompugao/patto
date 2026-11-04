@@ -39,5 +39,6 @@ class TaskStatusSheet extends StatelessWidget {
     TaskStatus.doing => 'Doing',
     TaskStatus.paused => 'Paused',
     TaskStatus.done => 'Done',
+    TaskStatus.archived => 'Archived',
   };
 }

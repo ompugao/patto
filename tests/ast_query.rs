@@ -85,9 +85,9 @@ fn walk_lines_reports_each_line_with_its_nesting_depth() {
 }
 
 #[test]
-fn gather_tasks_skips_done_tasks_and_keeps_the_due_date() {
+fn gather_tasks_skips_done_and_archived_tasks_and_keeps_the_due_date() {
     let root = parse(
-        "open {@task status=todo due=2026-06-01}\n\tclosed -2026-05-01\n\tactive *2026-05-02\n",
+        "open {@task status=todo due=2026-06-01}\n\tclosed -2026-05-01\n\tactive *2026-05-02\n\tdropped {@task status=archived due=2026-05-03}\n",
     );
     let mut tasks = Vec::new();
     gather_tasks(&root, &mut tasks);
@@ -108,7 +108,7 @@ fn gather_tasks_skips_done_tasks_and_keeps_the_due_date() {
 #[test]
 fn gather_completed_tasks_requires_a_completed_at_date() {
     let root = parse(
-        "a {@task status=done completed_at=2026-05-01}\nb {@task status=done completed_at=2026-05-02T10:00}\nc {@task status=done}\nd {@task status=done completed_at=sometime}\ne {@task status=todo completed_at=2026-05-03}\n",
+        "a {@task status=done completed_at=2026-05-01}\nb {@task status=done completed_at=2026-05-02T10:00}\nc {@task status=done}\nd {@task status=done completed_at=sometime}\ne {@task status=todo completed_at=2026-05-03}\nf {@task status=archived completed_at=2026-05-04}\n",
     );
     let mut done = Vec::new();
     gather_completed_tasks(&root, &mut done);

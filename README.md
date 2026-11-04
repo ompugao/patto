@@ -46,6 +46,7 @@ Plain text
 {@task status=todo due=2024-12-31}                       Block form, todo
 {@task status=doing due=2024-12-31 scheduled=2024-12-30} Include scheduled date
 {@task status=done completed_at=2024-03-15}              Done — completed_at auto-inserted
+{@task status=archived archived_at=2024-03-20}           Dropped — hidden from task lists
 ```
 
 ### Blocks
