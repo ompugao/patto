@@ -5,11 +5,6 @@ local LONGFORM_NEXT = {
   decrement = { done = "doing", doing = "paused", paused = "todo", todo = "done", fallback = "todo" },
 }
 
-local SHORTHAND_NEXT = {
-  increment = { ["!"] = "*", ["*"] = "-", ["-"] = "!" },
-  decrement = { ["-"] = "*", ["*"] = "!", ["!"] = "-" },
-}
-
 local HISTORY_LIMIT = 50
 local history_stack = {}
 
@@ -23,12 +18,6 @@ local function cycle_status(line_text, direction)
       local new_block = task_block:sub(1, status_start - 1) .. "status=" .. next_status .. task_block:sub(status_end + 1)
       return line_text:sub(1, block_start - 1) .. new_block .. line_text:sub(block_end + 1)
     end
-  end
-
-  local marker_pos = line_text:find("[!%*%-]%d%d%d%d%-%d%d%-%d%d")
-  if marker_pos then
-    local marker = line_text:sub(marker_pos, marker_pos)
-    return line_text:sub(1, marker_pos - 1) .. SHORTHAND_NEXT[direction][marker] .. line_text:sub(marker_pos + 1)
   end
 
   return nil

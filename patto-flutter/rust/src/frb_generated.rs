@@ -2602,7 +2602,6 @@ impl SseDecode for crate::api::types::TaskInfo {
         let mut var_completedAt = <Option<crate::api::types::TaskDate>>::sse_decode(deserializer);
         let mut var_startedAt = <Option<crate::api::types::TaskDate>>::sse_decode(deserializer);
         let mut var_timeSpentMinutes = <Option<u32>>::sse_decode(deserializer);
-        let mut var_isShorthand = <bool>::sse_decode(deserializer);
         return crate::api::types::TaskInfo {
             status: var_status,
             due: var_due,
@@ -2610,7 +2609,6 @@ impl SseDecode for crate::api::types::TaskInfo {
             completed_at: var_completedAt,
             started_at: var_startedAt,
             time_spent_minutes: var_timeSpentMinutes,
-            is_shorthand: var_isShorthand,
         };
     }
 }
@@ -3885,7 +3883,6 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::TaskInfo {
             self.completed_at.into_into_dart().into_dart(),
             self.started_at.into_into_dart().into_dart(),
             self.time_spent_minutes.into_into_dart().into_dart(),
-            self.is_shorthand.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5063,7 +5060,6 @@ impl SseEncode for crate::api::types::TaskInfo {
         <Option<crate::api::types::TaskDate>>::sse_encode(self.completed_at, serializer);
         <Option<crate::api::types::TaskDate>>::sse_encode(self.started_at, serializer);
         <Option<u32>>::sse_encode(self.time_spent_minutes, serializer);
-        <bool>::sse_encode(self.is_shorthand, serializer);
     }
 }
 

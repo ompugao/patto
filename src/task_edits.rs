@@ -96,7 +96,6 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
             return;
         };
         let line_text = node.extract_str().to_string();
-        let token = &line_text[location.span.0..location.span.1.min(line_text.len())];
         let row = node.location().row;
         map.insert(
             row,
@@ -111,7 +110,6 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
                 started_at: started_at.clone(),
                 time_spent: time_spent.clone(),
                 prop_span: location.span.clone(),
-                is_shorthand: !token.starts_with("{@"),
                 line_text,
             },
         );
@@ -232,8 +230,7 @@ fn elapsed_since(started_at: Option<&Deadline>, now: NaiveDateTime) -> Option<Du
 }
 
 /// Rewrite the task token with `(key, value)` overrides; an empty value removes
-/// the key. The whole token is replaced, so a shorthand `-YYYY-MM-DD` comes
-/// back in the long `{@task …}` form.
+/// the key.
 pub fn rewrite_task_token(snapshot: &TaskSnapshot, fields: &[(&str, String)]) -> Vec<TextEdit> {
     let mut token = TaskToken::from_snapshot(snapshot);
     for (key, value) in fields {
@@ -334,7 +331,6 @@ mod tests {
             started_at: started_at.map(crate::parser::parse_deadline_pub),
             time_spent: None,
             prop_span: crate::parser::Span(0, 10),
-            is_shorthand: false,
             line_text: "{@task status=todo due=}".to_string(),
         }
     }

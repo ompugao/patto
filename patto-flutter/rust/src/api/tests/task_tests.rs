@@ -128,19 +128,6 @@ fn marking_a_task_done_records_when() {
 }
 
 #[test]
-fn a_shorthand_task_becomes_long_form_once_a_timestamp_is_recorded() {
-    let ws = Workspace::new();
-    ws.write("a.pn", "ship it !2026-09-20\n");
-    build(&ws);
-
-    let after = set_status(&ws, "a.pn", 0, TaskStatus::Done);
-    assert!(after.starts_with("ship it {@task "), "{after}");
-    assert!(after.contains("status=done"), "{after}");
-    assert!(after.contains("due=2026-09-20"), "{after}");
-    assert!(after.contains("completed_at="), "{after}");
-}
-
-#[test]
 fn starting_a_task_clocks_in() {
     let ws = Workspace::new();
     ws.write("a.pn", "work {@task status=todo}\n");
@@ -193,31 +180,6 @@ fn archiving_a_running_task_flushes_the_time_and_records_when() {
     assert!(after.contains("status=archived"), "{after}");
     assert!(after.contains("archived_at=2026-09-16T14:30"), "{after}");
     assert!(after.contains("time_spent=1h"), "{after}");
-}
-
-#[test]
-fn archiving_a_shorthand_task_converts_it_to_long_form() {
-    let ws = Workspace::new();
-    ws.write("a.pn", "ship it !2026-09-20\n");
-    build(&ws);
-
-    let after = set_status(&ws, "a.pn", 0, TaskStatus::Archived);
-    assert!(
-        after.contains("{@task status=archived due=2026-09-20"),
-        "{after}"
-    );
-}
-
-#[test]
-fn a_shorthand_status_change_without_a_timestamp_stays_shorthand() {
-    let ws = Workspace::new();
-    ws.write("a.pn", "ship it !2026-09-20\n");
-    build(&ws);
-
-    // Todo -> Doing records started_at, so go the other way: done -> todo.
-    ws.write("a.pn", "ship it -2026-09-20\n");
-    let after = set_status(&ws, "a.pn", 0, TaskStatus::Todo);
-    assert_eq!(after.trim_end(), "ship it !2026-09-20");
 }
 
 #[test]

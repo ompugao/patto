@@ -25,7 +25,7 @@ pub(super) fn transform_statement<'a>(
             }
             Rule::expr_code_inline => nodes.push(transform_inline_code(inner, line, row, indent)),
             Rule::expr_math_inline => nodes.push(transform_inline_math(inner, line, row, indent)),
-            Rule::expr_property | Rule::expr_anchor | Rule::expr_task => {
+            Rule::expr_property | Rule::expr_anchor => {
                 props.extend(transform_property(inner, line, row, indent))
             }
             Rule::trailing_properties => props.extend(
@@ -940,39 +940,6 @@ mod tests {
         if !matches!(hr.kind(), AstNodeKind::HorizontalLine) {
             panic! {"HorizontalLine could not be parsed"};
         }
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_abbrev_task() -> Result<(), Box<dyn std::error::Error>> {
-        let input = "!2024-10-10 #anchor2 -2024-10-11T20:00";
-        let mut parsed = PattoLineParser::parse(Rule::statement, input)?;
-        let (_nodes, props) = transform_statement(parsed.next().unwrap(), input, 0, 0);
-        let task = &props[0];
-        if let Property::Task { status, due, .. } = task {
-            assert_eq!(*status, TaskStatus::Todo);
-            assert_eq!(
-                *due,
-                Deadline::Date(chrono::NaiveDate::from_ymd_opt(2024, 10, 10).unwrap())
-            );
-        } else {
-            panic!("task could not be parsed");
-        };
-
-        let task = &props[2];
-        if let Property::Task { status, due, .. } = task {
-            assert_eq!(*status, TaskStatus::Done);
-            assert_eq!(
-                *due,
-                Deadline::DateTime(
-                    chrono::NaiveDateTime::parse_from_str("2024-10-11T20:00", "%Y-%m-%dT%H:%M")
-                        .unwrap()
-                )
-            );
-        } else {
-            panic!("task could not be parsed");
-        };
-
         Ok(())
     }
 }

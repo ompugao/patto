@@ -269,31 +269,6 @@ async fn test_todo_to_done_without_doing_no_time_spent() {
     );
 }
 
-#[tokio::test]
-async fn test_shorthand_done_replaced_with_longform() {
-    let _workspace = TestWorkspace::new();
-    // Shorthand `-YYYY-MM-DD` (done) transitioning from `!` (todo).
-    let edits = edits_for("buy milk !2026-06-01\n", "buy milk -2026-06-01\n");
-    assert_eq!(edits.len(), 1, "Expected one edit for shorthand todo→done");
-    let edit = &edits[0];
-    assert_eq!(edit.range.start.line, 0);
-    assert!(
-        edit.new_text.contains("{@task"),
-        "Shorthand should be replaced with longform block, got: {}",
-        edit.new_text
-    );
-    assert!(
-        edit.new_text.contains("status=done"),
-        "Replacement block should carry status=done, got: {}",
-        edit.new_text
-    );
-    assert!(
-        edit.new_text.contains("completed_at="),
-        "Replacement block should contain completed_at, got: {}",
-        edit.new_text
-    );
-}
-
 /// Simulate the keystroke-by-keystroke `doing` → `todo` transition as nvim
 /// sends it: each character change fires a separate `did_change`.
 ///

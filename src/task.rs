@@ -136,9 +136,6 @@ pub struct TaskSnapshot {
     /// the value was unrecognised (e.g. `status=doin` during a mid-edit keystroke).
     /// Transitions from/to non-canonical states are ignored by the diff logic.
     pub status_is_canonical: bool,
-    /// Is the on-disk form a shorthand token (`-YYYY-MM-DD`) rather than a
-    /// full `{@task …}` block?
-    pub is_shorthand: bool,
     /// Full raw text of the line that owns this task (needed for UTF-16 offset
     /// conversion when generating edits).
     pub line_text: String,

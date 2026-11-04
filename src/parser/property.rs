@@ -20,7 +20,6 @@ pub(super) fn transform_property(
     match pair.as_rule() {
         Rule::expr_anchor => Some(short_anchor(pair, location)),
         Rule::expr_property => named_property(pair, location),
-        Rule::expr_task => Some(shorthand_task(pair, location)),
         other => panic!("Unhandled token: {:?}", other),
     }
 }
@@ -127,26 +126,5 @@ impl TaskFields {
             time_spent: self.time_spent,
             location,
         }
-    }
-}
-
-fn shorthand_task(pair: Pair<Rule>, location: Location) -> Property {
-    let mut inner = pair.into_inner();
-    let status = match inner.next().unwrap().as_rule() {
-        Rule::symbol_task_done => TaskStatus::Done,
-        Rule::symbol_task_doing => TaskStatus::Doing,
-        Rule::symbol_task_todo => TaskStatus::Todo,
-        other => unreachable!("expr_task starts with a task symbol, got {:?}", other),
-    };
-    Property::Task {
-        status,
-        status_is_canonical: true,
-        due: parse_deadline(inner.as_str()),
-        scheduled: None,
-        completed_at: None,
-        archived_at: None,
-        started_at: None,
-        time_spent: None,
-        location,
     }
 }

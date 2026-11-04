@@ -27,11 +27,8 @@
 - **Email**: `[mailto:user@example.com Label]`
 
 ## 4. Task Management
-Tasks can be defined using symbols or properties at the start or end of a line.
-- **Todo**: `Task description !2024-12-31`
-- **Doing**: `Task description *2024-12-31`
-- **Done**: `Task description -2024-12-31`
-- **Property-based**: `Task description {@task status=todo due=2024-12-31}`
+Tasks are defined with a `{@task}` property at the start or end of a line.
+- `Task description {@task status=todo due=2024-12-31}`
     - Status values: `todo`, `doing` (or `inprogress`, `wip`), `paused`, `done`, `archived`.
     - Due format: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`.
 
@@ -93,9 +90,9 @@ Patto Note Project Overview
 			}
 		
 	Current Tasks
-		Finish parser implementation #milestone-1 !2024-05-01
-		Refactor LSP backend *2024-05-10
-		Define initial syntax spec -2024-04-20
+		Finish parser implementation #milestone-1 {@task status=todo due=2024-05-01}
+		Refactor LSP backend {@task status=doing due=2024-05-10}
+		Define initial syntax spec {@task status=done due=2024-04-20}
 
 	Resources
 		[@img ./assets/logo.png "Patto Logo"]

@@ -105,10 +105,7 @@ void main() {
         ('[* bold]', PattoToken.decoration),
         ('[\$x^2\$]', PattoToken.math),
       ]);
-      expect(tokens('do it !2026-01-02 #here'), [
-        ('!2026-01-02', PattoToken.task),
-        ('#here', PattoToken.anchor),
-      ]);
+      expect(tokens('do it !2026-01-02 #here'), [('#here', PattoToken.anchor)]);
       expect(tokens('x-2026-01-02 a#b'), isEmpty);
     });
 
