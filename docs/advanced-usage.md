@@ -20,14 +20,16 @@ Patto supports two syntaxes for tasks:
 buy milk {@task status=todo}
 write report {@task status=doing due=2024-12-31 scheduled=2024-12-28}
 send invoice {@task status=done completed_at=2024-03-15}
+old idea {@task status=archived archived_at=2024-03-20}
 ```
 
 | Field | Values | Description |
 |-------|--------|-------------|
-| `status` | `todo` \| `doing` \| `done` | Task state (required) |
+| `status` | `todo` \| `doing` \| `paused` \| `done` \| `archived` | Task state (required). `archived` means the task was dropped |
 | `due` | `YYYY-MM-DD` | Hard deadline — when it must be done |
 | `scheduled` | `YYYY-MM-DD` | Soft start date — when to begin working on it |
 | `completed_at` | `YYYY-MM-DD` | Auto-inserted when task transitions to `done` |
+| `archived_at` | `YYYY-MM-DD` | Auto-inserted when task transitions to `archived` |
 
 #### Auto-completion tracking
 
@@ -35,7 +37,7 @@ When you change a task's status to `done` in your editor, the LSP server automat
 
 #### Commands: pending tasks
 
-View all non-done tasks sorted by deadline:
+View all tasks that are not done or archived, sorted by deadline:
 
 - **Vim/Neovim**: `:LspPattoTasks` — opens in location list
 - **Vim/Neovim**: `:Trouble patto_tasks` — opens in [trouble.nvim](https://github.com/folke/trouble.nvim) grouped by deadline category

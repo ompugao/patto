@@ -87,6 +87,7 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
             due,
             scheduled,
             completed_at,
+            archived_at,
             started_at,
             time_spent,
             location,
@@ -106,6 +107,7 @@ pub fn collect_task_snapshots(root: &AstNode) -> HashMap<usize, TaskSnapshot> {
                 due: due.clone(),
                 scheduled: scheduled.clone(),
                 completed_at: completed_at.clone(),
+                archived_at: archived_at.clone(),
                 started_at: started_at.clone(),
                 time_spent: time_spent.clone(),
                 prop_span: location.span.clone(),
@@ -142,6 +144,10 @@ fn transition_between(old: &TaskSnapshot, new: &TaskSnapshot) -> Option<TaskTran
             old: old.clone(),
             new: new.clone(),
         },
+        (TaskStatus::Archived, _) if new.archived_at.is_none() => TaskTransition::BecameArchived {
+            old: old.clone(),
+            new: new.clone(),
+        },
         (TaskStatus::Doing, _) if new.started_at.is_none() => TaskTransition::BecameDoing {
             old: old.clone(),
             new: new.clone(),
@@ -169,6 +175,11 @@ pub fn generate_edits_for_transition(
         TaskTransition::BecameDone { old, new } => {
             let mut fields = clock_out_fields(old, new, now);
             fields.push(("completed_at", stamp));
+            rewrite_task_token(new, &fields)
+        }
+        TaskTransition::BecameArchived { old, new } => {
+            let mut fields = clock_out_fields(old, new, now);
+            fields.push(("archived_at", stamp));
             rewrite_task_token(new, &fields)
         }
         TaskTransition::BecameDoing { new, .. } => {
@@ -241,6 +252,7 @@ struct TaskToken {
     due: Deadline,
     scheduled: Option<Deadline>,
     completed_at: Option<Deadline>,
+    archived_at: Option<Deadline>,
     started_at: Option<Deadline>,
     time_spent: Option<Duration>,
 }
@@ -252,6 +264,7 @@ impl TaskToken {
             due: snapshot.due.clone(),
             scheduled: snapshot.scheduled.clone(),
             completed_at: snapshot.completed_at.clone(),
+            archived_at: snapshot.archived_at.clone(),
             started_at: snapshot.started_at.clone(),
             time_spent: snapshot.time_spent.clone(),
         }
@@ -266,6 +279,7 @@ impl TaskToken {
             }
             "scheduled" => self.scheduled = optional_deadline(value),
             "completed_at" => self.completed_at = optional_deadline(value),
+            "archived_at" => self.archived_at = optional_deadline(value),
             "started_at" => self.started_at = optional_deadline(value),
             "time_spent" => self.time_spent = value.parse().ok(),
             _ => {}
@@ -286,6 +300,7 @@ impl fmt::Display for TaskToken {
         let deadlines = [
             ("scheduled", &self.scheduled),
             ("completed_at", &self.completed_at),
+            ("archived_at", &self.archived_at),
             ("started_at", &self.started_at),
         ];
         for (key, deadline) in deadlines {
@@ -315,6 +330,7 @@ mod tests {
             due: Deadline::Uninterpretable("".to_string()),
             scheduled: None,
             completed_at: None,
+            archived_at: None,
             started_at: started_at.map(crate::parser::parse_deadline_pub),
             time_spent: None,
             prop_span: crate::parser::Span(0, 10),

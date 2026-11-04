@@ -19,7 +19,7 @@ export default function LineNode({ node, onWikiLinkClick, depth }: NodeProps & {
 
     const task = taskProperty(kind.properties)?.Task ?? null;
     const taskStatus = task?.status ?? null;
-    const isDone = taskStatus === 'Done';
+    const isDone = taskStatus === 'Done' || taskStatus === 'Archived';
     const due = task?.due ?? null;
     // A task's status icon already marks the line
     const marker = taskStatus ? null : bulletMarker(bulletStyle, depth);

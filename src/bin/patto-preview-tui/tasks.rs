@@ -18,6 +18,7 @@ pub(crate) fn task_status_icon(status: &TaskStatus) -> &'static str {
         TaskStatus::Doing => "◑",
         TaskStatus::Paused => "⏸",
         TaskStatus::Done => "✓",
+        TaskStatus::Archived => "⊘",
     }
 }
 

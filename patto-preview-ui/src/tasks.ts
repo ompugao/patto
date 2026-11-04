@@ -1,5 +1,5 @@
 // Property types (externally-tagged serde enums from Rust)
-export type TaskStatus = 'Todo' | 'Doing' | 'Paused' | 'Done';
+export type TaskStatus = 'Todo' | 'Doing' | 'Paused' | 'Done' | 'Archived';
 export type Deadline =
     | { Date: string }
     | { DateTime: string }

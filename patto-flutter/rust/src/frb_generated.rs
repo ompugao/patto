@@ -2646,6 +2646,7 @@ impl SseDecode for crate::api::types::TaskStatus {
             1 => crate::api::types::TaskStatus::Doing,
             2 => crate::api::types::TaskStatus::Paused,
             3 => crate::api::types::TaskStatus::Done,
+            4 => crate::api::types::TaskStatus::Archived,
             _ => unreachable!("Invalid variant for TaskStatus: {}", inner),
         };
     }
@@ -3928,6 +3929,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::TaskStatus {
             Self::Doing => 1.into_dart(),
             Self::Paused => 2.into_dart(),
             Self::Done => 3.into_dart(),
+            Self::Archived => 4.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -5087,6 +5089,7 @@ impl SseEncode for crate::api::types::TaskStatus {
                 crate::api::types::TaskStatus::Doing => 1,
                 crate::api::types::TaskStatus::Paused => 2,
                 crate::api::types::TaskStatus::Done => 3,
+                crate::api::types::TaskStatus::Archived => 4,
                 _ => {
                     unimplemented!("");
                 }

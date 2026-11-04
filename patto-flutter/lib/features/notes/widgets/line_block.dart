@@ -31,7 +31,8 @@ class LineBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final task = block.task;
-    final done = task?.status == TaskStatus.done;
+    final done =
+        task?.status == TaskStatus.done || task?.status == TaskStatus.archived;
     final base = theme.textTheme.bodyLarge!;
 
     final text = SpansText(

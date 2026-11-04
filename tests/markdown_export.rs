@@ -286,6 +286,16 @@ mod tasks {
     }
 
     #[test]
+    fn test_task_archived_is_cancelled_without_dates() {
+        let input = "Dropped {@task status=archived due=2024-12-31 archived_at=2025-01-02}";
+        let output = render_markdown(input, MarkdownFlavor::Standard);
+
+        assert!(output.contains("[-] Dropped"));
+        assert!(!output.contains("2024-12-31"));
+        assert!(!output.contains("2025-01-02"));
+    }
+
+    #[test]
     fn test_task_done_no_due_shown() {
         let input = "Done task {@task status=done due=2024-12-31}";
         let output = render_markdown(input, MarkdownFlavor::Standard);

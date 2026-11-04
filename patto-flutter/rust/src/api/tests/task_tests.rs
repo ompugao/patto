@@ -29,7 +29,8 @@ fn pending_tasks_are_grouped_by_deadline() {
          soon {@task status=doing due=2026-09-18}\n\
          far {@task status=todo due=2027-01-01}\n\
          someday {@task status=todo}\n\
-         finished {@task status=done completed_at=2026-09-16}\n",
+         finished {@task status=done completed_at=2026-09-16}\n\
+         dropped {@task status=archived due=2026-09-17}\n",
     );
     build(&ws);
 
@@ -68,7 +69,8 @@ fn completed_tasks_respect_the_timeframe() {
         "a.pn",
         "today {@task status=done completed_at=2026-09-16}\n\
          yesterday {@task status=done completed_at=2026-09-15}\n\
-         last month {@task status=done completed_at=2026-08-01}\n",
+         last month {@task status=done completed_at=2026-08-01}\n\
+         dropped {@task status=archived completed_at=2026-09-16}\n",
     );
     build(&ws);
 
@@ -176,6 +178,34 @@ fn pausing_a_running_task_also_flushes_the_elapsed_time() {
     let after = set_status(&ws, "a.pn", 0, TaskStatus::Paused);
     assert!(after.contains("status=paused"), "{after}");
     assert!(after.contains("time_spent=1h"), "{after}");
+}
+
+#[test]
+fn archiving_a_running_task_flushes_the_time_and_records_when() {
+    let ws = Workspace::new();
+    ws.write(
+        "a.pn",
+        "work {@task status=doing started_at=2026-09-16T14:00 time_spent=30m}\n",
+    );
+    build(&ws);
+
+    let after = set_status(&ws, "a.pn", 0, TaskStatus::Archived);
+    assert!(after.contains("status=archived"), "{after}");
+    assert!(after.contains("archived_at=2026-09-16T14:30"), "{after}");
+    assert!(after.contains("time_spent=1h"), "{after}");
+}
+
+#[test]
+fn archiving_a_shorthand_task_converts_it_to_long_form() {
+    let ws = Workspace::new();
+    ws.write("a.pn", "ship it !2026-09-20\n");
+    build(&ws);
+
+    let after = set_status(&ws, "a.pn", 0, TaskStatus::Archived);
+    assert!(
+        after.contains("{@task status=archived due=2026-09-20"),
+        "{after}"
+    );
 }
 
 #[test]

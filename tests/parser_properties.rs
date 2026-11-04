@@ -84,6 +84,19 @@ fn paused_status_is_canonical() {
 }
 
 #[test]
+fn archived_status_is_canonical() {
+    let task = parse_task("{@task status=archived}");
+    assert_eq!(task.status, TaskStatus::Archived);
+    assert!(task.status_is_canonical);
+}
+
+#[test]
+fn archived_at_is_parsed() {
+    let task = parse_task("{@task status=archived archived_at=2026-01-30T18:00}");
+    assert_eq!(task.archived_at, Some(datetime("2026-01-30T18:00")));
+}
+
+#[test]
 fn unknown_task_status_falls_back_to_todo_and_is_not_canonical() {
     let task = parse_task("{@task status=doin}");
     assert_eq!(task.status, TaskStatus::Todo);

@@ -123,6 +123,7 @@ pub enum TaskStatus {
     Doing,
     Paused,
     Done,
+    Archived,
 }
 
 impl TaskStatus {
@@ -133,6 +134,7 @@ impl TaskStatus {
             "doing" | "inprogress" | "wip" => Some(TaskStatus::Doing),
             "paused" => Some(TaskStatus::Paused),
             "done" => Some(TaskStatus::Done),
+            "archived" => Some(TaskStatus::Archived),
             _ => None,
         }
     }
@@ -143,6 +145,7 @@ impl TaskStatus {
             TaskStatus::Doing => "doing",
             TaskStatus::Paused => "paused",
             TaskStatus::Done => "done",
+            TaskStatus::Archived => "archived",
         }
     }
 }
@@ -157,6 +160,7 @@ pub enum Property {
         due: Deadline,
         scheduled: Option<Deadline>,
         completed_at: Option<Deadline>,
+        archived_at: Option<Deadline>,
         /// Timestamp of the most recent clock-in (set when transitioning to Doing).
         started_at: Option<Deadline>,
         /// Accumulated time spent across all completed sessions.

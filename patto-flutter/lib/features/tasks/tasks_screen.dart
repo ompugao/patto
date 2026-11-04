@@ -200,7 +200,9 @@ class _TaskTile extends ConsumerWidget {
         task.text.isEmpty ? '(no text)' : task.text,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: task.info.status == TaskStatus.done
+        style:
+            task.info.status == TaskStatus.done ||
+                task.info.status == TaskStatus.archived
             ? TextStyle(
                 decoration: TextDecoration.lineThrough,
                 color: theme.colorScheme.outline,

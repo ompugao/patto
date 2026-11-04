@@ -55,6 +55,7 @@ M.config = {
       if status == "Doing" then return { text = "◑ ", hl = "DiagnosticWarn" } end
       if status == "Paused" then return { text = "⏸ ", hl = "DiagnosticInfo" } end
       if status == "Done" then return { text = "✓ ", hl = "DiagnosticOk" } end
+      if status == "Archived" then return { text = "⊘ ", hl = "Comment" } end
       return { text = "○ ", hl = "Comment" }
     end,
     task_time_spent = function(ctx)

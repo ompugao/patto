@@ -11,6 +11,7 @@ pub enum TaskStatus {
     Doing,
     Paused,
     Done,
+    Archived,
 }
 
 impl From<&CoreTaskStatus> for TaskStatus {
@@ -20,6 +21,7 @@ impl From<&CoreTaskStatus> for TaskStatus {
             CoreTaskStatus::Doing => TaskStatus::Doing,
             CoreTaskStatus::Paused => TaskStatus::Paused,
             CoreTaskStatus::Done => TaskStatus::Done,
+            CoreTaskStatus::Archived => TaskStatus::Archived,
         }
     }
 }
@@ -31,6 +33,7 @@ impl From<TaskStatus> for CoreTaskStatus {
             TaskStatus::Doing => CoreTaskStatus::Doing,
             TaskStatus::Paused => CoreTaskStatus::Paused,
             TaskStatus::Done => CoreTaskStatus::Done,
+            TaskStatus::Archived => CoreTaskStatus::Archived,
         }
     }
 }

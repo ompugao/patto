@@ -98,6 +98,7 @@ code, pre {
 .patto-task-icon-todo { color: var(--slate-400); }
 .patto-task-icon-doing { color: var(--blue-500); }
 .patto-task-icon-done { color: var(--green-500); font-weight: bold; }
+.patto-task-icon-archived { color: var(--slate-400); }
 
 .patto-task-content {
   flex: 1;

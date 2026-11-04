@@ -125,6 +125,7 @@ pub struct TaskSnapshot {
     pub due: Deadline,
     pub scheduled: Option<Deadline>,
     pub completed_at: Option<Deadline>,
+    pub archived_at: Option<Deadline>,
     pub started_at: Option<Deadline>,
     pub time_spent: Option<Duration>,
     /// Byte span of the entire task property token within the line string.
@@ -166,6 +167,11 @@ pub enum TaskTransition {
         old: TaskSnapshot,
         new: TaskSnapshot,
     },
+    /// Any status → Archived (no `archived_at` present yet in the new snapshot).
+    BecameArchived {
+        old: TaskSnapshot,
+        new: TaskSnapshot,
+    },
 }
 
 impl TaskTransition {
@@ -174,7 +180,8 @@ impl TaskTransition {
             TaskTransition::BecameDone { old, new }
             | TaskTransition::BecameDoing { old, new }
             | TaskTransition::BecameTodo { old, new }
-            | TaskTransition::BecamePaused { old, new } => (old, new),
+            | TaskTransition::BecamePaused { old, new }
+            | TaskTransition::BecameArchived { old, new } => (old, new),
         }
     }
 

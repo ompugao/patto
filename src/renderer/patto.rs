@@ -252,6 +252,7 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
         due,
         scheduled,
         completed_at,
+        archived_at,
         started_at,
         time_spent,
         ..
@@ -273,6 +274,9 @@ fn write_task_property(properties: &[Property], output: &mut dyn Write) -> io::R
     }
     if let Some(completed_at) = completed_at {
         write!(output, " completed_at={}", completed_at)?;
+    }
+    if let Some(archived_at) = archived_at {
+        write!(output, " archived_at={}", archived_at)?;
     }
     if let Some(started_at) = started_at {
         write!(output, " started_at={}", started_at)?;
