@@ -129,6 +129,13 @@ async fn test_auto_complete_does_not_trigger_for_already_done() {
     assert!(tasks[0].2.is_some(), "completed_at should still be present");
 }
 
+fn march_2024(include_archived: bool) -> serde_json::Value {
+    serde_json::json!({
+        "open": false,
+        "resolved": { "from": "2024-03-01", "to": "2024-03-31", "include_archived": include_archived },
+    })
+}
+
 #[tokio::test]
 async fn test_tasks_review_custom_range() {
     let mut workspace = TestWorkspace::new();
@@ -151,12 +158,8 @@ async fn test_tasks_review_custom_range() {
         )
         .await;
 
-    let result = client
-        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
-        .await;
-    let tasks = result
-        .flatten()
-        .expect("tasks_review should return a value");
+    let result = client.tasks(march_2024(false)).await;
+    let tasks = result.flatten().expect("patto/tasks should return a value");
     let arr = tasks.as_array().expect("result should be an array");
 
     assert_eq!(arr.len(), 2, "Expected 2 completed tasks in March 2024");
@@ -192,12 +195,8 @@ async fn test_tasks_review_excludes_out_of_range() {
         )
         .await;
 
-    let result = client
-        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
-        .await;
-    let tasks = result
-        .flatten()
-        .expect("tasks_review should return a value");
+    let result = client.tasks(march_2024(false)).await;
+    let tasks = result.flatten().expect("patto/tasks should return a value");
     let arr = tasks.as_array().expect("result should be an array");
 
     assert_eq!(arr.len(), 1, "Only one task should be in March");
@@ -221,12 +220,8 @@ async fn test_tasks_review_omits_archived_tasks_by_default() {
     let mut workspace = TestWorkspace::new();
     let mut client = review_client(&mut workspace).await;
 
-    let result = client
-        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
-        .await;
-    let tasks = result
-        .flatten()
-        .expect("tasks_review should return a value");
+    let result = client.tasks(march_2024(false)).await;
+    let tasks = result.flatten().expect("patto/tasks should return a value");
     let texts: Vec<_> = tasks
         .as_array()
         .unwrap()
@@ -242,12 +237,8 @@ async fn test_tasks_review_includes_archived_tasks_in_range_when_asked() {
     let mut workspace = TestWorkspace::new();
     let mut client = review_client(&mut workspace).await;
 
-    let result = client
-        .tasks_review_with_archived("2024-03-01", "2024-03-31")
-        .await;
-    let tasks = result
-        .flatten()
-        .expect("tasks_review should return a value");
+    let result = client.tasks(march_2024(true)).await;
+    let tasks = result.flatten().expect("patto/tasks should return a value");
     let arr = tasks.as_array().unwrap();
 
     assert_eq!(arr.len(), 2);

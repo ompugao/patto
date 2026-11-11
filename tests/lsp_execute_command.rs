@@ -7,10 +7,10 @@ async fn test_aggregate_tasks_empty() {
     let workspace = TestWorkspace::new();
     let mut client = InProcessLspClient::new(&workspace).await;
 
-    let response = client.aggregate_tasks().await;
+    let response = client.tasks(serde_json::json!({})).await;
 
     // Should return empty array when no tasks
-    assert!(response.is_some(), "No result in aggregate_tasks");
+    assert!(response.is_some(), "No result in patto/tasks");
     let result = response.unwrap();
     assert!(
         result.as_ref().is_none_or(|r| r.is_array() || r.is_null()),
@@ -34,9 +34,9 @@ async fn test_aggregate_tasks_with_tasks() {
     // Wait for workspace scan
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    let response = client.aggregate_tasks().await;
+    let response = client.tasks(serde_json::json!({})).await;
 
-    assert!(response.is_some(), "No result in aggregate_tasks");
+    assert!(response.is_some(), "No result in patto/tasks");
     let result = response.unwrap().unwrap();
     assert!(result.is_array(), "Result should be array");
 
@@ -47,8 +47,8 @@ async fn test_aggregate_tasks_with_tasks() {
         tasks.len()
     );
 
-    // Check task structure - based on TaskInformation struct
-    // Fields: location, text, message, due
+    // Check task structure - based on TaskEntry
+    // Fields: location, text, status, due
     for (i, task) in tasks.iter().enumerate() {
         assert!(task.is_object(), "Task {} should be an object", i);
         assert!(
@@ -72,8 +72,8 @@ async fn test_aggregate_tasks_with_tasks() {
             i
         );
         assert!(
-            task["message"].is_string(),
-            "Task {} should have message string",
+            task["status"].is_string(),
+            "Task {} should have status string",
             i
         );
         assert!(
@@ -108,7 +108,7 @@ async fn test_aggregate_tasks_sorting() {
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    let response = client.aggregate_tasks().await;
+    let response = client.tasks(serde_json::json!({})).await;
 
     assert!(response.is_some(), "No result");
     let result = response.unwrap().unwrap();
@@ -254,4 +254,77 @@ async fn test_two_hop_links_no_connections() {
     }
 
     println!("✅ Two-hop links no connections test passed");
+}
+
+#[tokio::test]
+async fn test_tasks_returns_open_and_resolved_tasks_in_one_call() {
+    let mut workspace = TestWorkspace::new();
+    let note = "todo item {@task status=todo due=2024-03-30}\n\
+                shipped {@task status=done completed_at=2024-03-20}\n\
+                dropped {@task status=archived archived_at=2024-03-21}\n";
+    workspace.create_file("tasks.pn", note);
+    let mut client = InProcessLspClient::new(&workspace).await;
+    client
+        .did_open(workspace.get_uri("tasks.pn"), note.to_string())
+        .await;
+
+    let result = client
+        .tasks(serde_json::json!({
+            "resolved": { "from": "2024-03-01", "include_archived": true }
+        }))
+        .await
+        .flatten()
+        .expect("patto/tasks should return a value");
+    let found: Vec<_> = result
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| (t["text"].as_str().unwrap(), t["status"].as_str().unwrap()))
+        .collect();
+
+    assert_eq!(
+        found,
+        [
+            ("todo item", "Todo"),
+            ("shipped", "Done"),
+            ("dropped", "Archived"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_the_old_experimental_task_commands_are_gone() {
+    let workspace = TestWorkspace::new();
+    let mut client = InProcessLspClient::new(&workspace).await;
+
+    for command in ["experimental/aggregate_tasks", "experimental/tasks_review"] {
+        let result = client.execute_command(command, vec![]).await.flatten();
+        assert_eq!(result, None, "{command} should no longer answer");
+    }
+}
+
+#[tokio::test]
+async fn test_tasks_treats_an_empty_array_argument_as_open_tasks() {
+    let mut workspace = TestWorkspace::new();
+    let note =
+        "todo item {@task status=todo}\nshipped {@task status=done completed_at=2024-03-20}\n";
+    workspace.create_file("tasks.pn", note);
+    let mut client = InProcessLspClient::new(&workspace).await;
+    client
+        .did_open(workspace.get_uri("tasks.pn"), note.to_string())
+        .await;
+
+    let result = client
+        .tasks(serde_json::json!([]))
+        .await
+        .flatten()
+        .expect("patto/tasks should return a value");
+    let texts: Vec<_> = result
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["text"].as_str().unwrap())
+        .collect();
+
+    assert_eq!(texts, ["todo item"]);
 }

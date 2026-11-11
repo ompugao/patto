@@ -86,8 +86,8 @@ check("loclist_review_text NIL completed_at", fmt.loclist_review_text({ text = "
 check("loclist_entry", fmt.loclist_entry({ location = loc("/tmp/notes/a.pn", 3) }, "t"),
   { filename = "/tmp/notes/a.pn", lnum = 4, col = 3, text = "t" })
 
-check("review parse named", review_timeframe.parse("this_week"), { "this_week" })
-check("review parse custom", review_timeframe.parse("2026-01-01:2026-01-31"), { "custom", "2026-01-01", "2026-01-31" })
+check("review parse named", review_timeframe.parse("this_week"), { timeframe = "this_week" })
+check("review parse custom", review_timeframe.parse("2026-01-01:2026-01-31"), { from = "2026-01-01", to = "2026-01-31" })
 check("review parse invalid", review_timeframe.parse("bogus"), nil)
 check("review recent_range", { review_timeframe.recent_range(now) }, { "2026-09-28", "2026-10-09" })
 check("review recent_range month start wins", { review_timeframe.recent_range(now + 10 * 86400) }, { "2026-10-01", "2026-10-19" })

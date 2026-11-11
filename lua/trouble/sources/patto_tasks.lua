@@ -32,8 +32,8 @@ end
 
 local M = tasks_source.new({
   mode = "patto_tasks",
-  command = "experimental/aggregate_tasks",
-  arguments = function() return {} end,
+  command = "patto/tasks",
+  arguments = function() return { vim.empty_dict() } end,
   fields = function(task)
     return { deadline_group = (fmt.classify_due(task)) }
   end,

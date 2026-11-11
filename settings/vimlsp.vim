@@ -108,7 +108,7 @@ endfunction
 
 " :LspPattoTasks
 function! s:patto_tasks() abort
-    call s:execute_command('experimental/aggregate_tasks', [],
+    call s:execute_command('patto/tasks', [{}],
                 \ {x -> s:show_task(x['response']['result'])})
 endfunction
 
@@ -249,7 +249,7 @@ function! s:patto_tasks_review(arg) abort
     let l:named = ['today', 'yesterday', 'this_week', 'last_week', 'this_month']
 
     if index(l:named, l:arg) >= 0
-        let l:arguments = [l:arg]
+        let l:resolved = {'timeframe': l:arg}
     else
         let l:m = matchlist(l:arg, '^\(\d\{4}-\d\{2}-\d\{2}\):\(\d\{4}-\d\{2}-\d\{2}\)$')
         if empty(l:m)
@@ -257,10 +257,10 @@ function! s:patto_tasks_review(arg) abort
                         \ . '". Use today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD')
             return
         endif
-        let l:arguments = ['custom', l:m[1], l:m[2]]
+        let l:resolved = {'from': l:m[1], 'to': l:m[2]}
     endif
 
-    call s:execute_command('experimental/tasks_review', l:arguments,
+    call s:execute_command('patto/tasks', [{'open': v:false, 'resolved': l:resolved}],
                 \ {x -> s:show_tasks_review(x['response']['result'], l:arg)})
 endfunction
 

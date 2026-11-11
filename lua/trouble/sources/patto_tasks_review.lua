@@ -11,10 +11,10 @@ end
 
 local M = tasks_source.new({
   mode = "patto_tasks_review",
-  command = "experimental/tasks_review",
+  command = "patto/tasks",
   arguments = function()
     local from, to = review_timeframe.recent_range()
-    return { "custom", from, to, show_archived }
+    return { { open = false, resolved = { from = from, to = to, include_archived = show_archived } } }
   end,
   fields = function(task)
     local bucket, order = fmt.classify_completed(resolved_at(task))

@@ -1,7 +1,7 @@
 //! Task grouping shared by every client.
 //!
 //! Pending tasks are bucketed by deadline and completed tasks by recency; the
-//! review timeframes mirror the `experimental/tasks_review` LSP command. All
+//! review timeframes mirror the `patto/tasks` LSP command. All
 //! functions take `today` explicitly so callers (and tests) control the clock.
 
 use chrono::{Datelike, NaiveDate};
@@ -143,7 +143,7 @@ pub enum ReviewTimeframe {
 }
 
 impl ReviewTimeframe {
-    /// Parse the timeframe name accepted by `experimental/tasks_review`.
+    /// Parse the timeframe name accepted by `patto/tasks`.
     /// Unknown names fall back to `Today`, matching the LSP command.
     pub fn from_name(name: &str, from: Option<NaiveDate>, to: Option<NaiveDate>) -> Self {
         match name {
