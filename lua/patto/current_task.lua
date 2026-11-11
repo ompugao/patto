@@ -102,8 +102,8 @@ local function fetch()
 
   fetching = true
   local ok = pcall(client.request, client, "workspace/executeCommand", {
-    command = "experimental/aggregate_tasks",
-    arguments = {},
+    command = "patto/tasks",
+    arguments = { vim.empty_dict() },
   }, function(err, result)
     fetching = false
     if err or type(result) ~= "table" then return end

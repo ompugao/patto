@@ -1,9 +1,8 @@
 use chrono::NaiveDate;
 use patto::ast_query::{
-    conceal_urls, find_anchor, gather_archived_tasks, gather_completed_tasks, gather_tasks,
-    gather_wikilinks, task_label, walk_lines,
+    conceal_urls, find_anchor, gather_task_lines, gather_wikilinks, task_label, walk_lines,
 };
-use patto::parser::{self, AstNode, Deadline};
+use patto::parser::{self, AstNode, Deadline, TaskStatus};
 
 fn parse(text: &str) -> AstNode {
     let result = parser::parse_text(text);
@@ -88,48 +87,6 @@ fn walk_lines_reports_each_line_with_its_nesting_depth() {
 }
 
 #[test]
-fn gather_tasks_skips_done_and_archived_tasks_and_keeps_the_due_date() {
-    let root = parse(
-        "open {@task status=todo due=2026-06-01}\n\tclosed {@task status=done due=2026-05-01}\n\tactive {@task status=doing due=2026-05-02}\n\tdropped {@task status=archived due=2026-05-03}\n",
-    );
-    let mut tasks = Vec::new();
-    gather_tasks(&root, &mut tasks);
-    let labels: Vec<_> = tasks
-        .iter()
-        .map(|(line, due)| (task_label(line), due.clone()))
-        .collect();
-    let date = |s| Deadline::Date(NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap());
-    assert_eq!(
-        labels,
-        [
-            ("open".to_string(), date("2026-06-01")),
-            ("active".to_string(), date("2026-05-02")),
-        ]
-    );
-}
-
-#[test]
-fn gather_completed_tasks_requires_a_completed_at_date() {
-    let root = parse(
-        "a {@task status=done completed_at=2026-05-01}\nb {@task status=done completed_at=2026-05-02T10:00}\nc {@task status=done}\nd {@task status=done completed_at=sometime}\ne {@task status=todo completed_at=2026-05-03}\nf {@task status=archived completed_at=2026-05-04}\n",
-    );
-    let mut done = Vec::new();
-    gather_completed_tasks(&root, &mut done);
-    let found: Vec<_> = done
-        .iter()
-        .map(|(line, date)| (task_label(line), *date))
-        .collect();
-    let date = |s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
-    assert_eq!(
-        found,
-        [
-            ("a".to_string(), date("2026-05-01")),
-            ("b".to_string(), date("2026-05-02")),
-        ]
-    );
-}
-
-#[test]
 fn gather_wikilinks_finds_links_inside_decorations_and_nested_lines() {
     let root = parse("[* [bold page]]\n\t[nested page#part]\n");
     let mut links = Vec::new();
@@ -145,22 +102,57 @@ fn gather_wikilinks_finds_links_inside_decorations_and_nested_lines() {
 }
 
 #[test]
-fn gather_archived_tasks_requires_an_archived_at_date() {
+fn gather_task_lines_reports_every_task_with_its_status_and_due_date() {
     let root = parse(
-        "a {@task status=archived archived_at=2026-05-01}\n\tb {@task status=archived archived_at=2026-05-02T10:00}\nc {@task status=archived}\nd {@task status=done archived_at=2026-05-03 completed_at=2026-05-03}\n",
+        "open {@task status=todo due=2026-06-01}\n\tactive {@task status=doing}\n\tclosed {@task status=done}\nplain line\n",
     );
-    let mut archived = Vec::new();
-    gather_archived_tasks(&root, &mut archived);
-    let found: Vec<_> = archived
+    let mut tasks = Vec::new();
+    gather_task_lines(&root, &mut tasks);
+    let found: Vec<_> = tasks
         .iter()
-        .map(|(line, date)| (task_label(line), *date))
+        .map(|t| (task_label(&t.line), t.status.clone(), t.due.clone()))
         .collect();
-    let date = |s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    let date = |s| Deadline::Date(NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap());
+    assert_eq!(
+        found,
+        [
+            ("open".to_string(), TaskStatus::Todo, date("2026-06-01")),
+            (
+                "active".to_string(),
+                TaskStatus::Doing,
+                Deadline::Uninterpretable(String::new())
+            ),
+            (
+                "closed".to_string(),
+                TaskStatus::Done,
+                Deadline::Uninterpretable(String::new())
+            ),
+        ]
+    );
+}
+
+#[test]
+fn resolved_on_is_the_date_of_the_stamp_that_matches_the_status() {
+    let root = parse(
+        "a {@task status=done completed_at=2026-05-01}\nb {@task status=done completed_at=2026-05-02T10:00}\nc {@task status=archived archived_at=2026-05-03}\nd {@task status=done}\ne {@task status=done completed_at=sometime}\nf {@task status=archived completed_at=2026-05-04}\ng {@task status=todo completed_at=2026-05-05}\n",
+    );
+    let mut tasks = Vec::new();
+    gather_task_lines(&root, &mut tasks);
+    let found: Vec<_> = tasks
+        .iter()
+        .map(|t| (task_label(&t.line), t.resolved_on))
+        .collect();
+    let date = |s| Some(NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap());
     assert_eq!(
         found,
         [
             ("a".to_string(), date("2026-05-01")),
             ("b".to_string(), date("2026-05-02")),
+            ("c".to_string(), date("2026-05-03")),
+            ("d".to_string(), None),
+            ("e".to_string(), None),
+            ("f".to_string(), None),
+            ("g".to_string(), None),
         ]
     );
 }

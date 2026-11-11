@@ -31,8 +31,28 @@ When you change a task's status to `done` in your editor, the LSP server automat
 View all tasks that are not done or archived, sorted by deadline:
 
 - **Vim/Neovim**: `:LspPattoTasks` — opens in location list
-- **Vim/Neovim**: `:Trouble patto_tasks` — opens in [trouble.nvim](https://github.com/folke/trouble.nvim) grouped by deadline category
+- **Vim/Neovim**: `:Trouble patto_tasks` — opens in [trouble.nvim](https://github.com/folke/trouble.nvim); see below
 - **VS Code**: `Patto: Show Tasks` (command palette) — opens in sidebar tree view
+
+#### Neovim task list (trouble.nvim)
+
+`:Trouble patto_tasks` puts what is left to do first and shows what you finished quietly:
+
+```
+⚠Overdue  2
+  ○ 2026-05-08 write spec                    a.pn
+Today  3 left · ✓ 2 done
+  ◑ 2026-05-11 fix login bug ⏱ 1h20m ▶ 09:10 b.pn
+  ○ 2026-05-11 review PR                     c.pn
+  ✓ ship v0.7 ⏱ 2h                           a.pn   (dimmed, struck through)
+No Deadline  7
+▸ Done this week  ✓ 12 · ⏱ 6h30m                    (folded)
+```
+
+- Open tasks are grouped by deadline. Tasks you finish today stay at the end of "Today", dimmed and struck through, until tomorrow.
+- The last group lists tasks finished before today. It starts folded; `zo` opens it.
+- Keys: `<C-a>` / `<C-x>` change the task status, `u` undoes it, `r` widens the done range (this week → last 30 days → all), `a` shows or hides archived tasks (`⊘`).
+- Only open tasks: `require("trouble.sources.patto_tasks").setup({ show_resolved = false })`.
 
 #### Commands: review completed tasks
 
@@ -44,13 +64,7 @@ View tasks completed within a time window, sorted by `completed_at`:
   - `:LspPattoTasksReview 2024-03-01:2024-03-31` — custom date range
   Results open in the location list.
 
-- **Vim/Neovim (trouble.nvim)**: `:Trouble patto_tasks_review` — completed tasks grouped by date.
-  Press `a` in the list to show or hide archived tasks (grouped by `archived_at`, marked `⊘`).
-  Change the timeframe programmatically:
-  ```lua
-  require("trouble.sources.patto_tasks_review").config.timeframe = "this_week"
-  require("trouble").open({ mode = "patto_tasks_review" })
-  ```
+- **Vim/Neovim (trouble.nvim)**: done tasks are part of `:Trouble patto_tasks` (see above).
 
 - **VS Code**: `Patto: Review Completed Tasks` — select timeframe interactively, results shown in a date-grouped QuickPick with jump-to-line.
 

@@ -225,9 +225,8 @@ impl InProcessLspClient {
         self.backend().folding_range(params).await.ok().flatten()
     }
 
-    pub async fn aggregate_tasks(&mut self) -> Option<Option<serde_json::Value>> {
-        self.execute_command("experimental/aggregate_tasks", vec![])
-            .await
+    pub async fn tasks(&mut self, params: serde_json::Value) -> Option<Option<serde_json::Value>> {
+        self.execute_command("patto/tasks", vec![params]).await
     }
 
     pub async fn two_hop_links(&mut self, uri: Url) -> Option<Option<serde_json::Value>> {
@@ -236,36 +235,6 @@ impl InProcessLspClient {
             vec![serde_json::json!(uri.to_string())],
         )
         .await
-    }
-
-    pub async fn tasks_review(
-        &mut self,
-        timeframe: &str,
-        from: Option<&str>,
-        to: Option<&str>,
-    ) -> Option<Option<serde_json::Value>> {
-        let args = [Some(timeframe), from, to]
-            .into_iter()
-            .flatten()
-            .map(|arg| serde_json::json!(arg))
-            .collect();
-        self.execute_command("experimental/tasks_review", args)
-            .await
-    }
-
-    pub async fn tasks_review_with_archived(
-        &mut self,
-        from: &str,
-        to: &str,
-    ) -> Option<Option<serde_json::Value>> {
-        let args = vec![
-            serde_json::json!("custom"),
-            serde_json::json!(from),
-            serde_json::json!(to),
-            serde_json::json!(true),
-        ];
-        self.execute_command("experimental/tasks_review", args)
-            .await
     }
 
     /// Dispatches the few notifications tests send as raw JSON.

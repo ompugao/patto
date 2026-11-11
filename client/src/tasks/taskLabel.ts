@@ -1,5 +1,5 @@
-// The task JSON patto-lsp returns from aggregate_tasks and tasks_review
-// (TaskInformation in src/lsp/backend.rs; externally tagged serde enums).
+// The task JSON patto-lsp returns from patto/tasks
+// (TaskEntry in src/lsp/commands.rs; externally tagged serde enums).
 
 export type TaskStatus = 'Todo' | 'Doing' | 'Paused' | 'Done' | 'Archived';
 

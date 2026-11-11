@@ -1,65 +1,79 @@
+use chrono::NaiveDate;
 use url::Url;
 
-use crate::ast_query::{gather_archived_tasks, gather_completed_tasks, gather_tasks};
-use crate::parser::{AstNode, Deadline};
+use crate::ast_query::{gather_task_lines, TaskLine};
+use crate::parser::TaskStatus;
 
 use super::Repository;
 
+/// Inclusive date range; `None` leaves that end open.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DateRange {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+}
+
+impl DateRange {
+    pub fn contains(&self, date: NaiveDate) -> bool {
+        self.from.is_none_or(|f| date >= f) && self.to.is_none_or(|t| date <= t)
+    }
+}
+
+/// Which tasks [`Repository::tasks`] returns. Resolved tasks are matched by the
+/// date they were resolved on, so one without that date never matches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TaskQuery {
+    /// Todo, Doing and Paused tasks.
+    pub open: bool,
+    /// Done tasks whose `completed_at` falls in the range.
+    pub done: Option<DateRange>,
+    /// Archived tasks whose `archived_at` falls in the range.
+    pub archived: Option<DateRange>,
+}
+
+impl TaskQuery {
+    pub fn open() -> Self {
+        Self {
+            open: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn matches(&self, task: &TaskLine) -> bool {
+        let resolved_in = |range: Option<DateRange>| {
+            range
+                .zip(task.resolved_on)
+                .is_some_and(|(r, d)| r.contains(d))
+        };
+        match task.status {
+            TaskStatus::Done => resolved_in(self.done),
+            TaskStatus::Archived => resolved_in(self.archived),
+            _ => self.open,
+        }
+    }
+}
+
 impl Repository {
-    /// Collect all non-Done tasks across the entire workspace, sorted by deadline.
-    ///
-    /// Returns `(uri, ast_node, deadline)` tuples where `ast_node` is the task line.
-    pub fn aggregate_tasks(&self) -> Vec<(Url, AstNode, Deadline)> {
-        let mut tasks: Vec<(Url, AstNode, Deadline)> = Vec::new();
-        self.ast_map.iter().for_each(|entry| {
-            let mut tasklines = Vec::new();
-            gather_tasks(entry.value(), &mut tasklines);
-            for (node, due) in tasklines {
-                tasks.push((entry.key().clone(), node, due));
-            }
-        });
-        tasks.sort_by_key(|(_, _, due)| due.clone());
+    /// Tasks across the workspace that match `query`: open tasks by deadline
+    /// first, then resolved tasks by the date they were resolved on.
+    pub fn tasks(&self, query: &TaskQuery) -> Vec<(Url, TaskLine)> {
+        let mut tasks: Vec<(Url, TaskLine)> = Vec::new();
+        for entry in self.ast_map.iter() {
+            let mut lines = Vec::new();
+            gather_task_lines(entry.value(), &mut lines);
+            tasks.extend(
+                lines
+                    .into_iter()
+                    .filter(|task| query.matches(task))
+                    .map(|task| (entry.key().clone(), task)),
+            );
+        }
+        tasks.sort_by(|(_, a), (_, b)| sort_key(a).cmp(&sort_key(b)));
         tasks
     }
+}
 
-    /// Collect Done tasks whose `completed_at` falls within [from, to] (inclusive).
-    /// Pass `None` for either bound to leave it open.
-    pub fn aggregate_completed_tasks(
-        &self,
-        from: Option<chrono::NaiveDate>,
-        to: Option<chrono::NaiveDate>,
-    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
-        self.aggregate_resolved_tasks(from, to, gather_completed_tasks)
-    }
-
-    /// Collect Archived tasks whose `archived_at` falls within [from, to] (inclusive).
-    /// Pass `None` for either bound to leave it open.
-    pub fn aggregate_archived_tasks(
-        &self,
-        from: Option<chrono::NaiveDate>,
-        to: Option<chrono::NaiveDate>,
-    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
-        self.aggregate_resolved_tasks(from, to, gather_archived_tasks)
-    }
-
-    fn aggregate_resolved_tasks(
-        &self,
-        from: Option<chrono::NaiveDate>,
-        to: Option<chrono::NaiveDate>,
-        gather: fn(&AstNode, &mut Vec<(AstNode, chrono::NaiveDate)>),
-    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
-        let mut tasks: Vec<(Url, AstNode, chrono::NaiveDate)> = Vec::new();
-        self.ast_map.iter().for_each(|entry| {
-            let mut resolved = Vec::new();
-            gather(entry.value(), &mut resolved);
-            for (node, date) in resolved {
-                let in_range = from.is_none_or(|f| date >= f) && to.is_none_or(|t| date <= t);
-                if in_range {
-                    tasks.push((entry.key().clone(), node, date));
-                }
-            }
-        });
-        tasks.sort_by_key(|(_, _, date)| *date);
-        tasks
-    }
+fn sort_key(task: &TaskLine) -> (bool, Option<NaiveDate>, &crate::parser::Deadline) {
+    let resolved = matches!(task.status, TaskStatus::Done | TaskStatus::Archived);
+    (resolved, task.resolved_on, &task.due)
 }

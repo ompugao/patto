@@ -21,20 +21,20 @@ local function loclist_entries(results, text_of)
 end
 
 local function list_tasks()
-  lsp.execute_command(0, "experimental/aggregate_tasks", {}, function(results)
+  lsp.execute_command(0, "patto/tasks", { vim.empty_dict() }, function(results)
     open_loclist(loclist_entries(results, fmt.loclist_task_text), 8)
   end)
 end
 
 local function review_tasks(opts)
   local arg = opts.args ~= "" and opts.args or "today"
-  local arguments = review_timeframe.parse(arg)
-  if not arguments then
+  local resolved = review_timeframe.parse(arg)
+  if not resolved then
     vim.notify('LspPattoTasksReview: invalid argument "' .. arg
       .. '". Use today|yesterday|this_week|last_week|this_month|YYYY-MM-DD:YYYY-MM-DD', vim.log.levels.ERROR)
     return
   end
-  lsp.execute_command(0, "experimental/tasks_review", arguments, function(results)
+  lsp.execute_command(0, "patto/tasks", { { open = false, resolved = resolved } }, function(results)
     local entries = loclist_entries(results, fmt.loclist_review_text)
     if #entries == 0 then
       vim.notify("No completed tasks found for: " .. arg, vim.log.levels.INFO)

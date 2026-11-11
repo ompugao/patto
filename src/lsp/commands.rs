@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_lsp::lsp_types::{ExecuteCommandParams, Location, MessageType, Url};
 
-use crate::ast_query::task_label;
+use crate::ast_query::{task_label, TaskLine};
 use crate::lsp::backend::Backend;
 use crate::lsp::locate::node_range;
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
-use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
+use crate::parser::{AstNodeKind, Deadline, Property, TaskStatus};
 use crate::renderer::{MarkdownRenderer, Renderer};
-use crate::repository::Repository;
+use crate::repository::{DateRange, Repository, TaskQuery};
 use crate::task::Duration;
 use crate::tasks_view::{timeframe_bounds, ReviewTimeframe};
 
@@ -23,10 +23,9 @@ use crate::tasks_view::{timeframe_bounds, ReviewTimeframe};
 /// `experimental/scan_workspace` is still sent by the bundled editor plugins and
 /// is accepted as a no-op: the workspace is scanned on `initialized` instead.
 pub const SUPPORTED_COMMANDS: &[&str] = &[
-    "experimental/aggregate_tasks",
     "experimental/retrieve_two_hop_notes",
     "experimental/scan_workspace",
-    "experimental/tasks_review",
+    "patto/tasks",
     "patto/snapshotPapers",
     "patto/renderAsMarkdown",
 ];
@@ -35,8 +34,7 @@ impl Backend {
     pub(super) async fn dispatch_command(&self, params: ExecuteCommandParams) -> Option<Value> {
         let args = params.arguments.as_slice();
         match params.command.as_str() {
-            "experimental/aggregate_tasks" => self.aggregate_tasks(),
-            "experimental/tasks_review" => self.tasks_review(args),
+            "patto/tasks" => self.tasks(args),
             "experimental/retrieve_two_hop_notes" => self.retrieve_two_hop_notes(args),
             "patto/snapshotPapers" => self.snapshot_papers().await,
             "patto/renderAsMarkdown" => self.render_as_markdown(args),
@@ -48,43 +46,21 @@ impl Backend {
         }
     }
 
-    fn aggregate_tasks(&self) -> Option<Value> {
+    /// Arguments: `[TasksParams]`. Anything but an object (nothing, `null`, or
+    /// the `[]` some clients send for an empty table) means open tasks only.
+    fn tasks(&self, args: &[Value]) -> Option<Value> {
+        let params: TasksParams = match args.first() {
+            Some(value @ Value::Object(_)) => serde_json::from_value(value.clone()).ok()?,
+            _ => TasksParams::default(),
+        };
+        let query = params.query(chrono::Local::now().date_naive());
+
         let repository = self.repository.lock().unwrap();
-        let tasks = repository.as_ref()?.aggregate_tasks();
+        let tasks = repository.as_ref()?.tasks(&query);
         Some(json!(tasks
             .iter()
-            .map(|(uri, line, due)| task_information(uri, line, due))
+            .map(|(uri, task)| task_entry(uri, task))
             .collect::<Vec<_>>()))
-    }
-
-    /// Arguments: `[timeframe, from_date?, to_date?, include_archived?]`, dates
-    /// as `YYYY-MM-DD`. Done tasks carry `completed_at`; archived ones carry
-    /// `archived_at`.
-    fn tasks_review(&self, args: &[Value]) -> Option<Value> {
-        let timeframe = ReviewTimeframe::from_name(
-            args.first().and_then(|a| a.as_str()).unwrap_or("today"),
-            parse_date(args.get(1)),
-            parse_date(args.get(2)),
-        );
-        let include_archived = args.get(3).and_then(Value::as_bool).unwrap_or(false);
-        let (from, to) = timeframe_bounds(&timeframe, chrono::Local::now().date_naive());
-
-        let repository = self.repository.lock().unwrap();
-        let repository = repository.as_ref()?;
-        let mut tasks: Vec<_> = repository
-            .aggregate_completed_tasks(from, to)
-            .into_iter()
-            .map(|(uri, line, date)| review_entry(&uri, &line, "completed_at", date))
-            .collect();
-        if include_archived {
-            tasks.extend(
-                repository
-                    .aggregate_archived_tasks(from, to)
-                    .into_iter()
-                    .map(|(uri, line, date)| review_entry(&uri, &line, "archived_at", date)),
-            );
-        }
-        Some(json!(tasks))
     }
 
     /// Arguments: `[note_uri]`. Returns the notes reachable in two hops, most
@@ -185,75 +161,115 @@ impl Backend {
     }
 }
 
-/// One entry of the `experimental/aggregate_tasks` response.
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
-pub struct TaskInformation {
+/// The argument of `patto/tasks`.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct TasksParams {
+    open: bool,
+    /// Resolved tasks to add; none when absent.
+    resolved: Option<ResolvedParams>,
+}
+
+impl Default for TasksParams {
+    fn default() -> Self {
+        Self {
+            open: true,
+            resolved: None,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct ResolvedParams {
+    /// A `ReviewTimeframe` name; when absent, `from` / `to` bound the range.
+    timeframe: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    include_archived: bool,
+}
+
+impl TasksParams {
+    fn query(&self, today: NaiveDate) -> TaskQuery {
+        let range = self.resolved.as_ref().map(|resolved| {
+            let timeframe = match &resolved.timeframe {
+                Some(name) => ReviewTimeframe::from_name(name, None, None),
+                None => ReviewTimeframe::Custom {
+                    from: resolved.from,
+                    to: resolved.to,
+                },
+            };
+            let (from, to) = timeframe_bounds(&timeframe, today);
+            (DateRange { from, to }, resolved.include_archived)
+        });
+        TaskQuery {
+            open: self.open,
+            done: range.map(|(range, _)| range),
+            archived: range.and_then(|(range, archived)| archived.then_some(range)),
+        }
+    }
+}
+
+/// One entry of the `patto/tasks` response.
+#[derive(Debug, Eq, PartialEq, Clone, Serialize)]
+pub struct TaskEntry {
     pub location: Location,
     /// Raw line text with the task property token removed.
     pub text: String,
-    pub message: String,
+    pub status: TaskStatus,
     pub due: Deadline,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheduled: Option<Deadline>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<Deadline>,
-    /// Clock-in time of the running session.
+    /// Clock-in time of the running session. Left out on resolved tasks, where
+    /// it is stale and `time_spent` already holds the total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<Deadline>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_spent: Option<Duration>,
-    pub status: TaskStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<NaiveDate>,
 }
 
-fn task_information(uri: &Url, line: &AstNode, due: &Deadline) -> TaskInformation {
-    let mut info = TaskInformation {
-        location: Location::new(uri.clone(), node_range(line)),
-        text: task_label(line),
-        message: String::new(),
-        due: due.clone(),
+fn task_entry(uri: &Url, task: &TaskLine) -> TaskEntry {
+    let mut entry = TaskEntry {
+        location: Location::new(uri.clone(), node_range(&task.line)),
+        text: task_label(&task.line),
+        status: task.status.clone(),
+        due: task.due.clone(),
         scheduled: None,
-        completed_at: None,
         started_at: None,
         time_spent: None,
-        status: TaskStatus::Todo,
+        completed_at: None,
+        archived_at: None,
     };
-    if let AstNodeKind::Line { properties } = line.kind() {
-        for prop in properties {
-            if let Property::Task {
-                status,
-                scheduled,
-                completed_at,
-                started_at,
-                time_spent,
-                ..
-            } = prop
-            {
-                info.status = status.clone();
-                info.scheduled = scheduled.clone();
-                info.completed_at = completed_at.clone();
-                info.started_at = started_at.clone();
-                info.time_spent = time_spent.clone();
-                break;
-            }
+    if let AstNodeKind::Line { properties } = task.line.kind() {
+        if let Some(Property::Task {
+            scheduled,
+            started_at,
+            time_spent,
+            ..
+        }) = properties
+            .iter()
+            .find(|prop| matches!(prop, Property::Task { .. }))
+        {
+            entry.scheduled = scheduled.clone();
+            entry.started_at = started_at.clone();
+            entry.time_spent = time_spent.clone();
         }
     }
-    info
-}
-
-fn review_entry(uri: &Url, line: &AstNode, date_key: &str, date: NaiveDate) -> Value {
-    let info = task_information(uri, line, &Deadline::Date(date));
-    // `started_at` is deliberately dropped: on a resolved task it is stale, and
-    // the review side must not add elapsed time on top of `time_spent`, which is
-    // already the accumulated total.
-    let mut entry = json!({
-        "location":   info.location,
-        "text":       info.text,
-        "status":     info.status,
-        "due":        info.due,
-        "scheduled":  info.scheduled,
-        "time_spent": info.time_spent,
-    });
-    entry[date_key] = json!(date.format("%Y-%m-%d").to_string());
+    match task.status {
+        TaskStatus::Done => {
+            entry.completed_at = task.resolved_on;
+            entry.started_at = None;
+        }
+        TaskStatus::Archived => {
+            entry.archived_at = task.resolved_on;
+            entry.started_at = None;
+        }
+        _ => {}
+    }
     entry
 }
 
@@ -265,45 +281,82 @@ fn markdown_flavor(name: &str) -> MarkdownFlavor {
     }
 }
 
-fn parse_date(value: Option<&Value>) -> Option<NaiveDate> {
-    let text = value?.as_str()?;
-    NaiveDate::parse_from_str(text, "%Y-%m-%d").ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast_query::gather_task_lines;
 
-    fn information(line: &str) -> TaskInformation {
+    fn entry(line: &str) -> TaskEntry {
         let ast = crate::parser::parse_text(line).ast;
-        let children = ast.children();
+        let mut tasks = Vec::new();
+        gather_task_lines(&ast, &mut tasks);
         let uri = Url::parse("file:///notes/a.pn").unwrap();
-        task_information(
-            &uri,
-            &children[0],
-            &Deadline::Uninterpretable(String::new()),
-        )
+        task_entry(&uri, &tasks[0])
+    }
+
+    fn query(params: Value) -> TaskQuery {
+        let today = NaiveDate::from_ymd_opt(2026, 5, 13).unwrap();
+        serde_json::from_value::<TasksParams>(params)
+            .unwrap()
+            .query(today)
+    }
+
+    fn range(from: Option<&str>, to: Option<&str>) -> Option<DateRange> {
+        let date = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        Some(DateRange {
+            from: from.map(date),
+            to: to.map(date),
+        })
+    }
+
+    #[test]
+    fn an_empty_argument_asks_for_open_tasks_only() {
+        assert_eq!(query(json!({})), TaskQuery::open());
+    }
+
+    #[test]
+    fn a_timeframe_is_resolved_against_today() {
+        assert_eq!(
+            query(json!({ "open": false, "resolved": { "timeframe": "this_week" } })),
+            TaskQuery {
+                open: false,
+                done: range(Some("2026-05-11"), Some("2026-05-13")),
+                archived: None,
+            }
+        );
+    }
+
+    #[test]
+    fn from_and_to_bound_the_range_and_archived_follows_it() {
+        assert_eq!(
+            query(json!({ "resolved": { "from": "2026-04-14", "include_archived": true } })),
+            TaskQuery {
+                open: true,
+                done: range(Some("2026-04-14"), None),
+                archived: range(Some("2026-04-14"), None),
+            }
+        );
     }
 
     #[test]
     fn task_text_conceals_urls_but_keeps_link_titles() {
         let task = " {@task status=todo due=2026-06-01}";
         assert_eq!(
-            information(&format!(
+            entry(&format!(
                 "buy milk [https://example.com/foo milk title]{task}"
             ))
             .text,
             "buy milk [🔗milk title]"
         );
         assert_eq!(
-            information(&format!(
+            entry(&format!(
                 "[milk title https://example.com/foo] buy milk{task}"
             ))
             .text,
             "[milk title🔗] buy milk"
         );
         assert_eq!(
-            information(&format!("buy milk [https://example.com/foo]{task}")).text,
+            entry(&format!("buy milk [https://example.com/foo]{task}")).text,
             "buy milk [https://example.com/foo]"
         );
     }
@@ -312,18 +365,18 @@ mod tests {
     fn task_text_conceals_urls_in_multibyte_lines() {
         let task = " {@task status=todo due=2026-06-01}";
         assert_eq!(
-            information(&format!("牛乳を買う [https://example.com/foo 牛乳]{task}")).text,
+            entry(&format!("牛乳を買う [https://example.com/foo 牛乳]{task}")).text,
             "牛乳を買う [🔗牛乳]"
         );
         assert_eq!(
-            information(&format!("[牛乳 https://example.com/foo] 牛乳を買う{task}")).text,
+            entry(&format!("[牛乳 https://example.com/foo] 牛乳を買う{task}")).text,
             "[牛乳🔗] 牛乳を買う"
         );
     }
 
     #[test]
-    fn task_information_copies_every_task_field() {
-        let info = information(
+    fn task_entry_copies_every_task_field() {
+        let info = entry(
             "work {@task status=doing due=2026-06-01 scheduled=2026-05-30 started_at=2026-05-30T09:00 time_spent=1h30m}",
         );
         assert_eq!(info.status, TaskStatus::Doing);
@@ -332,5 +385,17 @@ mod tests {
         assert!(info.time_spent.is_some());
         assert_eq!(info.completed_at, None);
         assert_eq!(info.location.range.start.line, 0);
+    }
+
+    #[test]
+    fn a_resolved_entry_carries_its_date_and_drops_the_stale_clock_in() {
+        let done = entry("ship {@task status=done completed_at=2026-05-12T18:00 started_at=2026-05-12T09:00 time_spent=2h}");
+        assert_eq!(done.completed_at, NaiveDate::from_ymd_opt(2026, 5, 12));
+        assert_eq!(done.started_at, None);
+        assert!(done.time_spent.is_some());
+
+        let dropped = entry("idea {@task status=archived archived_at=2026-05-10}");
+        assert_eq!(dropped.archived_at, NaiveDate::from_ymd_opt(2026, 5, 10));
+        assert_eq!(dropped.completed_at, None);
     }
 }

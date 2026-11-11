@@ -75,10 +75,6 @@ local function day_start(t)
   return os.time({ year = t.year, month = t.month, day = t.day, hour = 0, min = 0, sec = 0 })
 end
 
-local function month_start(t)
-  return os.time({ year = t.year, month = t.month, day = 1, hour = 0, min = 0, sec = 0 })
-end
-
 local function month_end(t)
   local year, month = t.year, t.month + 1
   if month > 12 then month = 1; year = year + 1 end
@@ -101,24 +97,59 @@ function M.classify_due(task, now)
   if diff_days < 0 then return "⚠Overdue", due_ts end
   if diff_days == 0 then return "Today", due_ts end
   if diff_days == 1 then return "Tomorrow", due_ts end
-  if due_ts <= saturday_end(t) then return "  This Week", due_ts end
+  if due_ts <= saturday_end(t) then return "This Week", due_ts end
   if due_ts <= month_end(t) then return "This Month", due_ts end
   return "Later", due_ts
 end
 
-function M.classify_completed(date_str, now)
-  local ts = M.date_to_time(date_str)
-  if not ts then return "Older", 1 end
+local DUE_GROUPS = {
+  ["⚠Overdue"] = { key = "overdue", order = 1 },
+  ["Today"] = { key = "today", order = 2 },
+  ["Tomorrow"] = { key = "tomorrow", order = 3 },
+  ["This Week"] = { key = "this_week", order = 4 },
+  ["This Month"] = { key = "this_month", order = 5 },
+  ["Later"] = { key = "later", order = 6 },
+  ["No Deadline"] = { key = "no_deadline", order = 7 },
+  ["Invalid"] = { key = "invalid", order = 8 },
+}
+local DONE_ORDER = 9
+local RESOLVED_RANK_BASE = 3e10
 
+M.GROUP_LABELS = {}
+for label, group in pairs(DUE_GROUPS) do M.GROUP_LABELS[group.key] = label end
+
+function M.is_resolved(task)
+  return task.status == "Done" or task.status == "Archived"
+end
+
+function M.resolved_at(task)
+  local at = task.completed_at or task.archived_at
+  if at == vim.NIL then return nil end
+  return at
+end
+
+function M.date_string(now)
+  return os.date("%Y-%m-%d", now or os.time()) --[[@as string]]
+end
+
+function M.days_before(days, now)
   local t = local_date(now or os.time())
-  local today = day_start(t)
-  local this_week = today - ((t.wday - 2) % 7) * DAY
-  if ts >= today then return "Today", 6 end
-  if ts >= today - DAY then return "Yesterday", 5 end
-  if ts >= this_week then return "This Week", 4 end
-  if ts >= this_week - 7 * DAY then return "Last Week", 3 end
-  if ts >= month_start(t) then return "This Month", 2 end
-  return "Older", 1
+  return os.date("%Y-%m-%d", os.time({ year = t.year, month = t.month, day = t.day - days, hour = 12 })) --[[@as string]]
+end
+
+--- Where a task goes in the task list: open tasks by deadline, tasks resolved
+--- today at the end of "today", older resolved tasks in "done", newest first.
+--- @return string group_key, integer group_order, number rank
+function M.task_placement(task, now)
+  if M.is_resolved(task) then
+    local at = M.resolved_at(task)
+    local rank = RESOLVED_RANK_BASE - (M.date_to_time(at) or 0)
+    if at == M.date_string(now) then return "today", DUE_GROUPS["Today"].order, rank end
+    return "done", DONE_ORDER, rank
+  end
+  local label, due_key = M.classify_due(task, now)
+  local group = DUE_GROUPS[label]
+  return group.key, group.order, due_key
 end
 
 local function append_bracketed_time_spent(parts, ts)

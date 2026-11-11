@@ -54,20 +54,13 @@ local function due(date) return { due = { Date = date } } end
 check("classify_due overdue", { fmt.classify_due(due("2026-10-01"), now) }, { "⚠Overdue", fmt.date_to_time("2026-10-01") })
 check("classify_due today", (fmt.classify_due(due("2026-10-09"), now)), "Today")
 check("classify_due tomorrow", (fmt.classify_due(due("2026-10-10"), now)), "Tomorrow")
-check("classify_due this week (Saturday seen from Thursday)", (fmt.classify_due({ due = { DateTime = "2026-10-10T08:00" } }, now - 86400)), "  This Week")
+check("classify_due this week (Saturday seen from Thursday)", (fmt.classify_due({ due = { DateTime = "2026-10-10T08:00" } }, now - 86400)), "This Week")
 check("classify_due next Sunday is not this week", (fmt.classify_due(due("2026-10-11"), now - 86400)), "This Month")
 check("classify_due this month", (fmt.classify_due(due("2026-10-25"), now)), "This Month")
 check("classify_due later", (fmt.classify_due(due("2026-11-01"), now)), "Later")
 check("classify_due none", { fmt.classify_due({}, now) }, { "No Deadline", 9999999999 })
 check("classify_due invalid", { fmt.classify_due(due("soon"), now) }, { "Invalid", 9999999998 })
 
-check("classify_completed today", { fmt.classify_completed("2026-10-09", now) }, { "Today", 6 })
-check("classify_completed yesterday", { fmt.classify_completed("2026-10-08", now) }, { "Yesterday", 5 })
-check("classify_completed this week", { fmt.classify_completed("2026-10-05", now) }, { "This Week", 4 })
-check("classify_completed last week", { fmt.classify_completed("2026-09-28", now) }, { "Last Week", 3 })
-check("classify_completed this month (seen from Monday the 19th)", { fmt.classify_completed("2026-10-01", now + 10 * 86400) }, { "This Month", 2 })
-check("classify_completed older", { fmt.classify_completed("2025-01-01", now) }, { "Older", 1 })
-check("classify_completed missing", { fmt.classify_completed(nil, now) }, { "Older", 1 })
 
 local function loc(path, line)
   return { uri = vim.uri_from_fname(path), range = { start = { line = line, character = 2 } } }
@@ -86,11 +79,9 @@ check("loclist_review_text NIL completed_at", fmt.loclist_review_text({ text = "
 check("loclist_entry", fmt.loclist_entry({ location = loc("/tmp/notes/a.pn", 3) }, "t"),
   { filename = "/tmp/notes/a.pn", lnum = 4, col = 3, text = "t" })
 
-check("review parse named", review_timeframe.parse("this_week"), { "this_week" })
-check("review parse custom", review_timeframe.parse("2026-01-01:2026-01-31"), { "custom", "2026-01-01", "2026-01-31" })
+check("review parse named", review_timeframe.parse("this_week"), { timeframe = "this_week" })
+check("review parse custom", review_timeframe.parse("2026-01-01:2026-01-31"), { from = "2026-01-01", to = "2026-01-31" })
 check("review parse invalid", review_timeframe.parse("bogus"), nil)
-check("review recent_range", { review_timeframe.recent_range(now) }, { "2026-09-28", "2026-10-09" })
-check("review recent_range month start wins", { review_timeframe.recent_range(now + 10 * 86400) }, { "2026-10-01", "2026-10-19" })
 
 check("increment longform todo", tasks.increment_task_string("\tx {@task status=todo due=2026-10-10}"), "\tx {@task status=doing due=2026-10-10}")
 check("increment longform keeps case-insensitive match", tasks.increment_task_string("\tx {@task status=Doing}"), "\tx {@task status=done}")
@@ -173,7 +164,7 @@ for _, name in ipairs({
   "patto.review_timeframe", "patto.tasks_source", "patto.current_task", "patto.foldtext", "patto.preview_launch",
   "patto.images", "patto.embeds",
   "patto_preview", "patto_preview_toggle", "patto_preview_tui", "patto_tasks.trouble",
-  "trouble.sources.patto_tasks", "trouble.sources.patto_tasks_review",
+  "trouble.sources.patto_tasks",
 }) do
   local ok, err = pcall(require, name)
   check("require " .. name, ok and true or err, true)
@@ -190,15 +181,94 @@ check("patto_lsp config keeps its keys", {
 
 local trouble_mode = require("trouble.sources.patto_tasks").config.modes.patto_tasks
 check("patto_tasks mode format", trouble_mode.format, "{task_status}{task_due} {text}{task_time_spent}{task_started_at} {filename}")
-check("patto_tasks mode keys", vim.tbl_keys(trouble_mode.keys) and #vim.tbl_keys(trouble_mode.keys), 3)
-local review_mode = require("trouble.sources.patto_tasks_review").config.modes.patto_tasks_review
-check("patto_tasks_review sort", review_mode.sort, { "completed_date_group_order", "completed_at", "filename", "pos" })
-check("patto_tasks_review has an archived toggle key", review_mode.keys.a and review_mode.keys.a.desc, "Toggle archived tasks")
-local review_formatters = require("trouble.sources.patto_tasks_review").config.formatters
-check("patto_tasks_review marks archived tasks",
-  review_formatters.task_completed_at({ item = { item = { archived_at = "2026-05-01" } } }).text, "⊘ 2026-05-01")
-check("patto_tasks_review marks done tasks",
-  review_formatters.task_completed_at({ item = { item = { completed_at = "2026-05-01" } } }).text, "✓ 2026-05-01")
+check("patto_tasks mode groups by placement", trouble_mode.groups, { { "group_key", format = "{task_group}" } })
+check("patto_tasks mode sort", trouble_mode.sort, { "group_order", "rank", "filename", "pos" })
+
+local function placement(task)
+  local key, order, rank = fmt.task_placement(task, now)
+  return { key, order, rank > 1e10 }
+end
+check("placement open task due today", placement({ status = "Todo", due = { Date = "2026-10-09" } }), { "today", 2, false })
+check("placement overdue task", placement({ status = "Doing", due = { Date = "2026-10-01" } }), { "overdue", 1, false })
+check("placement task without deadline", placement({ status = "Todo", due = { Uninterpretable = "" } }), { "no_deadline", 7, false })
+check("placement task done today goes after open tasks in today",
+  placement({ status = "Done", completed_at = "2026-10-09", due = { Date = "2026-10-01" } }), { "today", 2, true })
+check("placement task archived earlier goes to done",
+  placement({ status = "Archived", archived_at = "2026-10-06" }), { "done", 9, true })
+check("placement newer resolved task ranks first",
+  select(3, fmt.task_placement({ status = "Done", completed_at = "2026-10-08" }, now))
+    < select(3, fmt.task_placement({ status = "Done", completed_at = "2026-10-06" }, now)), true)
+check("days_before 29", fmt.days_before(29, now), "2026-09-10")
+
+local tasks_trouble = require("trouble.sources.patto_tasks")
+local formatters = tasks_trouble.config.formatters
+
+local function fake_group(root, key, items)
+  local node = { id = root.id .. "#" .. key, parent = root, children = {} }
+  for _, item in ipairs(items) do node.children[#node.children + 1] = { item = item } end
+  function node.count(self) return #self.children end
+  root.index[node.id] = node
+  return node
+end
+local fake_root = { id = "$root", index = {} }
+function fake_root.get(self, id) return self.index[id] end
+local function row(status, minutes)
+  return {
+    resolved = status == "Done" or status == "Archived",
+    item = { status = status, time_spent = minutes and { hours = 0, minutes = minutes } or nil },
+  }
+end
+local today_group = fake_group(fake_root, "today",
+  { row("Todo"), row("Doing"), row("Todo"), row("Done", 60), row("Done"), row("Archived", 15) })
+local tomorrow_group = fake_group(fake_root, "tomorrow", { row("Todo") })
+local done_group = fake_group(fake_root, "done", { row("Done", 90), row("Archived", 45) })
+
+check("today header counts what is left and what is done, not archived tasks",
+  formatters.task_group({ item = { group_key = "today" }, node = today_group }).text, "Today  3 left · ✓ 2 done")
+check("header without resolved tasks shows only the count",
+  formatters.task_group({ item = { group_key = "tomorrow" }, node = tomorrow_group }).text, "Tomorrow  1")
+check("done header counts done tasks, including today's, but not archived ones",
+  formatters.task_group({ item = { group_key = "done" }, node = done_group }).text, "Done this week  ✓ 3 · ⏱ 2h30m")
+check("resolved rows are struck through",
+  formatters.text({ item = { text = "ship", resolved = true } }), { text = "ship", hl = "PattoTaskResolved" })
+check("open rows keep the default text highlight", formatters.text({ item = { text = "write" } }), { text = "write" })
+check("resolved highlight is struck through", vim.api.nvim_get_hl(0, { name = "PattoTaskResolved" }).strikethrough, true)
+check("resolved row in done shows its date",
+  formatters.task_due({ item = { resolved = true, group_key = "done", item = { completed_at = "2026-10-06" } } }).text, " 2026-10-06")
+check("resolved row in today hides the date",
+  formatters.task_due({ item = { resolved = true, group_key = "today", item = { completed_at = "2026-10-09" } } }).text, "")
+
+local patto_lsp = require("patto.lsp")
+local sent = {}
+patto_lsp.find_patto_bufnr = function() return 1 end
+patto_lsp.execute_command = function(_, command, arguments, handler)
+  sent[#sent + 1] = { command = command, params = arguments[1] }
+  handler({})
+end
+local fake_view = { refresh = function() end }
+local function last_params()
+  tasks_trouble.get(function() end)
+  return sent[#sent].params
+end
+
+check("viewer asks for open tasks and this week's resolved tasks", last_params(),
+  { open = true, resolved = { timeframe = "this_week", include_archived = false } })
+check("viewer uses the single tasks command", sent[#sent].command, "patto/tasks")
+trouble_mode.keys.a.action(fake_view)
+check("a adds archived tasks", last_params().resolved.include_archived, true)
+trouble_mode.keys.a.action(fake_view)
+trouble_mode.keys.r.action(fake_view)
+check("r widens to the last 30 days", last_params().resolved.from, fmt.days_before(29))
+check("done header follows the range",
+  formatters.task_group({ item = { group_key = "done" }, node = done_group }).text, "Done in last 30 days  ✓ 3 · ⏱ 2h30m")
+trouble_mode.keys.r.action(fake_view)
+check("r then shows every resolved task", last_params().resolved, { include_archived = false })
+trouble_mode.keys.r.action(fake_view)
+check("r wraps back to this week", last_params().resolved.timeframe, "this_week")
+tasks_trouble.setup({ show_resolved = false })
+check("show_resolved = false asks for open tasks only", last_params(), { open = true })
+tasks_trouble.setup({ show_resolved = true })
+check("the separate review mode is gone", (pcall(require, "trouble.sources.patto_tasks_review")), false)
 
 local ok_setup, setup_err = pcall(function()
   require("patto.current_task").setup()

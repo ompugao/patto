@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, TimeDelta};
 use patto::{
     parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus},
-    repository::Repository,
+    repository::{DateRange, Repository, TaskQuery},
     task::Duration,
     tasks_view::{completed_group, pending_group, week_start, CompletedGroup, PendingGroup},
 };
@@ -282,7 +282,12 @@ impl TasksPanel {
     }
 
     pub(crate) fn refresh(&mut self, repository: &Repository) {
-        self.entries = upcoming_entries(repository.aggregate_tasks());
+        let open = repository
+            .tasks(&TaskQuery::open())
+            .into_iter()
+            .map(|(uri, task)| (uri, task.line, task.due))
+            .collect();
+        self.entries = upcoming_entries(open);
         if self
             .list_state
             .selected
@@ -300,7 +305,18 @@ impl TasksPanel {
         let this_month_start = today.with_day(1).unwrap_or(today);
         let from = last_week_start.min(this_month_start);
 
-        let completed = repository.aggregate_completed_tasks(Some(from), Some(today));
+        let query = TaskQuery {
+            done: Some(DateRange {
+                from: Some(from),
+                to: Some(today),
+            }),
+            ..TaskQuery::default()
+        };
+        let completed = repository
+            .tasks(&query)
+            .into_iter()
+            .filter_map(|(uri, task)| Some((uri, task.line, task.resolved_on?)))
+            .collect();
         self.review_entries = review_entries(completed);
         if self
             .review_list_state

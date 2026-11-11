@@ -53,7 +53,7 @@ export class PattoLsp {
 	constructor(private readonly client: LanguageClient) {}
 
 	aggregateTasks(): Promise<TaskInformation[] | null> {
-		return this.execute("experimental/aggregate_tasks");
+		return this.execute("patto/tasks", [{}]);
 	}
 
 	scanWorkspace(): Promise<unknown> {
@@ -70,7 +70,9 @@ export class PattoLsp {
 
 	/** `["today"]`, `["this_week"]` or `["custom", from, to]` with YYYY-MM-DD dates. */
 	tasksReview(timeframe: string[]): Promise<CompletedTask[] | null> {
-		return this.execute("experimental/tasks_review", timeframe);
+		const [name, from, to] = timeframe;
+		const resolved = name === "custom" ? { from, to } : { timeframe: name };
+		return this.execute("patto/tasks", [{ open: false, resolved }]);
 	}
 
 	/** Lines are 0-based and inclusive; both undefined renders the whole document. */
