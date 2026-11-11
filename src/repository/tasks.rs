@@ -1,6 +1,6 @@
 use url::Url;
 
-use crate::ast_query::{gather_completed_tasks, gather_tasks};
+use crate::ast_query::{gather_archived_tasks, gather_completed_tasks, gather_tasks};
 use crate::parser::{AstNode, Deadline};
 
 use super::Repository;
@@ -29,11 +29,30 @@ impl Repository {
         from: Option<chrono::NaiveDate>,
         to: Option<chrono::NaiveDate>,
     ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
+        self.aggregate_resolved_tasks(from, to, gather_completed_tasks)
+    }
+
+    /// Collect Archived tasks whose `archived_at` falls within [from, to] (inclusive).
+    /// Pass `None` for either bound to leave it open.
+    pub fn aggregate_archived_tasks(
+        &self,
+        from: Option<chrono::NaiveDate>,
+        to: Option<chrono::NaiveDate>,
+    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
+        self.aggregate_resolved_tasks(from, to, gather_archived_tasks)
+    }
+
+    fn aggregate_resolved_tasks(
+        &self,
+        from: Option<chrono::NaiveDate>,
+        to: Option<chrono::NaiveDate>,
+        gather: fn(&AstNode, &mut Vec<(AstNode, chrono::NaiveDate)>),
+    ) -> Vec<(Url, AstNode, chrono::NaiveDate)> {
         let mut tasks: Vec<(Url, AstNode, chrono::NaiveDate)> = Vec::new();
         self.ast_map.iter().for_each(|entry| {
-            let mut completed = Vec::new();
-            gather_completed_tasks(entry.value(), &mut completed);
-            for (node, date) in completed {
+            let mut resolved = Vec::new();
+            gather(entry.value(), &mut resolved);
+            for (node, date) in resolved {
                 let in_range = from.is_none_or(|f| date >= f) && to.is_none_or(|t| date <= t);
                 if in_range {
                     tasks.push((entry.key().clone(), node, date));

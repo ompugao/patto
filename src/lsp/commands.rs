@@ -57,36 +57,34 @@ impl Backend {
             .collect::<Vec<_>>()))
     }
 
-    /// Arguments: `[timeframe, from_date?, to_date?]`, dates as `YYYY-MM-DD`.
+    /// Arguments: `[timeframe, from_date?, to_date?, include_archived?]`, dates
+    /// as `YYYY-MM-DD`. Done tasks carry `completed_at`; archived ones carry
+    /// `archived_at`.
     fn tasks_review(&self, args: &[Value]) -> Option<Value> {
         let timeframe = ReviewTimeframe::from_name(
             args.first().and_then(|a| a.as_str()).unwrap_or("today"),
             parse_date(args.get(1)),
             parse_date(args.get(2)),
         );
+        let include_archived = args.get(3).and_then(Value::as_bool).unwrap_or(false);
         let (from, to) = timeframe_bounds(&timeframe, chrono::Local::now().date_naive());
 
         let repository = self.repository.lock().unwrap();
-        let tasks = repository.as_ref()?.aggregate_completed_tasks(from, to);
-
-        Some(json!(tasks
-            .iter()
-            .map(|(uri, line, date)| {
-                let info = task_information(uri, line, &Deadline::Date(*date));
-                // `started_at` is deliberately dropped: on a done task it is stale,
-                // and the review side must not add elapsed time on top of
-                // `time_spent`, which is already the accumulated total.
-                json!({
-                    "location":     info.location,
-                    "text":         info.text,
-                    "status":       info.status,
-                    "due":          info.due,
-                    "scheduled":    info.scheduled,
-                    "completed_at": date.format("%Y-%m-%d").to_string(),
-                    "time_spent":   info.time_spent,
-                })
-            })
-            .collect::<Vec<_>>()))
+        let repository = repository.as_ref()?;
+        let mut tasks: Vec<_> = repository
+            .aggregate_completed_tasks(from, to)
+            .into_iter()
+            .map(|(uri, line, date)| review_entry(&uri, &line, "completed_at", date))
+            .collect();
+        if include_archived {
+            tasks.extend(
+                repository
+                    .aggregate_archived_tasks(from, to)
+                    .into_iter()
+                    .map(|(uri, line, date)| review_entry(&uri, &line, "archived_at", date)),
+            );
+        }
+        Some(json!(tasks))
     }
 
     /// Arguments: `[note_uri]`. Returns the notes reachable in two hops, most
@@ -240,6 +238,23 @@ fn task_information(uri: &Url, line: &AstNode, due: &Deadline) -> TaskInformatio
         }
     }
     info
+}
+
+fn review_entry(uri: &Url, line: &AstNode, date_key: &str, date: NaiveDate) -> Value {
+    let info = task_information(uri, line, &Deadline::Date(date));
+    // `started_at` is deliberately dropped: on a resolved task it is stale, and
+    // the review side must not add elapsed time on top of `time_spent`, which is
+    // already the accumulated total.
+    let mut entry = json!({
+        "location":   info.location,
+        "text":       info.text,
+        "status":     info.status,
+        "due":        info.due,
+        "scheduled":  info.scheduled,
+        "time_spent": info.time_spent,
+    });
+    entry[date_key] = json!(date.format("%Y-%m-%d").to_string());
+    entry
 }
 
 fn markdown_flavor(name: &str) -> MarkdownFlavor {

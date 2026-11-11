@@ -18,7 +18,7 @@ use url::Url;
 
 use crate::parser::AstNode;
 
-pub use crate::ast_query::{gather_completed_tasks, gather_tasks};
+pub use crate::ast_query::{gather_archived_tasks, gather_completed_tasks, gather_tasks};
 pub use config::{
     load_workspace_config, save_workspace_config, PattoWorkspaceConfig, WORKSPACE_CONFIG_FILENAME,
 };

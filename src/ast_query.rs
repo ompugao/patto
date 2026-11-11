@@ -40,30 +40,48 @@ pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) 
 
 /// Recursively collect Done tasks that have a `completed_at` date.
 pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
+    gather_resolved_tasks(parent, tasklines, &|prop| match prop {
+        Property::Task {
+            status: TaskStatus::Done,
+            completed_at: Some(at),
+            ..
+        } => Some(at),
+        _ => None,
+    });
+}
+
+/// Recursively collect Archived tasks that have an `archived_at` date.
+pub fn gather_archived_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
+    gather_resolved_tasks(parent, tasklines, &|prop| match prop {
+        Property::Task {
+            status: TaskStatus::Archived,
+            archived_at: Some(at),
+            ..
+        } => Some(at),
+        _ => None,
+    });
+}
+
+fn gather_resolved_tasks(
+    parent: &AstNode,
+    tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>,
+    resolved_at: &dyn Fn(&Property) -> Option<&Deadline>,
+) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Task {
-                status,
-                completed_at: Some(completed_at),
-                ..
-            } = prop
-            {
-                if matches!(status, TaskStatus::Done) {
-                    let date = match completed_at {
-                        Deadline::Date(d) => Some(*d),
-                        Deadline::DateTime(dt) => Some(dt.date()),
-                        Deadline::Uninterpretable(_) => None,
-                    };
-                    if let Some(date) = date {
-                        tasklines.push((parent.clone(), date));
-                        break;
-                    }
-                }
-            }
+        let date = properties
+            .iter()
+            .filter_map(resolved_at)
+            .find_map(|at| match at {
+                Deadline::Date(d) => Some(*d),
+                Deadline::DateTime(dt) => Some(dt.date()),
+                Deadline::Uninterpretable(_) => None,
+            });
+        if let Some(date) = date {
+            tasklines.push((parent.clone(), date));
         }
     }
     for child in parent.children().iter() {
-        gather_completed_tasks(child, tasklines);
+        gather_resolved_tasks(child, tasklines, resolved_at);
     }
 }
 

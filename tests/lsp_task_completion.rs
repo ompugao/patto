@@ -204,6 +204,62 @@ async fn test_tasks_review_excludes_out_of_range() {
     assert_eq!(arr[0]["completed_at"], "2024-03-15");
 }
 
+const REVIEW_WITH_ARCHIVED: &str = "shipped {@task status=done completed_at=2024-03-20}\n\
+     dropped {@task status=archived archived_at=2024-03-15}\n\
+     dropped long ago {@task status=archived archived_at=2024-01-10}\n";
+
+async fn review_client(workspace: &mut TestWorkspace) -> InProcessLspClient {
+    workspace.create_file("tasks.pn", REVIEW_WITH_ARCHIVED);
+    let mut client = InProcessLspClient::new(workspace).await;
+    let uri = workspace.get_uri("tasks.pn");
+    client.did_open(uri, REVIEW_WITH_ARCHIVED.to_string()).await;
+    client
+}
+
+#[tokio::test]
+async fn test_tasks_review_omits_archived_tasks_by_default() {
+    let mut workspace = TestWorkspace::new();
+    let mut client = review_client(&mut workspace).await;
+
+    let result = client
+        .tasks_review("custom", Some("2024-03-01"), Some("2024-03-31"))
+        .await;
+    let tasks = result
+        .flatten()
+        .expect("tasks_review should return a value");
+    let texts: Vec<_> = tasks
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["text"].as_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(texts, ["shipped"]);
+}
+
+#[tokio::test]
+async fn test_tasks_review_includes_archived_tasks_in_range_when_asked() {
+    let mut workspace = TestWorkspace::new();
+    let mut client = review_client(&mut workspace).await;
+
+    let result = client
+        .tasks_review_with_archived("2024-03-01", "2024-03-31")
+        .await;
+    let tasks = result
+        .flatten()
+        .expect("tasks_review should return a value");
+    let arr = tasks.as_array().unwrap();
+
+    assert_eq!(arr.len(), 2);
+    let archived = arr
+        .iter()
+        .find(|t| t["text"] == "dropped")
+        .expect("archived task in range should appear");
+    assert_eq!(archived["status"], "Archived");
+    assert_eq!(archived["archived_at"], "2024-03-15");
+    assert!(archived.get("completed_at").is_none());
+}
+
 #[tokio::test]
 async fn test_auto_complete_detects_nested_task_transition() {
     let mut workspace = TestWorkspace::new();

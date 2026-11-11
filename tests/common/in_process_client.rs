@@ -253,6 +253,21 @@ impl InProcessLspClient {
             .await
     }
 
+    pub async fn tasks_review_with_archived(
+        &mut self,
+        from: &str,
+        to: &str,
+    ) -> Option<Option<serde_json::Value>> {
+        let args = vec![
+            serde_json::json!("custom"),
+            serde_json::json!(from),
+            serde_json::json!(to),
+            serde_json::json!(true),
+        ];
+        self.execute_command("experimental/tasks_review", args)
+            .await
+    }
+
     /// Dispatches the few notifications tests send as raw JSON.
     pub async fn notify(&mut self, method: &str, params: serde_json::Value) {
         match method {
