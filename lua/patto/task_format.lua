@@ -106,6 +106,56 @@ function M.classify_due(task, now)
   return "Later", due_ts
 end
 
+local DUE_GROUPS = {
+  ["⚠Overdue"] = { key = "overdue", order = 1 },
+  ["Today"] = { key = "today", order = 2 },
+  ["Tomorrow"] = { key = "tomorrow", order = 3 },
+  ["  This Week"] = { key = "this_week", order = 4 },
+  ["This Month"] = { key = "this_month", order = 5 },
+  ["Later"] = { key = "later", order = 6 },
+  ["No Deadline"] = { key = "no_deadline", order = 7 },
+  ["Invalid"] = { key = "invalid", order = 8 },
+}
+local DONE_ORDER = 9
+local RESOLVED_RANK_BASE = 3e10
+
+M.GROUP_LABELS = {}
+for label, group in pairs(DUE_GROUPS) do M.GROUP_LABELS[group.key] = label end
+
+function M.is_resolved(task)
+  return task.status == "Done" or task.status == "Archived"
+end
+
+function M.resolved_at(task)
+  local at = task.completed_at or task.archived_at
+  if at == vim.NIL then return nil end
+  return at
+end
+
+function M.date_string(now)
+  return os.date("%Y-%m-%d", now or os.time()) --[[@as string]]
+end
+
+function M.days_before(days, now)
+  local t = local_date(now or os.time())
+  return os.date("%Y-%m-%d", os.time({ year = t.year, month = t.month, day = t.day - days, hour = 12 })) --[[@as string]]
+end
+
+--- Where a task goes in the task list: open tasks by deadline, tasks resolved
+--- today at the end of "today", older resolved tasks in "done", newest first.
+--- @return string group_key, integer group_order, number rank
+function M.task_placement(task, now)
+  if M.is_resolved(task) then
+    local at = M.resolved_at(task)
+    local rank = RESOLVED_RANK_BASE - (M.date_to_time(at) or 0)
+    if at == M.date_string(now) then return "today", DUE_GROUPS["Today"].order, rank end
+    return "done", DONE_ORDER, rank
+  end
+  local label, due_key = M.classify_due(task, now)
+  local group = DUE_GROUPS[label]
+  return group.key, group.order, due_key
+end
+
 function M.classify_completed(date_str, now)
   local ts = M.date_to_time(date_str)
   if not ts then return "Older", 1 end

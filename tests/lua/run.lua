@@ -190,7 +190,89 @@ check("patto_lsp config keeps its keys", {
 
 local trouble_mode = require("trouble.sources.patto_tasks").config.modes.patto_tasks
 check("patto_tasks mode format", trouble_mode.format, "{task_status}{task_due} {text}{task_time_spent}{task_started_at} {filename}")
-check("patto_tasks mode keys", vim.tbl_keys(trouble_mode.keys) and #vim.tbl_keys(trouble_mode.keys), 3)
+check("patto_tasks mode groups by placement", trouble_mode.groups, { { "group_key", format = "{task_group}" } })
+check("patto_tasks mode sort", trouble_mode.sort, { "group_order", "rank", "filename", "pos" })
+
+local function placement(task)
+  local key, order, rank = fmt.task_placement(task, now)
+  return { key, order, rank > 1e10 }
+end
+check("placement open task due today", placement({ status = "Todo", due = { Date = "2026-10-09" } }), { "today", 2, false })
+check("placement overdue task", placement({ status = "Doing", due = { Date = "2026-10-01" } }), { "overdue", 1, false })
+check("placement task without deadline", placement({ status = "Todo", due = { Uninterpretable = "" } }), { "no_deadline", 7, false })
+check("placement task done today goes after open tasks in today",
+  placement({ status = "Done", completed_at = "2026-10-09", due = { Date = "2026-10-01" } }), { "today", 2, true })
+check("placement task archived earlier goes to done",
+  placement({ status = "Archived", archived_at = "2026-10-06" }), { "done", 9, true })
+check("placement newer resolved task ranks first",
+  select(3, fmt.task_placement({ status = "Done", completed_at = "2026-10-08" }, now))
+    < select(3, fmt.task_placement({ status = "Done", completed_at = "2026-10-06" }, now)), true)
+check("days_before 29", fmt.days_before(29, now), "2026-09-10")
+
+local tasks_trouble = require("trouble.sources.patto_tasks")
+local formatters = tasks_trouble.config.formatters
+
+local function fake_group(root, key, items)
+  local node = { id = root.id .. "#" .. key, parent = root, children = {} }
+  for _, item in ipairs(items) do node.children[#node.children + 1] = { item = item } end
+  function node.count(self) return #self.children end
+  root.index[node.id] = node
+  return node
+end
+local fake_root = { id = "$root", index = {} }
+function fake_root.get(self, id) return self.index[id] end
+local function row(resolved, minutes)
+  return { resolved = resolved, item = { time_spent = minutes and { hours = 0, minutes = minutes } or nil } }
+end
+local today_group = fake_group(fake_root, "today", { row(false), row(false), row(false), row(true, 60), row(true) })
+local tomorrow_group = fake_group(fake_root, "tomorrow", { row(false) })
+local done_group = fake_group(fake_root, "done", { row(true, 90) })
+
+check("today header counts what is left and what is done",
+  formatters.task_group({ item = { group_key = "today" }, node = today_group }).text, "Today  3 left · ✓ 2 done")
+check("header without resolved tasks shows only the count",
+  formatters.task_group({ item = { group_key = "tomorrow" }, node = tomorrow_group }).text, "Tomorrow  1")
+check("done header totals include tasks resolved today",
+  formatters.task_group({ item = { group_key = "done" }, node = done_group }).text, "Done this week  ✓ 3 · ⏱ 2h30m")
+check("resolved rows are struck through",
+  formatters.text({ item = { text = "ship", resolved = true } }), { text = "ship", hl = "PattoTaskResolved" })
+check("open rows keep the default text highlight", formatters.text({ item = { text = "write" } }), { text = "write" })
+check("resolved highlight is struck through", vim.api.nvim_get_hl(0, { name = "PattoTaskResolved" }).strikethrough, true)
+check("resolved row in done shows its date",
+  formatters.task_due({ item = { resolved = true, group_key = "done", item = { completed_at = "2026-10-06" } } }).text, " 2026-10-06")
+check("resolved row in today hides the date",
+  formatters.task_due({ item = { resolved = true, group_key = "today", item = { completed_at = "2026-10-09" } } }).text, "")
+
+local patto_lsp = require("patto.lsp")
+local sent = {}
+patto_lsp.find_patto_bufnr = function() return 1 end
+patto_lsp.execute_command = function(_, command, arguments, handler)
+  sent[#sent + 1] = { command = command, params = arguments[1] }
+  handler({})
+end
+local fake_view = { refresh = function() end }
+local function last_params()
+  tasks_trouble.get(function() end)
+  return sent[#sent].params
+end
+
+check("viewer asks for open tasks and this week's resolved tasks", last_params(),
+  { open = true, resolved = { timeframe = "this_week", include_archived = false } })
+check("viewer uses the single tasks command", sent[#sent].command, "patto/tasks")
+trouble_mode.keys.a.action(fake_view)
+check("a adds archived tasks", last_params().resolved.include_archived, true)
+trouble_mode.keys.a.action(fake_view)
+trouble_mode.keys.r.action(fake_view)
+check("r widens to the last 30 days", last_params().resolved.from, fmt.days_before(29))
+check("done header follows the range",
+  formatters.task_group({ item = { group_key = "done" }, node = done_group }).text, "Done in last 30 days  ✓ 3 · ⏱ 2h30m")
+trouble_mode.keys.r.action(fake_view)
+check("r then shows every resolved task", last_params().resolved, { include_archived = false })
+trouble_mode.keys.r.action(fake_view)
+check("r wraps back to this week", last_params().resolved.timeframe, "this_week")
+tasks_trouble.setup({ show_resolved = false })
+check("show_resolved = false asks for open tasks only", last_params(), { open = true })
+tasks_trouble.setup({ show_resolved = true })
 local review_mode = require("trouble.sources.patto_tasks_review").config.modes.patto_tasks_review
 check("patto_tasks_review sort", review_mode.sort, { "completed_date_group_order", "completed_at", "filename", "pos" })
 check("patto_tasks_review has an archived toggle key", review_mode.keys.a and review_mode.keys.a.desc, "Toggle archived tasks")
