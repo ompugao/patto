@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use patto::ast_query::{
-    conceal_urls, find_anchor, gather_completed_tasks, gather_tasks, gather_wikilinks, task_label,
-    walk_lines,
+    conceal_urls, find_anchor, gather_archived_tasks, gather_completed_tasks, gather_tasks,
+    gather_wikilinks, task_label, walk_lines,
 };
 use patto::parser::{self, AstNode, Deadline};
 
@@ -141,5 +141,26 @@ fn gather_wikilinks_finds_links_inside_decorations_and_nested_lines() {
     assert_eq!(
         found,
         [("bold page", None, 0), ("nested page", Some("part"), 1)]
+    );
+}
+
+#[test]
+fn gather_archived_tasks_requires_an_archived_at_date() {
+    let root = parse(
+        "a {@task status=archived archived_at=2026-05-01}\n\tb {@task status=archived archived_at=2026-05-02T10:00}\nc {@task status=archived}\nd {@task status=done archived_at=2026-05-03 completed_at=2026-05-03}\n",
+    );
+    let mut archived = Vec::new();
+    gather_archived_tasks(&root, &mut archived);
+    let found: Vec<_> = archived
+        .iter()
+        .map(|(line, date)| (task_label(line), *date))
+        .collect();
+    let date = |s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    assert_eq!(
+        found,
+        [
+            ("a".to_string(), date("2026-05-01")),
+            ("b".to_string(), date("2026-05-02")),
+        ]
     );
 }
