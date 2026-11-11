@@ -106,13 +106,16 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   callback = define_highlights,
 })
 
-local function resolved_items(node)
+local function items_where(node, keep)
   local items = {}
   for _, child in ipairs(node and node.children or {}) do
-    if child.item and child.item.resolved then items[#items + 1] = child.item end
+    if child.item and keep(child.item) then items[#items + 1] = child.item end
   end
   return items
 end
+
+local function is_resolved(item) return item.resolved end
+local function is_done(item) return (item.item or {}).status == "Done" end
 
 local function total_time_text(items)
   local minutes = 0
@@ -124,8 +127,8 @@ end
 
 local function done_header(node)
   local parent = node.parent
-  local items = resolved_items(node)
-  vim.list_extend(items, resolved_items(parent and parent:get(parent.id .. "#today")))
+  local items = items_where(node, is_done)
+  vim.list_extend(items, items_where(parent and parent:get(parent.id .. "#today"), is_done))
   local text = ("%s  ✓ %d"):format(DONE_LABELS[done_range], #items)
   local time = total_time_text(items)
   if time then text = text .. " · ⏱ " .. time end
@@ -134,10 +137,10 @@ end
 
 local function open_group_header(key, node)
   local label = fmt.GROUP_LABELS[key] or key
-  local done = #resolved_items(node)
-  local total = node:count()
-  if done == 0 then return ("%s  %d"):format(label, total) end
-  return ("%s  %d left · ✓ %d done"):format(label, total - done, done)
+  local done = #items_where(node, is_done)
+  local left = node:count() - #items_where(node, is_resolved)
+  if done == 0 then return ("%s  %d"):format(label, left) end
+  return ("%s  %d left · ✓ %d done"):format(label, left, done)
 end
 
 local function toggle_archived(view)

@@ -212,18 +212,22 @@ local function fake_group(root, key, items)
 end
 local fake_root = { id = "$root", index = {} }
 function fake_root.get(self, id) return self.index[id] end
-local function row(resolved, minutes)
-  return { resolved = resolved, item = { time_spent = minutes and { hours = 0, minutes = minutes } or nil } }
+local function row(status, minutes)
+  return {
+    resolved = status == "Done" or status == "Archived",
+    item = { status = status, time_spent = minutes and { hours = 0, minutes = minutes } or nil },
+  }
 end
-local today_group = fake_group(fake_root, "today", { row(false), row(false), row(false), row(true, 60), row(true) })
-local tomorrow_group = fake_group(fake_root, "tomorrow", { row(false) })
-local done_group = fake_group(fake_root, "done", { row(true, 90) })
+local today_group = fake_group(fake_root, "today",
+  { row("Todo"), row("Doing"), row("Todo"), row("Done", 60), row("Done"), row("Archived", 15) })
+local tomorrow_group = fake_group(fake_root, "tomorrow", { row("Todo") })
+local done_group = fake_group(fake_root, "done", { row("Done", 90), row("Archived", 45) })
 
-check("today header counts what is left and what is done",
+check("today header counts what is left and what is done, not archived tasks",
   formatters.task_group({ item = { group_key = "today" }, node = today_group }).text, "Today  3 left · ✓ 2 done")
 check("header without resolved tasks shows only the count",
   formatters.task_group({ item = { group_key = "tomorrow" }, node = tomorrow_group }).text, "Tomorrow  1")
-check("done header totals include tasks resolved today",
+check("done header counts done tasks, including today's, but not archived ones",
   formatters.task_group({ item = { group_key = "done" }, node = done_group }).text, "Done this week  ✓ 3 · ⏱ 2h30m")
 check("resolved rows are struck through",
   formatters.text({ item = { text = "ship", resolved = true } }), { text = "ship", hl = "PattoTaskResolved" })
