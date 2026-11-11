@@ -61,13 +61,6 @@ check("classify_due later", (fmt.classify_due(due("2026-11-01"), now)), "Later")
 check("classify_due none", { fmt.classify_due({}, now) }, { "No Deadline", 9999999999 })
 check("classify_due invalid", { fmt.classify_due(due("soon"), now) }, { "Invalid", 9999999998 })
 
-check("classify_completed today", { fmt.classify_completed("2026-10-09", now) }, { "Today", 6 })
-check("classify_completed yesterday", { fmt.classify_completed("2026-10-08", now) }, { "Yesterday", 5 })
-check("classify_completed this week", { fmt.classify_completed("2026-10-05", now) }, { "This Week", 4 })
-check("classify_completed last week", { fmt.classify_completed("2026-09-28", now) }, { "Last Week", 3 })
-check("classify_completed this month (seen from Monday the 19th)", { fmt.classify_completed("2026-10-01", now + 10 * 86400) }, { "This Month", 2 })
-check("classify_completed older", { fmt.classify_completed("2025-01-01", now) }, { "Older", 1 })
-check("classify_completed missing", { fmt.classify_completed(nil, now) }, { "Older", 1 })
 
 local function loc(path, line)
   return { uri = vim.uri_from_fname(path), range = { start = { line = line, character = 2 } } }
@@ -89,8 +82,6 @@ check("loclist_entry", fmt.loclist_entry({ location = loc("/tmp/notes/a.pn", 3) 
 check("review parse named", review_timeframe.parse("this_week"), { timeframe = "this_week" })
 check("review parse custom", review_timeframe.parse("2026-01-01:2026-01-31"), { from = "2026-01-01", to = "2026-01-31" })
 check("review parse invalid", review_timeframe.parse("bogus"), nil)
-check("review recent_range", { review_timeframe.recent_range(now) }, { "2026-09-28", "2026-10-09" })
-check("review recent_range month start wins", { review_timeframe.recent_range(now + 10 * 86400) }, { "2026-10-01", "2026-10-19" })
 
 check("increment longform todo", tasks.increment_task_string("\tx {@task status=todo due=2026-10-10}"), "\tx {@task status=doing due=2026-10-10}")
 check("increment longform keeps case-insensitive match", tasks.increment_task_string("\tx {@task status=Doing}"), "\tx {@task status=done}")
@@ -173,7 +164,7 @@ for _, name in ipairs({
   "patto.review_timeframe", "patto.tasks_source", "patto.current_task", "patto.foldtext", "patto.preview_launch",
   "patto.images", "patto.embeds",
   "patto_preview", "patto_preview_toggle", "patto_preview_tui", "patto_tasks.trouble",
-  "trouble.sources.patto_tasks", "trouble.sources.patto_tasks_review",
+  "trouble.sources.patto_tasks",
 }) do
   local ok, err = pcall(require, name)
   check("require " .. name, ok and true or err, true)
@@ -273,14 +264,7 @@ check("r wraps back to this week", last_params().resolved.timeframe, "this_week"
 tasks_trouble.setup({ show_resolved = false })
 check("show_resolved = false asks for open tasks only", last_params(), { open = true })
 tasks_trouble.setup({ show_resolved = true })
-local review_mode = require("trouble.sources.patto_tasks_review").config.modes.patto_tasks_review
-check("patto_tasks_review sort", review_mode.sort, { "completed_date_group_order", "completed_at", "filename", "pos" })
-check("patto_tasks_review has an archived toggle key", review_mode.keys.a and review_mode.keys.a.desc, "Toggle archived tasks")
-local review_formatters = require("trouble.sources.patto_tasks_review").config.formatters
-check("patto_tasks_review marks archived tasks",
-  review_formatters.task_completed_at({ item = { item = { archived_at = "2026-05-01" } } }).text, "⊘ 2026-05-01")
-check("patto_tasks_review marks done tasks",
-  review_formatters.task_completed_at({ item = { item = { completed_at = "2026-05-01" } } }).text, "✓ 2026-05-01")
+check("the separate review mode is gone", (pcall(require, "trouble.sources.patto_tasks_review")), false)
 
 local ok_setup, setup_err = pcall(function()
   require("patto.current_task").setup()

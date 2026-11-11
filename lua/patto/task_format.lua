@@ -75,10 +75,6 @@ local function day_start(t)
   return os.time({ year = t.year, month = t.month, day = t.day, hour = 0, min = 0, sec = 0 })
 end
 
-local function month_start(t)
-  return os.time({ year = t.year, month = t.month, day = 1, hour = 0, min = 0, sec = 0 })
-end
-
 local function month_end(t)
   local year, month = t.year, t.month + 1
   if month > 12 then month = 1; year = year + 1 end
@@ -154,21 +150,6 @@ function M.task_placement(task, now)
   local label, due_key = M.classify_due(task, now)
   local group = DUE_GROUPS[label]
   return group.key, group.order, due_key
-end
-
-function M.classify_completed(date_str, now)
-  local ts = M.date_to_time(date_str)
-  if not ts then return "Older", 1 end
-
-  local t = local_date(now or os.time())
-  local today = day_start(t)
-  local this_week = today - ((t.wday - 2) % 7) * DAY
-  if ts >= today then return "Today", 6 end
-  if ts >= today - DAY then return "Yesterday", 5 end
-  if ts >= this_week then return "This Week", 4 end
-  if ts >= this_week - 7 * DAY then return "Last Week", 3 end
-  if ts >= month_start(t) then return "This Month", 2 end
-  return "Older", 1
 end
 
 local function append_bracketed_time_spent(parts, ts)

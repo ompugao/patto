@@ -64,13 +64,7 @@ View tasks completed within a time window, sorted by `completed_at`:
   - `:LspPattoTasksReview 2024-03-01:2024-03-31` — custom date range
   Results open in the location list.
 
-- **Vim/Neovim (trouble.nvim)**: `:Trouble patto_tasks_review` — completed tasks grouped by date.
-  Press `a` in the list to show or hide archived tasks (grouped by `archived_at`, marked `⊘`).
-  Change the timeframe programmatically:
-  ```lua
-  require("trouble.sources.patto_tasks_review").config.timeframe = "this_week"
-  require("trouble").open({ mode = "patto_tasks_review" })
-  ```
+- **Vim/Neovim (trouble.nvim)**: done tasks are part of `:Trouble patto_tasks` (see above).
 
 - **VS Code**: `Patto: Review Completed Tasks` — select timeframe interactively, results shown in a date-grouped QuickPick with jump-to-line.
 
