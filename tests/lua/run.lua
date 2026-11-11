@@ -193,6 +193,12 @@ check("patto_tasks mode format", trouble_mode.format, "{task_status}{task_due} {
 check("patto_tasks mode keys", vim.tbl_keys(trouble_mode.keys) and #vim.tbl_keys(trouble_mode.keys), 3)
 local review_mode = require("trouble.sources.patto_tasks_review").config.modes.patto_tasks_review
 check("patto_tasks_review sort", review_mode.sort, { "completed_date_group_order", "completed_at", "filename", "pos" })
+check("patto_tasks_review has an archived toggle key", review_mode.keys.a and review_mode.keys.a.desc, "Toggle archived tasks")
+local review_formatters = require("trouble.sources.patto_tasks_review").config.formatters
+check("patto_tasks_review marks archived tasks",
+  review_formatters.task_completed_at({ item = { item = { archived_at = "2026-05-01" } } }).text, "⊘ 2026-05-01")
+check("patto_tasks_review marks done tasks",
+  review_formatters.task_completed_at({ item = { item = { completed_at = "2026-05-01" } } }).text, "✓ 2026-05-01")
 
 local ok_setup, setup_err = pcall(function()
   require("patto.current_task").setup()
