@@ -97,7 +97,7 @@ function M.classify_due(task, now)
   if diff_days < 0 then return "⚠Overdue", due_ts end
   if diff_days == 0 then return "Today", due_ts end
   if diff_days == 1 then return "Tomorrow", due_ts end
-  if due_ts <= saturday_end(t) then return "  This Week", due_ts end
+  if due_ts <= saturday_end(t) then return "This Week", due_ts end
   if due_ts <= month_end(t) then return "This Month", due_ts end
   return "Later", due_ts
 end
@@ -106,7 +106,7 @@ local DUE_GROUPS = {
   ["⚠Overdue"] = { key = "overdue", order = 1 },
   ["Today"] = { key = "today", order = 2 },
   ["Tomorrow"] = { key = "tomorrow", order = 3 },
-  ["  This Week"] = { key = "this_week", order = 4 },
+  ["This Week"] = { key = "this_week", order = 4 },
   ["This Month"] = { key = "this_month", order = 5 },
   ["Later"] = { key = "later", order = 6 },
   ["No Deadline"] = { key = "no_deadline", order = 7 },

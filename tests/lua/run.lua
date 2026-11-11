@@ -54,7 +54,7 @@ local function due(date) return { due = { Date = date } } end
 check("classify_due overdue", { fmt.classify_due(due("2026-10-01"), now) }, { "⚠Overdue", fmt.date_to_time("2026-10-01") })
 check("classify_due today", (fmt.classify_due(due("2026-10-09"), now)), "Today")
 check("classify_due tomorrow", (fmt.classify_due(due("2026-10-10"), now)), "Tomorrow")
-check("classify_due this week (Saturday seen from Thursday)", (fmt.classify_due({ due = { DateTime = "2026-10-10T08:00" } }, now - 86400)), "  This Week")
+check("classify_due this week (Saturday seen from Thursday)", (fmt.classify_due({ due = { DateTime = "2026-10-10T08:00" } }, now - 86400)), "This Week")
 check("classify_due next Sunday is not this week", (fmt.classify_due(due("2026-10-11"), now - 86400)), "This Month")
 check("classify_due this month", (fmt.classify_due(due("2026-10-25"), now)), "This Month")
 check("classify_due later", (fmt.classify_due(due("2026-11-01"), now)), "Later")
