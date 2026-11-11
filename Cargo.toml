@@ -181,6 +181,10 @@ required-features = ["lsp"]
 name = "repository_watcher"
 required-features = ["repository"]
 
+[[test]]
+name = "repository_tasks"
+required-features = ["repository"]
+
 # Optimize pest parser even in debug builds for acceptable TUI performance
 [profile.dev.package.pest]
 opt-level = 2

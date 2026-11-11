@@ -14,7 +14,7 @@ use crate::lsp::locate::node_range;
 use crate::markdown::{MarkdownFlavor, MarkdownRendererOptions};
 use crate::parser::{AstNode, AstNodeKind, Deadline, Property, TaskStatus};
 use crate::renderer::{MarkdownRenderer, Renderer};
-use crate::repository::Repository;
+use crate::repository::{DateRange, Repository, TaskQuery};
 use crate::task::Duration;
 use crate::tasks_view::{timeframe_bounds, ReviewTimeframe};
 
@@ -50,10 +50,10 @@ impl Backend {
 
     fn aggregate_tasks(&self) -> Option<Value> {
         let repository = self.repository.lock().unwrap();
-        let tasks = repository.as_ref()?.aggregate_tasks();
+        let tasks = repository.as_ref()?.tasks(&TaskQuery::open());
         Some(json!(tasks
             .iter()
-            .map(|(uri, line, due)| task_information(uri, line, due))
+            .map(|(uri, task)| task_information(uri, &task.line, &task.due))
             .collect::<Vec<_>>()))
     }
 
@@ -69,22 +69,25 @@ impl Backend {
         let include_archived = args.get(3).and_then(Value::as_bool).unwrap_or(false);
         let (from, to) = timeframe_bounds(&timeframe, chrono::Local::now().date_naive());
 
+        let range = DateRange { from, to };
+        let query = TaskQuery {
+            done: Some(range),
+            archived: include_archived.then_some(range),
+            ..TaskQuery::default()
+        };
+
         let repository = self.repository.lock().unwrap();
-        let repository = repository.as_ref()?;
-        let mut tasks: Vec<_> = repository
-            .aggregate_completed_tasks(from, to)
-            .into_iter()
-            .map(|(uri, line, date)| review_entry(&uri, &line, "completed_at", date))
-            .collect();
-        if include_archived {
-            tasks.extend(
-                repository
-                    .aggregate_archived_tasks(from, to)
-                    .into_iter()
-                    .map(|(uri, line, date)| review_entry(&uri, &line, "archived_at", date)),
-            );
-        }
-        Some(json!(tasks))
+        let tasks = repository.as_ref()?.tasks(&query);
+        Some(json!(tasks
+            .iter()
+            .filter_map(|(uri, task)| {
+                let date_key = match task.status {
+                    TaskStatus::Archived => "archived_at",
+                    _ => "completed_at",
+                };
+                Some(review_entry(uri, &task.line, date_key, task.resolved_on?))
+            })
+            .collect::<Vec<_>>()))
     }
 
     /// Arguments: `[note_uri]`. Returns the notes reachable in two hops, most

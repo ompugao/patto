@@ -18,13 +18,14 @@ use url::Url;
 
 use crate::parser::AstNode;
 
-pub use crate::ast_query::{gather_archived_tasks, gather_completed_tasks, gather_tasks};
+pub use crate::ast_query::{gather_task_lines, TaskLine};
 pub use config::{
     load_workspace_config, save_workspace_config, PattoWorkspaceConfig, WORKSPACE_CONFIG_FILENAME,
 };
 pub use messages::{
     BackLinkData, FileMetadata, LinkEdge, LinkLocation, LinkLocationData, RepositoryMessage,
 };
+pub use tasks::{DateRange, TaskQuery};
 
 /// Repository manages the collection of notes and their relationships
 #[derive(Clone)]

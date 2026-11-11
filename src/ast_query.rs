@@ -21,67 +21,54 @@ pub fn gather_wikilinks(parent: &AstNode, wikilinks: &mut Vec<(String, Option<St
     }
 }
 
-/// Recursively collect task lines that are neither done nor archived from an AST node.
-pub fn gather_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, Deadline)>) {
+/// A task line together with the task fields that queries filter on.
+#[derive(Debug, Clone)]
+pub struct TaskLine {
+    pub line: AstNode,
+    pub status: TaskStatus,
+    pub due: Deadline,
+    /// Date of `completed_at` for a Done task, of `archived_at` for an Archived
+    /// one; `None` when that stamp is missing or unreadable.
+    pub resolved_on: Option<chrono::NaiveDate>,
+}
+
+/// Recursively collect every task line under `parent`.
+pub fn gather_task_lines(parent: &AstNode, tasks: &mut Vec<TaskLine>) {
     if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        for prop in properties {
-            if let Property::Task { status, due, .. } = prop {
-                if !matches!(status, TaskStatus::Done | TaskStatus::Archived) {
-                    tasklines.push((parent.clone(), due.clone()));
-                    break;
-                }
+        let task = properties.iter().find_map(|prop| match prop {
+            Property::Task {
+                status,
+                due,
+                completed_at,
+                archived_at,
+                ..
+            } => {
+                let stamp = match status {
+                    TaskStatus::Done => completed_at.as_ref(),
+                    TaskStatus::Archived => archived_at.as_ref(),
+                    _ => None,
+                };
+                Some(TaskLine {
+                    line: parent.clone(),
+                    status: status.clone(),
+                    due: due.clone(),
+                    resolved_on: stamp.and_then(deadline_date),
+                })
             }
-        }
+            _ => None,
+        });
+        tasks.extend(task);
     }
     for child in parent.children().iter() {
-        gather_tasks(child, tasklines);
+        gather_task_lines(child, tasks);
     }
 }
 
-/// Recursively collect Done tasks that have a `completed_at` date.
-pub fn gather_completed_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
-    gather_resolved_tasks(parent, tasklines, &|prop| match prop {
-        Property::Task {
-            status: TaskStatus::Done,
-            completed_at: Some(at),
-            ..
-        } => Some(at),
-        _ => None,
-    });
-}
-
-/// Recursively collect Archived tasks that have an `archived_at` date.
-pub fn gather_archived_tasks(parent: &AstNode, tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>) {
-    gather_resolved_tasks(parent, tasklines, &|prop| match prop {
-        Property::Task {
-            status: TaskStatus::Archived,
-            archived_at: Some(at),
-            ..
-        } => Some(at),
-        _ => None,
-    });
-}
-
-fn gather_resolved_tasks(
-    parent: &AstNode,
-    tasklines: &mut Vec<(AstNode, chrono::NaiveDate)>,
-    resolved_at: &dyn Fn(&Property) -> Option<&Deadline>,
-) {
-    if let AstNodeKind::Line { ref properties } = &parent.kind() {
-        let date = properties
-            .iter()
-            .filter_map(resolved_at)
-            .find_map(|at| match at {
-                Deadline::Date(d) => Some(*d),
-                Deadline::DateTime(dt) => Some(dt.date()),
-                Deadline::Uninterpretable(_) => None,
-            });
-        if let Some(date) = date {
-            tasklines.push((parent.clone(), date));
-        }
-    }
-    for child in parent.children().iter() {
-        gather_resolved_tasks(child, tasklines, resolved_at);
+fn deadline_date(deadline: &Deadline) -> Option<chrono::NaiveDate> {
+    match deadline {
+        Deadline::Date(d) => Some(*d),
+        Deadline::DateTime(dt) => Some(dt.date()),
+        Deadline::Uninterpretable(_) => None,
     }
 }
 
