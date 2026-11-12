@@ -1,6 +1,6 @@
-import { appHome, exec, focused, home, readTextFile, run } from "herdr";
+import { appHome, exec, focused, home, readTextFile, writeTextFile, run, spaces } from "herdr";
 
-// Optional settings: {"root": "~/notes", "inbox": "inbox.pn",
+// Optional settings: {"roots": ["~/notes"], "inbox": "inbox.pn",
 // "query_bin": "patto-query", "renderer_bin": "patto-markdown-renderer"}.
 const CONFIG_PATH = () => `${home()}/.config/patto/herdr.json`;
 
@@ -12,12 +12,39 @@ export async function config() {
   }
 }
 
-function expand(path) {
-  return path?.startsWith("~/") ? `${home()}${path.slice(1)}` : path;
+// Note folders shown from every space; empty means "this tab's folder".
+export function configuredRoots(cfg) {
+  const roots = Array.isArray(cfg.roots) ? cfg.roots : cfg.root ? [cfg.root] : [];
+  return roots.filter((r) => typeof r === "string" && r).map(expand);
 }
 
-export function dirname(path) {
-  return path.slice(0, Math.max(1, path.lastIndexOf("/")));
+// Rewrites only `roots`, keeping the person's other keys; a concurrent edit
+// of the file rejects the write instead of being overwritten.
+export async function saveRoots(roots) {
+  const path = CONFIG_PATH();
+  const before = await readTextFile(path);
+  let cfg = {};
+  try {
+    cfg = JSON.parse(before ?? "{}") ?? {};
+  } catch {
+    throw new Error(`${path} is not valid JSON; fix it by hand first.`);
+  }
+  delete cfg.root;
+  cfg.roots = roots.map(collapse);
+  await exec("mkdir", ["-p", path.slice(0, path.lastIndexOf("/"))]);
+  await writeTextFile(path, `${JSON.stringify(cfg, null, 2)}\n`, before);
+}
+
+export function rootOf(roots, file) {
+  return roots.find((root) => file?.startsWith(`${root}/`)) ?? null;
+}
+
+function collapse(path) {
+  return path.startsWith(`${home()}/`) ? `~${path.slice(home().length)}` : path;
+}
+
+function expand(path) {
+  return path?.startsWith("~/") ? `${home()}${path.slice(1)}` : path;
 }
 
 export function basename(path) {
@@ -46,8 +73,10 @@ export async function current(where) {
   }
 }
 
-export async function notesRoot(cfg, where, now) {
-  if (cfg.root) return expand(cfg.root);
+// The tab's own notes folder, for when no note folders are configured.
+// Remote spaces have none: patto-query reads this machine's files.
+export async function tabRoot(where, now) {
+  if (spaces().find((s) => s.id === where?.space)?.machine) return null;
   if (now?.root) return now.root;
   if (!where?.cwd) return null;
   const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: where.cwd }).catch(() => null);

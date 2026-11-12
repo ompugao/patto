@@ -1,8 +1,9 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { theme, props, notify, nextCommand, openOverlay, run, watchFolder } from "herdr";
-import { config, current, notesRoot, place, query, renderMarkdown, openInNvim, dirname, basename } from "./lib.js";
-import { taskRows, renderTasks, nextStatus } from "./tasks.js";
+import { config, configuredRoots, current, tabRoot, rootOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
+import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
+import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
 import { Capture } from "./capture.js";
 
@@ -26,7 +27,9 @@ export default class Patto extends View {
     this.links = null;
     this.markdown = "";
     this.file = null;
-    this.root = null;
+    this.configured = [];
+    this.fallback = null;
+    this.roots = [];
     this.error = null;
     this.watching = new Set();
 
@@ -45,7 +48,7 @@ export default class Patto extends View {
   command(command, cx) {
     if (command === "focus") this.handle.focus();
     else if (command === "refresh") this.reload(cx);
-    else if (command === "tasks" || command === "links") this.tab = command;
+    else if (command === "tasks" || command === "links" || command === "folders") this.tab = command;
     else if (command === "capture") this.capture();
     else if (command === "preview") this.openPreview();
   }
@@ -78,15 +81,26 @@ export default class Patto extends View {
     cx.spawn(async (cx) => {
       try {
         this.cfg = await config();
+        this.configured = configuredRoots(this.cfg);
         const now = await current(this.where);
         if (now?.file?.endsWith(".pn")) this.file = now.file;
-        this.root = await notesRoot(this.cfg, this.where, now);
-        if (!this.preview && this.root) {
-          this.data = await query(this.cfg, ["tasks", "--root", this.root, "--done", this.done]);
+        this.fallback = await tabRoot(this.where, now);
+        this.roots = this.configured.length ? this.configured : this.fallback ? [this.fallback] : [];
+        const errors = [];
+        if (!this.preview) {
+          const results = [];
+          for (const root of this.roots) {
+            try {
+              results.push(await query(this.cfg, ["tasks", "--root", root, "--done", this.done]));
+            } catch (e) {
+              errors.push(`${root}: ${e.message ?? e}`);
+            }
+          }
+          this.data = mergeTasks(results);
         }
         await this.reloadFile();
-        this.error = null;
-        this.watch(this.root, cx);
+        this.error = errors.join("\n") || null;
+        for (const root of this.roots) this.watch(root, cx);
       } catch (e) {
         this.error = String(e.message ?? e);
       }
@@ -98,8 +112,10 @@ export default class Patto extends View {
     if (!this.file) return;
     if (this.preview) {
       this.markdown = await renderMarkdown(this.cfg, this.file);
-    } else if (this.root) {
-      this.links = await query(this.cfg, ["links", "--root", this.root, this.file]);
+    } else {
+      const root = rootOf(this.roots, this.file) ?? rootOf([this.fallback], this.file)
+        ?? this.file.slice(0, this.file.lastIndexOf("/"));
+      this.links = await query(this.cfg, ["links", "--root", root, this.file]);
     }
   }
 
@@ -146,6 +162,7 @@ export default class Patto extends View {
   }
 
   rows() {
+    if (this.tab === "folders") return [];
     return this.tab === "tasks" ? taskRows(this.data) : linkRows(this.links);
   }
 
@@ -207,15 +224,17 @@ export default class Patto extends View {
           this.reload(cx);
         })))
         .child(action("capture", "+", () => this.capture()))
-        .child(action("preview", "Preview", () => this.openPreview())))
+        .child(action("preview", "Preview", () => this.openPreview()))
+        .child(action("folders", "⚙", (_e, cx) => { this.tab = this.tab === "folders" ? "tasks" : "folders"; cx.notify(); })))
       .when(this.tab === "links" && Boolean(this.file), (el) => el.child(
         div().px(10).pt(6).text_size(12).font_semibold().truncate().child(basename(this.file))))
+      .when(Boolean(this.error), (el) => el.child(div().px(10).py(6).text_size(12).text_color(t.blocked).child(this.error)))
       .child(div().id("patto-list").flex_1().min_h(0).py(4).px(4).overflow_y_scrollbar()
-        .child(this.error ? div().p(12).text_color(t.blocked).child(this.error)
-          : !this.root ? div().p(12).text_color(t.dim).child("No notes folder for this tab.")
+        .child(this.tab === "folders" ? renderFolders(this, t)
+          : !this.roots.length ? div().p(12).text_color(t.dim).child("No note folders. Add one with ⚙.")
           : this.tab === "tasks" ? renderTasks(this, rows, t)
           : renderLinks(this, rows, t)))
       .child(div().px(10).py(4).text_size(11).text_color(t.dim).border_t_1().border_color(t.border).truncate()
-        .child(this.root ?? ""));
+        .child(this.configured.length ? this.configured.map(basename).join(", ") : this.fallback ? `${this.fallback} (this tab)` : ""));
   }
 }

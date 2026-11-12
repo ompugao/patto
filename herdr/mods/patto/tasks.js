@@ -5,6 +5,27 @@ import { basename } from "./lib.js";
 const GLYPH = { todo: "○", doing: "◐", paused: "‖", done: "✓", archived: "▪" };
 const NEXT_STATUS = { todo: "doing", doing: "done", paused: "doing", done: "todo", archived: "todo" };
 
+const OPEN_ORDER = ["Overdue", "Today", "Tomorrow", "This Week", "This Month", "Later", "No Deadline", "Uninterpretable Deadline"];
+const DONE_ORDER = ["Today", "Yesterday", "This Week", "Last Week", "This Month", "Older"];
+
+function byGroup(order, tiebreak) {
+  const rank = (task) => {
+    const i = order.indexOf(task.group);
+    return i < 0 ? order.length : i;
+  };
+  return (a, b) => rank(a) - rank(b) || tiebreak(a, b);
+}
+
+// One patto-query result per note folder, merged into one list in the
+// order a single folder's result has.
+export function mergeTasks(results) {
+  const tag = (key) => results.flatMap((r) => r[key].map((task) => ({ ...task, root: r.root })));
+  return {
+    open: tag("open").sort(byGroup(OPEN_ORDER, (a, b) => (a.due ?? "~").localeCompare(b.due ?? "~"))),
+    done: tag("done").sort(byGroup(DONE_ORDER, (a, b) => (b.completed_on ?? "").localeCompare(a.completed_on ?? ""))),
+  };
+}
+
 export function nextStatus(task) {
   return NEXT_STATUS[task.status] ?? "done";
 }
@@ -58,6 +79,7 @@ export function renderTasks(view, rows, t) {
       .child(v_flex().flex_1().min_w(0)
         .child(div().truncate().text_color(resolved ? t.dim : t.foreground).child(task.text || "(empty)"))
         .child(div().truncate().text_size(11).text_color(t.dim)
-          .child([task.due, `${basename(task.file)}:${task.line}`].filter(Boolean).join("  ·  "))));
+          .child([task.due, view.roots.length > 1 ? basename(task.root) : null, `${basename(task.file)}:${task.line}`]
+            .filter(Boolean).join("  ·  "))));
   }));
 }

@@ -28,6 +28,7 @@ cat <<'KEYS'
 Installed. Suggested keys for ~/.config/herdr-app/keys.json:
   "ctrl-alt-t": "patto.tasks",
   "ctrl-alt-l": "patto.links",
+  "ctrl-alt-f": "patto.folders",
   "ctrl-alt-c": "patto.capture",
   "ctrl-alt-p": "patto.preview"
 KEYS

@@ -21,21 +21,24 @@ and checks it. Run it again after pulling changes.
 Following the note open in nvim needs the herdr-nvim mod, which keeps one nvim per tab.
 Without it, tasks still work and links open in a new nvim terminal.
 
-## Notes folder
+## Note folders
 
-The first match wins:
-
-1. `root` in `~/.config/patto/herdr.json`
-2. the folder herdr-nvim uses for the tab
-3. the git root of the focused terminal's folder
-
-`~/.config/patto/herdr.json` (all keys optional):
+Set the folders that hold your notes with **⚙** in the panel (Add folder…, ✕ to remove), or by hand in
+`~/.config/patto/herdr.json`:
 
 ```json
-{ "root": "~/notes", "inbox": "inbox.pn", "query_bin": "patto-query", "renderer_bin": "patto-markdown-renderer" }
+{ "roots": ["~/notes", "~/work/notes"], "inbox": "inbox.pn" }
 ```
 
-`inbox` is relative to the notes folder unless it starts with `/`.
+- **Tasks** come from every listed folder, in every space, merged into one list. With more than one folder, each task
+  shows which folder it is from.
+- **Links** and the **preview** use the listed folder that holds the note open in nvim.
+- **Capture** writes to `inbox` in a listed folder; with more than one, the dialog lets you choose. `inbox` is
+  relative to the folder unless it starts with `/`.
+- With no folders listed, the panel uses the current tab's folder (herdr-nvim's folder for the tab, else the git root
+  of the focused terminal). Spaces on other machines have no such fallback.
+
+Other optional keys: `query_bin`, `renderer_bin` (paths to `patto-query` and `patto-markdown-renderer`).
 
 ## Keys
 
@@ -47,6 +50,7 @@ Global keys go in `~/.config/herdr-app/keys.json`, for example:
 ```json
 "ctrl-alt-t": "patto.tasks",
 "ctrl-alt-l": "patto.links",
+"ctrl-alt-f": "patto.folders",
 "ctrl-alt-c": "patto.capture",
 "ctrl-alt-p": "patto.preview"
 ```

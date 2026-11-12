@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, notify, closeOverlay } from "herdr";
-import { config, current, notesRoot, place, query, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, place, query, openInNvim, basename } from "./lib.js";
 
 const DUE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 
@@ -17,6 +17,15 @@ export class Capture {
     for (const input of [this.text, this.due]) input.on("submit", (_e, cx) => this.submit(cx));
     this.text.focus();
     cx.timer.after(300, () => this.text.focus());
+    this.roots = [];
+    this.target = 0;
+    cx.spawn(async (cx) => {
+      this.cfg = await config();
+      const configured = configuredRoots(this.cfg);
+      const fallback = configured.length ? null : await tabRoot(this.where, await current(this.where));
+      this.roots = configured.length ? configured : fallback ? [fallback] : [];
+      cx.notify();
+    });
   }
 
   close() {
@@ -34,9 +43,9 @@ export class Capture {
     }
     cx.spawn(async (cx) => {
       try {
-        const cfg = await config();
-        const root = await notesRoot(cfg, this.where, await current(this.where));
-        if (!root) throw new Error("No notes folder for this tab. Set \"root\" in ~/.config/patto/herdr.json.");
+        const cfg = this.cfg ?? (await config());
+        const root = this.roots[this.target];
+        if (!root) throw new Error("No note folders. Add one with ⚙ in the patto panel.");
         const inbox = (cfg.inbox ?? "inbox.pn").startsWith("/") ? cfg.inbox : `${root}/${cfg.inbox ?? "inbox.pn"}`;
         const args = ["capture", "--file", inbox];
         if (this.task) args.push("--task");
@@ -72,6 +81,13 @@ export class Capture {
       .child(h_flex().items_center()
         .child(div().flex_1().text_size(15).font_semibold().child(this.task ? "New task" : "New note line"))
         .child(div().text_size(11).text_color(t.dim).child("Enter to add · Esc")))
+      .when(this.roots.length > 1, (el) => el.child(h_flex().gap(6).items_center().flex_wrap()
+        .child(div().text_size(12).text_color(t.dim).child("Into"))
+        .children(this.roots.map((root, i) => div().id(`cap-root-${i}`).px(8).py(2).rounded(5).cursor_pointer()
+          .border_1().border_color(i === this.target ? t.accent : t.input)
+          .text_color(i === this.target ? t.foreground : t.muted)
+          .on_click((_e, cx) => { this.target = i; cx.notify(); })
+          .child(basename(root))))))
       .child(field(this.text))
       .when(this.task, (el) => el.child(field(this.due)))
       .child(h_flex().gap(16)
