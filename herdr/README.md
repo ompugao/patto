@@ -37,9 +37,6 @@ The first match wins:
 
 `inbox` is relative to the notes folder unless it starts with `/`.
 
-The panel shows only while that folder has `.pn` files (tracked or untracked in git, or within three levels
-outside git). Elsewhere it shrinks to zero width and comes back at its last width.
-
 ## Keys
 
 With the panel focused: `j`/`k` move, `Enter` opens, `Space` moves the status on, `x` toggles done, `Tab` switches

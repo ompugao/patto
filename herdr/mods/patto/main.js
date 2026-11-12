@@ -1,26 +1,13 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, layout, shared, setShared } from "herdr";
-import { config, current, notesRoot, place, query, renderMarkdown, openInNvim, basename, hasNotes } from "./lib.js";
+import { theme, props, notify, nextCommand, openOverlay, run, watchFolder } from "herdr";
+import { config, current, notesRoot, place, query, renderMarkdown, openInNvim, dirname, basename } from "./lib.js";
 import { taskRows, renderTasks, nextStatus } from "./tasks.js";
 import { linkRows, renderLinks } from "./links.js";
 import { Capture } from "./capture.js";
 
 const DONE_RANGES = ["today", "this_week", "none"];
 const DONE_LABEL = { today: "done: today", this_week: "done: week", none: "done: off" };
-
-function findBlock(node, match) {
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      const found = findBlock(child, match);
-      if (found) return found;
-    }
-  } else if (node && typeof node === "object") {
-    if (node.type === "block" && match(node)) return node;
-    return findBlock(Object.values(node), match);
-  }
-  return null;
-}
 
 export default class Patto extends View {
   init(_props, cx) {
@@ -94,14 +81,7 @@ export default class Patto extends View {
         const now = await current(this.where);
         if (now?.file?.endsWith(".pn")) this.file = now.file;
         this.root = await notesRoot(this.cfg, this.where, now);
-        const notes = Boolean(this.root) && (await hasNotes(this.root));
-        if (!this.preview) this.fitPanel(notes);
-        if (!notes) {
-          this.error = null;
-          cx.notify();
-          return;
-        }
-        if (!this.preview) {
+        if (!this.preview && this.root) {
           this.data = await query(this.cfg, ["tasks", "--root", this.root, "--done", this.done]);
         }
         await this.reloadFile();
@@ -112,20 +92,6 @@ export default class Patto extends View {
       }
       cx.notify();
     });
-  }
-
-  // Collapsed to 0 px rather than layout.hide: a hidden block's mod does not
-  // start after a restart, so it could never show itself again.
-  fitPanel(notes) {
-    const block = findBlock(layout(), (b) => b.content?.mod === "patto" && !b.content?.props);
-    if (!block) return;
-    const px = block.size?.px;
-    if (notes && px === 0) {
-      run("layout.resize", { id: block.id, px: shared("patto.width") ?? 340 });
-    } else if (!notes && px !== 0) {
-      if (px) setShared("patto.width", px);
-      run("layout.resize", { id: block.id, px: 0 });
-    }
   }
 
   async reloadFile() {
