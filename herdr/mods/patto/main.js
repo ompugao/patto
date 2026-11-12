@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, shared } from "herdr";
-import { config, configuredRoots, current, tabRoot, rootOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, machineOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
 import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
 import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
@@ -39,6 +39,10 @@ export default class Patto extends View {
     this.reload(cx);
     cx.timer.every(2000, (cx) => this.followTab(cx));
     cx.timer.every(60000, (cx) => this.reload(cx));
+    // Folders on other machines cannot be watched from here.
+    cx.timer.every(15000, (cx) => {
+      if (this.roots.some((root) => root.machine)) this.reload(cx);
+    });
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
@@ -93,22 +97,31 @@ export default class Patto extends View {
         const now = await current(this.where);
         if (now?.file?.endsWith(".pn")) this.file = now.file;
         this.fallback = await tabRoot(this.where, now);
-        this.roots = this.configured.length ? this.configured : this.fallback ? [this.fallback] : [];
         const errors = [];
+        const roots = [];
+        for (const root of this.configured.length ? this.configured : this.fallback ? [this.fallback] : []) {
+          try {
+            roots.push(await resolveRoot(root));
+          } catch (e) {
+            errors.push(`${rootLabel(root)}: ${e.message ?? e}`);
+          }
+        }
+        this.roots = roots;
         if (!this.preview) {
           const results = [];
           for (const root of this.roots) {
             try {
-              results.push(await query(this.cfg, ["tasks", "--root", root, "--done", this.done]));
+              const out = await query(this.cfg, ["tasks", "--root", root.full, "--done", this.done], root.machine);
+              results.push({ ...out, machine: root.machine });
             } catch (e) {
-              errors.push(`${root}: ${e.message ?? e}`);
+              errors.push(`${rootLabel(root)}: ${e.message ?? e}`);
             }
           }
           this.data = mergeTasks(results);
         }
         await this.reloadFile();
         this.error = errors.join("\n") || null;
-        for (const root of this.roots) this.watch(root, cx);
+        for (const root of this.roots) if (!root.machine) this.watch(root.full, cx);
       } catch (e) {
         this.error = String(e.message ?? e);
       }
@@ -118,12 +131,14 @@ export default class Patto extends View {
 
   async reloadFile() {
     if (!this.file) return;
+    const machine = machineOf(this.where);
     if (this.preview) {
-      this.markdown = await renderMarkdown(this.cfg, this.file);
+      this.markdown = await renderMarkdown(this.cfg, this.file, machine);
     } else {
-      const root = rootOf(this.roots, this.file) ?? rootOf([this.fallback], this.file)
-        ?? this.file.slice(0, this.file.lastIndexOf("/"));
-      this.links = await query(this.cfg, ["links", "--root", root, this.file]);
+      const fallback = this.fallback && (await resolveRoot(this.fallback));
+      const root = rootOf(this.roots, this.file, machine) ?? (fallback && rootOf([fallback], this.file, machine));
+      const dir = root?.full ?? this.file.slice(0, this.file.lastIndexOf("/"));
+      this.links = await query(this.cfg, ["links", "--root", dir, this.file], machine);
     }
   }
 
@@ -153,7 +168,7 @@ export default class Patto extends View {
   setStatus(task, status, cx) {
     cx.spawn(async (cx) => {
       try {
-        await query(this.cfg, ["set-status", "--file", task.file, "--line", String(task.line), status]);
+        await query(this.cfg, ["set-status", "--file", task.file, "--line", String(task.line), status], task.machine);
       } catch (e) {
         notify({ title: "patto", body: String(e.message ?? e), level: "error" });
       }
@@ -250,7 +265,7 @@ export default class Patto extends View {
       .when(Boolean(this.error), (el) => el.child(div().px(10).py(6).text_size(12).text_color(t.blocked).child(this.error)))
       .child(div().id("patto-list").flex_1().min_h(0).py(4).px(4).overflow_y_scrollbar()
         .child(this.tab === "folders" ? renderFolders(this, t)
-          : !this.roots.length ? div().p(12).text_color(t.dim).child("No note folders. Add one with ⚙.")
+          : !this.roots.length && !this.error ? div().p(12).text_color(t.dim).child("No note folders. Add one with ⚙.")
           : this.tab === "tasks" ? renderTasks(this, rows, t)
           : renderLinks(this, rows, t)))
       .child(div().px(10).py(4).text_size(11).text_color(t.dim).border_t_1().border_color(t.border).truncate()

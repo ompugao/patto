@@ -19,7 +19,7 @@ function byGroup(order, tiebreak) {
 // One patto-query result per note folder, merged into one list in the
 // order a single folder's result has.
 export function mergeTasks(results) {
-  const tag = (key) => results.flatMap((r) => r[key].map((task) => ({ ...task, root: r.root })));
+  const tag = (key) => results.flatMap((r) => r[key].map((task) => ({ ...task, root: r.root, machine: r.machine ?? null })));
   return {
     open: tag("open").sort(byGroup(OPEN_ORDER, (a, b) => (a.due ?? "~").localeCompare(b.due ?? "~"))),
     done: tag("done").sort(byGroup(DONE_ORDER, (a, b) => (b.completed_on ?? "").localeCompare(a.completed_on ?? ""))),

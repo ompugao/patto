@@ -22,16 +22,21 @@ export class TaskMenu {
     closeOverlay(props().overlay);
   }
 
+  // Closes only after the change: closing the popup cancels its tasks.
   choose(status, cx) {
-    this.close();
-    if (status === this.task.status) return;
+    if (status === this.task.status) return this.close();
+    if (this.busy) return;
+    this.busy = status;
+    cx.notify();
     cx.spawn(async () => {
       try {
-        await query(await config(), ["set-status", "--file", this.task.file, "--line", String(this.task.line), status]);
+        const args = ["set-status", "--file", this.task.file, "--line", String(this.task.line), status];
+        await query(await config(), args, this.task.machine ?? null);
         setShared(CHANGED, (shared(CHANGED) ?? 0) + 1);
       } catch (e) {
         notify({ title: "patto: status not changed", body: String(e.message ?? e), level: "error" });
       }
+      this.close();
     });
   }
 
@@ -41,7 +46,8 @@ export class TaskMenu {
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick)
       .child(div().w(14).text_color(current ? t.accent : t.muted).child(glyph))
       .child(div().flex_1().text_color(current ? t.foreground : t.muted).child(label))
-      .when(current, (el) => el.child(div().text_size(11).text_color(t.dim).child("now")));
+      .when(current, (el) => el.child(div().text_size(11).text_color(t.dim).child("now")))
+      .when(this.busy === label, (el) => el.child(div().text_size(11).text_color(t.dim).child("…")));
 
     return v_flex().id("patto-menu").track_focus(this.handle).w_full().p(4).gap(1).bg(t.popover)
       .text_size(13).text_color(t.foreground)

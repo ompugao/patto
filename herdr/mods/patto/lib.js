@@ -1,6 +1,6 @@
 import { appHome, exec, focused, home, readTextFile, writeTextFile, run, spaces } from "herdr";
 
-// Optional settings: {"roots": ["~/notes"], "inbox": "inbox.pn",
+// Optional settings: {"roots": ["~/notes", {"path": "~/notes", "machine": "work"}], "inbox": "inbox.pn",
 // "query_bin": "patto-query", "renderer_bin": "patto-markdown-renderer"}.
 const CONFIG_PATH = () => `${home()}/.config/patto/herdr.json`;
 
@@ -12,10 +12,22 @@ export async function config() {
   }
 }
 
-// Note folders shown from every space; empty means "this tab's folder".
+// Note folders shown from every space, as {path, machine} (machine null:
+// this computer); empty means "this tab's folder". Paths keep their "~":
+// it is expanded on the machine that holds them.
 export function configuredRoots(cfg) {
   const roots = Array.isArray(cfg.roots) ? cfg.roots : cfg.root ? [cfg.root] : [];
-  return roots.filter((r) => typeof r === "string" && r).map(expand);
+  return roots
+    .map((r) => (typeof r === "string" ? { path: r, machine: null } : { path: r?.path, machine: r?.machine ?? null }))
+    .filter((r) => typeof r.path === "string" && r.path);
+}
+
+export function sameRoot(a, b) {
+  return a?.path === b?.path && (a?.machine ?? null) === (b?.machine ?? null);
+}
+
+export function rootLabel(root) {
+  return root.machine ? `${root.machine}:${root.path}` : root.path;
 }
 
 // Rewrites only `roots`, keeping the person's other keys; a concurrent edit
@@ -30,21 +42,38 @@ export async function saveRoots(roots) {
     throw new Error(`${path} is not valid JSON; fix it by hand first.`);
   }
   delete cfg.root;
-  cfg.roots = roots.map(collapse);
+  cfg.roots = roots.map((r) => (r.machine ? { path: r.path, machine: r.machine } : r.path));
   await exec("mkdir", ["-p", path.slice(0, path.lastIndexOf("/"))]);
   await writeTextFile(path, `${JSON.stringify(cfg, null, 2)}\n`, before);
 }
 
-export function rootOf(roots, file) {
-  return roots.find((root) => file?.startsWith(`${root}/`)) ?? null;
+// The listed folder holding `file` on `machine`; roots must be resolved.
+export function rootOf(roots, file, machine) {
+  return roots.find((root) => (root.machine ?? null) === (machine ?? null) && file?.startsWith(`${root.full}/`)) ?? null;
 }
 
-function collapse(path) {
-  return path.startsWith(`${home()}/`) ? `~${path.slice(home().length)}` : path;
+const homes = new Map();
+async function homeOn(machine) {
+  if (!machine) return home();
+  if (!homes.has(machine)) {
+    const r = await exec("sh", ["-c", 'printf %s "$HOME"'], { on: machine });
+    if (r.code !== 0 || !r.stdout) throw new Error(`cannot read $HOME on ${machine}`);
+    homes.set(machine, r.stdout);
+  }
+  return homes.get(machine);
 }
 
-function expand(path) {
-  return path?.startsWith("~/") ? `${home()}${path.slice(1)}` : path;
+async function expand(path, machine) {
+  return path?.startsWith("~/") ? `${await homeOn(machine)}${path.slice(1)}` : path;
+}
+
+// The root with `full`, its path as that machine names it.
+export async function resolveRoot(root) {
+  return { ...root, full: await expand(root.path, root.machine) };
+}
+
+export function machineOf(where) {
+  return spaces().find((s) => s.id === where?.space)?.machine ?? null;
 }
 
 export function basename(path) {
@@ -73,43 +102,48 @@ export async function current(where) {
   }
 }
 
-// The tab's own notes folder, for when no note folders are configured.
-// Remote spaces have none: patto-query reads this machine's files.
+// The tab's own notes folder, on the tab's machine, for when no note folders are configured.
 export async function tabRoot(where, now) {
-  if (spaces().find((s) => s.id === where?.space)?.machine) return null;
-  if (now?.root) return now.root;
+  const machine = machineOf(where);
+  if (now?.root) return { path: now.root, machine };
   if (!where?.cwd) return null;
-  const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: where.cwd }).catch(() => null);
-  return r?.code === 0 ? r.stdout.trim() : where.cwd;
+  const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: where.cwd, on: machine }).catch(() => null);
+  return { path: r?.code === 0 ? r.stdout.trim() : where.cwd, machine };
 }
 
 // The app may start without the login shell's PATH, so cargo's and the
 // user's bin folders are tried after the bare name.
 const resolved = new Map();
-async function runBin(configured, name, args) {
-  const candidates = configured ? [expand(configured)] : [name, `${home()}/.cargo/bin/${name}`, `${home()}/.local/bin/${name}`];
-  const known = resolved.get(name);
+async function runBin(configured, name, args, machine) {
+  const where = machine ? ` on ${machine}` : "";
+  const dir = await homeOn(machine);
+  const candidates = configured ? [await expand(configured, machine)] : [name, `${dir}/.cargo/bin/${name}`, `${dir}/.local/bin/${name}`];
+  const key = `${machine ?? ""}/${name}`;
+  const known = resolved.get(key);
   let lastError = null;
   for (const bin of known ? [known] : candidates) {
     try {
-      const r = await exec(bin, args);
-      resolved.set(name, bin);
+      const r = await exec(bin, args, { on: machine });
+      // A remote shell reports a missing program as exit 127 instead of rejecting.
+      if (r.code === 127) throw new Error(r.stderr.trim());
+      resolved.set(key, bin);
       return r;
     } catch (e) {
       lastError = e;
     }
   }
-  throw new Error(`${name} not found (tried ${candidates.join(", ")}): ${lastError}`);
+  throw new Error(`${name} not found${where} (tried ${candidates.join(", ")}): ${lastError?.message ?? lastError}`);
 }
 
-export async function query(cfg, args) {
-  const r = await runBin(cfg.query_bin, "patto-query", args);
+// Runs patto-query on `machine` (null: this computer).
+export async function query(cfg, args, machine = null) {
+  const r = await runBin(cfg.query_bin, "patto-query", args, machine);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `patto-query exited ${r.code}`);
   return JSON.parse(r.stdout);
 }
 
-export async function renderMarkdown(cfg, file) {
-  const r = await runBin(cfg.renderer_bin, "patto-markdown-renderer", ["-f", file, "-F", "github"]);
+export async function renderMarkdown(cfg, file, machine = null) {
+  const r = await runBin(cfg.renderer_bin, "patto-markdown-renderer", ["-f", file, "-F", "github"], machine);
   if (r.code !== 0) throw new Error(r.stderr.trim() || `renderer exited ${r.code}`);
   return r.stdout;
 }

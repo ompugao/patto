@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, notify, closeOverlay } from "herdr";
-import { config, configuredRoots, current, tabRoot, place, query, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, resolveRoot, place, query, openInNvim, basename } from "./lib.js";
 
 const DUE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 
@@ -44,13 +44,13 @@ export class Capture {
     cx.spawn(async (cx) => {
       try {
         const cfg = this.cfg ?? (await config());
-        const root = this.roots[this.target];
-        if (!root) throw new Error("No note folders. Add one with ⚙ in the patto panel.");
-        const inbox = (cfg.inbox ?? "inbox.pn").startsWith("/") ? cfg.inbox : `${root}/${cfg.inbox ?? "inbox.pn"}`;
+        if (!this.roots[this.target]) throw new Error("No note folders. Add one with ⚙ in the patto panel.");
+        const root = await resolveRoot(this.roots[this.target]);
+        const inbox = (cfg.inbox ?? "inbox.pn").startsWith("/") ? cfg.inbox : `${root.full}/${cfg.inbox ?? "inbox.pn"}`;
         const args = ["capture", "--file", inbox];
         if (this.task) args.push("--task");
         if (this.task && due) args.push("--due", due);
-        const out = await query(cfg, [...args, "--", text]);
+        const out = await query(cfg, [...args, "--", text], root.machine);
         this.close();
         notify({ title: `Added to ${basename(out.file)}`, body: out.text, level: "success", timeout: 4000 });
         if (this.openAfter) openInNvim(this.where, out.file, out.line);
@@ -87,7 +87,7 @@ export class Capture {
           .border_1().border_color(i === this.target ? t.accent : t.input)
           .text_color(i === this.target ? t.foreground : t.muted)
           .on_click((_e, cx) => { this.target = i; cx.notify(); })
-          .child(basename(root))))))
+          .child(root.machine ? `${basename(root.path)} (${root.machine})` : basename(root.path))))))
       .child(field(this.text))
       .when(this.task, (el) => el.child(field(this.due)))
       .child(h_flex().gap(16)

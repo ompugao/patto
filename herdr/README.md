@@ -28,8 +28,16 @@ Set the folders that hold your notes with **⚙** in the panel (Add folder…, �
 `~/.config/patto/herdr.json`:
 
 ```json
-{ "roots": ["~/notes", "~/work/notes"], "inbox": "inbox.pn" }
+{
+  "roots": ["~/notes", { "path": "~/Documents/notes", "machine": "work-pc" }],
+  "inbox": "inbox.pn"
+}
 ```
+
+A plain string is a folder on this computer. `{ "path", "machine" }` is a folder on another machine from
+`hc machine ls`: the panel runs `patto-query` there, so it must be installed on that machine too, and status
+changes edit the copy you see in that machine's nvim. Folders on other machines are re-read every 15 seconds
+instead of being watched.
 
 - **Tasks** come from every listed folder, in every space, merged into one list. With more than one folder, each task
   shows which folder it is from.
@@ -37,7 +45,7 @@ Set the folders that hold your notes with **⚙** in the panel (Add folder…, �
 - **Capture** writes to `inbox` in a listed folder; with more than one, the dialog lets you choose. `inbox` is
   relative to the folder unless it starts with `/`.
 - With no folders listed, the panel uses the current tab's folder (herdr-nvim's folder for the tab, else the git root
-  of the focused terminal). Spaces on other machines have no such fallback.
+  of the focused terminal), on the tab's machine.
 
 Other optional keys: `query_bin`, `renderer_bin` (paths to `patto-query` and `patto-markdown-renderer`).
 
