@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, shared } from "herdr";
-import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, machineOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, shortRootLabel, machineOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
 import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
 import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
@@ -269,6 +269,7 @@ export default class Patto extends View {
           : this.tab === "tasks" ? renderTasks(this, rows, t)
           : renderLinks(this, rows, t)))
       .child(div().px(10).py(4).text_size(11).text_color(t.dim).border_t_1().border_color(t.border).truncate()
-        .child(this.configured.length ? this.configured.map(basename).join(", ") : this.fallback ? `${this.fallback} (this tab)` : ""));
+        .child(this.configured.length ? this.configured.map(shortRootLabel).join(", ")
+          : this.fallback ? `${rootLabel(this.fallback)} (this tab)` : ""));
   }
 }

@@ -39,6 +39,12 @@ A plain string is a folder on this computer. `{ "path", "machine" }` is a folder
 changes edit the copy you see in that machine's nvim. Folders on other machines are re-read every 15 seconds
 instead of being watched.
 
+When all folders are on one other machine, a top-level `machine` applies to every plain-string folder:
+
+```json
+{ "roots": ["~/Documents/notes"], "machine": "work-pc" }
+```
+
 - **Tasks** come from every listed folder, in every space, merged into one list. With more than one folder, each task
   shows which folder it is from.
 - **Links** and the **preview** use the listed folder that holds the note open in nvim.

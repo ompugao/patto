@@ -13,12 +13,14 @@ export async function config() {
 }
 
 // Note folders shown from every space, as {path, machine} (machine null:
-// this computer); empty means "this tab's folder". Paths keep their "~":
-// it is expanded on the machine that holds them.
+// this computer); empty means "this tab's folder". A top-level "machine" is
+// where plain-string folders live. Paths keep their "~": it is expanded on
+// the machine that holds them.
 export function configuredRoots(cfg) {
   const roots = Array.isArray(cfg.roots) ? cfg.roots : cfg.root ? [cfg.root] : [];
+  const machine = typeof cfg.machine === "string" && cfg.machine ? cfg.machine : null;
   return roots
-    .map((r) => (typeof r === "string" ? { path: r, machine: null } : { path: r?.path, machine: r?.machine ?? null }))
+    .map((r) => (typeof r === "string" ? { path: r, machine } : { path: r?.path, machine: r?.machine ?? null }))
     .filter((r) => typeof r.path === "string" && r.path);
 }
 
@@ -28,6 +30,10 @@ export function sameRoot(a, b) {
 
 export function rootLabel(root) {
   return root.machine ? `${root.machine}:${root.path}` : root.path;
+}
+
+export function shortRootLabel(root) {
+  return root.machine ? `${basename(root.path)} (${root.machine})` : basename(root.path);
 }
 
 // Rewrites only `roots`, keeping the person's other keys; a concurrent edit
@@ -42,7 +48,8 @@ export async function saveRoots(roots) {
     throw new Error(`${path} is not valid JSON; fix it by hand first.`);
   }
   delete cfg.root;
-  cfg.roots = roots.map((r) => (r.machine ? { path: r.path, machine: r.machine } : r.path));
+  const plain = typeof cfg.machine === "string" && cfg.machine ? cfg.machine : null;
+  cfg.roots = roots.map((r) => ((r.machine ?? null) === plain ? r.path : { path: r.path, machine: r.machine ?? null }));
   await exec("mkdir", ["-p", path.slice(0, path.lastIndexOf("/"))]);
   await writeTextFile(path, `${JSON.stringify(cfg, null, 2)}\n`, before);
 }

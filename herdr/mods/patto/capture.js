@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, notify, closeOverlay } from "herdr";
-import { config, configuredRoots, current, tabRoot, resolveRoot, place, query, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, resolveRoot, place, query, openInNvim, basename, shortRootLabel } from "./lib.js";
 
 const DUE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 
@@ -87,7 +87,7 @@ export class Capture {
           .border_1().border_color(i === this.target ? t.accent : t.input)
           .text_color(i === this.target ? t.foreground : t.muted)
           .on_click((_e, cx) => { this.target = i; cx.notify(); })
-          .child(root.machine ? `${basename(root.path)} (${root.machine})` : basename(root.path))))))
+          .child(shortRootLabel(root))))))
       .child(field(this.text))
       .when(this.task, (el) => el.child(field(this.due)))
       .child(h_flex().gap(16)
