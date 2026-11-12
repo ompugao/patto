@@ -16,10 +16,6 @@ function expand(path) {
   return path?.startsWith("~/") ? `${home()}${path.slice(1)}` : path;
 }
 
-export function dirname(path) {
-  return path.slice(0, Math.max(1, path.lastIndexOf("/")));
-}
-
 export function basename(path) {
   return path.slice(path.lastIndexOf("/") + 1).replace(/\.pn$/, "");
 }
@@ -71,6 +67,16 @@ async function runBin(configured, name, args) {
     }
   }
   throw new Error(`${name} not found (tried ${candidates.join(", ")}): ${lastError}`);
+}
+
+// Git's index answers at once even in a large repository; outside git the
+// search stays shallow, as notes folders are.
+export async function hasNotes(root) {
+  const git = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "*.pn"], { cwd: root })
+    .catch(() => null);
+  if (git?.code === 0) return git.stdout.trim() !== "";
+  const found = await exec("find", [root, "-maxdepth", "3", "-name", "*.pn", "-print", "-quit"]).catch(() => null);
+  return Boolean(found?.stdout.trim());
 }
 
 export async function query(cfg, args) {
