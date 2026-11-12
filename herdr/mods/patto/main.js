@@ -1,19 +1,21 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { theme, props, notify, nextCommand, openOverlay, run, watchFolder } from "herdr";
+import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, shared } from "herdr";
 import { config, configuredRoots, current, tabRoot, rootOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
 import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
 import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
 import { Capture } from "./capture.js";
+import { TaskMenu, CHANGED } from "./menu.js";
 
 const DONE_RANGES = ["today", "this_week", "none"];
 const DONE_LABEL = { today: "done: today", this_week: "done: week", none: "done: off" };
 
 export default class Patto extends View {
   init(_props, cx) {
-    if (props()?.view === "capture") {
-      this.dialog = new Capture();
+    const Dialog = { capture: Capture, menu: TaskMenu }[props()?.view];
+    if (Dialog) {
+      this.dialog = new Dialog();
       this.dialog.init(cx);
       return;
     }
@@ -32,6 +34,7 @@ export default class Patto extends View {
     this.roots = [];
     this.error = null;
     this.watching = new Set();
+    this.changed = shared(CHANGED);
 
     this.reload(cx);
     cx.timer.every(2000, (cx) => this.followTab(cx));
@@ -50,11 +53,16 @@ export default class Patto extends View {
     else if (command === "refresh") this.reload(cx);
     else if (command === "tasks" || command === "links" || command === "folders") this.tab = command;
     else if (command === "capture") this.capture();
+    else if (command === "menu") this.openSelectedMenu();
     else if (command === "preview") this.openPreview();
   }
 
   followTab(cx) {
     if (this.preview) return this.reloadCurrent(cx);
+    if (shared(CHANGED) !== this.changed) {
+      this.changed = shared(CHANGED);
+      return this.reload(cx);
+    }
     const where = place();
     if (where && where.tab !== this.where?.tab) {
       this.where = where;
@@ -153,6 +161,16 @@ export default class Patto extends View {
     });
   }
 
+  openSelectedMenu() {
+    if (this.tab !== "tasks") return;
+    const task = this.selectable(this.rows())[this.at]?.task;
+    if (task) this.openMenu(task);
+  }
+
+  openMenu(task) {
+    openOverlay({ mod: "patto", kind: "popup", width: 200, props: { view: "menu", task, where: this.where } });
+  }
+
   capture() {
     openOverlay({ mod: "patto", kind: "dialog", width: 520, props: { view: "capture", where: this.where } });
   }
@@ -183,6 +201,7 @@ export default class Patto extends View {
     else if (k === "d") { this.done = DONE_RANGES[(DONE_RANGES.indexOf(this.done) + 1) % DONE_RANGES.length]; this.reload(cx); }
     else if (k === "r") this.reload(cx);
     else if (k === "c") this.capture();
+    else if (k === "m") this.openSelectedMenu();
     else if (k === "p") this.openPreview();
     else return;
     cx.stop_propagation();

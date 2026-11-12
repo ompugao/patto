@@ -56,6 +56,7 @@ Installed. Suggested keys for ~/.config/herdr-app/keys.json:
     "ctrl-alt-l": "patto.links",
     "ctrl-alt-f": "patto.folders",
     "ctrl-alt-c": "patto.capture",
+    "ctrl-alt-m": "patto.menu",
     "ctrl-alt-v": "patto.preview"
   },
 Show or hide the panel (one line per layout that has it):

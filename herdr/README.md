@@ -4,7 +4,8 @@ A Herdr app mod that keeps patto tasks and links beside your terminals and nvim.
 
 - **Tasks**: open tasks across the notes folder, grouped Overdue / Today / Tomorrow / This Week / This Month / Later / No Deadline,
   plus done tasks for today or this week. Click a task to open it in nvim. Click its status mark to move it on
-  (todo → doing → done); `completed_at`, `started_at` and `time_spent` are recorded as the language server does.
+  (todo → doing → done), or right-click the task to pick any status from a menu. `completed_at`, `started_at` and
+  `time_spent` are recorded as the language server does.
 - **Links**: back links (with the linking line) and two-hop links of the note open in the tab's nvim.
 - **Capture** (`+`): add a task, with an optional due date, or a plain line to an inbox note.
 - **Preview**: a pane beside the tab that renders the current note.
@@ -42,7 +43,7 @@ Other optional keys: `query_bin`, `renderer_bin` (paths to `patto-query` and `pa
 
 ## Keys
 
-With the panel focused: `j`/`k` move, `Enter` opens, `Space` moves the status on, `x` toggles done, `Tab` switches
+With the panel focused: `j`/`k` move, `Enter` opens, `Space` moves the status on, `x` toggles done, `m` opens the status menu, `Tab` switches
 Tasks/Links, `d` changes the done range, `c` captures, `p` opens the preview, `r` refreshes.
 
 Global keys go in `~/.config/herdr-app/keys.json`, for example:
@@ -53,6 +54,7 @@ Global keys go in `~/.config/herdr-app/keys.json`, for example:
   "ctrl-alt-l": "patto.links",
   "ctrl-alt-f": "patto.folders",
   "ctrl-alt-c": "patto.capture",
+  "ctrl-alt-m": "patto.menu",
   "ctrl-alt-v": "patto.preview"
 }
 ```

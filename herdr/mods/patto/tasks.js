@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { basename } from "./lib.js";
 
-const GLYPH = { todo: "○", doing: "◐", paused: "‖", done: "✓", archived: "▪" };
+export const GLYPH = { todo: "○", doing: "◐", paused: "‖", done: "✓", archived: "▪" };
 const NEXT_STATUS = { todo: "doing", doing: "done", paused: "doing", done: "todo", archived: "todo" };
 
 const OPEN_ORDER = ["Overdue", "Today", "Tomorrow", "This Week", "This Month", "Later", "No Deadline", "Uninterpretable Deadline"];
@@ -73,6 +73,7 @@ export function renderTasks(view, rows, t) {
       .when(selected, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { view.at = at; view.openTask(task); cx.notify(); })
+      .on_mouse_down("right", (_e, cx) => { view.at = at; view.openMenu(task); cx.notify(); })
       .child(div().id(`s-${i}`).w(14).flex_none().text_color(resolved ? t.done : t.foreground)
         .on_click((_e, cx) => { cx.stop_propagation(); view.setStatus(task, nextStatus(task), cx); })
         .child(GLYPH[task.status] ?? "○"))
