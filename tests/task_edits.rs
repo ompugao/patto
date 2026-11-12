@@ -5,7 +5,7 @@ use patto::parser::{self, TaskStatus};
 use patto::task::{TaskSnapshot, TaskTransition};
 use patto::task_edits::{
     apply_edits, collect_task_snapshots, detect_task_transitions, generate_edits_for_transition,
-    rewrite_task_token, TextEdit,
+    rewrite_task_token, set_task_status_in_text, TextEdit,
 };
 
 fn snapshots(text: &str) -> HashMap<usize, TaskSnapshot> {
@@ -216,4 +216,27 @@ fn transition_accessors_point_at_the_new_and_old_rows() {
     assert_eq!(transition.row(), 1);
     assert_eq!(transition.new_snapshot().status, TaskStatus::Done);
     assert_eq!(transition.old_snapshot().status, TaskStatus::Todo);
+}
+
+#[test]
+fn setting_a_task_done_stamps_completed_at() {
+    let text = "intro\nwrite report {@task status=todo due=2026-11-20}\n";
+
+    let updated =
+        set_task_status_in_text(text, 1, TaskStatus::Done, at("2026-11-12T09:30")).unwrap();
+
+    assert_eq!(
+        updated,
+        "intro\nwrite report {@task status=done due=2026-11-20 completed_at=2026-11-12T09:30}\n"
+    );
+}
+
+#[test]
+fn setting_a_status_on_a_line_without_a_task_changes_nothing() {
+    let text = "just a note\n";
+
+    assert_eq!(
+        set_task_status_in_text(text, 0, TaskStatus::Done, at("2026-11-12T09:30")),
+        None
+    );
 }
