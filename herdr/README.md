@@ -48,14 +48,23 @@ Tasks/Links, `d` changes the done range, `c` captures, `p` opens the preview, `r
 Global keys go in `~/.config/herdr-app/keys.json`, for example:
 
 ```json
-"ctrl-alt-t": "patto.tasks",
-"ctrl-alt-l": "patto.links",
-"ctrl-alt-f": "patto.folders",
-"ctrl-alt-c": "patto.capture",
-"ctrl-alt-p": "patto.preview"
+"global": {
+  "ctrl-alt-t": "patto.tasks",
+  "ctrl-alt-l": "patto.links",
+  "ctrl-alt-f": "patto.folders",
+  "ctrl-alt-c": "patto.capture",
+  "ctrl-alt-v": "patto.preview"
+}
 ```
 
 These reach the panel only while it is shown.
+
+To show or hide the panel, bind `layout.toggle` to the panel's block. Herdr gives the block its own id in each
+layout, so `install.sh` prints the exact lines, such as:
+
+```json
+"layout:main": { "ctrl-alt-p": "layout.toggle:b07404ab699265142911df87f10b74a13" }
+```
 
 ## patto-query
 
