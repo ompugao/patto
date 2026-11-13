@@ -97,6 +97,7 @@ check("launch.command ignores non-table extras", launch.command("bin", {}, {}, "
 check("launch.browser_command ends with the url", launch.browser_command("http://localhost:1")[#launch.browser_command("http://localhost:1")], "http://localhost:1")
 
 local images = require("patto.images")
+check("images.hover exists for terminals without unicode placeholders", type(images.hover), "function")
 local function srcs(line)
   return vim.tbl_map(function(m) return m.src end, images.parse_line(line))
 end
