@@ -17,11 +17,12 @@ import 'note_find.dart';
 import 'note_plain_text.dart';
 import 'note_providers.dart';
 import 'open_embed.dart';
-import 'selection_range.dart';
+import 'viewer_selection.dart';
 import 'widgets/block_widget.dart';
 import 'widgets/find_bar.dart';
 import 'widgets/joined_selection.dart';
 import 'widgets/note_footer.dart';
+import 'widgets/selection_bar.dart';
 import 'widgets/spans_text.dart';
 
 class NoteViewScreen extends ConsumerStatefulWidget {
@@ -72,16 +73,9 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
   List<String> _sourceLines = const [];
   RenderedNote? _sourceFor;
 
-  /// Selected text per block, kept for blocks that scroll out of the list
-  /// so a copy still includes them. See [selectedRange].
-  final _selectedText = <int, String>{};
-  int? _latestSelected;
+  final _selectionArea = GlobalKey<SelectionAreaState>();
+  final _selection = ViewerSelection();
   RenderedNote? _selectionFor;
-
-  /// Set by the toolbar's Select all. Flutter selects only the blocks the
-  /// list has built, so the screen remembers that the whole note was meant.
-  bool _allSelected = false;
-  bool _selecting = false;
 
   String get _title => rust.relPathToNoteName(relPath: widget.relPath);
 
@@ -261,30 +255,29 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     EditorScreen.open(context, widget.relPath, row: row);
   }
 
-  void _onBlockSelection(int index, String? text) {
-    // A block re-selected after scrolling back reports the same text; any
-    // other change means a handle moved or the selection was cleared.
-    if (_allSelected && _selectedText[index] != text) _allSelected = false;
-    if (text == null) {
-      _selectedText.remove(index);
-    } else {
-      _selectedText[index] = text;
-      _latestSelected = index;
-    }
+  (int, int)? _selectedRange(RenderedNote note) =>
+      _selection.range(note.blocks.length, (i) => blockHasText(note.blocks[i]));
+
+  /// Runs [action] on the selection, then clears it. The selection is read
+  /// first: clearing empties it for every block still in the list.
+  void _onSelection(
+    RenderedNote note,
+    void Function(Map<int, String>? texts, (int, int) range) action,
+  ) {
+    final range = _selectedRange(note);
+    final texts = _selection.texts;
+    _clearSelection();
+    if (range != null) action(texts, range);
   }
 
-  void _onBlockMounted(int index) {
-    if (!_allSelected) _selectedText.remove(index);
+  void _clearSelection() {
+    final region = _selectionArea.currentState?.selectableRegion;
+    region
+      ?..hideToolbar()
+      ..clearSelection();
+    // Flutter reports no change when nothing selected is in the list.
+    if (_selection.active) setState(_selection.clear);
   }
-
-  (int, int)? _selectedRange(RenderedNote note) => _allSelected
-      ? (0, note.blocks.length - 1)
-      : selectedRange(
-          _selectedText,
-          _latestSelected,
-          note.blocks.length,
-          (i) => blockHasText(note.blocks[i]),
-        );
 
   /// [texts] is null when the whole note is selected.
   Future<void> _copySelection(
@@ -348,70 +341,29 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       );
     }
 
-    // Read the selection before clearing it: clearing empties
-    // [_selectedText] for every block still in the list.
-    void run(void Function(Map<int, String>? texts, (int, int) range) action) {
-      final range = note.blocks.isEmpty ? null : _selectedRange(note);
-      final texts = _allSelected ? null : Map.of(_selectedText);
-      region.hideToolbar();
-      region.clearSelection();
-      if (range != null) action(texts, range);
-    }
-
-    final copyAt = system.indexWhere(
-      (item) => item.type == ContextMenuButtonType.copy,
-    );
-    // Right after Copy: the system's Share, Select all and process-text
-    // items would otherwise push these into the overflow menu.
-    final lead = copyAt < 0
-        ? const <ContextMenuButtonItem>[]
-        : system.take(copyAt);
-    final rest = [
-      for (final item in system.skip(copyAt + 1))
-        item.type == ContextMenuButtonType.selectAll
-            ? item.copyWith(
-                onPressed: () {
-                  region.selectAll(SelectionChangedCause.toolbar);
-                  // After the call: it clears the selection first, which
-                  // would reset the flag.
-                  _allSelected = true;
-                },
-              )
-            : item,
-    ];
-
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: _menuAnchors(region),
       buttonItems: [
-        ...lead,
-        // Replaces the system Copy, which joins the blocks with nothing in
-        // between and only sees the blocks still in the list.
-        ContextMenuButtonItem(
-          type: ContextMenuButtonType.copy,
-          onPressed: () =>
-              run((texts, range) => _copySelection(note, texts, range)),
-        ),
-        ContextMenuButtonItem(
-          label: 'Edit here',
-          onPressed: () => run(
-            (_, range) => EditorScreen.open(
-              context,
-              widget.relPath,
-              row: note.blocks[range.$1].row,
+        for (final item in system)
+          switch (item.type) {
+            // The system Copy joins the blocks with nothing in between and
+            // only sees the blocks still in the list.
+            ContextMenuButtonType.copy => item.copyWith(
+              onPressed: () => _onSelection(
+                note,
+                (texts, range) => _copySelection(note, texts, range),
+              ),
             ),
-          ),
-        ),
-        ContextMenuButtonItem(
-          label: 'Copy as Markdown',
-          onPressed: () =>
-              run((_, range) => _copySource(note, range, markdown: true)),
-        ),
-        ContextMenuButtonItem(
-          label: 'Copy source',
-          onPressed: () =>
-              run((_, range) => _copySource(note, range, markdown: false)),
-        ),
-        ...rest,
+            ContextMenuButtonType.selectAll => item.copyWith(
+              onPressed: () {
+                region.selectAll(SelectionChangedCause.toolbar);
+                // After the call: it clears the selection first, which
+                // would reset the flag.
+                _selection.selectAll();
+              },
+            ),
+            _ => item,
+          },
       ],
     );
   }
@@ -494,9 +446,7 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
     _applyInitialJump(data);
     if (!identical(_selectionFor, data)) {
       _selectionFor = data;
-      _selectedText.clear();
-      _latestSelected = null;
-      _allSelected = false;
+      _selection.clear();
     }
     if (_finding && _find.term.isNotEmpty && !identical(_sourceFor, data)) {
       // The note was edited or synced; the old matches point at stale
@@ -513,20 +463,30 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
       onEmbed: (embed) => openEmbed(context, embed, root, openUrl: _openUrl),
     );
 
-    return SelectionArea(
+    final selecting = _selection.active;
+    final list = SelectionArea(
+      key: _selectionArea,
       contextMenuBuilder: _selectionMenu,
       onSelectionChanged: (content) {
-        if ((content != null) != _selecting) {
-          setState(() => _selecting = content != null);
-        }
+        final was = _selection.active;
+        // A tap collapses the selection to empty text rather than
+        // clearing it.
+        _selection.regionChanged(
+          hasText: content?.plainText.isNotEmpty ?? false,
+        );
+        if (_selection.active != was) setState(() {});
       },
       // Flutter scrolls a selection only once the dragged handle's text point
       // leaves the list, and that point sits well above the finger. With the
-      // list reaching the screen bottom it never leaves, so a selection gets
-      // a strip below the list to drag into.
+      // list reaching the screen bottom it never leaves, so the selection
+      // bar's strip below the list doubles as the place to drag into.
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.only(bottom: _selecting ? 64 : 0),
+        padding: EdgeInsets.only(
+          bottom: selecting
+              ? SelectionBar.height + MediaQuery.paddingOf(context).bottom
+              : 0,
+        ),
         child: SuperListView.builder(
           listController: _listController,
           controller: _scrollController,
@@ -540,8 +500,8 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
             return RepaintBoundary(
               key: ValueKey(i),
               child: JoinedSelection(
-                onChanged: (text) => _onBlockSelection(i, text),
-                onMounted: () => _onBlockMounted(i),
+                onChanged: (text) => _selection.blockChanged(i, text),
+                onMounted: () => _selection.blockMounted(i),
                 child: BlockWidget(
                   block: data.blocks[i],
                   actions: actions,
@@ -562,6 +522,41 @@ class _NoteViewScreenState extends ConsumerState<NoteViewScreen> {
           },
         ),
       ),
+    );
+
+    return Stack(
+      children: [
+        list,
+        if (selecting)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SelectionBar(
+              onCopy: () => _onSelection(
+                data,
+                (texts, range) => _copySelection(data, texts, range),
+              ),
+              onCopyMarkdown: () => _onSelection(
+                data,
+                (_, range) => _copySource(data, range, markdown: true),
+              ),
+              onCopySource: () => _onSelection(
+                data,
+                (_, range) => _copySource(data, range, markdown: false),
+              ),
+              onEdit: () => _onSelection(
+                data,
+                (_, range) => EditorScreen.open(
+                  context,
+                  widget.relPath,
+                  row: data.blocks[range.$1].row,
+                ),
+              ),
+              onClose: _clearSelection,
+            ),
+          ),
+      ],
     );
   }
 }
