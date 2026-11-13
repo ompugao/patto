@@ -622,6 +622,50 @@ local function at_cursor(buf)
   end
 end
 
+function M.hover(buf)
+  if hover and (hover.buf ~= vim.api.nvim_get_current_buf() or vim.fn.mode() ~= "n") then
+    return hover_close()
+  end
+  if hover and not hover.win:valid() then
+    hover_close()
+  end
+  if vim.api.nvim_get_current_buf() ~= buf then
+    return
+  end
+  local src = at_cursor(buf)
+  if not src then
+    return hover_close()
+  end
+  if hover and hover.img.img.src == src then
+    return
+  end
+  hover_close()
+
+  local o = options()
+  local win = Snacks.win(Snacks.win.resolve(Snacks.image.config.doc, "snacks_image", { show = false, enter = false }))
+  win:open_buf()
+  local shown = false
+  local placement = Snacks.image.placement.new(
+    win.buf,
+    src,
+    Snacks.config.merge({}, Snacks.image.config.doc, {
+      inline = false,
+      max_width = o.max_width,
+      max_height = o.max_height,
+      on_update_pre = function(p)
+        if shown or not hover or hover.img ~= p then
+          return
+        end
+        shown = true
+        local loc = p:state().loc
+        win.opts.width, win.opts.height = loc.width, loc.height
+        win:show()
+      end,
+    })
+  )
+  hover = { buf = buf, win = win, img = placement }
+end
+
 local function attach_hover(buf)
   local group = vim.api.nvim_create_augroup(augroup_name(buf), { clear = true })
   vim.api.nvim_create_autocmd({ "CursorMoved", "ModeChanged", "BufLeave" }, {
