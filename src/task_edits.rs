@@ -64,6 +64,31 @@ pub fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
     lines.join("\n")
 }
 
+/// `text` with the task on `row` set to `status`, stamped the way the LSP
+/// stamps a save; `None` when `row` holds no task.
+pub fn set_task_status_in_text(
+    text: &str,
+    row: usize,
+    status: TaskStatus,
+    now: NaiveDateTime,
+) -> Option<String> {
+    let ast = crate::parser::parse_text(text).ast;
+    let old = collect_task_snapshots(&ast).remove(&row)?;
+    let mut new = old.clone();
+    new.status = status.clone();
+    new.status_is_canonical = true;
+
+    let transitions = detect_task_transitions(
+        &HashMap::from([(row, new.clone())]),
+        &HashMap::from([(row, old)]),
+    );
+    let mut edits = rewrite_task_token(&new, &[("status", status.keyword().to_string())]);
+    if let Some(transition) = transitions.first() {
+        edits = generate_edits_for_transition(transition, now);
+    }
+    Some(apply_edits(text, &edits))
+}
+
 /// Visit every node that carries a `Property::Task`, depth first.
 pub fn walk_task_lines(node: &AstNode, f: &mut impl FnMut(&AstNode, &Property)) {
     let task = node
