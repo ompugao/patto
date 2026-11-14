@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, shared } from "herdr";
-import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, shortRootLabel, machineOf, place, query, renderMarkdown, openInNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, shortRootLabel, machineOf, place, query, renderMarkdown, openInNvim, openInMachineNvim, basename } from "./lib.js";
 import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
 import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
@@ -158,11 +158,12 @@ export default class Patto extends View {
   }
 
   openTask(task) {
-    openInNvim(this.where, task.file, task.line);
+    openInMachineNvim(task.machine, task.file, task.line, task.root);
   }
 
   openTarget(target) {
-    openInNvim(this.where, target.file, target.line);
+    const machine = target?.machine ?? machineOf(this.where);
+    openInMachineNvim(machine, target.file, target.line);
   }
 
   setStatus(task, status, cx) {
@@ -224,9 +225,13 @@ export default class Patto extends View {
   }
 
   renderPreview(t) {
+    const machine = machineOf(this.where);
+    const title = this.file
+      ? (machine ? `${basename(this.file)} (${machine})` : basename(this.file))
+      : "patto preview";
     return v_flex().id("patto-preview").size_full().bg(t.background).text_color(t.foreground)
       .child(div().px(12).py(6).text_size(12).text_color(t.muted).border_b_1().border_color(t.border)
-        .child(this.file ? basename(this.file) : "patto preview"))
+        .child(title))
       .child(div().id("patto-preview-body").flex_1().min_h(0).p(12).overflow_y_scrollbar()
         .child(this.error ? div().text_color(t.blocked).child(this.error)
           : this.file ? TextView.markdown("patto-md", this.markdown)
@@ -260,8 +265,11 @@ export default class Patto extends View {
         .child(action("capture", "+", () => this.capture()))
         .child(action("preview", "Preview", () => this.openPreview()))
         .child(action("folders", "⚙", (_e, cx) => { this.tab = this.tab === "folders" ? "tasks" : "folders"; cx.notify(); })))
-      .when(this.tab === "links" && Boolean(this.file), (el) => el.child(
-        div().px(10).pt(6).text_size(12).font_semibold().truncate().child(basename(this.file))))
+      .when(this.tab === "links" && Boolean(this.file), (el) => {
+        const machine = machineOf(this.where);
+        const label = machine ? `${basename(this.file)} (${machine})` : basename(this.file);
+        return el.child(div().px(10).pt(6).text_size(12).font_semibold().truncate().child(label));
+      })
       .when(Boolean(this.error), (el) => el.child(div().px(10).py(6).text_size(12).text_color(t.blocked).child(this.error)))
       .child(div().id("patto-list").flex_1().min_h(0).py(4).px(4).overflow_y_scrollbar()
         .child(this.tab === "folders" ? renderFolders(this, t)

@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, notify, closeOverlay } from "herdr";
-import { config, configuredRoots, current, tabRoot, resolveRoot, place, query, openInNvim, basename, shortRootLabel } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, resolveRoot, place, query, openInNvim, openInMachineNvim, basename, shortRootLabel } from "./lib.js";
 
 const DUE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 
@@ -53,7 +53,7 @@ export class Capture {
         const out = await query(cfg, [...args, "--", text], root.machine);
         this.close();
         notify({ title: `Added to ${basename(out.file)}`, body: out.text, level: "success", timeout: 4000 });
-        if (this.openAfter) openInNvim(this.where, out.file, out.line);
+        if (this.openAfter) openInMachineNvim(root.machine, out.file, out.line, root.full);
       } catch (e) {
         this.error = String(e.message ?? e);
         cx.notify();

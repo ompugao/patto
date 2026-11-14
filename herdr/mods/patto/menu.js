@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, props, notify, closeOverlay, shared, setShared } from "herdr";
-import { config, query, openInNvim } from "./lib.js";
+import { config, query, openInMachineNvim } from "./lib.js";
 import { GLYPH } from "./tasks.js";
 
 const STATUSES = ["todo", "doing", "paused", "done", "archived"];
@@ -61,7 +61,7 @@ export class TaskMenu {
       .child(div().h(1).my(3).bg(t.border))
       .child(item("menu-open", "↗", "Open in nvim", false, () => {
         this.close();
-        openInNvim(this.where, this.task.file, this.task.line);
+        openInMachineNvim(this.task.machine, this.task.file, this.task.line, this.task.root);
       }));
   }
 }

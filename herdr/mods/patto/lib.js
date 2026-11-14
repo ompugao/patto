@@ -1,4 +1,4 @@
-import { appHome, exec, focused, home, readTextFile, writeTextFile, run, spaces } from "herdr";
+import { appHome, exec, focused, home, notify, readTextFile, writeTextFile, run, spaces } from "herdr";
 
 // Optional settings: {"roots": ["~/notes", {"path": "~/notes", "machine": "work"}], "inbox": "inbox.pn",
 // "query_bin": "patto-query", "renderer_bin": "patto-markdown-renderer"}.
@@ -163,4 +163,63 @@ export async function openInNvim(where, file, line = 1) {
     if (r?.code === 0) return;
   }
   run("terminal.open", { argv: ["nvim", `+${line}`, file], place: "right" });
+}
+
+// Finds an existing space on targetMachine (null: this computer).
+// If preferFolder is given, prefers a space whose folder matches or is within preferFolder.
+export function findSpaceForMachine(targetMachine, preferFolder = null) {
+  const want = targetMachine ?? null;
+  const list = spaces().filter((s) => (s.machine ?? null) === want);
+  if (!list.length) return null;
+  if (preferFolder) {
+    const match = list.find((s) => s.folder && (s.folder === preferFolder || preferFolder.startsWith(s.folder)));
+    if (match) return match;
+  }
+  return list.find((s) => s.active) ?? list[0];
+}
+
+// Opens file:line in nvim on targetMachine (null: this computer), routing to an
+// appropriate space on that machine or creating one.
+export async function openInMachineNvim(targetMachine, file, line = 1, preferFolder = null) {
+  const wantMachine = targetMachine ?? null;
+  const currentSpace = spaces().find((s) => s.active);
+  const curMachine = currentSpace?.machine ?? null;
+
+  if (curMachine === wantMachine && currentSpace) {
+    const f = place();
+    if (wantMachine === null) {
+      return openInNvim(f, file, line);
+    }
+    // Remote machine in the current space: open a tab with nvim
+    run("terminal.open", { argv: ["nvim", `+${line}`, file], place: "right" });
+    return;
+  }
+
+  const targetSpace = findSpaceForMachine(wantMachine, preferFolder);
+  if (targetSpace) {
+    run("space.select", { id: targetSpace.id });
+    if (wantMachine === null) {
+      const tab = targetSpace.tabs?.find((t) => t.active) ?? targetSpace.tabs?.[0];
+      const where = tab ? { space: targetSpace.id, tab: tab.id, terminal: null, cwd: null } : null;
+      await openInNvim(where, file, line);
+    } else {
+      run("tab.new", { space: targetSpace.id, argv: ["nvim", `+${line}`, file] });
+    }
+    notify({
+      title: "patto",
+      body: `Opened on ${wantMachine ?? "this computer"} (${targetSpace.name})`,
+      timeout: 3000,
+    });
+  } else {
+    run("space.new", {
+      machine: wantMachine ?? "",
+      folder: preferFolder ?? "",
+      argv: ["nvim", `+${line}`, file],
+    });
+    notify({
+      title: "patto",
+      body: `Created space on ${wantMachine ?? "this computer"}`,
+      timeout: 3000,
+    });
+  }
 }

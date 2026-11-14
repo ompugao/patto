@@ -58,6 +58,7 @@ export function renderTasks(view, rows, t) {
   if (!rows.length) {
     return div().p(12).text_color(t.dim).child(view.data ? "No open tasks." : "Loading…");
   }
+  const hasRemoteRoots = view.roots?.some((r) => Boolean(r.machine));
   let index = -1;
   return v_flex().gap(1).children(rows.map((row, i) => {
     if (row.kind === "head") {
@@ -69,6 +70,7 @@ export function renderTasks(view, rows, t) {
     const task = row.task;
     const selected = at === view.at;
     const resolved = task.status === "done" || task.status === "archived";
+    const machineTag = task.machine ? `[${task.machine}]` : (hasRemoteRoots ? "[local]" : null);
     return h_flex().id(`t-${i}`).px(10).py(3).gap(8).items_center().rounded(5).cursor_pointer()
       .when(selected, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
@@ -80,7 +82,7 @@ export function renderTasks(view, rows, t) {
       .child(v_flex().flex_1().min_w(0)
         .child(div().truncate().text_color(resolved ? t.dim : t.foreground).child(task.text || "(empty)"))
         .child(div().truncate().text_size(11).text_color(t.dim)
-          .child([task.due, view.roots.length > 1 ? basename(task.root) : null, `${basename(task.file)}:${task.line}`]
+          .child([task.due, machineTag, view.roots.length > 1 ? basename(task.root) : null, `${basename(task.file)}:${task.line}`]
             .filter(Boolean).join("  ·  "))));
   }));
 }
