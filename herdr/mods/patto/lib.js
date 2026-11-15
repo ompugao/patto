@@ -109,13 +109,31 @@ export async function current(where) {
   }
 }
 
-// The tab's own notes folder, on the tab's machine, for when no note folders are configured.
+// Git's index answers at once even in a large repository; outside git the
+// search stays shallow, as notes folders are.
+export async function hasNotes(root, machine = null) {
+  if (!root) return false;
+  const git = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", ":/*.pn"], { cwd: root, on: machine })
+    .catch(() => null);
+  if (git?.code === 0) return Boolean(git.stdout.trim());
+  const found = await exec("find", [root, "-maxdepth", "3", "-name", "*.pn", "-print", "-quit"], { on: machine }).catch(() => null);
+  return Boolean(found?.stdout?.trim());
+}
+
+// The tab's own notes folder, for when no note folders are configured.
+// Only repos or folders that contain .pn files are used as note roots.
 export async function tabRoot(where, now) {
   const machine = machineOf(where);
-  if (now?.root) return { path: now.root, machine };
-  if (!where?.cwd) return null;
-  const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: where.cwd, on: machine }).catch(() => null);
-  return { path: r?.code === 0 ? r.stdout.trim() : where.cwd, machine };
+  let root = null;
+  if (now?.root) {
+    root = now.root;
+  } else if (where?.cwd) {
+    const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: where.cwd, on: machine }).catch(() => null);
+    root = r?.code === 0 ? r.stdout.trim() : where.cwd;
+  }
+  if (!root) return null;
+  if (!(await hasNotes(root, machine))) return null;
+  return { path: root, machine };
 }
 
 // The app may start without the login shell's PATH, so cargo's and the

@@ -22,7 +22,7 @@ export function linkRows(data) {
 }
 
 export function renderLinks(view, rows, t) {
-  if (!view.file) return div().p(12).text_color(t.dim).child("Open a note in nvim to see its links.");
+  if (!view.file || !view.links) return div().p(12).text_color(t.dim).child("Open a note in nvim to see its links.");
   let index = -1;
   return v_flex().gap(1).children(rows.map((row, i) => {
     if (row.kind === "head") {

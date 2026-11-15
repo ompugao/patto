@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { theme, props, notify, nextCommand, openOverlay, run, watchFolder, shared } from "herdr";
-import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, shortRootLabel, machineOf, place, query, renderMarkdown, openInNvim, openInMachineNvim, basename } from "./lib.js";
+import { config, configuredRoots, current, tabRoot, rootOf, resolveRoot, rootLabel, shortRootLabel, machineOf, place, query, renderMarkdown, openInNvim, openInMachineNvim, basename, hasNotes } from "./lib.js";
 import { taskRows, renderTasks, nextStatus, mergeTasks } from "./tasks.js";
 import { renderFolders } from "./folders.js";
 import { linkRows, renderLinks } from "./links.js";
@@ -81,8 +81,9 @@ export default class Patto extends View {
   reloadCurrent(cx) {
     cx.spawn(async (cx) => {
       const now = await current(this.where);
-      if (now?.file && now.file !== this.file && now.file.endsWith(".pn")) {
-        this.file = now.file;
+      const nextFile = now?.file?.endsWith(".pn") ? now.file : null;
+      if (nextFile !== this.file) {
+        this.file = nextFile;
         await this.reloadFile();
         cx.notify();
       }
@@ -95,7 +96,7 @@ export default class Patto extends View {
         this.cfg = await config();
         this.configured = configuredRoots(this.cfg);
         const now = await current(this.where);
-        if (now?.file?.endsWith(".pn")) this.file = now.file;
+        this.file = now?.file?.endsWith(".pn") ? now.file : null;
         this.fallback = await tabRoot(this.where, now);
         const errors = [];
         const roots = [];
@@ -130,15 +131,32 @@ export default class Patto extends View {
   }
 
   async reloadFile() {
-    if (!this.file) return;
+    if (!this.file) {
+      this.links = null;
+      this.markdown = "";
+      return;
+    }
     const machine = machineOf(this.where);
-    if (this.preview) {
-      this.markdown = await renderMarkdown(this.cfg, this.file, machine);
-    } else {
-      const fallback = this.fallback && (await resolveRoot(this.fallback));
-      const root = rootOf(this.roots, this.file, machine) ?? (fallback && rootOf([fallback], this.file, machine));
-      const dir = root?.full ?? this.file.slice(0, this.file.lastIndexOf("/"));
-      this.links = await query(this.cfg, ["links", "--root", dir, this.file], machine);
+    const fallback = this.fallback && (await resolveRoot(this.fallback));
+    const root = rootOf(this.roots, this.file, machine) ?? (fallback && rootOf([fallback], this.file, machine));
+    if (!root) {
+      this.links = null;
+      this.markdown = "";
+      return;
+    }
+    try {
+      if (this.preview) {
+        this.markdown = await renderMarkdown(this.cfg, this.file, root.machine);
+      } else {
+        this.links = await query(this.cfg, ["links", "--root", root.full, this.file], root.machine);
+      }
+    } catch (e) {
+      if (this.preview) {
+        this.markdown = "";
+      } else {
+        this.links = null;
+      }
+      this.error = String(e.message ?? e);
     }
   }
 
@@ -226,7 +244,7 @@ export default class Patto extends View {
 
   renderPreview(t) {
     const machine = machineOf(this.where);
-    const title = this.file
+    const title = this.file && this.markdown
       ? (machine ? `${basename(this.file)} (${machine})` : basename(this.file))
       : "patto preview";
     return v_flex().id("patto-preview").size_full().bg(t.background).text_color(t.foreground)
@@ -234,7 +252,7 @@ export default class Patto extends View {
         .child(title))
       .child(div().id("patto-preview-body").flex_1().min_h(0).p(12).overflow_y_scrollbar()
         .child(this.error ? div().text_color(t.blocked).child(this.error)
-          : this.file ? TextView.markdown("patto-md", this.markdown)
+          : this.file && this.markdown ? TextView.markdown("patto-md", this.markdown)
           : div().text_color(t.dim).child("Open a note in nvim to preview it.")));
   }
 
@@ -265,7 +283,7 @@ export default class Patto extends View {
         .child(action("capture", "+", () => this.capture()))
         .child(action("preview", "Preview", () => this.openPreview()))
         .child(action("folders", "⚙", (_e, cx) => { this.tab = this.tab === "folders" ? "tasks" : "folders"; cx.notify(); })))
-      .when(this.tab === "links" && Boolean(this.file), (el) => {
+      .when(this.tab === "links" && Boolean(this.file) && Boolean(this.links), (el) => {
         const machine = machineOf(this.where);
         const label = machine ? `${basename(this.file)} (${machine})` : basename(this.file);
         return el.child(div().px(10).pt(6).text_size(12).font_semibold().truncate().child(label));
