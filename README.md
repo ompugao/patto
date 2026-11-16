@@ -122,6 +122,13 @@ Plug 'ompugao/patto', {'for': 'patto'}
 Install from [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=ompugao.patto-language-server)
 </details>
 
+<details>
+<summary><b>Herdr app</b></summary>
+
+A side panel with your tasks and the current note's links, a quick capture dialog and a preview pane, next to nvim.
+Run `herdr/install.sh`. See [herdr/README.md](./herdr/README.md).
+</details>
+
 ### Usage
 
 1. Create a `.pn` file

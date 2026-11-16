@@ -111,6 +111,10 @@ name = "patto-markdown-importer"
 required-features = ["cli"]
 
 [[bin]]
+name = "patto-query"
+required-features = ["repository", "cli"]
+
+[[bin]]
 name = "patto-preview-tui"
 required-features = ["preview-tui"]
 

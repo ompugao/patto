@@ -15,6 +15,16 @@ impl Repository {
         });
     }
 
+    /// Read every note into the graph before returning, for one-shot callers
+    /// such as `patto-query` that have no use for progress messages.
+    pub fn load_all(&self) {
+        for file_path in collect_pn_files(&self.root_dir) {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                self.add_file_to_graph(&file_path, &content);
+            }
+        }
+    }
+
     async fn build_initial_graph(&self) {
         let files = collect_pn_files(&self.root_dir);
         let total = files.len();
